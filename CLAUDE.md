@@ -1,11 +1,21 @@
-# Project: [Your Project Name]
+# Project: MechInterp Studio (miStudio)
 
 ## Current Status
-- **Phase:** Project Setup
-- **Last Session:** [Date] - Initial project setup and CLAUDE.md creation
-- **Next Steps:** Create Project PRD using @0xcc/instruct/001_create-project-prd.md
-- **Active Document:** None (starting workflow)
-- **Current Feature:** N/A (project foundation phase)
+- **Phase:** Feature Development - Feature PRDs
+- **Last Session:** 2025-10-05 - ADR created, CLAUDE.md updated with Project Standards
+- **Next Steps:** Begin Feature PRD creation starting with Dataset Management (001_FPRD|Dataset_Management.md)
+- **Active Document:** 0xcc/adrs/000_PADR|miStudio.md (Completed)
+- **Current Feature:** N/A (transitioning to feature development phase)
+
+## PRIMARY UI/UX REFERENCE
+**CRITICAL:** The file `0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx` is the PRIMARY and AUTHORITATIVE specification for:
+- UI/UX design patterns and visual style
+- Component layouts and interactions
+- User workflows and navigation
+- API contracts and data structures
+- Feature completeness and behavior
+
+All implementation MUST match the Mock UI specification exactly. This is the definitive reference for how the application should look and behave.
 
 ## Quick Resume Commands
 ```bash
@@ -19,9 +29,10 @@ ls -la 0xcc/*/
 # Research integration (requires ref MCP server)
 # Format: "Use /mcp ref search '[context-specific search term]'"
 
-# Load project context (after Project PRD exists)
-@0xcc/prds/000_PPRD|[project-name].md
-@0xcc/adrs/000_PADR|[project-name].md
+# Load project context
+@0xcc/prds/000_PPRD|miStudio.md
+@0xcc/adrs/000_PADR|miStudio.md
+@0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx  # PRIMARY UI REFERENCE
 
 # Load current work area based on phase
 @0xcc/prds/      # For PRD work
@@ -40,9 +51,108 @@ ls -la 0xcc/*/
 ```
 
 ## Project Standards
-*[This section will be populated from ADR - Technology Stack, Development Standards, Architecture Principles, etc.]*
 
-**NOTE:** After creating the ADR using @0xcc/instruct/002_create-adr.md, copy the generated "Project Standards" section here to replace this placeholder.
+### Technology Stack
+
+**Backend:**
+- Python 3.10+, FastAPI, PostgreSQL 14+, Redis 7+, Celery
+- PyTorch 2.0+, HuggingFace (transformers, datasets), bitsandbytes
+- TensorRT for Jetson optimization
+
+**Frontend:**
+- React 18+ with TypeScript, Vite, Zustand
+- Tailwind CSS (slate dark theme per Mock UI)
+- Lucide React icons, D3.js + Recharts
+- Socket.IO for real-time updates
+
+**Infrastructure:**
+- Docker Compose for development (nginx, postgres, redis, backend, frontend, celery)
+- Nginx reverse proxy (port 80, future HTTPS on 443)
+- Base URL: http://mistudio.mcslab.io
+- systemd for production (Jetson)
+- Local filesystem storage (/data/)
+
+### Coding Standards
+
+**Python:**
+- Formatter: Black (line length 100)
+- Linter: Ruff
+- Type Checker: MyPy (strict)
+- Docstrings: Google style
+
+**TypeScript:**
+- Formatter: Prettier
+- Linter: ESLint (Airbnb)
+- All components strictly typed
+
+### Naming Conventions
+
+**Python:** `snake_case` functions, `PascalCase` classes, `UPPER_SNAKE_CASE` constants
+**TypeScript:** `camelCase` functions, `PascalCase` components/types, `UPPER_SNAKE_CASE` constants
+
+### Testing
+
+**Backend:** pytest (>80% coverage target)
+**Frontend:** Vitest + React Testing Library
+**E2E:** Playwright for critical paths
+
+### Git Workflow
+
+**Branches:** `main` (production), `develop` (integration), `feature/*`, `bugfix/*`
+**Commits:** Conventional commits (`feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`)
+**Review:** All code reviewed, tests pass, no coverage decrease
+
+### File Organization
+
+**Backend:** `app/api/`, `app/services/`, `app/ml/`, `app/db/`, `app/workers/`
+**Frontend:** `src/components/`, `src/stores/`, `src/services/`, `src/hooks/`, `src/types/`
+
+### Error Handling
+
+- Backend: FastAPI HTTPException with proper status codes
+- Frontend: Try-catch with axios error handling
+- Structured error responses with `error.code`, `error.message`, `error.details`
+
+### API Design
+
+- RESTful conventions (GET, POST, PUT, PATCH, DELETE)
+- Response format: `{ data, meta }` or `{ error }`
+- Status codes: 200, 201, 202, 400, 404, 409, 429, 500, 503
+- Pagination: `?page=1&limit=50`
+- WebSocket: Socket.IO with rooms per training job
+
+### UI/UX Standards
+
+**PRIMARY REFERENCE:** `0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx`
+
+- Dark theme: slate color palette (bg-slate-950, 900, 800)
+- Emerald accents: buttons, success states
+- Tailwind utility classes matching Mock UI exactly
+- Functional components with TypeScript
+- Zustand for global state, local state for UI
+
+### Database Schema
+
+- PostgreSQL with JSONB for flexible metadata
+- Time-series metrics in dedicated tables with indexes
+- Partitioned tables for large data (feature_activations)
+- Foreign keys with CASCADE for data integrity
+
+### Edge Optimization
+
+- Mixed precision training (FP16)
+- Gradient accumulation for large effective batches
+- Memory-mapped files for datasets/activations
+- TensorRT optimization for Jetson inference
+- INT8/INT4 quantization via bitsandbytes
+
+### Deployment
+
+**Development:** Docker Compose (nginx, postgres, redis, backend, frontend, celery)
+**Production:** systemd service on Jetson with Docker Compose + nginx reverse proxy
+**Base URL:** http://mistudio.mcslab.io (port 80)
+**Future HTTPS:** Port 443 with SSL certificate
+**Alternative:** Native installation (Nginx + PostgreSQL + Redis + Python + Node.js)
 
 ## AI Dev Tasks Framework Workflow
 
@@ -71,8 +181,8 @@ ls -la 0xcc/*/
 ## Document Inventory
 
 ### Project Level Documents
-- ❌ 0xcc/prds/000_PPRD|[project-name].md (Project PRD)
-- ❌ 0xcc/adrs/000_PADR|[project-name].md (Architecture Decision Record)
+- ✅ 0xcc/prds/000_PPRD|miStudio.md (Project PRD - Completed 2025-10-05)
+- ✅ 0xcc/adrs/000_PADR|miStudio.md (Architecture Decision Record - Completed 2025-10-05)
 
 ### Feature Documents
 *[Add as features are identified and developed]*
@@ -231,20 +341,44 @@ After each development session, update:
 5. Update task description for future clarity
 
 ## Feature Priority Order
-*[Will be populated from Project PRD]*
+*From Project PRD - Core Features (P0):*
 
-**Placeholder - Update after Project PRD creation:**
-1. [Feature A] (Core/MVP)
-2. [Feature B] (Important)
-3. [Feature C] (Future)
+**MVP Features (Must Have):**
+1. Dataset Management Panel (P0) - HuggingFace integration, local ingestion
+2. Model Management Panel (P0) - Model downloads, quantization, architecture viewer
+3. SAE Training System (P0) - Sparse autoencoder training with real-time monitoring
+4. Feature Discovery & Browser (P0) - Extract and analyze features from trained SAEs
+5. Model Steering Interface (P0) - Feature-based interventions and comparative generation
+
+**Secondary Features (P1):**
+6. Training Templates & Presets - Save/load training configurations
+7. Extraction Templates - Preset activation extraction configs
+8. Steering Presets - Save/load steering configurations
+9. Advanced Visualizations - UMAP, correlation heatmaps
+10. Feature Analysis Tools - Logit lens, ablation studies
+11. Checkpoint Auto-Save - Automatic training checkpoints
+12. Dataset Statistics Dashboard - Detailed dataset metrics
+
+**Future Features (P3):**
+13. Multi-Model Comparison
+14. Export & Reporting
+15. Collaborative Features
+16. Advanced Circuit Analysis
 
 ## Session History Log
 
-### Session 1: [Date] - Project Initialization
-- **Accomplished:** Created project structure, initial CLAUDE.md, began framework setup
-- **Next:** Create Project PRD using @0xcc/instruct/001_create-project-prd.md
-- **Files Created:** CLAUDE.md, 0xcc/ folder structure
-- **Duration:** [X hours]
+### Session 1: 2025-10-05 - Project Foundation
+- **Accomplished:**
+  - Created 0xcc framework directory structure (prds, adrs, tdds, tids, tasks, docs, transcripts, checkpoints, scripts)
+  - Created comprehensive Project PRD (000_PPRD|miStudio.md) based on Mock UI specification
+  - Updated CLAUDE.md with project name, status, and UI reference priority
+  - Established Mock UI as PRIMARY reference for all implementation
+- **Next:** Create Architecture Decision Record using @0xcc/instruct/002_create-adr.md
+- **Files Created:**
+  - 0xcc/prds/000_PPRD|miStudio.md (14,000+ lines)
+  - Updated CLAUDE.md with project context
+- **Duration:** ~2 hours
+- **Key Decision:** Mock-embedded-interp-ui.tsx is the authoritative UI/UX specification
 
 *[Add new sessions as they occur]*
 
@@ -298,13 +432,16 @@ project-root/
 
 ### Emergency Contacts & Resources
 - **Framework Documentation:** @0xcc/instruct/000_README.md
-- **Current Project PRD:** @0xcc/prds/000_PPRD|[project-name].md (after creation)
-- **Tech Standards:** @0xcc/adrs/000_PADR|[project-name].md (after creation)
+- **Current Project PRD:** @0xcc/prds/000_PPRD|miStudio.md
+- **PRIMARY UI REFERENCE:** @0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx
+- **Tech Specification:** @0xcc/project-specs/core/miStudio_Specification.md
+- **Tech Standards:** @0xcc/adrs/000_PADR|miStudio.md (to be created)
 - **Housekeeping Guide:** @0xcc/instruct/008_housekeeping.md
 
 ---
 
-**Framework Version:** 1.1  
-**Last Updated:** [Current Date]  
-**Project Started:** [Start Date]  
+**Framework Version:** 1.1
+**Last Updated:** 2025-10-05
+**Project Started:** 2025-10-05
+**Project:** MechInterp Studio (miStudio)
 **Structure:** 0xcc framework with MCP research integration

@@ -98,16 +98,16 @@
 ### Phase 1: Backend Infrastructure Setup
 
 - [ ] 1.0 Set up backend project structure and core dependencies
-  - [ ] 1.1 Create backend directory structure (src/api, src/models, src/services, src/workers, src/core, src/utils, tests/)
-  - [ ] 1.2 Initialize Python project with pyproject.toml (FastAPI 0.104+, SQLAlchemy 2.0+, Celery 5.3+, Redis 5.0+, datasets 2.14+, transformers 4.35+)
-  - [ ] 1.3 Create backend/.env file with environment variables (DATABASE_URL, REDIS_URL, DATA_DIR=/data, HF_HOME=/data/huggingface_cache, CELERY_BROKER_URL)
-  - [ ] 1.4 Implement backend/src/core/config.py using Pydantic BaseSettings for typed configuration
-  - [ ] 1.5 Create backend/src/core/database.py with async SQLAlchemy engine and AsyncSession factory
-  - [ ] 1.6 Implement backend/src/core/celery_app.py with Redis broker configuration and task discovery
-  - [ ] 1.7 Create backend/src/core/websocket.py with Socket.IO WebSocketManager class (emit_event, broadcast, channel subscriptions)
-  - [ ] 1.8 Set up Alembic for database migrations (alembic init, configure async support in env.py)
-  - [ ] 1.9 Create pytest configuration with async support (pytest-asyncio, pytest-mock) in tests/conftest.py
-  - [ ] 1.10 Initialize Git repository and create .gitignore (exclude .env, __pycache__, .pytest_cache, data/)
+  - [x] 1.1 Create backend directory structure (src/api, src/models, src/services, src/workers, src/core, src/utils, tests/)
+  - [x] 1.2 Initialize Python project with pyproject.toml (FastAPI 0.104+, SQLAlchemy 2.0+, Celery 5.3+, Redis 5.0+, datasets 2.14+, transformers 4.35+)
+  - [x] 1.3 Create backend/.env file with environment variables (DATABASE_URL, REDIS_URL, DATA_DIR=/data, HF_HOME=/data/huggingface_cache, CELERY_BROKER_URL)
+  - [x] 1.4 Implement backend/src/core/config.py using Pydantic BaseSettings for typed configuration
+  - [x] 1.5 Create backend/src/core/database.py with async SQLAlchemy engine and AsyncSession factory
+  - [x] 1.6 Implement backend/src/core/celery_app.py with Redis broker configuration and task discovery
+  - [x] 1.7 Create backend/src/core/websocket.py with Socket.IO WebSocketManager class (emit_event, broadcast, channel subscriptions)
+  - [x] 1.8 Set up Alembic for database migrations (alembic init, configure async support in env.py)
+  - [x] 1.9 Create pytest configuration with async support (pytest-asyncio, pytest-mock) in tests/conftest.py
+  - [x] 1.10 Initialize Git repository and create .gitignore (exclude .env, __pycache__, .pytest_cache, data/)
 
 ### Phase 2: Frontend Infrastructure Setup
 

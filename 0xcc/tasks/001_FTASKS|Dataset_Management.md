@@ -97,7 +97,7 @@
 
 ### Phase 1: Backend Infrastructure Setup
 
-- [ ] 1.0 Set up backend project structure and core dependencies
+- [x] 1.0 Set up backend project structure and core dependencies
   - [x] 1.1 Create backend directory structure (src/api, src/models, src/services, src/workers, src/core, src/utils, tests/)
   - [x] 1.2 Initialize Python project with pyproject.toml (FastAPI 0.104+, SQLAlchemy 2.0+, Celery 5.3+, Redis 5.0+, datasets 2.14+, transformers 4.35+)
   - [x] 1.3 Create backend/.env file with environment variables (DATABASE_URL, REDIS_URL, DATA_DIR=/data, HF_HOME=/data/huggingface_cache, CELERY_BROKER_URL)
@@ -112,16 +112,16 @@
 ### Phase 2: Frontend Infrastructure Setup
 
 - [ ] 2.0 Set up frontend project structure and core dependencies
-  - [ ] 2.1 Create frontend directory structure (src/components/panels, src/components/datasets, src/components/common, src/stores, src/api, src/hooks, src/types, src/utils)
-  - [ ] 2.2 Initialize React + TypeScript project with Vite (vite@5+, react@18+, typescript@5+)
-  - [ ] 2.3 Install core dependencies (zustand@4+, socket.io-client@4+, lucide-react@0.290+, recharts@2.8+, tailwindcss@3.3+)
-  - [ ] 2.4 Configure TypeScript strict mode in tsconfig.json (strict: true, noImplicitAny: true, strictNullChecks: true)
-  - [ ] 2.5 Configure Tailwind CSS with slate dark theme and emerald accents (tailwind.config.js with slate-900 background, emerald-500 primary)
-  - [ ] 2.6 Set up Jest and React Testing Library (jest@29+, @testing-library/react@14+, @testing-library/jest-dom@6+)
-  - [ ] 2.7 Create frontend/src/types/dataset.ts with TypeScript interfaces matching backend schemas (Dataset, DatasetStatus, DatasetSample, DatasetStatistics, DatasetDownloadRequest)
-  - [ ] 2.8 Create frontend/src/api/websocket.ts with Socket.IO client (connect to ws://localhost:8001, reconnection logic)
-  - [ ] 2.9 Create frontend/src/utils/formatters.ts with utility functions (formatFileSize using 1024 divisor, formatDate, formatDateTime)
-  - [ ] 2.10 Set up ESLint and Prettier for code quality (eslint-config-react-app, prettier with 2-space indent)
+  - [x] 2.1 Create frontend directory structure (src/components/panels, src/components/datasets, src/components/common, src/stores, src/api, src/hooks, src/types, src/utils)
+  - [x] 2.2 Initialize React + TypeScript project with Vite (vite@5+, react@18+, typescript@5+)
+  - [x] 2.3 Install core dependencies (zustand@4+, socket.io-client@4+, lucide-react@0.290+, recharts@2.8+, tailwindcss@3.3+)
+  - [x] 2.4 Configure TypeScript strict mode in tsconfig.json (strict: true, noImplicitAny: true, strictNullChecks: true)
+  - [x] 2.5 Configure Tailwind CSS with slate dark theme and emerald accents (tailwind.config.js with slate-900 background, emerald-500 primary)
+  - [x] 2.6 Set up Jest and React Testing Library (jest@29+, @testing-library/react@14+, @testing-library/jest-dom@6+)
+  - [x] 2.7 Create frontend/src/types/dataset.ts with TypeScript interfaces matching backend schemas (Dataset, DatasetStatus, DatasetSample, DatasetStatistics, DatasetDownloadRequest)
+  - [x] 2.8 Create frontend/src/api/websocket.ts with Socket.IO client (connect to ws://localhost:8001, reconnection logic)
+  - [x] 2.9 Create frontend/src/utils/formatters.ts with utility functions (formatFileSize using 1024 divisor, formatDate, formatDateTime)
+  - [x] 2.10 Set up ESLint and Prettier for code quality (eslint-config-react-app, prettier with 2-space indent)
 
 ### Phase 3: Database Schema and Migrations
 

@@ -173,28 +173,83 @@ This feature implements **Core Feature #5: Model Steering** from the Project PRD
 
 ---
 
-### SC-1: Save Steering Configuration as Preset (Priority: P2)
-**As a** researcher with a useful steering configuration
-**I want to** save the configuration as a reusable preset
-**So that** I can quickly apply the same intervention to different prompts
+### US-8: Select Training Job as Feature Source (Priority: P0 - MVP Enhancement)
+**As a** researcher
+**I want to** select which completed training job's features to use for steering
+**So that** I have clear context about the SAE source and can compare different trained SAEs
 
 **Acceptance Criteria:**
-- When I click "Save as Preset", I provide a name and optional description
-- When preset is saved, it includes: Selected features and coefficients, Intervention layer, Generation parameters (temperature, max_tokens)
-- Given presets exist, I can load them via "Load Preset" dropdown
-- When I load a preset, all configuration fields populate automatically
+- When I'm on the Steering panel, I see "Training Job (Source of Features)" dropdown at top of configuration
+- When dropdown opens, I see only completed trainings (status = 'completed') in format: `{encoderType} SAE • {modelName} • {datasetName} • Started {date}`
+- When I select a training job, feature search results filter to features from that training's SAE
+- When no completed trainings exist, I see message: "No completed training jobs available. Train an SAE first."
+- When I save a steering preset, the selected training_id is stored with the preset
+- When I load a steering preset, the correct training job is auto-selected
+- When training job selection changes, previously selected features are cleared (different feature space)
+
+**Example Display Format:**
+- "sparse SAE • TinyLlama-1.1B • OpenWebText-10K • Started 1/15/2025"
+- "skip SAE • Phi-2-2.7B • WikiText-103 • Started 1/18/2025"
+
+**UI Reference:** Mock-embedded-interp-ui.tsx Training Job Selector (lines 4611-4638)
 
 ---
 
-### SC-2: Batch Steering Experiments (Priority: P2)
+### US-9: Save and Reuse Steering Presets (Priority: P0 - MVP Enhancement)
+**As a** researcher with an effective steering configuration
+**I want to** save the configuration as a reusable preset with descriptive name
+**So that** I can quickly apply the same intervention to different prompts and experiments
+
+**Acceptance Criteria:**
+- When I'm on the Steering panel, I see collapsible "Saved Presets" section showing preset count (e.g., "Saved Presets (4)")
+- When I click "Save as Preset", I see form with auto-generated name based on configuration:
+  - Single intervention layer: `steering_{count}features_layer{N}_{HHMM}` (e.g., "steering_3features_layer12_1430")
+  - Multiple intervention layers: `steering_{count}features_layers{min}-{max}_{HHMM}` (e.g., "steering_3features_layers6-12_1430")
+  - Timestamp: HHMM in 24-hour format
+- When I save preset, system stores: training_id (SAE source), selected features array (feature_id + coefficient), intervention_layers array, temperature, name, description, is_favorite flag
+- When presets exist, I see preset cards showing: name, description, training context (encoderType • model • dataset), feature count badge, layer range badge, favorite star, Load/Delete buttons
+- When I click "Load" on preset, all fields populate: training job selector, features + coefficients, intervention layers, temperature
+- When I click star icon on preset, it toggles favorite status and moves to top of list
+- When I click "Delete" on preset, I see confirmation: "Delete steering preset '{name}'? This cannot be undone."
+- When I click "Export Presets", system downloads JSON (included in combined export with training/extraction templates)
+- When I click "Import Presets", I can upload JSON file to restore presets
+- When I load a preset, I can still modify individual settings before generating
+
+**UI Reference:** Mock-embedded-interp-ui.tsx Steering Presets (lines 4277-4445)
+
+---
+
+### US-10: Apply Steering Across Multiple Layers (Priority: P0 - MVP Enhancement)
+**As a** researcher
+**I want to** apply steering interventions across multiple transformer layers simultaneously
+**So that** I can explore cascading effects and more powerful interventions
+
+**Acceptance Criteria:**
+- When I expand generation configuration, I see "Intervention Layers" section with 8-column checkbox grid
+- When model is selected, grid displays checkboxes for each layer (e.g., L0-L21 for TinyLlama)
+- When I click "Select All", all layer checkboxes become checked
+- When I click "Clear All", all layer checkboxes become unchecked
+- When I select multiple layers (e.g., L6, L8, L10, L12), label updates: "Intervention Layers (4 selected)"
+- When I generate with multiple layers, same steering vector (features + coefficients) is applied at each layer
+- When comparing outputs, I observe combined effect of multi-layer interventions
+- When I exceed recommended layer count (>4), I see warning: "Intervening on >4 layers may cause unexpected behavior"
+- When preset includes intervention_layers array, loading preset restores layer selections
+- When I save preset, intervention_layers array is stored with preset
+
+**UI Reference:** Mock-embedded-interp-ui.tsx Multi-Layer Steering (lines 4643-4704)
+
+---
+
+### SC-1: Batch Steering Experiments (Priority: P2)
 **As a** researcher
 **I want to** run multiple steering configurations on the same prompt
-**So that** I can compare different intervention strategies
+**So that** I can compare different intervention strategies systematically
 
 **Acceptance Criteria:**
 - When I create multiple steering configurations, I can run them all at once
 - When batch completes, I see a comparison table showing all outputs and metrics
 - When I view results, I can sort by metric values to identify best configurations
+- When I export batch results, system generates CSV with all outputs and metrics
 
 ---
 
@@ -254,6 +309,358 @@ This feature implements **Core Feature #5: Model Steering** from the Project PRD
 **FR-3.10:** System SHALL prevent multiple simultaneous generations (button disabled during generation)
 **FR-3.11:** System SHALL use emerald-600 button color (bg-emerald-600 hover:bg-emerald-700)
 **FR-3.12:** System SHALL validate temperature range (0-2) before submission
+
+---
+
+### FR-3A: Training Job Selector (Feature Source Context) (12 requirements)
+
+**FR-3A.1:** System SHALL provide "Training Job (Source of Features)" dropdown at top of Steering panel configuration
+**FR-3A.2:** System SHALL query completed training jobs with `GET /api/trainings?status=completed`
+**FR-3A.3:** System SHALL filter trainings to only show those with status = 'completed'
+**FR-3A.4:** System SHALL display training jobs in descriptive format:
+- Pattern: `{encoderType} SAE • {modelName} • {datasetName} • Started {date}`
+- Encoder types: "sparse", "skip", "transcoder"
+- Model/Dataset names: Looked up from models and datasets tables via foreign keys
+- Date format: MM/DD/YYYY (e.g., "1/15/2025")
+- Example: "sparse SAE • TinyLlama-1.1B • OpenWebText-10K • Started 1/15/2025"
+
+**FR-3A.5:** System SHALL perform dynamic lookup of model and dataset names:
+```sql
+SELECT
+  t.id,
+  t.encoder_type,
+  m.name as model_name,
+  d.name as dataset_name,
+  t.created_at
+FROM trainings t
+JOIN models m ON t.model_id = m.id
+JOIN datasets d ON t.dataset_id = d.id
+WHERE t.status = 'completed'
+ORDER BY t.created_at DESC;
+```
+
+**FR-3A.6:** System SHALL display empty state when no completed trainings exist:
+- Message: "No completed training jobs available. Please train an SAE first."
+- Disable feature selection until training is selected
+- Show informational icon with tooltip: "Steering requires features from a completed training job"
+
+**FR-3A.7:** System SHALL filter feature search results based on selected training_id:
+- Modify feature search query: `GET /api/features/search?q={query}&training_id={training_id}`
+- Backend filters features to only those extracted from selected training's SAE
+- Feature table has training_id foreign key for filtering
+
+**FR-3A.8:** System SHALL clear selected features when training job selection changes:
+- Show confirmation dialog: "Changing training job will clear selected features. Continue?"
+- On confirm: Clear selectedFeatures array, reset coefficients
+- On cancel: Revert dropdown to previous training selection
+- Rationale: Different trainings have different feature spaces (incompatible feature IDs)
+
+**FR-3A.9:** System SHALL store selected training_id in component state:
+```typescript
+const [selectedTraining, setSelectedTraining] = useState<string | null>(null);
+```
+
+**FR-3A.10:** System SHALL include training_id when saving steering presets:
+```json
+{
+  "training_id": "tr_abc123_1705332000",
+  "features": [...],
+  "intervention_layers": [...],
+  "temperature": 0.7
+}
+```
+
+**FR-3A.11:** System SHALL restore training selection when loading preset:
+- Set training dropdown to preset.training_id
+- If training no longer exists (deleted), show warning: "Associated training job no longer exists. Preset may not work correctly."
+- Load features after training is selected (ensures feature IDs are valid)
+
+**FR-3A.12:** System SHALL validate training_id before generation:
+- Ensure training exists and status = 'completed'
+- Ensure training has associated features in features table
+- Show error if validation fails: "Selected training has no extracted features. Please run feature discovery first."
+
+---
+
+### FR-3B: Steering Preset Management (22 requirements)
+
+**FR-3B.1:** System SHALL provide collapsible "Saved Presets" section in Steering panel below generation configuration
+**FR-3B.2:** System SHALL display preset count in section header (e.g., "Saved Presets (7)")
+**FR-3B.3:** System SHALL provide "Save as Preset" form with fields:
+- Preset name input (with auto-generated default)
+- Optional description textarea (max 500 characters)
+- "Save Preset" submit button
+
+**FR-3B.4:** System SHALL auto-generate steering preset names with format:
+- Single intervention layer: `steering_{count}features_layer{N}_{HHMM}`
+- Multiple intervention layers: `steering_{count}features_layers{min}-{max}_{HHMM}`
+- Count: Number of selected features
+- Layer: Single layer number OR range (min-max)
+- Timestamp: HHMM in 24-hour format
+- Examples:
+  - `steering_3features_layer12_1430` (3 features, layer 12, 2:30 PM)
+  - `steering_5features_layers6-12_0925` (5 features, layers 6-12, 9:25 AM)
+
+**FR-3B.5:** System SHALL save steering presets to `steering_presets` database table with schema:
+```sql
+CREATE TABLE steering_presets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    training_id UUID NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    features JSONB NOT NULL,  -- Array of {feature_id, coefficient}
+    intervention_layers INTEGER[] NOT NULL,  -- PostgreSQL array
+    temperature FLOAT DEFAULT 1.0,
+    is_favorite BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    INDEX idx_presets_training (training_id),
+    INDEX idx_presets_favorite (is_favorite)
+);
+```
+
+**FR-3B.6:** System SHALL store features array in JSONB format:
+```json
+{
+  "features": [
+    {"feature_id": 42, "coefficient": 3.5},
+    {"feature_id": 137, "coefficient": -2.0},
+    {"feature_id": 89, "coefficient": 1.5}
+  ]
+}
+```
+
+**FR-3B.7:** System SHALL display preset list with preset cards showing:
+- Preset name (bold, 18px, text-white)
+- Description (if provided, text-slate-400, 14px, truncated to 150 chars)
+- Training context badge: `{encoderType} • {modelName} • {datasetName}` (text-slate-400, 12px)
+- Feature count badge: "{count} features" (bg-emerald-500/20, text-emerald-400)
+- Layer range badge: "Layer {N}" or "Layers {min}-{max}" (bg-purple-500/20, text-purple-400)
+- Temperature badge: "T={temp}" (bg-blue-500/20, text-blue-400)
+- Favorite star icon (text-yellow-400 if true, text-slate-500 if false)
+- "Load" button (bg-emerald-600 hover:bg-emerald-700)
+- "Delete" button (text-red-400 hover:text-red-300)
+
+**FR-3B.8:** System SHALL implement "Load Preset" action:
+- Set training selector to preset.training_id (triggers feature filtering)
+- Populate selectedFeatures array from preset.features (with coefficients)
+- Restore intervention_layers array selections in layer checkbox grid
+- Set temperature input to preset.temperature
+- Show success toast: "Preset '{name}' loaded successfully"
+- Log event: `steering_preset_loaded` with preset_id
+
+**FR-3B.9:** System SHALL implement "Delete Preset" action:
+- Display confirmation dialog: "Delete steering preset '{name}'? This action cannot be undone."
+- On confirm: Send DELETE /api/v1/steering/presets/:id
+- Remove preset card from UI with 300ms fade-out animation
+- Show success toast: "Preset '{name}' deleted"
+- Update preset count in section header
+- Log event: `steering_preset_deleted` with preset_id
+
+**FR-3B.10:** System SHALL implement "Toggle Favorite" action:
+- On star icon click: Toggle is_favorite flag in database
+- Send PATCH /api/v1/steering/presets/:id/favorite with { is_favorite: boolean }
+- Update star icon immediately (optimistic UI update)
+- Re-sort preset list to move favorited presets to top
+- Show subtle toast: "Preset marked as favorite" or "Preset unfavorited"
+
+**FR-3B.11:** System SHALL sort presets by:
+1. Favorites first (is_favorite = true, ordered by updated_at DESC)
+2. Non-favorites (is_favorite = false, ordered by updated_at DESC)
+
+**FR-3B.12:** System SHALL support combined preset export/import:
+- Export: POST /api/v1/templates/export returns JSON including steering_presets array
+- Import: POST /api/v1/templates/import accepts JSON file with all template types
+- Export format:
+```json
+{
+  "version": "1.0",
+  "exported_at": "2025-10-07T12:34:56Z",
+  "training_templates": [...],
+  "extraction_templates": [...],
+  "steering_presets": [
+    {
+      "name": "steering_3features_layers6-12_1430",
+      "description": "Sentiment steering across middle layers",
+      "training_id": "ref_only_not_portable",
+      "features": [...],
+      "intervention_layers": [6, 8, 10, 12],
+      "temperature": 1.0,
+      "is_favorite": true
+    }
+  ]
+}
+```
+
+**FR-3B.13:** System SHALL handle preset import edge cases:
+- If preset references non-existent training_id, skip import and add to warnings list
+- Show warning summary after import: "Skipped {count} presets with missing training references"
+- Generate new UUIDs for all imported presets
+- Preserve is_favorite flags
+
+**FR-3B.14:** System SHALL prevent duplicate preset names:
+- Check for existing name before save
+- If duplicate found, append counter: `{name}_2`, `{name}_3`, etc.
+- Show warning toast: "Preset name exists, saved as '{new_name}'"
+
+**FR-3B.15:** System SHALL validate preset configuration before save:
+- Name must not be empty and must be ≤255 characters
+- training_id must reference existing, completed training
+- features array must have at least 1 feature
+- intervention_layers array must have at least 1 layer
+- Each feature_id in features array must exist in training's feature set
+- Temperature must be in range 0.0-2.0
+
+**FR-3B.16:** System SHALL provide "Export Presets" button:
+- Button label: "Export All Templates" (combined export)
+- On click: Triggers export of all three template types
+- Downloads file: `mistudio_templates_{timestamp}.json`
+- Shows success toast: "Exported {count} templates and presets"
+
+**FR-3B.17:** System SHALL provide "Import Presets" button:
+- Button label: "Import Templates"
+- On click: Opens file picker (accept: .json)
+- Validates JSON structure before import
+- Shows progress dialog during import
+- Shows summary after import: "{count} presets imported, {warnings} warnings"
+- Lists any warnings with preset names and reasons
+
+**FR-3B.18:** System SHALL handle preset loading edge cases:
+- If preset training_id deleted: Show error, don't load preset
+- If preset features no longer exist: Show warning, load preset but mark features as unavailable
+- If preset intervention_layers invalid for current model: Show warning, adjust to valid range
+
+**FR-3B.19:** System SHALL display preset training context dynamically:
+- Query training, model, and dataset names when displaying preset cards
+- Cache lookups for performance (in-memory cache with 5-minute TTL)
+- Show "Training unavailable" if training deleted
+
+**FR-3B.20:** System SHALL log all preset operations for audit:
+- steering_preset_created: {preset_id, name, training_id, user_action}
+- steering_preset_loaded: {preset_id, name}
+- steering_preset_deleted: {preset_id, name}
+- steering_presets_exported: {count, timestamp}
+- steering_presets_imported: {count, warnings, timestamp}
+
+**FR-3B.21:** System SHALL update preset.updated_at timestamp on:
+- Preset metadata edit (name or description change)
+- Toggle favorite status
+
+**FR-3B.22:** System SHALL provide preset search/filter (future enhancement):
+- Filter by training_id
+- Filter by favorites only
+- Search by preset name
+- Filter by layer range
+- Sort by: name, created_at, updated_at, feature_count
+
+---
+
+### FR-3C: Multi-Layer Steering Support (16 requirements)
+
+**FR-3C.1:** System SHALL provide "Intervention Layers" section in generation configuration with:
+- Section label: "Intervention Layers ({N} selected)"
+- 8-column checkbox grid
+- "Select All" button
+- "Clear All" button
+- Dynamic grid generation based on model.num_layers
+
+**FR-3C.2:** System SHALL dynamically generate layer checkboxes based on selected model's architecture:
+- Query model.num_layers from database
+- Generate checkbox grid with layers 0 to (num_layers - 1)
+- Layout: 8 columns, rows as needed
+- Example: TinyLlama (22 layers) = 3 rows, Phi-2 (32 layers) = 4 rows
+
+**FR-3C.3:** System SHALL style layer checkboxes per Mock UI specification:
+- Unchecked: border-slate-700 bg-slate-900 text-slate-400
+- Checked: border-emerald-500 bg-emerald-500/20 text-emerald-400
+- Hover: border-emerald-400
+- Label format: "L{idx}" (e.g., L0, L1, L2, ...)
+
+**FR-3C.4:** System SHALL implement "Select All" action:
+- Check all layer checkboxes
+- Update interventionLayers array to [0, 1, 2, ..., num_layers-1]
+- Update label: "Intervention Layers ({num_layers} selected)"
+- Enable visual feedback (all checkboxes highlighted)
+
+**FR-3C.5:** System SHALL implement "Clear All" action:
+- Uncheck all layer checkboxes
+- Update interventionLayers array to empty []
+- Update label: "Intervention Layers (0 selected)"
+- Show validation warning if user tries to generate with 0 layers
+
+**FR-3C.6:** System SHALL validate intervention layer selection:
+- At least 1 layer must be selected before generation can proceed
+- Show error message: "Please select at least one intervention layer"
+- Disable "Generate Comparison" button if interventionLayers.length === 0
+
+**FR-3C.7:** System SHALL store interventionLayers array in component state:
+```typescript
+const [interventionLayers, setInterventionLayers] = useState<number[]>([12]); // Default to layer 12
+```
+
+**FR-3C.8:** System SHALL include intervention_layers in API request:
+```json
+{
+  "model_id": "model_abc123",
+  "prompt": "Once upon a time",
+  "features": [
+    {"id": 42, "coefficient": 3.5},
+    {"id": 137, "coefficient": -2.0}
+  ],
+  "intervention_layers": [6, 8, 10, 12],
+  "temperature": 0.7,
+  "max_tokens": 100
+}
+```
+
+**FR-3C.9:** System SHALL register forward hooks at each specified intervention layer:
+```python
+def apply_multi_layer_steering(model, features, coefficients, intervention_layers):
+    steering_vector = build_steering_vector(features, coefficients)
+    hooks = []
+    for layer_idx in intervention_layers:
+        hook = register_steering_hook(model, layer_idx, steering_vector)
+        hooks.append(hook)
+    return hooks
+```
+
+**FR-3C.10:** System SHALL apply same steering vector at all selected layers:
+- Build steering vector once: `steering_vector = sum(coef_i * feature_vector_i)`
+- Apply identical steering vector at each layer's residual stream
+- Hook function: `output = original_output + steering_vector`
+
+**FR-3C.11:** System SHALL display multi-layer intervention in UI:
+- If single layer: "Layer {N}" badge
+- If multiple layers: "Layers {min}-{max}" badge
+- Example: "Layers 6-12" for [6, 8, 10, 12]
+- Tooltip on badge: "Intervening on {count} layers: {comma_separated_list}"
+
+**FR-3C.12:** System SHALL show warning for excessive layer selection:
+- If interventionLayers.length > 4, display warning banner:
+- Icon: AlertTriangle (text-yellow-400)
+- Message: "Intervening on more than 4 layers may cause unexpected behavior or large output changes"
+- Color: bg-yellow-500/10 border-yellow-500/20
+- Dismissible: Yes (close button)
+
+**FR-3C.13:** System SHALL validate layer indices before generation:
+- All layer indices must be >= 0 and < model.num_layers
+- Show error if invalid: "Invalid layer selection: layer {N} exceeds model capacity ({max_layers} layers)"
+- Auto-adjust out-of-range layers to valid range with warning
+
+**FR-3C.14:** System SHALL handle multi-layer steering errors gracefully:
+- If hook registration fails for specific layer: Log error, continue with remaining layers
+- If steering vector application fails: Fallback to single-layer steering on middle layer
+- Show user-friendly error: "Multi-layer steering partially failed. Results may be incomplete."
+
+**FR-3C.15:** System SHALL display layer selection in preset cards:
+- Format: "Layer {N}" (single) or "Layers {min}-{max}" (multiple)
+- Badge color: bg-purple-500/20 text-purple-400
+- Include layer count in preset name generation
+
+**FR-3C.16:** System SHALL maintain backward compatibility:
+- Accept legacy single-layer format: `intervention_layer: number`
+- Auto-convert to array: `intervention_layers: [intervention_layer]`
+- Show migration notice in logs: "Converting legacy intervention_layer to intervention_layers array"
 
 ---
 

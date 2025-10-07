@@ -40,6 +40,8 @@ This single file contains:
    - Backend API contracts for each type
    - Validation constraints
    - Status transitions
+   - Model architecture metadata (num_layers, hidden_dim, num_heads)
+   - Multi-layer training/steering support (trainingLayers, interventionLayers)
 
 3. **Main Application** (Lines 675-1104)
    - Tab navigation (Datasets, Models, Training, Features, Steering)
@@ -56,17 +58,23 @@ This single file contains:
      - Model download form
      - Quantization selection
      - Model cards with download progress
+     - Model architecture metadata (layers, hidden dim, attention heads)
      - "Extract Activations" button
 
    - **ModelArchitectureViewer** (Lines 1345-1437)
-     - Layer-by-layer visualization
-     - Model statistics
+     - Dynamic layer-by-layer visualization (based on model architecture)
+     - Model statistics (layers, hidden dim, attention heads, parameters)
      - Configuration details
 
    - **ActivationExtractionConfig** (Lines 1439-1625)
      - Dataset selection
      - Layer selection (multi-select)
      - Activation type selection
+     - **Extraction Template Management**:
+       - Save/Load/Delete templates
+       - Export/Import functionality
+       - Auto-generated names with layer range + sample count + timestamp
+       - Favorite templates
      - Extraction progress tracking
 
    - **TrainingPanel** (Lines 1627-1842)
@@ -77,10 +85,16 @@ This single file contains:
        - L1 Coefficient
        - Expansion Factor
        - Training Steps
+       - **Training Layers (multi-select)** - checkbox grid, dynamically generated from model architecture
        - Optimizer
        - LR Schedule
        - Ghost Gradient Penalty toggle
-     - Training jobs list
+     - **Training Template Management**:
+       - Save/Load/Delete templates
+       - Export/Import functionality
+       - Auto-generated names with descriptive settings + timestamp
+       - Favorite templates
+     - Training jobs list with consistent naming format
 
    - **TrainingCard** (Lines 1844-2115)
      - Progress bar with real-time updates
@@ -90,18 +104,25 @@ This single file contains:
      - Live metrics toggle
 
    - **FeaturesPanel** (Lines 2116+)
-     - Training selection
+     - Training selection with descriptive format: `{encoderType} SAE • {modelName} • {datasetName} • Started {date}`
      - Feature extraction trigger
      - Feature browser/table
      - Feature detail modal
      - Max activating examples
 
    - **SteeringPanel**
+     - **Training Job selector** - dropdown of completed trainings (matches Features tab format)
      - Model selection
      - Feature selection
-     - Coefficient sliders
+     - **Intervention Layers (multi-select)** - checkbox grid, dynamically generated from model architecture
+     - Coefficient sliders for each feature
+     - **Steering Preset Management**:
+       - Save/Load/Delete presets
+       - Export/Import functionality
+       - Auto-generated names with feature count + layer range + timestamp
+       - Favorite presets
      - Generation controls
-     - Comparative output display
+     - Comparative output display (baseline vs steered)
 
 ### src/styles/mock-ui.css
 
@@ -137,13 +158,19 @@ These enable JavaScript to dynamically update progress bars and visualizations v
        │   └── DatasetDetailModal
        ├── ModelsPanel
        │   ├── Model Download Form
-       │   ├── Model Cards
-       │   ├── ModelArchitectureViewer
+       │   ├── Model Cards (with architecture metadata)
+       │   ├── ModelArchitectureViewer (dynamic)
        │   └── ActivationExtractionConfig
+       │       ├── Extraction Configuration
+       │       └── Template Management (collapsible)
        ├── TrainingPanel
        │   ├── Configuration Form
        │   │   ├── Basic Config
        │   │   └── Advanced Hyperparameters (collapsible)
+       │   │       └── Training Layers (multi-select grid)
+       │   ├── Template Management (collapsible)
+       │   │   ├── Save/Load/Delete/Export/Import
+       │   │   └── Template Cards with Favorite
        │   └── TrainingCard (multiple)
        │       ├── Progress Display
        │       ├── Metrics Dashboard
@@ -154,9 +181,16 @@ These enable JavaScript to dynamically update progress bars and visualizations v
        │   ├── Feature Browser
        │   └── Feature Detail Modal
        └── SteeringPanel
+           ├── Training Job Selector (dropdown)
+           ├── Model Selection
            ├── Feature Selector
+           ├── Intervention Layers (multi-select grid)
            ├── Coefficient Controls
-           └── Generation Interface
+           ├── Preset Management (collapsible)
+           │   ├── Save/Load/Delete/Export/Import
+           │   └── Preset Cards with Favorite
+           ├── Generation Interface
+           └── Comparative Output Display
    ```
 
 2. **Styling Approach**
@@ -223,8 +257,11 @@ These enable JavaScript to dynamically update progress bars and visualizations v
 ### 1. Advanced Hyperparameters Panel
 - **Location**: Training tab, collapsible section
 - **Behavior**: Click to expand/collapse, smooth animation
-- **Fields**: 8 hyperparameter inputs with proper validation
-- **Toggle**: Ghost Gradient Penalty has custom toggle component
+- **Fields**: 9 hyperparameter inputs with proper validation
+  - Learning Rate, Batch Size, L1 Coefficient, Expansion Factor, Training Steps
+  - **Training Layers (multi-select)**: 8-column checkbox grid, dynamically generated from model architecture
+  - Optimizer, LR Schedule, Ghost Gradient Penalty toggle
+- **Multi-Layer Training**: Supports training SAEs on multiple transformer layers simultaneously
 
 ### 2. Real-time Progress Tracking
 - **Progress Bars**: Smooth animations, gradient colors
@@ -240,9 +277,10 @@ These enable JavaScript to dynamically update progress bars and visualizations v
 
 ### 4. Model Architecture Viewer
 - **Modal Dialog**: Full-screen modal with close button
-- **Layer List**: Scrollable list of all model layers
-- **Statistics**: 4 stat cards (Total Layers, Hidden Dim, Attention Heads, Parameters)
+- **Layer List**: Scrollable list of all model layers (dynamically generated from model.architecture)
+- **Statistics**: 4 stat cards (Total Layers, Hidden Dim, Attention Heads, Parameters) - all dynamic
 - **Configuration**: Additional model config details at bottom
+- **Dynamic Generation**: All content is generated from model architecture metadata, not hardcoded
 
 ### 5. Activation Extraction
 - **Dataset Selector**: Dropdown with sample counts
@@ -257,10 +295,66 @@ These enable JavaScript to dynamically update progress bars and visualizations v
 - **Status Indicators**: Icons for ready/downloading/error states
 
 ### 7. Template/Preset System
-- **Training Templates**: Save/load training configs
-- **Extraction Templates**: Save/load extraction settings
-- **Steering Presets**: Save/load steering configurations
-- **Favoriting**: Star icon to mark favorites
+Three independent management systems with consistent UI patterns:
+
+**Training Templates** (Training Tab):
+- Save/Load/Delete training hyperparameter configurations
+- Export/Import as JSON files
+- Auto-generated names: `{encoder}_{expansion}x_{steps}steps_{HHMM}`
+- Favorite templates with star icon
+- Collapsible "Saved Templates" section
+
+**Extraction Templates** (Models Tab - Activation Extraction):
+- Save/Load/Delete extraction configurations
+- Export/Import as JSON files
+- Auto-generated names: `{type}_layers{min}-{max}_{samples}samples_{HHMM}`
+- Favorite templates with star icon
+- Collapsible "Saved Templates" section
+
+**Steering Presets** (Steering Tab):
+- Save/Load/Delete steering configurations (features + coefficients + layers)
+- Export/Import as JSON files
+- Auto-generated names: `steering_{count}features_{layerRange}_{HHMM}`
+- Favorite presets with star icon
+- Collapsible "Saved Presets" section
+- Includes training_id reference
+
+**Common UI Pattern**:
+- Collapsible sections with template/preset counts
+- Name input with auto-generated defaults
+- Optional description field
+- Save/Export/Import buttons
+- Template/preset cards with Load/Delete/Favorite actions
+- Star icon for favorites (gold when active)
+- Consistent styling across all three systems
+
+### 8. Multi-Layer Steering
+- **Location**: Steering tab
+- **UI Pattern**: 8-column checkbox grid (same as training layers)
+- **Behavior**:
+  - Select All / Clear All buttons
+  - Individual layer checkboxes
+  - Dynamic generation from model architecture
+  - Visual feedback for selected layers
+- **Feature**: Apply steering interventions across multiple transformer layers simultaneously
+- **Display**: Shows count of selected layers and layer range in preset names
+
+### 9. Training Job Selector (Steering Tab)
+- **Location**: Steering tab, at the top of configuration
+- **Purpose**: Select which completed training's features to use for steering
+- **Format**: Matches Features tab display format
+  - `{encoderType} SAE • {modelName} • {datasetName} • Started {date}`
+- **Behavior**:
+  - Dropdown showing only completed trainings
+  - Filters trainings by status = 'completed'
+  - Used to determine available features for steering
+- **Integration**: Selected training_id is saved with steering presets
+
+### 10. Consistent Training Job Display
+- **Format**: `{encoderType} SAE • {modelName} • {datasetName} • Started {date}`
+- **Locations**: Features tab and Steering tab
+- **Implementation**: Dynamic lookup of model and dataset names from IDs
+- **Purpose**: User-friendly, descriptive display of training jobs across the application
 
 ---
 
@@ -322,7 +416,8 @@ All grids use responsive classes:
 - 2 columns: `grid-cols-2`
 - 3 columns: `grid-cols-3`
 - 4 columns: `grid-cols-4`
-- 6 columns: `grid-cols-6` (for layer selection)
+- 6 columns: `grid-cols-6` (for feature grids)
+- 8 columns: `grid-cols-8` (for multi-layer selection in Training and Steering tabs)
 
 ---
 
@@ -331,12 +426,20 @@ All grids use responsive classes:
 When building the production version, maintain this exact UI/UX while:
 
 1. **Phase 1**: Copy structure and styling exactly
+   - Include all template/preset management UIs (already in mock)
+   - Include multi-layer selection grids (already in mock)
+   - Include training job selector in Steering tab (already in mock)
+   - Include consistent training job display format (already in mock)
 2. **Phase 2**: Replace mock data with real API calls
+   - Implement template/preset backend endpoints
+   - Implement model architecture metadata endpoints
+   - Implement multi-layer training/steering backend logic
 3. **Phase 3**: Add WebSocket for real-time updates
-4. **Phase 4**: Implement template/preset system
-5. **Phase 5**: Add advanced features from Gap Closure Instructions
+4. **Phase 4**: Add advanced features from Gap Closure Instructions
 
 **Do not redesign the UI** - users expect this exact interface. Any improvements should be additive, not replacements.
+
+**Recent Enhancements**: The mock now includes template/preset management, multi-layer training/steering, training job selector, and auto-generated naming conventions. All of these features are part of the core specification and must be replicated.
 
 ---
 

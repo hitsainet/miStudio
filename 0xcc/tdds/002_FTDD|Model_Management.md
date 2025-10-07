@@ -311,10 +311,97 @@ CREATE INDEX idx_activation_cache_dataset ON activation_cache(dataset_id);
 CREATE INDEX idx_activation_cache_created_at ON activation_cache(created_at DESC);
 ```
 
+#### extraction_templates Table (NEW - Enhancement)
+
+```sql
+CREATE TABLE extraction_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Template identification
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+
+    -- Extraction configuration
+    layers INTEGER[] NOT NULL,  -- Selected layers for extraction (e.g., [0, 5, 10, 15, 20])
+    hook_types VARCHAR(50)[] NOT NULL,  -- Hook types: ['residual', 'mlp', 'attention']
+    max_samples INTEGER,  -- NULL = all samples, otherwise limit
+    top_k_examples INTEGER DEFAULT 100,  -- Number of top activating examples to store
+
+    -- User preferences
+    is_favorite BOOLEAN DEFAULT FALSE,
+
+    -- Timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- Constraints
+    CONSTRAINT extraction_templates_name_not_empty CHECK (LENGTH(name) > 0),
+    CONSTRAINT extraction_templates_layers_not_empty CHECK (array_length(layers, 1) > 0),
+    CONSTRAINT extraction_templates_hooks_not_empty CHECK (array_length(hook_types, 1) > 0)
+);
+
+CREATE INDEX idx_extraction_templates_favorite ON extraction_templates(is_favorite);
+CREATE INDEX idx_extraction_templates_updated_at ON extraction_templates(updated_at DESC);
+CREATE INDEX idx_extraction_templates_name ON extraction_templates(name);
+
+-- Trigger to auto-update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_extraction_template_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_extraction_template_updated_at
+    BEFORE UPDATE ON extraction_templates
+    FOR EACH ROW
+    EXECUTE FUNCTION update_extraction_template_timestamp();
+```
+
+**Template Data Structure:**
+
+Example template record:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "residual_layers0-11_1000samples_1430",
+  "description": "Full model residual stream extraction with 1000 samples",
+  "layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "hook_types": ["residual"],
+  "max_samples": 1000,
+  "top_k_examples": 100,
+  "is_favorite": true,
+  "created_at": "2025-10-07T14:30:00Z",
+  "updated_at": "2025-10-07T14:30:00Z"
+}
+```
+
+**Auto-Generated Name Format:**
+- Single layer: `{type}_layer{N}_{samples}samples_{HHMM}`
+- Multiple layers: `{type}_layers{min}-{max}_{samples}samples_{HHMM}`
+- Examples:
+  - `residual_layers0-11_1000samples_1430`
+  - `mlp_layer6_5000samples_0925`
+  - `attention_layers4-8_2000samples_1615`
+
+**Storage Estimate:**
+- Template metadata: ~500 bytes per template
+- Expected count: 10-50 templates per user
+- Total storage: 5-25 KB (negligible)
+
+**Validation Rules:**
+- `name`: Non-empty, max 255 characters, should be unique (soft constraint, append counter if duplicate)
+- `layers`: Non-empty array, all values must be >= 0 and < model.num_layers (validated at application layer)
+- `hook_types`: Non-empty array, values must be in ['residual', 'mlp', 'attention']
+- `max_samples`: If provided, must be > 0
+- `top_k_examples`: Must be > 0, default 100
+
 **Storage Estimate:**
 - Model metadata: ~2KB per model
 - Activation cache metadata: ~1KB per cache entry
 - Activation cache files: 1000 samples × 1024 seq_len × 768 hidden_dim × 4 bytes = 3GB per cache
+- Extraction templates: ~500 bytes per template (10-50 templates = 5-25 KB total)
 
 ### Data Validation Strategy
 
@@ -518,6 +605,220 @@ COMMIT;
   "offset": 0
 }
 ```
+
+### Extraction Templates API Endpoints (NEW - Enhancement)
+
+#### GET /api/templates/extraction
+**Purpose:** List all extraction templates with optional filtering
+
+**Query Parameters:**
+- `is_favorite` (optional): Filter by favorite status (true/false)
+- `limit` (default 50): Results per page
+- `offset` (default 0): Pagination offset
+- `sort` (default "updated_at"): Sort field (updated_at, created_at, name)
+- `order` (default "desc"): Sort order (asc, desc)
+
+**Response:** 200 OK
+```json
+{
+  "templates": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "residual_layers0-11_1000samples_1430",
+      "description": "Full model residual stream extraction",
+      "layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      "hook_types": ["residual"],
+      "max_samples": 1000,
+      "top_k_examples": 100,
+      "is_favorite": true,
+      "created_at": "2025-10-07T14:30:00Z",
+      "updated_at": "2025-10-07T14:30:00Z"
+    }
+  ],
+  "total": 12,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+#### POST /api/templates/extraction
+**Purpose:** Create new extraction template
+
+**Request Body:**
+```json
+{
+  "name": "residual_layers0-11_1000samples_1430",
+  "description": "Full model residual stream extraction",
+  "layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "hook_types": ["residual"],
+  "max_samples": 1000,
+  "top_k_examples": 100
+}
+```
+
+**Validation:**
+- `name`: Required, non-empty, max 255 characters
+- `layers`: Required, non-empty array, all values >= 0
+- `hook_types`: Required, non-empty array, values in ['residual', 'mlp', 'attention']
+- `max_samples`: Optional, if provided must be > 0
+- `top_k_examples`: Optional, default 100, must be > 0
+
+**Duplicate Handling:**
+- If `name` already exists, append counter: `{name}_2`, `{name}_3`, etc.
+- Return warning in response: `"name_modified": true, "original_name": "..."`
+
+**Response:** 201 Created
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "residual_layers0-11_1000samples_1430",
+  "description": "Full model residual stream extraction",
+  "layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "hook_types": ["residual"],
+  "max_samples": 1000,
+  "top_k_examples": 100,
+  "is_favorite": false,
+  "created_at": "2025-10-07T14:30:00Z",
+  "updated_at": "2025-10-07T14:30:00Z"
+}
+```
+
+**Error Cases:**
+- 400 Bad Request: Invalid layers array, invalid hook_types
+- 400 Bad Request: Name exceeds 255 characters
+- 500 Internal Server Error: Database error
+
+#### PUT /api/templates/extraction/:id
+**Purpose:** Update extraction template (name and description only)
+
+**Request Body:**
+```json
+{
+  "name": "updated_template_name",
+  "description": "Updated description"
+}
+```
+
+**Response:** 200 OK (returns updated template)
+
+**Notes:**
+- Cannot update layers, hook_types, max_samples, top_k_examples (immutable after creation)
+- To change configuration, create new template and delete old one
+- Automatically updates `updated_at` timestamp via trigger
+
+#### DELETE /api/templates/extraction/:id
+**Purpose:** Delete extraction template
+
+**Response:** 204 No Content
+
+**Error Cases:**
+- 404 Not Found: Template ID doesn't exist
+- 500 Internal Server Error: Database error
+
+#### PATCH /api/templates/extraction/:id/favorite
+**Purpose:** Toggle favorite status of extraction template
+
+**Request Body:**
+```json
+{
+  "is_favorite": true
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "is_favorite": true,
+  "updated_at": "2025-10-07T15:45:00Z"
+}
+```
+
+**Notes:**
+- Lightweight endpoint optimized for frequent toggling
+- Automatically updates `updated_at` timestamp
+- Returns only id, is_favorite, and updated_at for efficiency
+
+#### POST /api/templates/export
+**Purpose:** Export all templates (training, extraction, steering) as combined JSON
+
+**Response:** 200 OK
+- Content-Type: application/json
+- Content-Disposition: attachment; filename="mistudio_templates_{timestamp}.json"
+
+```json
+{
+  "version": "1.0",
+  "exported_at": "2025-10-07T16:00:00Z",
+  "training_templates": [...],
+  "extraction_templates": [
+    {
+      "name": "residual_layers0-11_1000samples_1430",
+      "description": "Full model residual stream extraction",
+      "layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      "hook_types": ["residual"],
+      "max_samples": 1000,
+      "top_k_examples": 100,
+      "is_favorite": true
+    }
+  ],
+  "steering_presets": [...]
+}
+```
+
+**Notes:**
+- Exports all three template types in single JSON file
+- UUIDs are NOT included (will be regenerated on import)
+- File naming convention: `mistudio_templates_YYYYMMDD_HHMMSS.json`
+
+#### POST /api/templates/import
+**Purpose:** Import templates from exported JSON file
+
+**Request:** multipart/form-data with file upload
+- Field name: `file`
+- Accepted types: application/json, text/json
+- Max file size: 10 MB
+
+**Response:** 201 Created
+```json
+{
+  "imported": {
+    "training_templates": 5,
+    "extraction_templates": 8,
+    "steering_presets": 3
+  },
+  "warnings": [
+    {
+      "type": "steering_preset",
+      "name": "preset_xyz",
+      "reason": "Referenced training_id does not exist, skipped"
+    }
+  ],
+  "total_imported": 16,
+  "total_warnings": 1
+}
+```
+
+**Import Behavior:**
+- Generate new UUIDs for all templates/presets
+- Preserve `is_favorite` flags
+- Skip steering presets with non-existent training_id references
+- Validate structure before importing (atomic transaction)
+- Handle duplicate names by appending counter
+- Set `created_at` and `updated_at` to current timestamp
+
+**Validation:**
+- JSON structure matches export format
+- Version compatibility check (currently supports version 1.0)
+- All required fields present for each template
+- Arrays conform to constraints (non-empty, valid values)
+
+**Error Cases:**
+- 400 Bad Request: Invalid JSON structure
+- 400 Bad Request: Unsupported version
+- 400 Bad Request: Missing required fields
+- 413 Payload Too Large: File exceeds 10 MB
+- 500 Internal Server Error: Database error during import
 
 ### Error Handling Strategy
 

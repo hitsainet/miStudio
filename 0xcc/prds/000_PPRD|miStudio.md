@@ -608,43 +608,171 @@ miStudio is successful when:
 ### Secondary Features (Important but Not Critical)
 
 #### Feature 6: Training Templates & Presets
-**Priority:** P1
-**Description:** Save and load training configurations as templates. Allow users to create, favorite, and share common training setups.
+**Priority:** P0 (MVP - Integrated into Training System)
+**Description:** Complete template management system for saving, loading, deleting, favoriting, exporting, and importing training configurations. Auto-generated descriptive names with timestamp uniqueness. Fully integrated into Training tab UI with collapsible management section.
 
 **User Value:**
-- Faster experiment iteration
-- Share reproducible configurations
+- Faster experiment iteration with one-click template loading
+- Share reproducible configurations with community via export/import
 - Learn from community best practices
+- Never lose successful hyperparameter configurations
+- Compare training results across different configurations
+
+**Key Features:**
+- Save current configuration as template (with auto-generated name)
+- Load template to restore all hyperparameters + model + dataset selections
+- Delete unwanted templates
+- Favorite important templates for quick access
+- Export all templates to JSON file for backup/sharing
+- Import templates from JSON file (with validation)
+- Auto-naming: `{encoder}_{expansion}x_{steps}steps_{HHMM}` (e.g., `sparse_8x_10000steps_1430`)
+- Collapsible "Saved Templates" section with template count
 
 **Dependencies:** SAE Training System
-**Estimated Complexity:** Low
+**Estimated Complexity:** Medium (full CRUD + export/import)
 
 ---
 
 #### Feature 7: Extraction Templates
-**Priority:** P1
-**Description:** Preset configurations for activation extraction (layer selection, hook types, sampling strategies).
+**Priority:** P0 (MVP - Integrated into Model Management)
+**Description:** Complete template management system for activation extraction configurations. Save/load layer selections, hook types, and sampling strategies. Auto-generated descriptive names. Fully integrated into Activation Extraction modal.
 
 **User Value:**
-- Quick setup for common extraction patterns
-- Standardized extraction for reproducibility
+- Quick setup for common extraction patterns (e.g., "all residual streams")
+- Standardized extraction for reproducibility across experiments
+- Share extraction strategies with collaborators
+- Avoid reconfiguring complex multi-layer extractions
 
-**Dependencies:** Model Management
-**Estimated Complexity:** Low
+**Key Features:**
+- Save extraction configuration as template
+- Load template to restore layer selections + hook types + sampling settings
+- Delete unwanted templates
+- Favorite frequently-used templates
+- Auto-naming: `{type}_layers{min}-{max}_{samples}samples_{HHMM}` (e.g., `residual_layers0-11_1000samples_1430`)
+- Collapsible "Saved Templates" section within Activation Extraction modal
+- Included in combined export/import with training templates and steering presets
+
+**Dependencies:** Model Management, Activation Extraction
+**Estimated Complexity:** Medium
 
 ---
 
 #### Feature 8: Steering Presets
-**Priority:** P1
-**Description:** Save and load steering configurations (feature selections + coefficients + intervention layers).
+**Priority:** P0 (MVP - Integrated into Steering System)
+**Description:** Complete preset management system for steering configurations. Save/load feature selections, coefficients, intervention layers, and temperature settings. Linked to training jobs for context. Auto-generated descriptive names. Fully integrated into Steering tab UI.
 
 **User Value:**
-- Reuse effective steering interventions
-- Compare different steering strategies
-- Share successful interventions
+- Reuse effective steering interventions instantly
+- Compare different steering strategies systematically
+- Share successful interventions with community
+- Document steering experiments for reproducibility
+- Quick access to favorite presets
 
-**Dependencies:** Model Steering Interface
-**Estimated Complexity:** Low
+**Key Features:**
+- Save current steering configuration as preset (includes training_id reference)
+- Load preset to restore feature selections + coefficients + intervention layers + temperature
+- Delete unwanted presets
+- Favorite powerful or interesting presets
+- Export/import presets alongside templates
+- Auto-naming: `steering_{count}features_layer{N}_{HHMM}` or `steering_{count}features_layers{min}-{max}_{HHMM}`
+- Shows training job context: `{encoderType} SAE • {modelName} • {datasetName}`
+- Collapsible "Saved Presets" section with preset count
+
+**Dependencies:** Model Steering Interface, Feature Discovery
+**Estimated Complexity:** Medium
+
+---
+
+#### Feature 8a: Multi-Layer Training Support
+**Priority:** P0 (MVP - Core Enhancement to Training System)
+**Description:** Train sparse autoencoders on multiple transformer layers simultaneously instead of single-layer training. Dynamic UI generation based on model architecture. Enables efficient multi-layer analysis in a single training job.
+
+**User Value:**
+- Faster iteration for multi-layer feature analysis
+- Unified training context (same data, same hyperparameters across layers)
+- Compare feature emergence patterns across layers
+- More efficient than running separate single-layer training jobs
+- Analyze layer interactions and feature evolution
+
+**Key Features:**
+- Change from `trainingLayer: number` to `trainingLayers: number[]` in hyperparameters
+- 8-column checkbox grid for layer selection (dynamically generated from model architecture)
+- Select All / Clear All buttons for convenience
+- Visual feedback: selected layers highlighted in emerald green
+- Shows "Training Layers (N selected)" label with count
+- Model architecture metadata (num_layers, hidden_dim, num_heads) stored in database
+- Checkpoint format: sub-directories per layer for independent SAE states
+- Memory-aware: recommend ≤4 layers on 8GB Jetson
+
+**UI Impact:**
+- Training Panel: Dynamic layer selector grid adapts to model (TinyLlama: 22, Phi-2: 32)
+- ModelArchitectureViewer: Shows actual layer count, hidden dim, attention heads
+- Training templates: Include trainingLayers array
+
+**Dependencies:** SAE Training System, Model Management (architecture metadata)
+**Estimated Complexity:** High (training pipeline changes, checkpoint management)
+
+---
+
+#### Feature 8b: Multi-Layer Steering Support
+**Priority:** P0 (MVP - Core Enhancement to Steering System)
+**Description:** Apply steering interventions across multiple transformer layers simultaneously instead of single-layer interventions. Same UI pattern as multi-layer training. Enables more powerful interventions and layer interaction studies.
+
+**User Value:**
+- More powerful steering interventions (cascading effects across layers)
+- Explore layer-wise steering effects systematically
+- Support cascading interventions for complex behavior modifications
+- Facilitate ablation studies (which layers matter most)
+- Research layer interaction effects
+
+**Key Features:**
+- Change from `interventionLayer: number` to `interventionLayers: number[]`
+- 8-column checkbox grid matching training layer selector pattern
+- Select All / Clear All buttons
+- Dynamic generation based on selected model's architecture
+- Shows "Intervention Layers (N selected)" label with count
+- Hook registration: Register forward hooks at each specified layer
+- Same steering vector (features + coefficients) applied at all layers
+- Preset naming includes layer range: `steering_3features_layers6-12_1430`
+
+**UI Impact:**
+- Steering Panel: Dynamic layer selector grid below feature selector
+- Steering presets: Include intervention_layers array
+- Preset display: Shows single or range format for layers
+
+**Dependencies:** Model Steering Interface, Model Management (architecture metadata)
+**Estimated Complexity:** Medium-High (hook management, multi-layer intervention logic)
+
+---
+
+#### Feature 8c: Training Job Selector (Steering Context)
+**Priority:** P0 (MVP - Core Enhancement to Steering System)
+**Description:** Dropdown selector in Steering tab to choose which completed training job's features to use for steering. Provides clear context about SAE source and enables switching between different trained SAEs.
+
+**User Value:**
+- Clear context: Know which SAE's features are being used
+- Easy switching between different trained SAEs for comparison
+- Prevents confusion about feature source
+- Enables systematic comparison of steering effectiveness across different SAEs
+- Training job context preserved in steering presets
+
+**Key Features:**
+- "Training Job (Source of Features)" label at top of Steering configuration
+- Dropdown showing only completed trainings (status = 'completed')
+- Display format: `{encoderType} SAE • {modelName} • {datasetName} • Started {date}`
+- Example: "sparse SAE • TinyLlama-1.1B • OpenWebText-10K • Started 1/15/2025"
+- Dynamic lookup of model and dataset names from IDs
+- Empty state message when no completed trainings available
+- Selected training_id saved with steering presets for reproducibility
+- Preset loading restores correct training job selection
+
+**UI Impact:**
+- Steering Panel: New dropdown selector at top of configuration section
+- Matches display format from Features tab for consistency
+- Steering presets: Include training_id reference
+
+**Dependencies:** Model Steering Interface, Feature Discovery, SAE Training System
+**Estimated Complexity:** Low-Medium (mostly UI + state management)
 
 ---
 
@@ -1208,8 +1336,11 @@ miStudio is successful when:
 **Feature Satisfaction:**
 - 90%+ of users use core features (datasets, training, discovery)
 - 50%+ of users use advanced features (steering, visualization)
+- 70%+ of users utilize template/preset management systems
+- 30%+ of users leverage multi-layer training/steering capabilities
 - Feature requests indicate understanding of capabilities
 - Users share workflows and best practices
+- Community shares templates and presets via export/import
 
 ### Business Impact Measurements
 

@@ -171,17 +171,59 @@ This feature implements **Core Feature #3: SAE Training** from the Project PRD (
 
 ---
 
-### SC-2: Export Training Configuration as Template (Priority: P2)
-**As a** user with a successful training
-**I want to** save the training configuration as a reusable template
-**So that** I can quickly configure similar training jobs in the future
+### US-6: Save and Reuse Training Templates (Priority: P0 - MVP Enhancement)
+**As a** ML researcher
+**I want to** save my successful training configurations as reusable templates
+**So that** I can quickly configure similar training jobs without re-entering all hyperparameters
 
 **Acceptance Criteria:**
-- When viewing a completed training, I can click "Save as Template"
-- When saving template, I provide a name and optional description
-- Given templates exist, I can select a template from "Load Template" dropdown
-- When I select a template, all hyperparameters populate automatically
-- When template is selected, I can still modify individual parameters before starting training
+- When I'm on the Training panel, I see a collapsible "Saved Templates" section showing template count (e.g., "Saved Templates (3)")
+- When I click "Save as Template", I see a form with auto-generated name: `{encoder}_{expansion}x_{steps}steps_{HHMM}` (e.g., "sparse_8x_10000steps_1430")
+- When I save a template, system stores: encoder type, hyperparameters (including trainingLayers array), model_id (optional), dataset_id (optional), name, description, is_favorite flag
+- When templates exist, I see template cards showing: name, description, encoder type badge, hyperparameter summary (expansion, steps), favorite star, Load/Delete buttons
+- When I click "Load" on a template, all configuration fields populate: encoder type, all hyperparameters including training layers, model (if template has model_id), dataset (if template has dataset_id)
+- When I click star icon on template, it toggles favorite status and moves to top of list
+- When I click "Delete" on template, I see confirmation: "Delete template '{name}'? This cannot be undone."
+- When I click "Export Templates", system downloads JSON file with all training templates (included in combined export with extraction templates and steering presets)
+- When I click "Import Templates", I can upload JSON file to restore templates
+- When I load a template, I can still modify individual parameters before starting training
+
+**UI Reference:** Mock-embedded-interp-ui.tsx Training Templates (lines 2285-2455)
+
+---
+
+### US-7: Train SAEs on Multiple Layers Simultaneously (Priority: P0 - MVP Enhancement)
+**As a** ML researcher
+**I want to** train sparse autoencoders on multiple transformer layers in a single training job
+**So that** I can efficiently analyze feature emergence across layers without running separate training jobs
+
+**Acceptance Criteria:**
+- When I expand "Advanced Hyperparameters", I see a "Training Layers" section with an 8-column checkbox grid
+- When model is selected, grid displays checkboxes for each layer (e.g., L0-L21 for TinyLlama with 22 layers)
+- When I click "Select All", all layer checkboxes become checked
+- When I click "Clear All", all layer checkboxes become unchecked
+- When I select multiple layers (e.g., L0, L5, L10, L15), the label updates: "Training Layers (4 selected)"
+- When I start training with multiple layers, system trains separate SAE for each selected layer using same hyperparameters
+- When training progresses, metrics aggregate across all layers (average loss, average sparsity)
+- When training completes, checkpoints include SAE states for all trained layers (directory structure: `checkpoint_{step}/layer_{idx}/encoder.pt`)
+- When I view model architecture, I see layer count dynamically (TinyLlama: 22 layers, Phi-2: 32 layers)
+- When I exceed recommended layer count (>4 on 8GB Jetson), I see warning: "Training >4 layers simultaneously may exceed available memory"
+- When template includes trainingLayers array, loading template restores layer selections
+
+**UI Reference:** Mock-embedded-interp-ui.tsx Multi-Layer Training UI (lines 2175-2236)
+
+---
+
+### SC-2: Export Training Results for Publication (Priority: P2)
+**As a** researcher preparing a publication
+**I want to** export training metrics, checkpoints, and configuration
+**So that** I can include results in papers and ensure reproducibility
+
+**Acceptance Criteria:**
+- When viewing completed training, I can click "Export Results"
+- When exporting, system creates ZIP file containing: training configuration JSON, all checkpoints, metrics CSV, training logs TXT
+- Given exported ZIP, collaborators can reproduce training by importing configuration
+- When I import configuration, all hyperparameters and settings restore exactly
 
 ---
 
@@ -221,6 +263,275 @@ This feature implements **Core Feature #3: SAE Training** from the Project PRD (
 **FR-1.15:** System SHALL calculate total_steps based on: training_steps hyperparameter
 **FR-1.16:** System SHALL assign training to available GPU (gpu_id field) and Celery worker (worker_id field)
 **FR-1.17:** System SHALL emit WebSocket event `training:created` with training metadata to connected clients
+
+---
+
+### FR-1A: Training Template Management (20 requirements)
+
+**FR-1A.1:** System SHALL provide collapsible "Saved Templates" section in Training panel below configuration form
+**FR-1A.2:** System SHALL display template count in section header (e.g., "Saved Templates (5)")
+**FR-1A.3:** System SHALL provide "Save as Template" form with fields:
+- Template name input (with auto-generated default)
+- Optional description textarea (max 500 characters)
+- "Save Template" submit button
+
+**FR-1A.4:** System SHALL auto-generate training template names with format:
+- Pattern: `{encoder}_{expansion}x_{steps}steps_{HHMM}`
+- Encoder: `sparse`, `skip`, or `transcoder`
+- Expansion: expansion factor value (e.g., 8)
+- Steps: training_steps value (e.g., 10000)
+- Timestamp: HHMM in 24-hour format (e.g., 1430 = 2:30 PM)
+- Example: `sparse_8x_10000steps_1430`
+
+**FR-1A.5:** System SHALL save training templates to `training_templates` database table with schema:
+```sql
+CREATE TABLE training_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    model_id UUID REFERENCES models(id) ON DELETE SET NULL,
+    dataset_id UUID REFERENCES datasets(id) ON DELETE SET NULL,
+    encoder_type VARCHAR(20) NOT NULL,
+    hyperparameters JSONB NOT NULL,  -- includes trainingLayers: number[]
+    is_favorite BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+**FR-1A.6:** System SHALL store complete hyperparameter configuration in JSONB field including:
+- learningRate, batchSize, l1Coefficient, expansionFactor, trainingSteps
+- trainingLayers (number[] array for multi-layer support)
+- optimizer, lrSchedule, ghostGradPenalty
+
+**FR-1A.7:** System SHALL display template list with template cards showing:
+- Template name (bold, 18px, clickable)
+- Description (if provided, text-slate-400, 14px, truncated to 150 chars)
+- Encoder type badge (bg-purple-500/20, text-purple-400)
+- Hyperparameter summary badges: "{expansion}x expansion", "{steps} steps"
+- Training layers badge (if multi-layer): "Layers {min}-{max}" or "Layer {N}"
+- Model/Dataset names (if associated): "Model: {name} • Dataset: {name}"
+- Favorite star icon (gold text-yellow-400 if true, gray text-slate-500 if false)
+- "Load" button (bg-emerald-600 hover:bg-emerald-700)
+- "Delete" button (text-red-400 hover:text-red-300)
+
+**FR-1A.8:** System SHALL implement "Load Template" action:
+- Populate encoder_type selection from template.encoder_type
+- Populate all hyperparameter inputs from template.hyperparameters
+- Restore trainingLayers array selections in layer checkbox grid
+- Set model dropdown to template.model_id (if not null and model still exists)
+- Set dataset dropdown to template.dataset_id (if not null and dataset still exists)
+- Show success toast: "Template '{name}' loaded successfully"
+- Log event: `template_loaded` with template_id
+
+**FR-1A.9:** System SHALL implement "Delete Template" action:
+- Display confirmation dialog: "Delete training template '{name}'? This action cannot be undone."
+- On confirm: Send DELETE /api/v1/templates/training/:id
+- Remove template card from UI with 300ms fade-out animation
+- Show success toast: "Template '{name}' deleted"
+- Update template count in section header
+- Log event: `template_deleted` with template_id
+
+**FR-1A.10:** System SHALL implement "Toggle Favorite" action:
+- On star icon click: Toggle is_favorite flag in database
+- Send PATCH /api/v1/templates/training/:id/favorite with { is_favorite: boolean }
+- Update star icon immediately (optimistic UI update)
+- Re-sort template list to move favorited templates to top
+- Show subtle toast: "Template marked as favorite" or "Template unfavorited"
+
+**FR-1A.11:** System SHALL sort templates by:
+1. Favorites first (is_favorite = true, ordered by updated_at DESC)
+2. Non-favorites (is_favorite = false, ordered by updated_at DESC)
+
+**FR-1A.12:** System SHALL support combined template export/import:
+- Export: POST /api/v1/templates/export returns JSON with structure:
+```json
+{
+  "version": "1.0",
+  "exported_at": "2025-10-07T12:34:56Z",
+  "training_templates": [...],
+  "extraction_templates": [...],
+  "steering_presets": [...]
+}
+```
+- Import: POST /api/v1/templates/import accepts FormData with JSON file
+- Import validates template structure and skips invalid entries with warnings
+- Import generates new UUIDs for all imported templates
+- Import preserves is_favorite flags
+
+**FR-1A.13:** System SHALL prevent duplicate template names:
+- Check for existing name before save
+- If duplicate found, append counter: `{name}_2`, `{name}_3`, etc.
+- Show warning toast: "Template name exists, saved as '{new_name}'"
+
+**FR-1A.14:** System SHALL validate template configuration before save:
+- Name must not be empty and must be ≤255 characters
+- Encoder type must be one of: 'sparse', 'skip', 'transcoder'
+- Hyperparameters JSONB must include all required fields
+- trainingLayers array must have at least 1 layer
+- If model_id provided, model must exist and status='ready'
+- If dataset_id provided, dataset must exist and status='ready'
+
+**FR-1A.15:** System SHALL provide "Export Templates" button:
+- Button label: "Export All Templates"
+- On click: Triggers combined export of all template types
+- Downloads file: `mistudio_templates_{timestamp}.json`
+- Shows success toast: "Exported {count} templates"
+
+**FR-1A.16:** System SHALL provide "Import Templates" button:
+- Button label: "Import Templates"
+- On click: Opens file picker (accept: .json)
+- Validates JSON structure before import
+- Shows progress dialog during import
+- Shows summary after import: "{count} templates imported, {errors} errors"
+- Lists any validation errors with template names
+
+**FR-1A.17:** System SHALL handle template loading edge cases:
+- If template references deleted model: Clear model_id, show warning: "Associated model no longer exists"
+- If template references deleted dataset: Clear dataset_id, show warning: "Associated dataset no longer exists"
+- If template has invalid layer indices for current model: Show error: "Template layer selections incompatible with current model architecture"
+
+**FR-1A.18:** System SHALL provide template search/filter (future enhancement):
+- Filter by encoder type
+- Filter by favorites only
+- Search by template name
+- Sort by: name, created_at, updated_at
+
+**FR-1A.19:** System SHALL log all template operations for audit:
+- template_created: {template_id, name, user_action}
+- template_loaded: {template_id, name, training_id}
+- template_deleted: {template_id, name}
+- template_exported: {count, timestamp}
+- template_imported: {count, errors, timestamp}
+
+**FR-1A.20:** System SHALL update template.updated_at timestamp on:
+- Template metadata edit (name or description change)
+- Toggle favorite status
+
+---
+
+### FR-1B: Multi-Layer Training Support (18 requirements)
+
+**FR-1B.1:** System SHALL provide "Training Layers" section within Advanced Hyperparameters with:
+- Section label: "Training Layers ({N} selected)"
+- 8-column checkbox grid
+- "Select All" button
+- "Clear All" button
+- Dynamic grid generation based on model.num_layers
+
+**FR-1B.2:** System SHALL dynamically generate layer checkboxes based on selected model's architecture:
+- Query model.num_layers from database
+- Generate checkbox grid with layers 0 to (num_layers - 1)
+- Layout: 8 columns, rows as needed
+- Example: TinyLlama (22 layers) = 3 rows, Phi-2 (32 layers) = 4 rows
+
+**FR-1B.3:** System SHALL require model architecture metadata in models table:
+```sql
+ALTER TABLE models ADD COLUMN num_layers INT;
+ALTER TABLE models ADD COLUMN hidden_dim INT;
+ALTER TABLE models ADD COLUMN num_heads INT;
+```
+
+**FR-1B.4:** System SHALL extract and store architecture metadata during model download:
+- Parse config.json for: n_layer (or num_hidden_layers), hidden_size (or n_embd), n_head (or num_attention_heads)
+- Map architecture-specific names to standard fields
+- Store in models table for fast UI generation
+
+**FR-1B.5:** System SHALL style layer checkboxes per Mock UI specification:
+- Unchecked: border-slate-700 bg-slate-900 text-slate-400
+- Checked: border-emerald-500 bg-emerald-500/20 text-emerald-400
+- Hover: border-emerald-400
+- Label format: "L{idx}" (e.g., L0, L1, L2, ...)
+
+**FR-1B.6:** System SHALL implement "Select All" action:
+- Check all layer checkboxes
+- Update trainingLayers array to [0, 1, 2, ..., num_layers-1]
+- Update label: "Training Layers ({num_layers} selected)"
+- Enable visual feedback (all checkboxes highlighted)
+
+**FR-1B.7:** System SHALL implement "Clear All" action:
+- Uncheck all layer checkboxes
+- Update trainingLayers array to empty []
+- Update label: "Training Layers (0 selected)"
+- Show validation warning if user tries to start training with 0 layers
+
+**FR-1B.8:** System SHALL validate training layer selection:
+- At least 1 layer must be selected before training can start
+- Show error message: "Please select at least one training layer"
+- Disable "Start Training" button if trainingLayers.length === 0
+
+**FR-1B.9:** System SHALL store trainingLayers array in hyperparameters JSONB field:
+```json
+{
+  "learningRate": 0.001,
+  "batchSize": 256,
+  "trainingLayers": [0, 5, 10, 15, 20],
+  ...other hyperparameters
+}
+```
+
+**FR-1B.10:** System SHALL calculate memory requirements for multi-layer training:
+- Memory per layer: hidden_size × expansion_factor × 4 bytes (FP32) × 2 (encoder + decoder)
+- Total memory: memory_per_layer × num_selected_layers + base_memory
+- Show warning if total_memory > 6GB: "Training {count} layers may exceed available memory. Recommend ≤4 layers on 8GB devices."
+
+**FR-1B.11:** System SHALL initialize separate SAE instance for each selected layer:
+```python
+saes = {}
+for layer_idx in config.hyperparameters['trainingLayers']:
+    saes[layer_idx] = SparseAutoencoder(
+        d_model=model.hidden_size,
+        d_sae=model.hidden_size * expansion_factor,
+        l1_coefficient=config.hyperparameters['l1Coefficient']
+    )
+```
+
+**FR-1B.12:** System SHALL extract activations from all selected layers during training:
+- Register forward hooks on layers specified in trainingLayers array
+- Collect activations in dictionary: {layer_idx: activations_tensor}
+- Process all layers in single forward pass for efficiency
+
+**FR-1B.13:** System SHALL train each layer's SAE independently:
+- Separate optimizer for each SAE (or shared optimizer with parameter groups)
+- Calculate loss per layer: recon_loss[layer_idx] + l1_penalty[layer_idx]
+- Aggregate losses: total_loss = sum(losses.values()) / num_layers
+
+**FR-1B.14:** System SHALL aggregate metrics across layers for display:
+- Average loss: mean(loss per layer)
+- Average L0 sparsity: mean(sparsity per layer)
+- Total dead neurons: sum(dead_neurons per layer)
+- Per-layer metrics stored in training_metrics table with layer_idx column
+
+**FR-1B.15:** System SHALL save multi-layer checkpoints with directory structure:
+```
+/data/trainings/{training_id}/checkpoints/checkpoint_{step}/
+    ├── layer_0/
+    │   ├── encoder.pt
+    │   ├── decoder.pt
+    │   └── optimizer.pt
+    ├── layer_5/
+    │   ├── encoder.pt
+    │   ├── decoder.pt
+    │   └── optimizer.pt
+    └── metadata.json  # includes trainingLayers array
+```
+
+**FR-1B.16:** System SHALL load multi-layer checkpoints on resume:
+- Parse metadata.json to get trainingLayers array
+- Load SAE state for each layer from checkpoint/{layer_idx}/ subdirectory
+- Validate checkpoint structure before loading
+- Show error if checkpoint incomplete: "Checkpoint missing states for layers: {missing_layers}"
+
+**FR-1B.17:** System SHALL display multi-layer training in UI:
+- Training card shows: "Training {count} layers: L{min}-L{max}"
+- Metrics display average across layers with tooltip showing per-layer breakdown
+- Progress bar reflects steps across all layers (same step count for all)
+
+**FR-1B.18:** System SHALL handle multi-layer training errors:
+- If OOM error during initialization: Reduce number of layers automatically and retry
+- If OOM during training: Reduce batch size for all layers
+- Log which layer caused error for debugging
+- Show user-friendly error: "GPU memory exceeded. Try training fewer layers or reducing batch size."
 
 ---
 

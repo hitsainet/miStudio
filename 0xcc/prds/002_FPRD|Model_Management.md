@@ -119,7 +119,24 @@ This feature directly enables the project's core mission of edge-based mechanist
 - After model download, model card displays actual memory usage (measured)
 - Memory estimates account for both model weights and inference overhead (~500MB)
 
-#### US-5: Delete Unused Models
+#### US-5: Save and Reuse Extraction Configuration Templates
+**As a** ML researcher
+**I want to** save my activation extraction configurations as reusable templates
+**So that** I can quickly apply the same extraction settings across different models and experiments
+
+**Acceptance Criteria:**
+- User can save current extraction configuration (layers + hook types + sampling) as a template
+- System auto-generates descriptive template name with layer range and timestamp
+- User can provide custom name and optional description
+- User can mark templates as favorites for quick access
+- User can load saved template to instantly populate all extraction fields
+- User can delete unwanted templates with confirmation
+- Templates persist across sessions in database
+- User can export all templates to JSON file for backup
+- User can import templates from JSON file
+- Templates are included in combined export with training templates and steering presets
+
+#### US-6: Delete Unused Models
 **As a** ML researcher
 **I want to** delete models I no longer need
 **So that** I can free up storage space for new models
@@ -406,6 +423,70 @@ This feature directly enables the project's core mission of edge-based mechanist
 7. **FR-4.7**: System shall queue extraction as Celery background task
 8. **FR-4.8**: System shall return job_id and extraction_id to client
 9. **FR-4.9**: System shall create database record for extraction with status "initializing"
+
+### FR-4A: Extraction Template Management
+1. **FR-4A.1**: System shall provide "Saved Templates" collapsible section within Activation Extraction modal
+2. **FR-4A.2**: System shall display template count in section header (e.g., "Saved Templates (5)")
+3. **FR-4A.3**: System shall provide "Save as Template" form with fields:
+   - Template name input (auto-generated default: `{type}_layers{min}-{max}_{samples}samples_{HHMM}`)
+   - Optional description textarea (max 500 characters)
+   - "Save Template" submit button
+4. **FR-4A.4**: System shall auto-generate template names with format:
+   - Single layer: `{activation_type}_layer{N}_{samples}samples_{HHMM}`
+   - Multiple layers: `{activation_type}_layers{min}-{max}_{samples}samples_{HHMM}`
+   - Examples: `residual_layers0-11_1000samples_1430`, `mlp_layer6_5000samples_0925`
+   - Timestamp format: HHMM (24-hour, e.g., 1430 = 2:30 PM)
+5. **FR-4A.5**: System shall save extraction templates to `extraction_templates` database table with fields:
+   - id (UUID primary key)
+   - name (VARCHAR 255, required)
+   - description (TEXT, optional)
+   - layers (INTEGER[], PostgreSQL array)
+   - hook_types (VARCHAR(50)[], array: ['residual', 'mlp', 'attention'])
+   - max_samples (INTEGER, nullable)
+   - top_k_examples (INTEGER, default 100)
+   - is_favorite (BOOLEAN, default false)
+   - created_at, updated_at (TIMESTAMP)
+6. **FR-4A.6**: System shall display template list with template cards showing:
+   - Template name (bold, clickable)
+   - Description (if provided, gray text, truncated to 100 chars)
+   - Layer range badge (e.g., "Layers 0-11" or "Layer 6")
+   - Hook types badges (e.g., "Residual", "MLP")
+   - Sample count (if specified, e.g., "1000 samples")
+   - Favorite star icon (gold if favorited, gray if not)
+   - "Load" button (emerald green)
+   - "Delete" button (red)
+7. **FR-4A.7**: System shall implement "Load Template" action:
+   - Populate layer checkboxes from template.layers array
+   - Select hook type checkboxes from template.hook_types array
+   - Set max_samples input from template.max_samples
+   - Set top_k_examples input from template.top_k_examples
+   - Show success toast: "Template '{name}' loaded"
+8. **FR-4A.8**: System shall implement "Delete Template" action:
+   - Show confirmation dialog: "Delete template '{name}'? This cannot be undone."
+   - On confirm: DELETE /api/v1/templates/extraction/:id
+   - Remove template card from UI with fade-out animation
+   - Show success toast: "Template '{name}' deleted"
+9. **FR-4A.9**: System shall implement "Toggle Favorite" action:
+   - Click star icon to toggle is_favorite flag
+   - Send PATCH /api/v1/templates/extraction/:id/favorite { is_favorite: boolean }
+   - Update star icon immediately (optimistic UI update)
+   - Move favorited templates to top of list
+10. **FR-4A.10**: System shall support template export/import:
+    - Export: POST /api/v1/templates/export (downloads combined JSON file with all template types)
+    - Import: POST /api/v1/templates/import (uploads JSON file, validates, imports all templates)
+    - Export format includes version field for future compatibility
+    - Import validates structure and skips invalid templates with warning
+11. **FR-4A.11**: System shall prevent duplicate template names:
+    - Check for existing name before save
+    - If duplicate found, suggest: "extraction_template_{name}_{counter}" (e.g., residual_layers0-11_1000samples_1430_2)
+12. **FR-4A.12**: System shall sort templates by:
+    - Favorites first (is_favorite = true)
+    - Then by updated_at DESC (most recently modified first)
+13. **FR-4A.13**: System shall validate template configuration before save:
+    - At least 1 layer must be selected
+    - At least 1 hook type must be selected
+    - Layer indices must be valid for current architecture
+    - Name must not be empty and must be ≤255 characters
 
 ### FR-5: Activation Extraction Execution
 1. **FR-5.1**: System shall implement PyTorch forward hooks for activation capture:

@@ -592,6 +592,9 @@ CREATE TABLE models (
     error_message TEXT,
     file_path VARCHAR(512),
     metadata JSONB, -- Architecture details, layer info
+    num_layers INT, -- Number of transformer layers
+    hidden_dim INT, -- Hidden dimension size
+    num_heads INT, -- Number of attention heads
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     INDEX idx_models_status (status),
@@ -606,7 +609,7 @@ CREATE TABLE trainings (
     model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
     dataset_id UUID NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
     encoder_type VARCHAR(20) NOT NULL, -- 'sparse', 'skip', 'transcoder'
-    hyperparameters JSONB NOT NULL, -- Full hyperparameter dict
+    hyperparameters JSONB NOT NULL, -- Full hyperparameter dict including trainingLayers: number[]
     status VARCHAR(20) NOT NULL, -- 'initializing', 'training', 'paused', 'stopped', 'completed', 'error'
     current_step INT DEFAULT 0,
     total_steps INT NOT NULL,
@@ -721,13 +724,14 @@ CREATE TABLE extraction_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    layers INT[], -- PostgreSQL array of layer indices
+    layers INTEGER[], -- PostgreSQL array of layer indices
     hook_types VARCHAR(50)[], -- ['residual', 'mlp', 'attention']
     max_samples INT,
     top_k_examples INT,
     is_favorite BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    updated_at TIMESTAMP DEFAULT NOW(),
+    INDEX idx_extraction_templates_favorite (is_favorite)
 );
 ```
 
@@ -739,7 +743,7 @@ CREATE TABLE steering_presets (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     features JSONB NOT NULL, -- [{"feature_id": 42, "coefficient": 3.5}, ...]
-    intervention_layer INT NOT NULL,
+    intervention_layers INTEGER[] NOT NULL, -- Array of layer indices for multi-layer steering
     temperature FLOAT DEFAULT 1.0,
     is_favorite BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW(),
@@ -922,16 +926,18 @@ POST   /api/v1/steering/generate
          model_id: string,
          prompt: string,
          features: Array<{ id: number, coefficient: number }>,
-         intervention_layer: number,
+         intervention_layers: number[], -- Multi-layer steering support
          temperature: number
        }
        Returns: 200 { unsteered_output, steered_output, metrics }
 
 GET    /api/v1/steering/presets?training_id=xxx
 POST   /api/v1/steering/presets
-       Body: SteeringPreset
+       Body: SteeringPreset (includes intervention_layers: number[])
 PUT    /api/v1/steering/presets/:id
 DELETE /api/v1/steering/presets/:id
+PATCH  /api/v1/steering/presets/:id/favorite
+       Body: { is_favorite: boolean }
 ```
 
 #### Templates
@@ -939,13 +945,25 @@ DELETE /api/v1/steering/presets/:id
 ```
 GET    /api/v1/templates/training?model_id=xxx&is_favorite=true
 POST   /api/v1/templates/training
+       Body: TrainingTemplate (includes hyperparameters with trainingLayers: number[])
 PUT    /api/v1/templates/training/:id
 DELETE /api/v1/templates/training/:id
+PATCH  /api/v1/templates/training/:id/favorite
+       Body: { is_favorite: boolean }
 
-GET    /api/v1/templates/extraction
+GET    /api/v1/templates/extraction?is_favorite=true
 POST   /api/v1/templates/extraction
+       Body: ExtractionTemplate (includes layers: number[])
 PUT    /api/v1/templates/extraction/:id
 DELETE /api/v1/templates/extraction/:id
+PATCH  /api/v1/templates/extraction/:id/favorite
+       Body: { is_favorite: boolean }
+
+POST   /api/v1/templates/export
+       Returns: JSON file with all templates and presets
+POST   /api/v1/templates/import
+       Body: FormData with JSON file
+       Returns: 201 { imported_count }
 ```
 
 #### System
@@ -1202,6 +1220,176 @@ module.exports = {
 - Text: `text-slate-100`, `text-slate-400`, `text-emerald-400`
 - Buttons: `bg-emerald-600 hover:bg-emerald-700`
 - Transitions: `transition-colors`, `transition-all duration-500`
+
+---
+
+## Template/Preset Management Architecture
+
+### Design Philosophy
+
+The template and preset system follows a consistent pattern across three distinct use cases:
+1. **Training Templates**: Reusable SAE training configurations
+2. **Extraction Templates**: Reusable activation extraction configurations
+3. **Steering Presets**: Reusable steering intervention configurations
+
+**Core Principles:**
+- **Separation of Concerns**: Each template type manages its domain-specific configuration
+- **Consistent UX Pattern**: All three systems share identical save/load/delete/favorite UI patterns
+- **Import/Export**: Combined JSON export for sharing and backup
+- **Auto-naming**: Generated names with descriptive patterns + timestamp for uniqueness
+- **Favorites**: User-flaggable templates/presets for quick access
+
+### Architecture Decision: Template/Preset Storage
+
+**Decision:** Store templates and presets in PostgreSQL with JSONB for flexible configuration storage
+
+**Rationale:**
+- **Queryability**: Can filter by model_id, training_id, is_favorite
+- **Relational Integrity**: Foreign keys ensure data consistency (e.g., steering presets reference trainings)
+- **JSONB Flexibility**: Supports evolving configuration schemas without migrations
+- **Transaction Support**: ACID guarantees for import/export operations
+- **Backup Integration**: Included in standard database backups
+
+**Alternatives Considered:**
+- ❌ **Filesystem (JSON files)**: Harder to query, no referential integrity, manual backup
+- ❌ **Redis**: No persistence guarantees, harder to query complex filters
+- ❌ **Embedded SQLite**: Complicates multi-process access
+
+### Architecture Decision: Multi-Layer Training Support
+
+**Decision:** Support training SAEs on multiple transformer layers simultaneously via `trainingLayers: number[]`
+
+**Context:**
+- Original design: Single layer training (`trainingLayer: number`)
+- New requirement: Train SAEs on multiple layers in one training job
+- Motivation: Analyze feature emergence across layers, more efficient than sequential single-layer jobs
+
+**Implementation Strategy:**
+1. **Database Schema**: Store `trainingLayers` array in JSONB hyperparameters field
+2. **Training Pipeline**:
+   - Separate SAE instance per layer
+   - Parallel forward passes during activation extraction
+   - Shared batch sampling, independent optimization per layer
+3. **Checkpoint Format**: Directory structure with sub-directories per layer
+4. **UI Pattern**: 8-column checkbox grid (Select All / Clear All)
+
+**Performance Considerations:**
+- Memory scaling: Linear with number of layers (each SAE ~100-500MB)
+- Training time: Minimal overhead vs. sequential (same data passes)
+- Maximum layers: Recommend ≤4 layers simultaneously on 8GB Jetson
+
+**Trade-offs:**
+- ✅ Faster iteration for multi-layer analysis
+- ✅ Unified training context (same data, same hyperparameters)
+- ❌ Increased memory requirements
+- ❌ More complex checkpoint management
+
+### Architecture Decision: Multi-Layer Steering Support
+
+**Decision:** Support steering interventions across multiple transformer layers simultaneously via `interventionLayers: number[]`
+
+**Context:**
+- Original design: Single intervention layer (`interventionLayer: number`)
+- New requirement: Apply steering vectors at multiple layers
+- Motivation: More powerful interventions, analyze layer interaction effects
+
+**Implementation Strategy:**
+1. **Database Schema**: Change `intervention_layer INT` to `intervention_layers INTEGER[]`
+2. **Hook Registration**: Register forward hooks at each specified layer
+3. **Steering Vector**: Same features + coefficients applied at each layer
+4. **UI Pattern**: Same 8-column checkbox grid as training layers
+
+**Steering Pipeline:**
+```python
+def apply_multi_layer_steering(model, features, coefficients, intervention_layers):
+    steering_vector = build_steering_vector(features, coefficients)
+    hooks = []
+    for layer_idx in intervention_layers:
+        hook = register_steering_hook(model, layer_idx, steering_vector)
+        hooks.append(hook)
+    return hooks
+```
+
+**Research Implications:**
+- Enables exploration of layer-wise steering effects
+- Supports cascading interventions across layers
+- Facilitates ablation studies (which layers matter most)
+
+### Architecture Decision: Model Architecture Metadata
+
+**Decision:** Store model architecture metadata (`num_layers`, `hidden_dim`, `num_heads`) as first-class fields in models table
+
+**Rationale:**
+- **UI Generation**: Dynamically generate layer selection grids based on actual layer count
+- **Validation**: Validate user selections against model architecture
+- **Display**: Show architecture details in ModelArchitectureViewer
+- **Query Performance**: Faster than parsing JSONB metadata field
+
+**Implementation:**
+- Extract from model config during download (HuggingFace `config.json`)
+- Store as dedicated columns for efficient querying
+- Also include in `metadata` JSONB for additional architecture details
+
+**UI Impact:**
+- ModelArchitectureViewer displays actual layer count dynamically
+- Training layer selector adapts to model (TinyLlama: 22 layers, Phi-2: 32 layers)
+- Steering layer selector matches model architecture
+
+### Template/Preset Export Format
+
+**Combined JSON Structure:**
+```json
+{
+  "version": "1.0",
+  "exported_at": "2025-10-05T12:34:56Z",
+  "training_templates": [
+    {
+      "name": "sparse_8x_10000steps_1430",
+      "description": "Standard sparse SAE training",
+      "encoder_type": "sparse",
+      "hyperparameters": {
+        "learningRate": 0.0001,
+        "batchSize": 256,
+        "trainingLayers": [6, 12],
+        // ... other hyperparameters
+      },
+      "is_favorite": true
+    }
+  ],
+  "extraction_templates": [
+    {
+      "name": "residual_layers0-11_1000samples_1430",
+      "description": "Full model residual extraction",
+      "layers": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      "hook_types": ["residual"],
+      "max_samples": 1000,
+      "top_k_examples": 100,
+      "is_favorite": false
+    }
+  ],
+  "steering_presets": [
+    {
+      "name": "steering_3features_layers6-12_1430",
+      "description": "Sentiment steering across middle layers",
+      "training_id": "ref_only_not_portable",
+      "features": [
+        { "feature_id": 42, "coefficient": 3.5 },
+        { "feature_id": 137, "coefficient": -2.0 },
+        { "feature_id": 89, "coefficient": 1.5 }
+      ],
+      "intervention_layers": [6, 8, 10, 12],
+      "temperature": 1.0,
+      "is_favorite": true
+    }
+  ]
+}
+```
+
+**Import Behavior:**
+- Skip steering presets if referenced training_id doesn't exist (show warning)
+- Generate new UUIDs for all templates/presets
+- Preserve is_favorite flags
+- Validate all configurations before import (atomic transaction)
 
 ---
 
@@ -2019,6 +2207,11 @@ Closes #123
 | Docker Compose | 2025-10-05 | Consistency, easy setup, portable |
 | PyTorch + HuggingFace | 2025-10-05 | Industry standard, edge support, best ecosystem |
 | Nginx reverse proxy | 2025-10-05 | Single entry point, HTTPS termination, rate limiting, production-ready |
+| Template/Preset in PostgreSQL | 2025-10-07 | Queryability, referential integrity, ACID transactions |
+| Multi-layer training support | 2025-10-07 | Efficient multi-layer analysis, unified training context |
+| Multi-layer steering support | 2025-10-07 | More powerful interventions, layer interaction studies |
+| Model architecture metadata | 2025-10-07 | Dynamic UI generation, validation, better UX |
+| Combined export/import | 2025-10-07 | Simplify backup/sharing, atomic import, version control |
 
 ### Open Questions
 
@@ -2137,6 +2330,9 @@ Closes #123
 - Time-series metrics in dedicated tables with indexes
 - Partitioned tables for large data (feature_activations)
 - Foreign keys with CASCADE for data integrity
+- Template/preset tables with favorite flags and JSONB configuration storage
+- Model architecture metadata (num_layers, hidden_dim, num_heads) as first-class fields
+- Array fields for multi-layer support (trainingLayers, intervention_layers)
 
 ### Edge Optimization
 

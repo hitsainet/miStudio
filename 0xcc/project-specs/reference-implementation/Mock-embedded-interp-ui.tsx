@@ -351,6 +351,11 @@ interface Model {
   status: 'downloading' | 'loading' | 'ready' | 'error';
   progress?: number; // 0-100, present during downloading
   error?: string; // Error message if status is 'error'
+  architecture?: {
+    num_layers: number; // Number of transformer blocks
+    hidden_dim: number; // Hidden dimension size
+    num_heads: number; // Number of attention heads
+  };
 }
 
 /**
@@ -369,6 +374,7 @@ interface Hyperparameters {
   l1Coefficient: number;
   expansionFactor: number;
   trainingSteps: number;
+  trainingLayers: number[]; // Which model layers to train SAEs on (supports multi-layer training)
   optimizer: 'AdamW' | 'Adam' | 'SGD';
   lrSchedule: 'constant' | 'cosine' | 'linear' | 'exponential';
   ghostGradPenalty: boolean; // Enable ghost gradient penalty for dead neurons
@@ -564,16 +570,17 @@ interface DistributionBucket {
  *
  * Backend API Contract:
  * - POST /api/steering/generate - Generate steered output
- *   Body: { modelId, prompt, features: Array<{id, coefficient}>, interventionLayer, temperature }
+ *   Body: { modelId, prompt, features: Array<{id, coefficient}>, interventionLayers: number[], temperature }
  * - Response: { unsteeredOutput, steeredOutput, metrics }
  *
- * Steering applies feature vectors to model activations at specified layer
+ * Steering applies feature vectors to model activations at specified layers
  * Coefficients typically range from -5.0 to +5.0
+ * Multi-layer steering applies interventions across multiple transformer layers simultaneously
  */
 interface SteeringConfig {
   selectedFeatures: Feature[];
   coefficients: Record<number, number>; // featureId -> coefficient
-  interventionLayer: number; // Which transformer layer to intervene at
+  interventionLayers: number[]; // Which transformer layers to intervene at (supports multi-layer steering)
   temperature: number; // Sampling temperature (0.1-2.0)
 }
 
@@ -663,7 +670,7 @@ interface SteeringPreset {
   name: string;
   description?: string;
   features: Array<{ feature_id: number; coefficient: number }>;
-  intervention_layer: number;
+  intervention_layers: number[]; // Which transformer layers to intervene at (supports multi-layer steering)
   temperature: number;
   is_favorite: boolean;
   created_at: string;
@@ -688,6 +695,7 @@ export default function EmbeddedInterpretabilityUI() {
       l1Coefficient: 1e-3,
       expansionFactor: 8,
       trainingSteps: 10000,
+      trainingLayers: [6],
       optimizer: 'AdamW',
       lrSchedule: 'cosine',
       ghostGradPenalty: true
@@ -764,9 +772,33 @@ export default function EmbeddedInterpretabilityUI() {
 
   const loadModels = async () => {
     setModels([
-      { id: 'm1', name: 'TinyLlama-1.1B', params: '1.1B', quantized: 'Q4', memReq: '1.2GB', status: 'ready' },
-      { id: 'm2', name: 'Phi-2', params: '2.7B', quantized: 'Q4', memReq: '2.1GB', status: 'ready' },
-      { id: 'm3', name: 'SmolLM-135M', params: '135M', quantized: 'FP16', memReq: '270MB', status: 'ready' }
+      {
+        id: 'm1',
+        name: 'TinyLlama-1.1B',
+        params: '1.1B',
+        quantized: 'Q4',
+        memReq: '1.2GB',
+        status: 'ready',
+        architecture: { num_layers: 22, hidden_dim: 2048, num_heads: 32 }
+      },
+      {
+        id: 'm2',
+        name: 'Phi-2',
+        params: '2.7B',
+        quantized: 'Q4',
+        memReq: '2.1GB',
+        status: 'ready',
+        architecture: { num_layers: 32, hidden_dim: 2560, num_heads: 32 }
+      },
+      {
+        id: 'm3',
+        name: 'SmolLM-135M',
+        params: '135M',
+        quantized: 'FP16',
+        memReq: '270MB',
+        status: 'ready',
+        architecture: { num_layers: 12, hidden_dim: 768, num_heads: 12 }
+      }
     ]);
   };
 
@@ -786,6 +818,7 @@ export default function EmbeddedInterpretabilityUI() {
           l1Coefficient: 5e-4,
           expansionFactor: 4,
           trainingSteps: 5000,
+          trainingLayers: [6],
           optimizer: 'AdamW',
           lrSchedule: 'constant',
           ghostGradPenalty: false
@@ -807,6 +840,7 @@ export default function EmbeddedInterpretabilityUI() {
           l1Coefficient: 1e-3,
           expansionFactor: 8,
           trainingSteps: 10000,
+          trainingLayers: [6, 12, 18],
           optimizer: 'AdamW',
           lrSchedule: 'cosine',
           ghostGradPenalty: true
@@ -828,6 +862,7 @@ export default function EmbeddedInterpretabilityUI() {
           l1Coefficient: 2e-3,
           expansionFactor: 16,
           trainingSteps: 20000,
+          trainingLayers: [10],
           optimizer: 'AdamW',
           lrSchedule: 'linear',
           ghostGradPenalty: true
@@ -878,7 +913,7 @@ export default function EmbeddedInterpretabilityUI() {
           { feature_id: 128, coefficient: 2.0 },
           { feature_id: 456, coefficient: 1.5 }
         ],
-        intervention_layer: 6,
+        intervention_layers: [6],
         temperature: 1.0,
         is_favorite: true,
         created_at: '2025-01-01T10:00:00Z',
@@ -893,7 +928,7 @@ export default function EmbeddedInterpretabilityUI() {
           { feature_id: 89, coefficient: 4.0 },
           { feature_id: 234, coefficient: 2.5 }
         ],
-        intervention_layer: 8,
+        intervention_layers: [8, 12],
         temperature: 0.8,
         is_favorite: false,
         created_at: '2025-01-02T14:00:00Z',
@@ -1019,8 +1054,8 @@ export default function EmbeddedInterpretabilityUI() {
         if (m.id === newModel.id && m.status === 'quantizing') {
           clearInterval(progressInterval);
           setTimeout(() => {
-            setModels(prev => prev.map(model => 
-              model.id === newModel.id 
+            setModels(prev => prev.map(model =>
+              model.id === newModel.id
                 ? { ...model, status: 'ready', memReq: '1.5GB', params: '1.3B' }
                 : model
             ));
@@ -1029,6 +1064,147 @@ export default function EmbeddedInterpretabilityUI() {
         return m;
       }));
     }, 500);
+  };
+
+  // Template Management Functions
+  const saveAsTemplate = (name: string, description: string = '') => {
+    const newTemplate: TrainingTemplate = {
+      id: `tmpl_${Date.now()}`,
+      name,
+      description,
+      model_id: selectedConfig.model || null,
+      dataset_id: selectedConfig.dataset || null,
+      encoder_type: selectedConfig.encoderType as 'sparse' | 'skip' | 'transcoder',
+      hyperparameters: { ...selectedConfig.hyperparameters },
+      is_favorite: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    setTrainingTemplates(prev => [...prev, newTemplate]);
+    return newTemplate;
+  };
+
+  const loadTemplate = (templateId: string) => {
+    const template = trainingTemplates.find(t => t.id === templateId);
+    if (!template) return;
+
+    setSelectedConfig({
+      model: template.model_id || '',
+      dataset: template.dataset_id || '',
+      encoderType: template.encoder_type,
+      hyperparameters: { ...template.hyperparameters }
+    });
+  };
+
+  const deleteTemplate = (templateId: string) => {
+    setTrainingTemplates(prev => prev.filter(t => t.id !== templateId));
+  };
+
+  const toggleTemplateFavorite = (templateId: string) => {
+    setTrainingTemplates(prev => prev.map(t =>
+      t.id === templateId ? { ...t, is_favorite: !t.is_favorite } : t
+    ));
+  };
+
+  const exportTemplates = () => {
+    const exportData = {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      training_templates: trainingTemplates,
+      extraction_templates: extractionTemplates,
+      steering_presets: steeringPresets
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `miStudio-templates-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const importTemplates = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importData = JSON.parse(e.target?.result as string);
+
+        if (importData.training_templates) {
+          setTrainingTemplates(prev => [...prev, ...importData.training_templates]);
+        }
+        if (importData.extraction_templates) {
+          setExtractionTemplates(prev => [...prev, ...importData.extraction_templates]);
+        }
+        if (importData.steering_presets) {
+          setSteeringPresets(prev => [...prev, ...importData.steering_presets]);
+        }
+
+        alert(`Successfully imported ${importData.training_templates?.length || 0} training templates, ${importData.extraction_templates?.length || 0} extraction templates, and ${importData.steering_presets?.length || 0} steering presets.`);
+      } catch (error) {
+        alert('Error importing templates: Invalid file format');
+        console.error('Import error:', error);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Extraction Template Management Functions
+  const saveAsExtractionTemplate = (name: string, description: string, config: any) => {
+    const newTemplate: ExtractionTemplate = {
+      id: `ext_tmpl_${Date.now()}`,
+      name,
+      description,
+      layers: config.layers || [],
+      hook_types: config.hook_types || ['residual'],
+      max_samples: config.max_samples,
+      top_k_examples: config.top_k_examples || 100,
+      is_favorite: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    setExtractionTemplates(prev => [...prev, newTemplate]);
+    return newTemplate;
+  };
+
+  const deleteExtractionTemplate = (templateId: string) => {
+    setExtractionTemplates(prev => prev.filter(t => t.id !== templateId));
+  };
+
+  const toggleExtractionTemplateFavorite = (templateId: string) => {
+    setExtractionTemplates(prev => prev.map(t =>
+      t.id === templateId ? { ...t, is_favorite: !t.is_favorite } : t
+    ));
+  };
+
+  // Steering Preset Management Functions
+  const saveAsSteeringPreset = (name: string, description: string, config: any) => {
+    const newPreset: SteeringPreset = {
+      id: `steer_${Date.now()}`,
+      training_id: config.training_id || '',
+      name,
+      description,
+      features: config.features || [],
+      intervention_layers: config.intervention_layers || [6],
+      temperature: config.temperature || 1.0,
+      is_favorite: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    setSteeringPresets(prev => [...prev, newPreset]);
+    return newPreset;
+  };
+
+  const deleteSteeringPreset = (presetId: string) => {
+    setSteeringPresets(prev => prev.filter(p => p.id !== presetId));
+  };
+
+  const toggleSteeringPresetFavorite = (presetId: string) => {
+    setSteeringPresets(prev => prev.map(p =>
+      p.id === presetId ? { ...p, is_favorite: !p.is_favorite } : p
+    ));
   };
 
   return (
@@ -1080,7 +1256,14 @@ export default function EmbeddedInterpretabilityUI() {
           <DatasetsPanel datasets={datasets} onDownload={downloadFromHF} />
         )}
         {activeTab === 'models' && (
-          <ModelsPanel models={models} onDownloadModel={downloadModel} />
+          <ModelsPanel
+            models={models}
+            onDownloadModel={downloadModel}
+            extractionTemplates={extractionTemplates}
+            onSaveExtractionTemplate={saveAsExtractionTemplate}
+            onDeleteExtractionTemplate={deleteExtractionTemplate}
+            onToggleExtractionFavorite={toggleExtractionTemplateFavorite}
+          />
         )}
         {activeTab === 'training' && (
           <TrainingPanel
@@ -1091,13 +1274,27 @@ export default function EmbeddedInterpretabilityUI() {
             setSelectedConfig={setSelectedConfig}
             onStartTraining={startTraining}
             checkpoints={checkpoints}
+            trainingTemplates={trainingTemplates}
+            onSaveAsTemplate={saveAsTemplate}
+            onLoadTemplate={loadTemplate}
+            onDeleteTemplate={deleteTemplate}
+            onToggleFavorite={toggleTemplateFavorite}
+            onExportTemplates={exportTemplates}
+            onImportTemplates={importTemplates}
           />
         )}
         {activeTab === 'features' && (
           <FeaturesPanel trainings={trainings} />
         )}
         {activeTab === 'steering' && (
-          <SteeringPanel models={models} />
+          <SteeringPanel
+            models={models}
+            trainings={trainings}
+            steeringPresets={steeringPresets}
+            onSavePreset={saveAsSteeringPreset}
+            onDeletePreset={deleteSteeringPreset}
+            onTogglePresetFavorite={toggleSteeringPresetFavorite}
+          />
         )}
       </main>
     </div>
@@ -1202,7 +1399,14 @@ function DatasetsPanel({ datasets, onDownload }) {
 }
 
 // Models Panel Component
-function ModelsPanel({ models, onDownloadModel }) {
+function ModelsPanel({
+  models,
+  onDownloadModel,
+  extractionTemplates,
+  onSaveExtractionTemplate,
+  onDeleteExtractionTemplate,
+  onToggleExtractionFavorite
+}) {
   const [hfModelRepo, setHfModelRepo] = useState('');
   const [quantization, setQuantization] = useState('Q4');
   const [accessToken, setAccessToken] = useState('');
@@ -1336,7 +1540,13 @@ function ModelsPanel({ models, onDownloadModel }) {
       )}
 
       {showExtractionConfig && (
-        <ActivationExtractionConfig onClose={() => setShowExtractionConfig(false)} />
+        <ActivationExtractionConfig
+          onClose={() => setShowExtractionConfig(false)}
+          extractionTemplates={extractionTemplates}
+          onSaveTemplate={onSaveExtractionTemplate}
+          onDeleteTemplate={onDeleteExtractionTemplate}
+          onToggleFavorite={onToggleExtractionFavorite}
+        />
       )}
     </div>
   );
@@ -1344,16 +1554,22 @@ function ModelsPanel({ models, onDownloadModel }) {
 
 // Model Architecture Viewer Modal
 function ModelArchitectureViewer({ model, onClose }) {
-  // Mock model architecture data
+  // Generate model architecture data from model.architecture
+  const numLayers = model.architecture?.num_layers || 12;
+  const hiddenDim = model.architecture?.hidden_dim || 768;
+  const numHeads = model.architecture?.num_heads || 12;
+  const headDim = Math.floor(hiddenDim / numHeads);
+  const mlpDim = hiddenDim * 4;
+
   const modelLayers = [
-    { type: 'Embedding', size: '50257 × 768' },
-    ...Array.from({ length: 12 }, (_, i) => ({
+    { type: 'Embedding', size: `50257 × ${hiddenDim}` },
+    ...Array.from({ length: numLayers }, (_, i) => ({
       type: `TransformerBlock_${i}`,
-      attention: '12 heads × 64 dims',
-      mlp: '768 → 3072 → 768'
+      attention: `${numHeads} heads × ${headDim} dims`,
+      mlp: `${hiddenDim} → ${mlpDim} → ${hiddenDim}`
     })),
-    { type: 'LayerNorm', size: '768' },
-    { type: 'Output', size: '768 × 50257' }
+    { type: 'LayerNorm', size: `${hiddenDim}` },
+    { type: 'Output', size: `${hiddenDim} × 50257` }
   ];
 
   return (
@@ -1383,11 +1599,11 @@ function ModelArchitectureViewer({ model, onClose }) {
             </div>
             <div className="bg-slate-800/50 p-4 rounded-lg">
               <div className="text-sm text-slate-400 mb-1">Hidden Dimension</div>
-              <div className="text-2xl font-semibold text-purple-400">768</div>
+              <div className="text-2xl font-semibold text-purple-400">{hiddenDim}</div>
             </div>
             <div className="bg-slate-800/50 p-4 rounded-lg">
               <div className="text-sm text-slate-400 mb-1">Attention Heads</div>
-              <div className="text-2xl font-semibold text-blue-400">12</div>
+              <div className="text-2xl font-semibold text-blue-400">{numHeads}</div>
             </div>
             <div className="bg-slate-800/50 p-4 rounded-lg">
               <div className="text-sm text-slate-400 mb-1">Parameters</div>
@@ -1437,7 +1653,13 @@ function ModelArchitectureViewer({ model, onClose }) {
 }
 
 // Activation Extraction Configuration Modal
-function ActivationExtractionConfig({ onClose }) {
+function ActivationExtractionConfig({
+  onClose,
+  extractionTemplates,
+  onSaveTemplate,
+  onDeleteTemplate,
+  onToggleFavorite
+}) {
   const [selectedDataset, setSelectedDataset] = useState('ds1');
   const [selectedLayers, setSelectedLayers] = useState([0, 5, 11]);
   const [activationType, setActivationType] = useState('residual');
@@ -1445,6 +1667,10 @@ function ActivationExtractionConfig({ onClose }) {
   const [maxSamples, setMaxSamples] = useState(1000);
   const [extracting, setExtracting] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateDesc, setNewTemplateDesc] = useState('');
 
   const datasets = [
     { id: 'ds1', name: 'OpenWebText-10K', samples: 10000 },
@@ -1460,6 +1686,17 @@ function ActivationExtractionConfig({ onClose }) {
     } else {
       setSelectedLayers([...selectedLayers, layer].sort((a: number, b: number) => a - b));
     }
+  };
+
+  const loadTemplate = (templateId: string) => {
+    const template = extractionTemplates.find((t: any) => t.id === templateId);
+    if (!template) return;
+
+    setSelectedLayers(template.layers);
+    setMaxSamples(template.max_samples || 1000);
+    // Note: activationType would need to be derived from hook_types
+    setActivationType(template.hook_types[0] === 'residual' ? 'residual' :
+                     template.hook_types[0] === 'mlp' ? 'mlp' : 'attention');
   };
 
   const startExtraction = async () => {
@@ -1607,6 +1844,166 @@ function ActivationExtractionConfig({ onClose }) {
               </div>
             </div>
           )}
+
+          {/* Extraction Templates Section */}
+          <div className="border-t border-slate-700 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowTemplates(!showTemplates)}
+              className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg flex items-center justify-between transition-colors"
+            >
+              <span className="font-medium">Extraction Templates ({extractionTemplates.length})</span>
+              <svg className={`w-5 h-5 transition-transform ${showTemplates ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {showTemplates && (
+              <div className="mt-4 space-y-3">
+                {/* Template Actions */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Generate default name based on extraction config
+                    const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(':', '');
+                    const layerRange = selectedLayers.length > 0
+                      ? `layers${Math.min(...selectedLayers)}-${Math.max(...selectedLayers)}`
+                      : 'no-layers';
+                    const defaultName = `${activationType}_${layerRange}_${maxSamples}samples_${timestamp}`;
+                    setNewTemplateName(defaultName);
+                    setShowSaveDialog(true);
+                  }}
+                  className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                  </svg>
+                  Save Current Config
+                </button>
+
+                {/* Save Template Dialog */}
+                {showSaveDialog && (
+                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 space-y-3">
+                    <h4 className="font-medium text-sm">Save Extraction Configuration</h4>
+                    <input
+                      type="text"
+                      placeholder="Template name..."
+                      value={newTemplateName}
+                      onChange={(e) => setNewTemplateName(e.target.value)}
+                      className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Description (optional)..."
+                      value={newTemplateDesc}
+                      onChange={(e) => setNewTemplateDesc(e.target.value)}
+                      className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (newTemplateName.trim()) {
+                            onSaveTemplate(newTemplateName, newTemplateDesc, {
+                              layers: selectedLayers,
+                              hook_types: [activationType],
+                              max_samples: maxSamples,
+                              top_k_examples: 100
+                            });
+                            setNewTemplateName('');
+                            setNewTemplateDesc('');
+                            setShowSaveDialog(false);
+                          }
+                        }}
+                        disabled={!newTemplateName.trim()}
+                        className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Save Template
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSaveDialog(false);
+                          setNewTemplateName('');
+                          setNewTemplateDesc('');
+                        }}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Template List */}
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {extractionTemplates.length === 0 ? (
+                    <div className="text-center py-4 text-slate-500 text-xs">
+                      No templates saved yet
+                    </div>
+                  ) : (
+                    extractionTemplates
+                      .sort((a: any, b: any) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0))
+                      .map((template: any) => (
+                        <div
+                          key={template.id}
+                          className="bg-slate-800/30 border border-slate-700 rounded-lg p-2 hover:border-slate-600 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleFavorite(template.id)}
+                                  className="text-slate-400 hover:text-yellow-400 transition-colors"
+                                >
+                                  <Star className={`w-3 h-3 ${template.is_favorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+                                </button>
+                                <h5 className="font-medium text-xs truncate">{template.name}</h5>
+                              </div>
+                              {template.description && (
+                                <p className="text-xs text-slate-400 mt-1 line-clamp-1">{template.description}</p>
+                              )}
+                              <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                                <span>{template.layers.length} layers</span>
+                                <span>•</span>
+                                <span>{template.hook_types.join(', ')}</span>
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <button
+                                type="button"
+                                onClick={() => loadTemplate(template.id)}
+                                className="p-1 bg-emerald-600 hover:bg-emerald-700 rounded text-xs transition-colors"
+                                title="Load template"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Delete template "${template.name}"?`)) {
+                                    onDeleteTemplate(template.id);
+                                  }
+                                }}
+                                className="p-1 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
+                                title="Delete template"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="border-t border-slate-800 p-6">
@@ -1624,10 +2021,29 @@ function ActivationExtractionConfig({ onClose }) {
   );
 }
 
-// Training Panel Component - WITH ADVANCED HYPERPARAMETERS
-function TrainingPanel({ trainings, models, datasets, selectedConfig, setSelectedConfig, onStartTraining, checkpoints }) {
+// Training Panel Component - WITH ADVANCED HYPERPARAMETERS AND TEMPLATES
+function TrainingPanel({
+  trainings,
+  models,
+  datasets,
+  selectedConfig,
+  setSelectedConfig,
+  onStartTraining,
+  checkpoints,
+  trainingTemplates,
+  onSaveAsTemplate,
+  onLoadTemplate,
+  onDeleteTemplate,
+  onToggleFavorite,
+  onExportTemplates,
+  onImportTemplates
+}) {
   const readyDatasets = datasets.filter((d: any) => d.status === 'ready');
   const [showAdvancedConfig, setShowAdvancedConfig] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateDesc, setNewTemplateDesc] = useState('');
 
   const updateHyperparameter = (key: string, value: any) => {
     setSelectedConfig({
@@ -1767,6 +2183,68 @@ function TrainingPanel({ trainings, models, datasets, selectedConfig, setSelecte
                   className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
                 />
               </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Training Layers ({selectedConfig.hyperparameters.trainingLayers.length} selected)
+                </label>
+                <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 max-h-40 overflow-y-auto">
+                  {(() => {
+                    const selectedModel = models.find((m: any) => m.id === selectedConfig.model);
+                    const numLayers = selectedModel?.architecture?.num_layers || 32;
+                    const layers = Array.from({ length: numLayers }, (_, i) => i);
+
+                    return (
+                      <>
+                        <div className="flex gap-2 mb-3">
+                          <button
+                            type="button"
+                            onClick={() => updateHyperparameter('trainingLayers', layers)}
+                            className="px-3 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded text-xs transition-colors"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateHyperparameter('trainingLayers', [])}
+                            className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-8 gap-2">
+                          {layers.map((layer) => (
+                            <label
+                              key={layer}
+                              className={`flex items-center justify-center px-2 py-1 rounded cursor-pointer transition-colors ${
+                                selectedConfig.hyperparameters.trainingLayers.includes(layer)
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedConfig.hyperparameters.trainingLayers.includes(layer)}
+                                onChange={(e) => {
+                                  const current = selectedConfig.hyperparameters.trainingLayers;
+                                  const updated = e.target.checked
+                                    ? [...current, layer].sort((a, b) => a - b)
+                                    : current.filter((l) => l !== layer);
+                                  updateHyperparameter('trainingLayers', updated);
+                                }}
+                                className="sr-only"
+                              />
+                              <span className="text-xs font-medium">{layer}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                {!selectedConfig.model && (
+                  <p className="text-xs text-slate-500 mt-2">Select a model to see available layers</p>
+                )}
+              </div>
               <div>
                 <label htmlFor="hyperparam-optimizer" className="block text-sm font-medium text-slate-300 mb-2">Optimizer</label>
                 <select
@@ -1812,7 +2290,191 @@ function TrainingPanel({ trainings, models, datasets, selectedConfig, setSelecte
             </div>
           </div>
         )}
-        
+
+        {/* Training Templates Section */}
+        <div className="border-t border-slate-700 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowTemplates(!showTemplates)}
+            className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg flex items-center justify-between transition-colors"
+          >
+            <span className="font-medium">Training Templates ({trainingTemplates.length})</span>
+            <svg className={`w-5 h-5 transition-transform ${showTemplates ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showTemplates && (
+            <div className="mt-4 space-y-3">
+              {/* Template Actions */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Generate default name based on hyperparameters
+                    const hp = selectedConfig.hyperparameters;
+                    const encoder = selectedConfig.encoderType;
+                    const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(':', '');
+                    const defaultName = `${encoder}_${hp.expansionFactor}x_${hp.trainingSteps}steps_${timestamp}`;
+                    setNewTemplateName(defaultName);
+                    setShowSaveDialog(true);
+                  }}
+                  className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                  </svg>
+                  Save Current Config
+                </button>
+                <button
+                  type="button"
+                  onClick={onExportTemplates}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <label className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  Import
+                  <input
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        onImportTemplates(file);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Save Template Dialog */}
+              {showSaveDialog && (
+                <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 space-y-3">
+                  <h4 className="font-medium">Save Configuration as Template</h4>
+                  <input
+                    type="text"
+                    placeholder="Template name..."
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Description (optional)..."
+                    value={newTemplateDesc}
+                    onChange={(e) => setNewTemplateDesc(e.target.value)}
+                    className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newTemplateName.trim()) {
+                          onSaveAsTemplate(newTemplateName, newTemplateDesc);
+                          setNewTemplateName('');
+                          setNewTemplateDesc('');
+                          setShowSaveDialog(false);
+                        }
+                      }}
+                      disabled={!newTemplateName.trim()}
+                      className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Save Template
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSaveDialog(false);
+                        setNewTemplateName('');
+                        setNewTemplateDesc('');
+                      }}
+                      className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Template List */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {trainingTemplates.length === 0 ? (
+                  <div className="text-center py-4 text-slate-500 text-sm">
+                    No templates saved yet
+                  </div>
+                ) : (
+                  trainingTemplates
+                    .sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0))
+                    .map((template) => (
+                      <div
+                        key={template.id}
+                        className="bg-slate-800/30 border border-slate-700 rounded-lg p-3 hover:border-slate-600 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => onToggleFavorite(template.id)}
+                                className="text-slate-400 hover:text-yellow-400 transition-colors"
+                              >
+                                <Star className={`w-4 h-4 ${template.is_favorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+                              </button>
+                              <h5 className="font-medium text-sm truncate">{template.name}</h5>
+                            </div>
+                            {template.description && (
+                              <p className="text-xs text-slate-400 mt-1 line-clamp-1">{template.description}</p>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                              <span>{template.encoder_type}</span>
+                              <span>•</span>
+                              <span>LR: {template.hyperparameters.learningRate}</span>
+                              <span>•</span>
+                              <span>{template.hyperparameters.expansionFactor}x expansion</span>
+                            </div>
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => onLoadTemplate(template.id)}
+                              className="p-1.5 bg-emerald-600 hover:bg-emerald-700 rounded text-xs transition-colors"
+                              title="Load template"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`Delete template "${template.name}"?`)) {
+                                  onDeleteTemplate(template.id);
+                                }
+                              }}
+                              className="p-1.5 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
+                              title="Delete template"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={onStartTraining}
@@ -3509,12 +4171,20 @@ function DatasetStatistics({ dataset: _dataset }) {
 }
 
 // Steering Panel Component
-function SteeringPanel({ models }) {
+function SteeringPanel({
+  models,
+  trainings,
+  steeringPresets,
+  onSavePreset,
+  onDeletePreset,
+  onTogglePresetFavorite
+}) {
+  const [selectedTraining, setSelectedTraining] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState([]);
   const [steeringCoefficients, setSteeringCoefficients] = useState({});
   const [prompt, setPrompt] = useState('');
-  const [interventionLayer, setInterventionLayer] = useState(12);
+  const [interventionLayers, setInterventionLayers] = useState([12]);
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(100);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -3522,6 +4192,10 @@ function SteeringPanel({ models }) {
   const [steeredOutput, setSteeredOutput] = useState('');
   const [featureSearch, setFeatureSearch] = useState('');
   const [comparisonMetrics, setComparisonMetrics] = useState(null);
+  const [showPresets, setShowPresets] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetDesc, setNewPresetDesc] = useState('');
 
   const mockFeatures = [
     { id: 1, label: 'Sentiment Positive' },
@@ -3532,6 +4206,7 @@ function SteeringPanel({ models }) {
   ];
 
   const readyModels = models.filter((m: any) => m.status === 'ready');
+  const completedTrainings = trainings.filter((t: any) => t.status === 'completed');
 
   const addFeatureToSteering = (feature: any) => {
     if (!selectedFeatures.find(f => f.id === feature.id)) {
@@ -3573,9 +4248,205 @@ function SteeringPanel({ models }) {
     f.label.toLowerCase().includes(featureSearch.toLowerCase())
   );
 
+  const loadPreset = (presetId: string) => {
+    const preset = steeringPresets.find((p: any) => p.id === presetId);
+    if (!preset) return;
+
+    // Load the preset configuration
+    setSelectedTraining(preset.training_id);
+    setInterventionLayers(preset.intervention_layers);
+    setTemperature(preset.temperature);
+
+    // Load features and coefficients
+    const newFeatures = preset.features.map((f: any) => ({
+      id: f.feature_id,
+      label: `Feature ${f.feature_id}` // In real app, this would come from features list
+    }));
+    setSelectedFeatures(newFeatures);
+
+    const newCoeffs = {};
+    preset.features.forEach((f: any) => {
+      newCoeffs[f.feature_id] = f.coefficient;
+    });
+    setSteeringCoefficients(newCoeffs);
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Model Steering</h2>
+
+      {/* Steering Presets Section */}
+      <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+        <button
+          type="button"
+          onClick={() => setShowPresets(!showPresets)}
+          className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg flex items-center justify-between transition-colors"
+        >
+          <span className="font-medium">Steering Presets ({steeringPresets.length})</span>
+          <svg className={`w-5 h-5 transition-transform ${showPresets ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {showPresets && (
+          <div className="mt-4 space-y-3">
+            {/* Preset Actions */}
+            <button
+              type="button"
+              onClick={() => {
+                // Generate default name based on steering config
+                const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(':', '');
+                const featureCount = selectedFeatures.length;
+                const layerRange = interventionLayers.length > 0
+                  ? (interventionLayers.length === 1
+                      ? `layer${interventionLayers[0]}`
+                      : `layers${Math.min(...interventionLayers)}-${Math.max(...interventionLayers)}`)
+                  : 'no-layers';
+                const defaultName = `steering_${featureCount}features_${layerRange}_${timestamp}`;
+                setNewPresetName(defaultName);
+                setShowSaveDialog(true);
+              }}
+              disabled={selectedFeatures.length === 0}
+              className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+              Save Current Preset
+            </button>
+
+            {/* Save Preset Dialog */}
+            {showSaveDialog && (
+              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 space-y-3">
+                <h4 className="font-medium text-sm">Save Steering Preset</h4>
+                <input
+                  type="text"
+                  placeholder="Preset name..."
+                  value={newPresetName}
+                  onChange={(e) => setNewPresetName(e.target.value)}
+                  className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Description (optional)..."
+                  value={newPresetDesc}
+                  onChange={(e) => setNewPresetDesc(e.target.value)}
+                  className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newPresetName.trim()) {
+                        onSavePreset(newPresetName, newPresetDesc, {
+                          training_id: selectedTraining,
+                          features: selectedFeatures.map((f: any) => ({
+                            feature_id: f.id,
+                            coefficient: steeringCoefficients[f.id] || 0.0
+                          })),
+                          intervention_layers: interventionLayers,
+                          temperature
+                        });
+                        setNewPresetName('');
+                        setNewPresetDesc('');
+                        setShowSaveDialog(false);
+                      }
+                    }}
+                    disabled={!newPresetName.trim()}
+                    className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Save Preset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSaveDialog(false);
+                      setNewPresetName('');
+                      setNewPresetDesc('');
+                    }}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Preset List */}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {steeringPresets.length === 0 ? (
+                <div className="text-center py-4 text-slate-500 text-sm">
+                  No presets saved yet
+                </div>
+              ) : (
+                steeringPresets
+                  .sort((a: any, b: any) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0))
+                  .map((preset: any) => (
+                    <div
+                      key={preset.id}
+                      className="bg-slate-800/30 border border-slate-700 rounded-lg p-3 hover:border-slate-600 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => onTogglePresetFavorite(preset.id)}
+                              className="text-slate-400 hover:text-yellow-400 transition-colors"
+                            >
+                              <Star className={`w-4 h-4 ${preset.is_favorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+                            </button>
+                            <h5 className="font-medium text-sm truncate">{preset.name}</h5>
+                          </div>
+                          {preset.description && (
+                            <p className="text-xs text-slate-400 mt-1 line-clamp-1">{preset.description}</p>
+                          )}
+                          <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                            <span>{preset.features.length} features</span>
+                            <span>•</span>
+                            <span>
+                              {preset.intervention_layers.length === 1
+                                ? `Layer ${preset.intervention_layers[0]}`
+                                : `Layers ${Math.min(...preset.intervention_layers)}-${Math.max(...preset.intervention_layers)}`}
+                            </span>
+                            <span>•</span>
+                            <span>T: {preset.temperature}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => loadPreset(preset.id)}
+                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 rounded text-xs transition-colors"
+                            title="Load preset"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Delete preset "${preset.name}"?`)) {
+                                onDeletePreset(preset.id);
+                              }
+                            }}
+                            className="p-1.5 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
+                            title="Delete preset"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-6">
         {/* Feature Selection Panel */}
@@ -3711,10 +4582,40 @@ function SteeringPanel({ models }) {
           <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6 space-y-4">
             <h3 className="text-lg font-semibold">Generation Configuration</h3>
 
+            {/* Training Job Selection */}
+            <div>
+              <label htmlFor="steering-training" className="block text-sm font-medium text-slate-300 mb-2">
+                Training Job (Source of Features)
+              </label>
+              <select
+                id="steering-training"
+                value={selectedTraining}
+                onChange={(e) => setSelectedTraining(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500"
+              >
+                <option value="">Select training...</option>
+                {completedTrainings.map((training: any) => {
+                  const modelsList = window.mockModels || [];
+                  const datasetsList = window.mockDatasets || [];
+                  const model = modelsList.find((m: any) => m.id === training.model);
+                  const dataset = datasetsList.find((d: any) => d.id === training.dataset);
+
+                  return (
+                    <option key={training.id} value={training.id}>
+                      {training.encoderType} SAE • {model?.name || 'Model'} • {dataset?.name || 'Dataset'} • Started {new Date(training.startTime).toLocaleDateString()}
+                    </option>
+                  );
+                })}
+              </select>
+              {completedTrainings.length === 0 && (
+                <p className="text-xs text-slate-500 mt-2">No completed training jobs available. Complete a training to extract features.</p>
+              )}
+            </div>
+
             {/* Model Selection */}
             <div>
               <label htmlFor="steering-model" className="block text-sm font-medium text-slate-300 mb-2">
-                Model
+                Model (for generation)
               </label>
               <select
                 id="steering-model"
@@ -3744,20 +4645,67 @@ function SteeringPanel({ models }) {
               />
             </div>
 
-            {/* Intervention Layer */}
+            {/* Intervention Layers */}
             <div>
-              <label htmlFor="steering-intervention-layer" className="block text-sm font-medium text-slate-300 mb-2">
-                Intervention Layer: {interventionLayer}
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Intervention Layers ({interventionLayers.length} selected)
               </label>
-              <input
-                id="steering-intervention-layer"
-                type="range"
-                min="0"
-                max="24"
-                value={interventionLayer}
-                onChange={(e) => setInterventionLayer(parseInt(e.target.value))}
-                className="w-full accent-emerald-500"
-              />
+              <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 max-h-40 overflow-y-auto">
+                {(() => {
+                  const modelInfo = models.find((m: any) => m.id === selectedModel);
+                  const numLayers = modelInfo?.architecture?.num_layers || 32;
+                  const layers = Array.from({ length: numLayers }, (_, i) => i);
+
+                  return (
+                    <>
+                      <div className="flex gap-2 mb-3">
+                        <button
+                          type="button"
+                          onClick={() => setInterventionLayers(layers)}
+                          className="px-3 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded text-xs transition-colors"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInterventionLayers([])}
+                          className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-8 gap-2">
+                        {layers.map((layer) => (
+                          <label
+                            key={layer}
+                            className={`flex items-center justify-center px-2 py-1 rounded cursor-pointer transition-colors ${
+                              interventionLayers.includes(layer)
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={interventionLayers.includes(layer)}
+                              onChange={(e) => {
+                                const updated = e.target.checked
+                                  ? [...interventionLayers, layer].sort((a, b) => a - b)
+                                  : interventionLayers.filter((l: number) => l !== layer);
+                                setInterventionLayers(updated);
+                              }}
+                              className="sr-only"
+                            />
+                            <span className="text-xs font-medium">{layer}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+              {!selectedModel && (
+                <p className="text-xs text-slate-500 mt-2">Select a model to see available layers</p>
+              )}
             </div>
 
             {/* Generation Parameters */}

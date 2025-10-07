@@ -1,1 +1,159 @@
+# XCC Framework - Session files
 0xcc/transcripts/
+0xcc/session_state.json
+0xcc/research_context.json
+0xcc/checkpoints/
+
+# XCC Framework - Temporary/scratch files
+0xcc/docs/Scratch.md
+0xcc/HANDOFF.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# PyTorch
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Node.js / React
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production build
+frontend/dist/
+frontend/build/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Data directories (model storage, datasets, etc.)
+/data/
+/models/
+/datasets/
+/checkpoints/
+/activations/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Alembic (database migrations)
+backend/alembic/versions/*.pyc
+
+# Redis
+dump.rdb
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# HuggingFace cache (if not using system default)
+huggingface_cache/
+
+# Model quantization outputs
+*.quantized
+
+# Generated documentation
+docs/_build/
+site/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Lock files (keep package-lock.json and poetry.lock)
+# but ignore others
+*.lock
+!package-lock.json
+!poetry.lock
+!Pipfile.lock

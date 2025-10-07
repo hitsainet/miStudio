@@ -320,6 +320,204 @@
 
 ---
 
+## Phase 21: Training Template Management (NEW - From Mock UI Enhancement #1)
+
+### Parent Task: Implement Training Template Management
+**PRD Reference:** 003_FPRD|SAE_Training.md (US-6, FR-1A)
+**TDD Reference:** 003_FTDD|SAE_Training.md (Section 10)
+**TID Reference:** 003_FTID|SAE_Training.md (Section 8)
+**Mock UI Reference:** Lines 1628-1842 (TrainingPanel)
+
+- [ ] 21.0 Backend Infrastructure for Training Templates
+  - [ ] 21.1 Create database migration for training_templates table (003_create_training_templates_table.py)
+  - [ ] 21.2 Define table schema: id (UUID PK), name (VARCHAR 255 NOT NULL), description (TEXT), model_id (UUID FK to models), dataset_id (UUID FK to datasets), encoder_type (VARCHAR 20 NOT NULL), hyperparameters (JSONB NOT NULL), is_favorite (BOOLEAN DEFAULT false), created_at (TIMESTAMP), updated_at (TIMESTAMP)
+  - [ ] 21.3 Add CHECK constraints: name not empty, encoder_type IN ('sparse', 'skip', 'transcoder'), hyperparameters not null
+  - [ ] 21.4 Add foreign keys: model_id REFERENCES models(id) ON DELETE SET NULL, dataset_id REFERENCES datasets(id) ON DELETE SET NULL
+  - [ ] 21.5 Add indexes: idx_training_templates_name (UNIQUE), idx_training_templates_model_id, idx_training_templates_dataset_id, idx_training_templates_favorite, idx_training_templates_created_at DESC
+  - [ ] 21.6 Add update trigger: automatically update updated_at on row modification
+  - [ ] 21.7 Run migration: `alembic upgrade head`
+  - [ ] 21.8 Create SQLAlchemy model in backend/src/models/training_template.py
+  - [ ] 21.9 Create Pydantic schemas in backend/src/schemas/training_template.py: TrainingTemplateCreate, TrainingTemplateUpdate, TrainingTemplateResponse
+  - [ ] 21.10 Add field validation: encoder_type enum, hyperparameters structure validation (learningRate, batchSize, l1Coefficient, trainingLayers array, etc.)
+  - [ ] 21.11 Write unit tests for SQLAlchemy model and Pydantic validation
+
+- [ ] 22.0 Backend API Endpoints for Training Template CRUD
+  - [ ] 22.1 Implement GET /api/templates/training endpoint in backend/src/api/routes/templates.py
+  - [ ] 22.2 Add query parameters: is_favorite (bool), model_id (UUID), dataset_id (UUID), encoder_type (string), limit (int), offset (int), sort_by, sort_order
+  - [ ] 22.3 Return paginated response with templates array and metadata
+  - [ ] 22.4 Implement POST /api/templates/training endpoint for creating new templates
+  - [ ] 22.5 Add validation: check for duplicate names (return 409 Conflict)
+  - [ ] 22.6 Auto-generate name if not provided: {encoder}_{expansion}x_{steps}steps_{HHMM} format
+  - [ ] 22.7 Validate hyperparameters structure: learningRate, batchSize, l1Coefficient, trainingLayers array, etc.
+  - [ ] 22.8 Return 201 Created with full template object
+  - [ ] 22.9 Implement PUT /api/templates/training/:id endpoint for updating templates
+  - [ ] 22.10 Support partial updates (only update provided fields)
+  - [ ] 22.11 Return 200 OK with updated template object
+  - [ ] 22.12 Implement DELETE /api/templates/training/:id endpoint
+  - [ ] 22.13 Return 204 No Content on successful deletion
+  - [ ] 22.14 Implement PATCH /api/templates/training/:id/favorite endpoint for toggling favorite status
+  - [ ] 22.15 Return updated template with new is_favorite value
+  - [ ] 22.16 Add authentication to all endpoints using JWT dependency
+  - [ ] 22.17 Add error handling: 400 (validation), 404 (not found), 409 (duplicate name)
+  - [ ] 22.18 Write integration tests for all 5 endpoints
+
+- [ ] 23.0 Training Template Export/Import
+  - [ ] 23.1 Update POST /api/templates/export endpoint to include training_templates array
+  - [ ] 23.2 Query database for specified training template IDs
+  - [ ] 23.3 Include training_templates in JSON response alongside extraction_templates and steering_presets
+  - [ ] 23.4 Update POST /api/templates/import endpoint to handle training_templates array
+  - [ ] 23.5 Validate training template structures (encoder_type, hyperparameters)
+  - [ ] 23.6 Handle name conflicts: append "_imported_{timestamp}"
+  - [ ] 23.7 Handle model/dataset references: set to NULL if referenced IDs don't exist
+  - [ ] 23.8 Import training_templates array, create DB records
+  - [ ] 23.9 Return import summary with training template counts
+  - [ ] 23.10 Use database transaction: rollback all if any fail
+  - [ ] 23.11 Write integration tests for export/import with training templates
+
+- [ ] 24.0 Frontend Training Template Management UI
+  - [ ] 24.1 Update TrainingPanel.tsx to add template management section
+  - [ ] 24.2 Add state: savedTemplates (array), showTemplateSaveDialog (boolean), templateName (string), templateDescription (string)
+  - [ ] 24.3 Add "Saved Templates" dropdown above configuration form
+  - [ ] 24.4 Fetch templates on component mount: GET /api/templates/training
+  - [ ] 24.5 Populate dropdown with template names, show favorites first (⭐ icon)
+  - [ ] 24.6 Implement handleLoadTemplate: populate model_id, dataset_id, encoder_type, hyperparameters from template
+  - [ ] 24.7 Add "Save as Template" button next to "Start Training" button
+  - [ ] 24.8 Implement save template dialog: modal with name input, description textarea
+  - [ ] 24.9 Auto-generate template name: {encoder}_{expansion}x_{steps}steps_{HHMM}
+  - [ ] 24.10 Implement handleSaveTemplate: POST /api/templates/training with current config
+  - [ ] 24.11 Add favorite toggle button (star icon) for each template
+  - [ ] 24.12 Implement handleToggleFavorite: PATCH /api/templates/training/:id/favorite
+  - [ ] 24.13 Add delete button (trash icon) for each template
+  - [ ] 24.14 Implement handleDeleteTemplate with confirmation: DELETE /api/templates/training/:id
+  - [ ] 24.15 Style template dropdown: bg-slate-900 border border-slate-800 rounded-lg p-2
+  - [ ] 24.16 Add loading states for all template operations
+  - [ ] 24.17 Add error handling with toast notifications
+  - [ ] 24.18 Write unit tests for template management UI
+
+- [ ] 25.0 Frontend Training Template Store
+  - [ ] 25.1 Add trainingTemplatesStore.ts Zustand store
+  - [ ] 25.2 Define state: templates (array), loading (boolean), error (string | null)
+  - [ ] 25.3 Implement fetchTemplates action: GET /api/templates/training
+  - [ ] 25.4 Implement createTemplate action: POST /api/templates/training
+  - [ ] 25.5 Implement updateTemplate action: PUT /api/templates/training/:id
+  - [ ] 25.6 Implement deleteTemplate action: DELETE /api/templates/training/:id
+  - [ ] 25.7 Implement toggleFavorite action: PATCH /api/templates/training/:id/favorite
+  - [ ] 25.8 Add API client functions in frontend/src/api/templates.ts
+  - [ ] 25.9 Add error handling and retry logic
+  - [ ] 25.10 Write unit tests for store actions and API client
+
+---
+
+## Phase 22: Multi-Layer Training Support (NEW - From Mock UI Enhancement #4)
+
+### Parent Task: Implement Multi-Layer Training Support
+**PRD Reference:** 003_FPRD|SAE_Training.md (US-7, FR-1B)
+**TDD Reference:** 003_FTDD|SAE_Training.md (Section 11 - Multi-Layer Training Architecture)
+**TID Reference:** 003_FTID|SAE_Training.md (Section 9)
+**Mock UI Reference:** Lines 1628-1842 (TrainingPanel with layer selector)
+
+- [ ] 26.0 Update Database Schema for Multi-Layer Training
+  - [ ] 26.1 Update trainings table hyperparameters JSONB: change trainingLayer (single int) to trainingLayers (array of ints)
+  - [ ] 26.2 Update training_templates table hyperparameters JSONB: change trainingLayer to trainingLayers array
+  - [ ] 26.3 Create data migration: convert existing trainingLayer values to single-element trainingLayers arrays
+  - [ ] 26.4 Add validation: trainingLayers array length > 0, all layer indices >= 0
+  - [ ] 26.5 Update SQLAlchemy models to reflect new schema
+  - [ ] 26.6 Update Pydantic schemas: trainingLayers field as List[int] with validation
+  - [ ] 26.7 Write unit tests for new schema validation
+
+- [ ] 27.0 Backend Multi-Layer Training Pipeline
+  - [ ] 27.1 Update SAE initialization in train_sae_task: create dict of SAE instances {layer_idx: sae}
+  - [ ] 27.2 Initialize separate SAE for each layer in trainingLayers array
+  - [ ] 27.3 Share hyperparameters across all SAEs (expansion_factor, l1_coefficient, learning_rate, etc.)
+  - [ ] 27.4 Create optimizer dict: {layer_idx: optimizer} for each SAE
+  - [ ] 27.5 Create scheduler dict: {layer_idx: scheduler} for each SAE
+  - [ ] 27.6 Update activation extraction: extract_multilayer_activations(model, batch, trainingLayers) returns {layer_idx: activations}
+  - [ ] 27.7 Register forward hooks for all layers in trainingLayers array
+  - [ ] 27.8 Update training loop: iterate over each layer, train corresponding SAE
+  - [ ] 27.9 Implement independent forward/backward passes for each layer's SAE
+  - [ ] 27.10 Calculate per-layer metrics: loss, sparsity, dead_neurons
+  - [ ] 27.11 Calculate aggregated metrics: avg_loss, avg_sparsity, avg_reconstruction_error across all layers
+  - [ ] 27.12 Save per-layer metrics to training_metrics table (add layer_idx column)
+  - [ ] 27.13 Emit WebSocket progress with aggregated metrics
+  - [ ] 27.14 Write unit tests for multilayer training loop logic
+
+- [ ] 28.0 Multi-Layer Checkpoint Management
+  - [ ] 28.1 Update checkpoint directory structure: checkpoint_{step}/layer_{idx}/encoder.pt
+  - [ ] 28.2 Create subdirectory per layer: layer_0/, layer_5/, etc.
+  - [ ] 28.3 Save encoder.pt, decoder.pt, optimizer.pt for each layer
+  - [ ] 28.4 Update metadata.json: include trainingLayers array, per-layer metrics
+  - [ ] 28.5 Update load_checkpoint: load all layer subdirectories, reconstruct SAE dict
+  - [ ] 28.6 Validate checkpoint structure: verify all expected layers exist
+  - [ ] 28.7 Add error handling: graceful failure if layer checkpoint missing
+  - [ ] 28.8 Update retention policy: keep/delete entire multi-layer checkpoint atomically
+  - [ ] 28.9 Write unit tests for multi-layer checkpoint save/load
+
+- [ ] 29.0 Memory Estimation and OOM Handling for Multi-Layer
+  - [ ] 29.1 Implement memory estimation formula: memory_per_sae * num_layers + base_memory
+  - [ ] 29.2 Calculate memory_per_sae: hidden_dim * expansion_factor * 4 bytes * 3 (params + 2 optimizer states)
+  - [ ] 29.3 Add pre-training validation: estimate total memory, reject if > 6GB
+  - [ ] 29.4 Return 400 error with suggestion: "Reduce number of layers or expansion factor"
+  - [ ] 29.5 Add warning in logs if > 4 layers selected (high memory usage)
+  - [ ] 29.6 Update OOM handling: catch CUDA OOM during multi-layer training
+  - [ ] 29.7 On OOM: reduce batch_size for all SAEs, clear cache, retry
+  - [ ] 29.8 Log memory usage per layer: track GPU memory after each layer's forward pass
+  - [ ] 29.9 Add memory profiling endpoint: GET /api/trainings/memory-estimate with trainingLayers param
+  - [ ] 29.10 Write integration tests for OOM handling with multi-layer training
+
+- [ ] 30.0 Frontend Multi-Layer Layer Selector UI
+  - [ ] 30.1 Update TrainingPanel.tsx to add layer selector component
+  - [ ] 30.2 Add state: selectedLayers (array of integers), modelNumLayers (int from model metadata)
+  - [ ] 30.3 Fetch model metadata on model selection: extract num_layers from architecture_config
+  - [ ] 30.4 Implement 8-column checkbox grid for layer selection (matching Mock UI pattern)
+  - [ ] 30.5 Render checkboxes: L0, L1, L2... up to L{num_layers-1}
+  - [ ] 30.6 Style checkboxes: bg-blue-600 (selected) or bg-gray-700 (unselected)
+  - [ ] 30.7 Implement handleLayerToggle: add/remove layer from selectedLayers array
+  - [ ] 30.8 Add "Select All" button: add all layers 0 to num_layers-1
+  - [ ] 30.9 Add "Deselect All" button: clear selectedLayers array
+  - [ ] 30.10 Add "Select Range" button: select layers [start, end] based on input
+  - [ ] 30.11 Disable layer selector until model selected (show placeholder message)
+  - [ ] 30.12 Update hyperparameters state: use trainingLayers array instead of single trainingLayer
+  - [ ] 30.13 Write unit tests for layer selector component
+
+- [ ] 31.0 Frontend Memory Estimation Display
+  - [ ] 31.1 Implement estimateMemoryRequirements function in TrainingPanel
+  - [ ] 31.2 Calculate memory per SAE: hidden_dim * expansion_factor * 4 * 3
+  - [ ] 31.3 Calculate total memory: (memory_per_sae * selectedLayers.length) + base_memory
+  - [ ] 31.4 Display memory estimate in GB: "Estimated GPU Memory: X.XX GB"
+  - [ ] 31.5 Add warning badge if total > 6GB: "⚠️ Exceeds Jetson limit (6GB)"
+  - [ ] 31.6 Add recommendation text: "Reduce to ≤N layers to fit in memory"
+  - [ ] 31.7 Calculate max layers for current config: floor(6GB / memory_per_sae)
+  - [ ] 31.8 Disable "Start Training" button if estimated memory > 6GB
+  - [ ] 31.9 Style warning: text-yellow-400 bg-yellow-900/20 border border-yellow-700 rounded p-2
+  - [ ] 31.10 Update memory estimate in real-time as layers/expansion_factor change
+  - [ ] 31.11 Write unit tests for memory estimation logic
+
+- [ ] 32.0 Update API Request/Response for Multi-Layer
+  - [ ] 32.1 Update POST /api/trainings request: accept trainingLayers array instead of trainingLayer
+  - [ ] 32.2 Add validation: trainingLayers array not empty, all values < model.num_layers
+  - [ ] 32.3 Update TrainingResponse schema: include trainingLayers array in hyperparameters
+  - [ ] 32.4 Update GET /api/trainings/:id response: return trainingLayers array
+  - [ ] 32.5 Update training_metrics table: add layer_idx column (INTEGER, allow NULL for aggregated metrics)
+  - [ ] 32.6 Update GET /api/trainings/:id/metrics response: return both per-layer and aggregated metrics
+  - [ ] 32.7 Add query parameter: layer_idx (int) to filter metrics by layer
+  - [ ] 32.8 Update WebSocket progress events: include per-layer metrics and aggregated metrics
+  - [ ] 32.9 Write integration tests for multi-layer API requests/responses
+
+- [ ] 33.0 Testing and Documentation for Multi-Layer Training
+  - [ ] 33.1 Write E2E test: train SAE on 3 layers simultaneously → verify checkpoints for all layers
+  - [ ] 33.2 Write E2E test: train on 5 layers → trigger OOM → verify batch_size reduced → training continues
+  - [ ] 33.3 Write E2E test: pause multi-layer training → resume → verify all layers resume correctly
+  - [ ] 33.4 Write E2E test: multi-layer checkpoint save/load → verify state restored for all layers
+  - [ ] 33.5 Test memory estimation accuracy: compare estimated vs actual GPU memory usage
+  - [ ] 33.6 Test layer selector UI: select layers, verify trainingLayers array correct
+  - [ ] 33.7 Test training with 1 layer vs 3 layers: verify throughput scaling (expect ~3x slower)
+  - [ ] 33.8 Test training with non-contiguous layers: [0, 5, 10] → verify correct layers trained
+  - [ ] 33.9 Test metrics aggregation: verify avg_loss, avg_sparsity calculated correctly
+  - [ ] 33.10 Update API documentation: document trainingLayers field, multi-layer checkpoint structure
+  - [ ] 33.11 Update user guide: document multi-layer training workflow, memory considerations
+
+---
+
 ## Notes
 
 - **PRIMARY REFERENCE:** Mock UI lines 1628-2156 (TrainingPanel, TrainingCard, Checkpoints, Live Metrics) - production UI MUST match exactly
@@ -335,3 +533,44 @@
 - **WebSocket Events:** training:created, training:status_changed, training:progress (every 10 steps), checkpoint:created
 - **Control Actions:** Pause (save checkpoint, exit loop), Resume (load checkpoint, continue), Stop (save final checkpoint, exit permanently)
 - **UI Polish:** Exact Tailwind classes from Mock UI (slate-900/50, emerald-600, blue-400, red-400, purple-400), smooth transitions, loading states, disabled states
+
+---
+
+**Status:** Comprehensive Task List Complete + Training Template Management + Multi-Layer Training Support
+
+I have generated a detailed task list with 33 parent tasks broken down into 460+ actionable sub-tasks covering:
+
+**Original Phases (1-20):**
+1-20. Core SAE training implementation (backend, frontend, testing)
+
+**NEW Enhancement #1 - Training Template Management (Phases 21-25):**
+21. **Backend Infrastructure** - training_templates table with constraints, indexes, triggers
+22. **Template CRUD API** - 7 endpoints (list, create, update, delete, toggle favorite, export, import)
+23. **Template Export/Import** - Combined JSON format with training_templates array
+24. **Template Management UI** - Save/load/favorite/delete templates in TrainingPanel
+25. **Template Store** - Zustand store with API client for template operations
+
+**NEW Enhancement #4 - Multi-Layer Training Support (Phases 26-33):**
+26. **Database Schema Updates** - trainingLayer → trainingLayers array migration
+27. **Multi-Layer Training Pipeline** - Separate SAE per layer, shared hyperparameters
+28. **Multi-Layer Checkpoints** - Subdirectory structure per layer (checkpoint_{step}/layer_{idx}/)
+29. **Memory Estimation & OOM** - Formula: memory_per_sae * num_layers + base_memory
+30. **Layer Selector UI** - 8-column checkbox grid for layer selection
+31. **Memory Estimation Display** - Real-time memory calculation with 6GB limit warning
+32. **API Updates** - trainingLayers array in requests/responses, per-layer metrics
+33. **Testing & Documentation** - E2E tests for multi-layer workflows
+
+**Enhancement Summary:**
+- **Enhancement #1 (Training Templates):** ~50 sub-tasks
+- **Enhancement #4 (Multi-Layer Training):** ~80 sub-tasks
+- **Total NEW Sub-tasks:** ~130 sub-tasks for SAE Training enhancements
+
+**Technical Highlights:**
+- Training templates auto-naming: `{encoder}_{expansion}x_{steps}steps_{HHMM}`
+- Multi-layer architecture: Separate SAE per layer, not single multi-layer SAE
+- Checkpoint subdirectories: `layer_0/encoder.pt`, `layer_5/encoder.pt`, etc.
+- Memory formula: `(hidden_dim * expansion * 4 * 3) * num_layers + 2GB base`
+- Warning threshold: >4 layers triggers memory warning in UI
+- Memory limit: 6GB (Jetson Orin Nano), reject training if estimated > 6GB
+
+All tasks reference exact Mock UI line numbers, PRD requirements, TDD designs, TID implementation guidance, and are ready for systematic implementation.

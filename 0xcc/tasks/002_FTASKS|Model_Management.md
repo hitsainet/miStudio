@@ -299,9 +299,115 @@
 
 ---
 
-**Status:** Comprehensive Task List Complete
+## Phase 13: Extraction Template Management (NEW - From Mock UI Enhancement #2)
 
-I have generated a detailed task list with 12 parent tasks broken down into 170+ actionable sub-tasks covering:
+### Parent Task: Implement Extraction Template Management
+**PRD Reference:** 002_FPRD|Model_Management.md (US-5, FR-4A)
+**TDD Reference:** 002_FTDD|Model_Management.md (Section 9)
+**TID Reference:** 002_FTID|Model_Management.md (Section 10)
+**Mock UI Reference:** Lines 1440-1625 (ActivationExtractionConfig modal)
+
+- [ ] 13.0 Backend Infrastructure for Extraction Templates
+  - [ ] 13.1 Create database migration for extraction_templates table (002_create_extraction_templates_table.py)
+  - [ ] 13.2 Define table schema: id (UUID PK), name (VARCHAR 255 NOT NULL), description (TEXT), layers (INTEGER[] NOT NULL), hook_types (VARCHAR[] NOT NULL), max_samples (INTEGER), top_k_examples (INTEGER DEFAULT 100), is_favorite (BOOLEAN DEFAULT false), created_at (TIMESTAMP), updated_at (TIMESTAMP)
+  - [ ] 13.3 Add CHECK constraints: name not empty, layers array not empty, hook_types array not empty
+  - [ ] 13.4 Add indexes: idx_extraction_templates_name (UNIQUE), idx_extraction_templates_favorite, idx_extraction_templates_created_at DESC
+  - [ ] 13.5 Add update trigger: automatically update updated_at on row modification (CREATE TRIGGER update_extraction_templates_updated_at)
+  - [ ] 13.6 Run migration: `alembic upgrade head`
+  - [ ] 13.7 Create SQLAlchemy model in backend/src/models/extraction_template.py (match TDD schema)
+  - [ ] 13.8 Create Pydantic schemas in backend/src/schemas/extraction_template.py: ExtractionTemplateCreate, ExtractionTemplateUpdate, ExtractionTemplateResponse
+  - [ ] 13.9 Add field validation: layers array length > 0, hook_types array length > 0, name length 1-255 chars
+  - [ ] 13.10 Write unit tests for SQLAlchemy model and Pydantic validation
+
+- [ ] 14.0 Backend API Endpoints for Template CRUD
+  - [ ] 14.1 Implement GET /api/templates/extraction endpoint in backend/src/api/routes/templates.py
+  - [ ] 14.2 Add query parameters: is_favorite (bool), limit (int default 100), offset (int default 0), sort_by (created_at/name), sort_order (asc/desc)
+  - [ ] 14.3 Return paginated response: {templates: [...], total: int, limit: int, offset: int}
+  - [ ] 14.4 Implement POST /api/templates/extraction endpoint for creating new templates
+  - [ ] 14.5 Add validation: check for duplicate names (return 409 Conflict if exists)
+  - [ ] 14.6 Auto-generate name if not provided: {hookType}_layers{min}-{max}_{samples}samples_{HHMM} format
+  - [ ] 14.7 Return 201 Created with full template object
+  - [ ] 14.8 Implement PUT /api/templates/extraction/:id endpoint for updating templates
+  - [ ] 14.9 Support partial updates (only update provided fields)
+  - [ ] 14.10 Return 200 OK with updated template object
+  - [ ] 14.11 Implement DELETE /api/templates/extraction/:id endpoint
+  - [ ] 14.12 Return 204 No Content on successful deletion
+  - [ ] 14.13 Implement PATCH /api/templates/extraction/:id/favorite endpoint for toggling favorite status
+  - [ ] 14.14 Return updated template with new is_favorite value
+  - [ ] 14.15 Add authentication to all endpoints using JWT dependency
+  - [ ] 14.16 Add error handling: 400 (validation), 404 (not found), 409 (duplicate name)
+  - [ ] 14.17 Write integration tests for all 5 endpoints with TestClient
+
+- [ ] 15.0 Backend Export/Import Functionality
+  - [ ] 15.1 Implement POST /api/templates/export endpoint for combined export
+  - [ ] 15.2 Accept request body: {template_ids: string[]} (array of template IDs to export)
+  - [ ] 15.3 Query database for all specified templates
+  - [ ] 15.4 Build JSON response: {version: "1.0", exported_at: ISO timestamp, extraction_templates: [...], training_templates: [], steering_presets: []}
+  - [ ] 15.5 Return 200 OK with JSON payload (can be saved as .json file by client)
+  - [ ] 15.6 Implement POST /api/templates/import endpoint for combined import
+  - [ ] 15.7 Accept JSON payload matching export format
+  - [ ] 15.8 Validate version field (support version "1.0")
+  - [ ] 15.9 Validate all template structures before importing any
+  - [ ] 15.10 Handle name conflicts: append "_imported_{timestamp}" to duplicate names
+  - [ ] 15.11 Import extraction_templates array, create DB records for each
+  - [ ] 15.12 Return import summary: {imported: int, skipped: int, errors: string[]}
+  - [ ] 15.13 Use database transaction: rollback all imports if any fail
+  - [ ] 15.14 Add error handling: 400 (invalid format), 422 (validation errors)
+  - [ ] 15.15 Write integration tests for export/import round-trip
+
+- [ ] 16.0 Frontend Template Management UI Components
+  - [ ] 16.1 Update ActivationExtractionConfig.tsx to add template management section
+  - [ ] 16.2 Add state: savedTemplates (array), showTemplateSaveDialog (boolean), templateName (string), templateDescription (string)
+  - [ ] 16.3 Add "Saved Templates" dropdown above layer selector (Mock UI pattern)
+  - [ ] 16.4 Fetch templates on component mount: GET /api/templates/extraction
+  - [ ] 16.5 Populate dropdown with template names, show favorite templates first (⭐ icon)
+  - [ ] 16.6 Implement handleLoadTemplate function: set selectedLayers, hookTypes, maxSamples from template
+  - [ ] 16.7 Add "Save as Template" button next to "Start Extraction" button
+  - [ ] 16.8 Implement save template dialog: modal with name input, description textarea, "Save" and "Cancel" buttons
+  - [ ] 16.9 Auto-generate template name: {hookTypes.join('_')}_layers{min}-{max}_{maxSamples}samples_{HHMM}
+  - [ ] 16.10 Implement handleSaveTemplate function: POST /api/templates/extraction with current config
+  - [ ] 16.11 Add favorite toggle button (star icon) in dropdown for each template
+  - [ ] 16.12 Implement handleToggleFavorite: PATCH /api/templates/extraction/:id/favorite
+  - [ ] 16.13 Add delete button (trash icon) for each template in dropdown
+  - [ ] 16.14 Implement handleDeleteTemplate with confirmation dialog: DELETE /api/templates/extraction/:id
+  - [ ] 16.15 Add "Export Templates" button: select multiple templates, call POST /api/templates/export, download JSON file
+  - [ ] 16.16 Add "Import Templates" button: file input (accept .json), call POST /api/templates/import, refresh template list
+  - [ ] 16.17 Style template dropdown: bg-slate-900 border border-slate-800 rounded-lg p-2
+  - [ ] 16.18 Add loading states for all template operations
+  - [ ] 16.19 Add error handling with toast notifications for API failures
+  - [ ] 16.20 Write unit tests for template management UI (save, load, delete, favorite, export, import)
+
+- [ ] 17.0 Frontend API Client and Store Integration
+  - [ ] 17.1 Add extractionTemplatesStore.ts Zustand store
+  - [ ] 17.2 Define state: templates (array), loading (boolean), error (string | null)
+  - [ ] 17.3 Implement fetchTemplates action: GET /api/templates/extraction
+  - [ ] 17.4 Implement createTemplate action: POST /api/templates/extraction
+  - [ ] 17.5 Implement updateTemplate action: PUT /api/templates/extraction/:id
+  - [ ] 17.6 Implement deleteTemplate action: DELETE /api/templates/extraction/:id
+  - [ ] 17.7 Implement toggleFavorite action: PATCH /api/templates/extraction/:id/favorite
+  - [ ] 17.8 Implement exportTemplates action: POST /api/templates/export, trigger file download
+  - [ ] 17.9 Implement importTemplates action: POST /api/templates/import with FormData
+  - [ ] 17.10 Add API client functions in frontend/src/api/templates.ts for all 7 endpoints
+  - [ ] 17.11 Add error handling and retry logic for network failures
+  - [ ] 17.12 Write unit tests for store actions and API client
+
+- [ ] 18.0 Testing and Documentation for Template Management
+  - [ ] 18.1 Write E2E test: create template → list templates → load template → verify config restored
+  - [ ] 18.2 Write E2E test: save template → toggle favorite → verify favorite status persisted
+  - [ ] 18.3 Write E2E test: export templates → import on different instance → verify templates exist
+  - [ ] 18.4 Write E2E test: template name conflict → verify auto-rename behavior
+  - [ ] 18.5 Test auto-generated template names match expected format
+  - [ ] 18.6 Test template validation: reject empty layers array, reject empty hook_types array
+  - [ ] 18.7 Test concurrent template operations: create multiple templates simultaneously
+  - [ ] 18.8 Test template deletion: verify cascade behavior (no orphaned references)
+  - [ ] 18.9 Update API documentation: document all 7 template endpoints with examples
+  - [ ] 18.10 Update user guide: document template save/load/export/import workflow
+
+---
+
+**Status:** Comprehensive Task List Complete + Extraction Template Management Enhancement
+
+I have generated a detailed task list with 18 parent tasks broken down into 230+ actionable sub-tasks covering:
 
 1. **Backend Infrastructure** - SQLAlchemy models, migrations, database indexes
 2. **PyTorch Integration** - Model loading with transformers, bitsandbytes quantization (Q4/Q8/FP16/Q2), OOM handling
@@ -315,6 +421,19 @@ I have generated a detailed task list with 12 parent tasks broken down into 170+
 10. **UI - Extraction Config** - Layer selector, hook types, settings, estimations (lines 1440-1625)
 11. **WebSocket Integration** - Real-time download, quantization, and extraction progress
 12. **E2E Testing** - Complete workflows, performance optimization, memory profiling
+13. **Extraction Template Management (NEW)** - Backend infrastructure with extraction_templates table
+14. **Template CRUD API (NEW)** - 7 endpoints (list, create, update, delete, toggle favorite, export, import)
+15. **Template Export/Import (NEW)** - Combined JSON export format with version control
+16. **Template Management UI (NEW)** - Save/load/favorite/delete templates in ActivationExtractionConfig modal
+17. **Template Store Integration (NEW)** - Zustand store with API client for template operations
+18. **Template Testing (NEW)** - E2E tests, validation tests, export/import round-trip tests
+
+**Enhancement #2 Summary:**
+- **Total New Sub-tasks:** ~60 sub-tasks for extraction template management
+- **Database:** 1 new table (extraction_templates) with constraints, indexes, triggers
+- **API Endpoints:** 7 new endpoints (5 CRUD + export + import)
+- **Frontend:** Template dropdown, save dialog, favorite toggle, export/import buttons
+- **Testing:** Unit tests, integration tests, E2E tests for template lifecycle
 
 All tasks reference exact Mock UI line numbers (1204-1625), include implementation details from TID, follow ADR technology decisions, and are ready for systematic implementation.
 

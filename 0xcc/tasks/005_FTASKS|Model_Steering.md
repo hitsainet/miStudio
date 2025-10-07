@@ -399,10 +399,240 @@
 
 ---
 
-**Total Tasks:** 40 parent tasks, 195 sub-tasks
-**Estimated Complexity:** High (ML hooks + dual generation + complex metrics)
-**Critical Path:** Steering hook implementation → Metrics calculation → Frontend integration
-**Testing Priority:** Hook cleanup (memory leaks), generation consistency, metrics accuracy
+## Phase 41: Training Job Selector (NEW - From Mock UI Enhancement #5)
+
+### Parent Task: Implement Training Job Selector
+**PRD Reference:** 005_FPRD|Model_Steering.md (US-8, FR-3A)
+**TDD Reference:** 005_FTDD|Model_Steering.md (Section 8 - Training Job Selector Design)
+**TID Reference:** 005_FTID|Model_Steering.md (Section 5)
+**Mock UI Reference:** Lines 3512-3951 (SteeringPanel)
+
+- [ ] 41.0 Backend Training Job Selector API
+  - [ ] 41.1 Implement GET /api/trainings/completed endpoint in backend/src/api/routes/trainings.py
+  - [ ] 41.2 Add SQL JOIN query: SELECT trainings.id, encoder_type, status, created_at, models.name as model_name, datasets.name as dataset_name FROM trainings JOIN models JOIN datasets
+  - [ ] 41.3 Add WHERE filter: status = 'completed'
+  - [ ] 41.4 Add ORDER BY: created_at DESC (most recent first)
+  - [ ] 41.5 Add pagination: limit (default 100), offset (default 0)
+  - [ ] 41.6 Return response: {trainings: [...], total: int, limit: int, offset: int}
+  - [ ] 41.7 Include training metadata: id, encoder_type, model_name, dataset_name, created_at
+  - [ ] 41.8 Add optional filter parameters: model_id, dataset_id, encoder_type
+  - [ ] 41.9 Add authentication to endpoint using JWT dependency
+  - [ ] 41.10 Add error handling: 400 (validation), 404 (no trainings found)
+  - [ ] 41.11 Write integration tests for completed trainings endpoint
+
+- [ ] 42.0 Frontend Training Job Selector UI Component
+  - [ ] 42.1 Update SteeringPanel.tsx to add training job selector
+  - [ ] 42.2 Add state: selectedTrainingId (string | null), completedTrainings (array)
+  - [ ] 42.3 Fetch completed trainings on component mount: GET /api/trainings/completed
+  - [ ] 42.4 Add dropdown: "Select Training Job" above feature search
+  - [ ] 42.5 Populate dropdown with training jobs, format display name: "{encoder_type} SAE • {model_name} • {dataset_name} • Started {date}"
+  - [ ] 42.6 Implement formatTrainingDisplayName helper function
+  - [ ] 42.7 Format date: MM/DD/YYYY format using toLocaleDateString
+  - [ ] 42.8 Add placeholder option: "— Select a training job —" (disabled, selected by default)
+  - [ ] 42.9 Implement handleTrainingChange function
+  - [ ] 42.10 Add confirmation dialog if selectedFeatures.length > 0: "Changing training job will clear selected features. Continue?"
+  - [ ] 42.11 On training change: clear selectedFeatures, clear steeringCoefficients, set selectedTrainingId
+  - [ ] 42.12 Fetch features for selected training: filter features by training_id
+  - [ ] 42.13 Style dropdown: bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 focus:border-emerald-500
+  - [ ] 42.14 Add loading state while fetching trainings: show "Loading trainings..." placeholder
+  - [ ] 42.15 Add empty state if no completed trainings: "No completed trainings available. Train an SAE first."
+  - [ ] 42.16 Write unit tests for training job selector UI
+
+- [ ] 43.0 Update Feature Discovery Integration
+  - [ ] 43.1 Update feature search API to accept training_id filter
+  - [ ] 43.2 Modify GET /api/features/search to filter by training_id: WHERE training_id = :training_id
+  - [ ] 43.3 Update frontend feature search: pass selectedTrainingId as query parameter
+  - [ ] 43.4 Disable feature search until training selected: show message "Select a training job first"
+  - [ ] 43.5 Clear feature search results when training changes
+  - [ ] 43.6 Update selected features state to track training_id for validation
+  - [ ] 43.7 Add validation: reject features from different trainings (return 422 error in backend)
+  - [ ] 43.8 Write integration tests for training-filtered feature search
+
+- [ ] 44.0 Update Steering Service for Training Context
+  - [ ] 44.1 Update SteeringService._load_sae_for_features: accept training_id parameter
+  - [ ] 44.2 Load SAE checkpoint from specified training: /data/trainings/{training_id}/checkpoints/best.safetensors
+  - [ ] 44.3 Validate all features belong to same training: query features table, check training_id consistency
+  - [ ] 44.4 Return 422 error if features from different trainings: "All features must be from the same training"
+  - [ ] 44.5 Update generate_with_steering: accept training_id in request
+  - [ ] 44.6 Add training_id to SteeringGenerateRequest schema
+  - [ ] 44.7 Validate training exists and status='completed': query trainings table
+  - [ ] 44.8 Return 404 if training not found or not completed
+  - [ ] 44.9 Write unit tests for training context validation
+
+- [ ] 45.0 Frontend Store Integration for Training Selector
+  - [ ] 45.1 Add completedTrainings state to steeringStore
+  - [ ] 45.2 Implement fetchCompletedTrainings action: GET /api/trainings/completed
+  - [ ] 45.3 Add selectedTrainingId state
+  - [ ] 45.4 Implement setSelectedTraining action with feature clearing logic
+  - [ ] 45.5 Update generateComparison to include training_id in request payload
+  - [ ] 45.6 Add validation: require training selected before generation
+  - [ ] 45.7 Update reset action to clear selectedTrainingId
+  - [ ] 45.8 Add error handling for training fetch failures
+  - [ ] 45.9 Write unit tests for training selector store actions
+
+---
+
+## Phase 42: Steering Preset Management (NEW - From Mock UI Enhancement #3)
+
+### Parent Task: Implement Steering Preset Management
+**PRD Reference:** 005_FPRD|Model_Steering.md (US-9, FR-3B)
+**TDD Reference:** 005_FTDD|Model_Steering.md (Section 9 - Steering Presets)
+**TID Reference:** 005_FTID|Model_Steering.md (Section 6)
+**Mock UI Reference:** Lines 3512-3951 (SteeringPanel)
+
+- [ ] 46.0 Update Database Schema for Steering Presets
+  - [ ] 46.1 Update steering_presets table: add training_id (UUID FK to trainings) with ON DELETE CASCADE
+  - [ ] 46.2 Update steering_presets table: change intervention_layer (single INTEGER) to intervention_layers (INTEGER[] array)
+  - [ ] 46.3 Update steering_presets table: add is_favorite (BOOLEAN DEFAULT false)
+  - [ ] 46.4 Create data migration: convert existing intervention_layer to single-element intervention_layers arrays
+  - [ ] 46.5 Add foreign key constraint: training_id REFERENCES trainings(id) ON DELETE CASCADE
+  - [ ] 46.6 Add indexes: idx_steering_presets_training_id, idx_steering_presets_favorite, idx_steering_presets_created_at DESC
+  - [ ] 46.7 Update SQLAlchemy model: add training_id, intervention_layers, is_favorite fields
+  - [ ] 46.8 Update Pydantic schemas: SteeringPresetCreate, SteeringPresetUpdate, SteeringPresetResponse
+  - [ ] 46.9 Add validation: intervention_layers array not empty, training_id exists and completed
+  - [ ] 46.10 Write unit tests for updated schema validation
+
+- [ ] 47.0 Backend API Endpoints for Steering Preset CRUD
+  - [ ] 47.1 Implement GET /api/presets/steering endpoint in backend/src/api/routes/presets.py
+  - [ ] 47.2 Add query parameters: is_favorite (bool), training_id (UUID), limit, offset, sort_by, sort_order
+  - [ ] 47.3 Return paginated response with presets array
+  - [ ] 47.4 Implement POST /api/presets/steering endpoint for creating presets
+  - [ ] 47.5 Add validation: check for duplicate names (return 409 Conflict)
+  - [ ] 47.6 Auto-generate name if not provided: steering_{count}features_layer{N}_{HHMM} (single layer) or steering_{count}features_layers{min}-{max}_{HHMM} (multi-layer)
+  - [ ] 47.7 Validate preset structure: features array, intervention_layers array, temperature, max_tokens
+  - [ ] 47.8 Return 201 Created with full preset object
+  - [ ] 47.9 Implement PUT /api/presets/steering/:id endpoint for updating presets
+  - [ ] 47.10 Support partial updates
+  - [ ] 47.11 Return 200 OK with updated preset
+  - [ ] 47.12 Implement DELETE /api/presets/steering/:id endpoint
+  - [ ] 47.13 Return 204 No Content on successful deletion
+  - [ ] 47.14 Implement PATCH /api/presets/steering/:id/favorite endpoint for toggling favorite
+  - [ ] 47.15 Return updated preset with new is_favorite value
+  - [ ] 47.16 Add authentication to all endpoints
+  - [ ] 47.17 Add error handling: 400, 404, 409
+  - [ ] 47.18 Write integration tests for all 5 endpoints
+
+- [ ] 48.0 Steering Preset Export/Import
+  - [ ] 48.1 Update POST /api/templates/export endpoint to include steering_presets array
+  - [ ] 48.2 Query database for specified steering preset IDs
+  - [ ] 48.3 Include steering_presets in JSON response alongside extraction_templates and training_templates
+  - [ ] 48.4 Update POST /api/templates/import endpoint to handle steering_presets array
+  - [ ] 48.5 Validate steering preset structures (features, intervention_layers, training_id)
+  - [ ] 48.6 Handle name conflicts: append "_imported_{timestamp}"
+  - [ ] 48.7 Handle training_id references: set to NULL or skip if training doesn't exist
+  - [ ] 48.8 Import steering_presets array, create DB records
+  - [ ] 48.9 Return import summary with steering preset counts
+  - [ ] 48.10 Use database transaction: rollback all if any fail
+  - [ ] 48.11 Write integration tests for export/import with steering presets
+
+- [ ] 49.0 Frontend Steering Preset Management UI
+  - [ ] 49.1 Update SteeringPanel.tsx to add preset management section
+  - [ ] 49.2 Add state: savedPresets (array), showPresetSaveDialog (boolean), presetName (string), presetDescription (string), activePreset (string | null)
+  - [ ] 49.3 Add "Saved Presets" dropdown in generation controls panel
+  - [ ] 49.4 Fetch presets on component mount: GET /api/presets/steering
+  - [ ] 49.5 Filter presets by selectedTrainingId: only show presets for current training
+  - [ ] 49.6 Populate dropdown with preset names, show favorites first (⭐ icon)
+  - [ ] 49.7 Implement handleLoadPreset: populate selectedFeatures, steeringCoefficients, interventionLayers, temperature, maxTokens from preset
+  - [ ] 49.8 Add "Save as Preset" button next to "Generate Comparison" button
+  - [ ] 49.9 Implement save preset dialog: modal with name input, description textarea
+  - [ ] 49.10 Auto-generate preset name using formatPresetName helper
+  - [ ] 49.11 Implement handleSavePreset: POST /api/presets/steering with current config
+  - [ ] 49.12 Add favorite toggle button (star icon) for each preset
+  - [ ] 49.13 Implement handleToggleFavorite: PATCH /api/presets/steering/:id/favorite
+  - [ ] 49.14 Add delete button (trash icon) for each preset
+  - [ ] 49.15 Implement handleDeletePreset with confirmation: DELETE /api/presets/steering/:id
+  - [ ] 49.16 Style preset dropdown: match template dropdown styling
+  - [ ] 49.17 Add loading states for all preset operations
+  - [ ] 49.18 Add error handling with toast notifications
+  - [ ] 49.19 Write unit tests for preset management UI
+
+- [ ] 50.0 Frontend Steering Preset Store
+  - [ ] 50.1 Add steeringPresetsStore.ts Zustand store
+  - [ ] 50.2 Define state: presets (array), loading (boolean), error (string | null)
+  - [ ] 50.3 Implement fetchPresets action: GET /api/presets/steering
+  - [ ] 50.4 Implement createPreset action: POST /api/presets/steering
+  - [ ] 50.5 Implement updatePreset action: PUT /api/presets/steering/:id
+  - [ ] 50.6 Implement deletePreset action: DELETE /api/presets/steering/:id
+  - [ ] 50.7 Implement toggleFavorite action: PATCH /api/presets/steering/:id/favorite
+  - [ ] 50.8 Add API client functions in frontend/src/api/presets.ts
+  - [ ] 50.9 Add error handling and retry logic
+  - [ ] 50.10 Write unit tests for store actions and API client
+
+---
+
+## Phase 43: Multi-Layer Steering Support (NEW - From Mock UI Enhancement #6)
+
+### Parent Task: Implement Multi-Layer Steering Support
+**PRD Reference:** 005_FPRD|Model_Steering.md (US-10, FR-3C)
+**TDD Reference:** 005_FTDD|Model_Steering.md (Section 10 - Multi-Layer Steering Architecture)
+**TID Reference:** 005_FTID|Model_Steering.md (Section 7)
+**Mock UI Reference:** Lines 3512-3951 (SteeringPanel)
+
+- [ ] 51.0 Backend Multi-Layer Hook Registration
+  - [ ] 51.1 Update SteeringService._register_steering_hook to accept intervention_layers array
+  - [ ] 51.2 Iterate over intervention_layers: register separate hook for each layer
+  - [ ] 51.3 Compute steering vector once: steering_vector = compute_steering_vector(sae, features, coefficients)
+  - [ ] 51.4 Define steering_hook for each layer: applies same steering_vector at that layer
+  - [ ] 51.5 Register hook on each target layer: target_layer = model.transformer.h[layer_idx]
+  - [ ] 51.6 Store all hook handles: self.hook_handles.append(handle) for each layer
+  - [ ] 51.7 Update _cleanup_hooks: remove all hooks from all layers
+  - [ ] 51.8 Add validation: reject intervention_layers exceeding model depth (return 400 error)
+  - [ ] 51.9 Add warning in logs if > 3 layers selected (complex interactions possible)
+  - [ ] 51.10 Write unit tests for multi-layer hook registration
+
+- [ ] 52.0 Update Steering Generation for Multi-Layer
+  - [ ] 52.1 Update SteeringGenerateRequest schema: change intervention_layer to intervention_layers (List[int])
+  - [ ] 52.2 Add validation: intervention_layers array not empty, all values < model.num_layers
+  - [ ] 52.3 Update generate_with_steering: pass intervention_layers array to hook registration
+  - [ ] 52.4 Update POST /api/steering/generate endpoint: accept intervention_layers array
+  - [ ] 52.5 Add validation: check all layers valid for model
+  - [ ] 52.6 Update SteeringGenerateResponse: include intervention_layers in response metadata
+  - [ ] 52.7 Add metrics tracking: log number of layers steered
+  - [ ] 52.8 Write integration tests for multi-layer steering generation
+
+- [ ] 53.0 Frontend Multi-Layer Intervention Layer Selector UI
+  - [ ] 53.1 Update SteeringPanel.tsx to support multi-layer selection
+  - [ ] 53.2 Replace single intervention_layer slider with checkbox grid (match training layer selector pattern)
+  - [ ] 53.3 Add state: selectedInterventionLayers (array of integers), modelNumLayers (int)
+  - [ ] 53.4 Fetch model metadata from selectedModel: extract num_layers from architecture_config
+  - [ ] 53.5 Implement 8-column checkbox grid for intervention layer selection
+  - [ ] 53.6 Render checkboxes: L0, L1, L2... up to L{num_layers-1}
+  - [ ] 53.7 Style checkboxes: bg-emerald-600 (selected) or bg-gray-700 (unselected)
+  - [ ] 53.8 Implement handleInterventionLayerToggle: add/remove layer from selectedInterventionLayers
+  - [ ] 53.9 Add "Select All" and "Deselect All" buttons
+  - [ ] 53.10 Disable layer selector until model selected
+  - [ ] 53.11 Add warning text if > 3 layers selected: "⚠️ Multi-layer steering may cause complex interactions"
+  - [ ] 53.12 Style warning: text-yellow-400 bg-yellow-900/20 border border-yellow-700 rounded p-2 text-xs
+  - [ ] 53.13 Update generateComparison: use selectedInterventionLayers array instead of single layer
+  - [ ] 53.14 Write unit tests for multi-layer intervention layer selector
+
+- [ ] 54.0 Update Steering Presets for Multi-Layer
+  - [ ] 54.1 Update preset auto-naming: handle multi-layer case (layers{min}-{max})
+  - [ ] 54.2 Update handleSavePreset: include intervention_layers array in preset
+  - [ ] 54.3 Update handleLoadPreset: populate selectedInterventionLayers from preset.intervention_layers
+  - [ ] 54.4 Update preset dropdown display: show layer info (single vs multi-layer)
+  - [ ] 54.5 Add preset validation: intervention_layers must be compatible with current model
+  - [ ] 54.6 Show warning if loading preset with layers exceeding current model depth
+  - [ ] 54.7 Write unit tests for multi-layer preset save/load
+
+- [ ] 55.0 Testing and Documentation for Multi-Layer Steering
+  - [ ] 55.1 Write E2E test: steer on 3 layers simultaneously → verify outputs differ from baseline
+  - [ ] 55.2 Write E2E test: compare single-layer vs multi-layer steering → measure KL divergence difference
+  - [ ] 55.3 Write E2E test: steer on non-contiguous layers [0, 5, 10] → verify correct layers steered
+  - [ ] 55.4 Test hook cleanup: verify all hooks removed after multi-layer generation
+  - [ ] 55.5 Test layer selector UI: select layers, verify intervention_layers array correct
+  - [ ] 55.6 Test preset save/load with multi-layer: verify intervention_layers restored correctly
+  - [ ] 55.7 Test validation: attempt to steer on layer exceeding model depth → verify 400 error
+  - [ ] 55.8 Measure performance impact: 1 layer vs 3 layers steering time
+  - [ ] 55.9 Update API documentation: document intervention_layers field, multi-layer behavior
+  - [ ] 55.10 Update user guide: document multi-layer steering workflow, interaction warnings
+
+---
+
+**Total Tasks:** 55 parent tasks, 340+ sub-tasks
+**Estimated Complexity:** High (ML hooks + dual generation + complex metrics + multi-layer + templates)
+**Critical Path:** Steering hook implementation → Training selector → Preset management → Multi-layer steering → Frontend integration
+**Testing Priority:** Hook cleanup (memory leaks), generation consistency, metrics accuracy, multi-layer interactions
 
 **Implementation Notes:**
 - **PRIMARY UI REFERENCE:** Mock-embedded-interp-ui.tsx lines 3512-3951
@@ -413,3 +643,49 @@
 - Coefficient range [-5, 5]: -5 = 83% suppression, 0 = neutral, +5 = 6x amplification
 - Target performance: 3 seconds for 100-token generation (both outputs), 500ms for metrics
 - Jetson Orin Nano memory budget: ~2.3GB (model 1.5GB + SAE 200MB + sentence model 80MB + buffers 500MB)
+
+---
+
+**Status:** Comprehensive Task List Complete + Training Job Selector + Steering Preset Management + Multi-Layer Steering Support
+
+I have generated a detailed task list with 55 parent tasks broken down into 340+ actionable sub-tasks covering:
+
+**Original Phases (1-40):**
+1-40. Core steering implementation (backend, frontend, testing)
+
+**NEW Enhancement #5 - Training Job Selector (Phases 41-45):**
+41. **Backend Training Job API** - GET /api/trainings/completed with JOIN queries
+42. **Training Job Selector UI** - Dropdown with formatted display names, confirmation on change
+43. **Feature Discovery Integration** - Filter features by training_id, disable until training selected
+44. **Steering Service Updates** - Load SAE from training context, validate feature consistency
+45. **Store Integration** - completedTrainings state, training selection logic
+
+**NEW Enhancement #3 - Steering Preset Management (Phases 46-50):**
+46. **Database Schema Updates** - Add training_id FK, intervention_layers array, is_favorite flag
+47. **Preset CRUD API** - 7 endpoints (list, create, update, delete, toggle favorite, export, import)
+48. **Preset Export/Import** - Combined JSON format with steering_presets array
+49. **Preset Management UI** - Save/load/favorite/delete presets in SteeringPanel
+50. **Preset Store** - Zustand store with API client for preset operations
+
+**NEW Enhancement #6 - Multi-Layer Steering Support (Phases 51-55):**
+51. **Multi-Layer Hook Registration** - Register separate hook per layer, single steering vector
+52. **API Updates** - intervention_layers array in request/response, validation
+53. **Intervention Layer Selector UI** - 8-column checkbox grid for layer selection
+54. **Preset Updates** - Multi-layer preset save/load, auto-naming for multi-layer
+55. **Testing & Documentation** - E2E tests for multi-layer workflows, interaction warnings
+
+**Enhancement Summary:**
+- **Enhancement #5 (Training Job Selector):** ~45 sub-tasks
+- **Enhancement #3 (Steering Preset Management):** ~50 sub-tasks
+- **Enhancement #6 (Multi-Layer Steering):** ~50 sub-tasks
+- **Total NEW Sub-tasks:** ~145 sub-tasks for Model Steering enhancements
+
+**Technical Highlights:**
+- Training selector format: `{encoder} SAE • {model} • {dataset} • Started {date}`
+- Preset auto-naming: `steering_{count}features_layer{N}_{HHMM}` (single) or `steering_{count}features_layers{min}-{max}_{HHMM}` (multi)
+- Multi-layer architecture: One steering vector, multiple forward hooks
+- Hook registration: `register_forward_hook()` on `model.transformer.h[layer_idx]` for each layer
+- Validation: All features must be from same training, all layers < model.num_layers
+- Warning: >3 intervention layers triggers interaction warning in UI
+
+All tasks reference exact Mock UI line numbers, PRD requirements, TDD designs, TID implementation guidance, and are ready for systematic implementation.

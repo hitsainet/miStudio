@@ -406,6 +406,416 @@ CREATE INDEX idx_checkpoints_created_at ON checkpoints(created_at DESC);
 
 **Storage Estimate:** ~500 bytes per checkpoint × 10 checkpoints = 5KB per training (metadata only)
 
+#### training_templates Table
+
+```sql
+CREATE TABLE training_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Template identification
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+
+    -- Optional reference data (NULL = template applies to any model/dataset)
+    model_id UUID REFERENCES models(id) ON DELETE SET NULL,
+    dataset_id UUID REFERENCES datasets(id) ON DELETE SET NULL,
+
+    -- SAE configuration
+    encoder_type VARCHAR(20) NOT NULL,  -- 'sparse', 'skip', 'transcoder'
+    hyperparameters JSONB NOT NULL,  -- Complete hyperparameter configuration including trainingLayers array
+
+    -- User preferences
+    is_favorite BOOLEAN DEFAULT FALSE,
+
+    -- Timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- Constraints
+    CONSTRAINT training_templates_name_not_empty CHECK (LENGTH(name) > 0),
+    CONSTRAINT training_templates_encoder_type_valid CHECK (encoder_type IN ('sparse', 'skip', 'transcoder'))
+);
+
+-- Indexes for efficient queries
+CREATE INDEX idx_training_templates_favorite ON training_templates(is_favorite);
+CREATE INDEX idx_training_templates_updated_at ON training_templates(updated_at DESC);
+CREATE INDEX idx_training_templates_name ON training_templates(name);
+CREATE INDEX idx_training_templates_model ON training_templates(model_id) WHERE model_id IS NOT NULL;
+CREATE INDEX idx_training_templates_dataset ON training_templates(dataset_id) WHERE dataset_id IS NOT NULL;
+CREATE INDEX idx_training_templates_encoder ON training_templates(encoder_type);
+
+-- Trigger to auto-update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_training_template_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_training_template_updated_at
+    BEFORE UPDATE ON training_templates
+    FOR EACH ROW
+    EXECUTE FUNCTION update_training_template_timestamp();
+```
+
+**Hyperparameters JSONB Structure:**
+```json
+{
+  "learningRate": 0.001,
+  "batchSize": 512,
+  "l1Coefficient": 0.0001,
+  "expansionFactor": 8,
+  "trainingSteps": 10000,
+  "trainingLayers": [0, 5, 10, 15, 20],  // Multi-layer support
+  "optimizer": "Adam",
+  "lrSchedule": "cosine",
+  "ghostGradPenalty": 0.001
+}
+```
+
+**Auto-Generated Name Format:**
+- Pattern: `{encoder}_{expansion}x_{steps}steps_{HHMM}`
+- Examples:
+  - `sparse_8x_10000steps_1430` (sparse encoder, 8x expansion, 10000 steps, created at 14:30)
+  - `skip_16x_50000steps_0915` (skip encoder, 16x expansion, 50000 steps, created at 09:15)
+
+**Storage Estimate:** ~1KB per template × 50 templates = 50KB total
+
+**Query Performance:**
+- List favorites: `SELECT * FROM training_templates WHERE is_favorite = true ORDER BY updated_at DESC` → Uses idx_training_templates_favorite
+- List by model: `SELECT * FROM training_templates WHERE model_id = ? ORDER BY updated_at DESC` → Uses idx_training_templates_model
+- Search by name: `SELECT * FROM training_templates WHERE name ILIKE '%pattern%'` → Uses idx_training_templates_name
+
+### Multi-Layer Training Architecture
+
+#### Overview
+
+Multi-layer training enables training separate SAE instances on multiple transformer layers simultaneously using the same hyperparameters. This approach provides:
+
+1. **Efficient Multi-Layer Analysis**: Train SAEs for all layers of interest in a single training run
+2. **Unified Training Context**: Same dataset, model, hyperparameters applied consistently across layers
+3. **Independent Feature Spaces**: Each layer's SAE discovers features specific to that layer's representations
+4. **Scalable Design**: Architecture supports 1-N layers with memory-aware constraints
+
+#### Architecture Decision: Separate SAE Per Layer
+
+**Design Approach:**
+- **One SAE instance per layer** (not a single multi-layer SAE)
+- **Shared hyperparameters** across all layers
+- **Independent optimization** for each layer's SAE
+- **Parallel forward passes** during activation extraction
+- **Sequential backward passes** for each layer's SAE
+
+**Rationale:**
+- Different layers learn different representation patterns → separate feature spaces
+- Memory efficiency: Can load/unload layer SAEs independently
+- Training flexibility: Can checkpoint individual layers, resume partial training
+- Interpretability: Clear separation between layer 0 features vs. layer 10 features
+
+#### Memory Requirements Calculation
+
+**Formula:**
+```python
+# Memory per SAE
+memory_per_sae = (
+    model.hidden_size * expansion_factor * 4 bytes (FP32) * 2 (encoder + decoder) +
+    optimizer_state_size (2x parameters for Adam)
+)
+
+# Total training memory
+total_memory = (
+    base_memory (model + activations) +
+    memory_per_sae * len(trainingLayers)
+)
+```
+
+**Example (TinyLlama-1.1B, 8x expansion, 5 layers):**
+- Hidden size: 2048
+- Expansion: 8x = 16384 features
+- Parameters per SAE: 2048 * 16384 * 2 = 67M parameters
+- Memory per SAE: 67M * 4 bytes * 3 (params + 2 optimizer states) = 804MB
+- Total for 5 layers: 5 * 804MB = ~4GB
+- Base memory (model + activations): ~2GB
+- **Total: ~6GB** (fits in Jetson Orin Nano 8GB)
+
+**Memory Constraints:**
+- **Warning threshold**: Show warning if total_memory > 6GB
+- **Recommended limit**: ≤4 layers for 8x expansion on 8GB device
+- **Error threshold**: Reject training if estimated memory > 7.5GB (leave 500MB buffer)
+
+#### Checkpoint Structure for Multi-Layer Training
+
+**Single-Layer Training (Legacy):**
+```
+/data/trainings/{training_id}/checkpoints/
+├── checkpoint_1000.pt          # Contains single SAE state
+├── checkpoint_5000.pt
+└── checkpoint_10000_final.pt
+```
+
+**Multi-Layer Training (New):**
+```
+/data/trainings/{training_id}/checkpoints/
+├── checkpoint_1000/
+│   ├── layer_0/
+│   │   ├── encoder.pt          # Encoder weights for layer 0
+│   │   ├── decoder.pt          # Decoder weights for layer 0
+│   │   └── optimizer.pt        # Optimizer state for layer 0
+│   ├── layer_5/
+│   │   ├── encoder.pt
+│   │   ├── decoder.pt
+│   │   └── optimizer.pt
+│   ├── layer_10/
+│   │   ├── encoder.pt
+│   │   ├── decoder.pt
+│   │   └── optimizer.pt
+│   └── metadata.json           # Shared metadata for this checkpoint
+├── checkpoint_5000/
+│   ├── layer_0/
+│   ├── layer_5/
+│   ├── layer_10/
+│   └── metadata.json
+└── checkpoint_10000_final/
+    ├── layer_0/
+    ├── layer_5/
+    ├── layer_10/
+    └── metadata.json
+```
+
+**metadata.json Structure:**
+```json
+{
+  "step": 10000,
+  "training_id": "tr_abc123",
+  "trainingLayers": [0, 5, 10],
+  "encoder_type": "sparse",
+  "hyperparameters": {
+    "learningRate": 0.001,
+    "batchSize": 512,
+    "expansionFactor": 8,
+    "l1Coefficient": 0.0001
+  },
+  "metrics_by_layer": {
+    "0": {"loss": 0.045, "sparsity": 12.3, "reconstruction_error": 0.023},
+    "5": {"loss": 0.052, "sparsity": 15.1, "reconstruction_error": 0.028},
+    "10": {"loss": 0.048, "sparsity": 13.7, "reconstruction_error": 0.025}
+  },
+  "aggregated_metrics": {
+    "avg_loss": 0.048,
+    "avg_sparsity": 13.7,
+    "avg_reconstruction_error": 0.025
+  },
+  "created_at": "2025-10-07T14:30:00Z"
+}
+```
+
+**Checkpoint Saving Strategy:**
+```python
+def save_multilayer_checkpoint(training_id: str, step: int, saes: dict, optimizers: dict, metrics: dict):
+    checkpoint_dir = Path(f"/data/trainings/{training_id}/checkpoints/checkpoint_{step}")
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save each layer's SAE independently
+    for layer_idx, sae in saes.items():
+        layer_dir = checkpoint_dir / f"layer_{layer_idx}"
+        layer_dir.mkdir(exist_ok=True)
+
+        torch.save(sae.encoder.state_dict(), layer_dir / "encoder.pt")
+        torch.save(sae.decoder.state_dict(), layer_dir / "decoder.pt")
+        torch.save(optimizers[layer_idx].state_dict(), layer_dir / "optimizer.pt")
+
+    # Save shared metadata
+    metadata = {
+        "step": step,
+        "training_id": training_id,
+        "trainingLayers": list(saes.keys()),
+        "metrics_by_layer": {str(k): v for k, v in metrics.items()},
+        "aggregated_metrics": aggregate_metrics(metrics),
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+    with open(checkpoint_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+```
+
+**Checkpoint Loading Strategy:**
+```python
+def load_multilayer_checkpoint(checkpoint_path: Path) -> tuple[dict, dict]:
+    # Load metadata
+    with open(checkpoint_path / "metadata.json", "r") as f:
+        metadata = json.load(f)
+
+    training_layers = metadata["trainingLayers"]
+
+    # Initialize SAEs for each layer
+    saes = {}
+    optimizers = {}
+
+    for layer_idx in training_layers:
+        layer_dir = checkpoint_path / f"layer_{layer_idx}"
+
+        # Initialize SAE
+        sae = SparseAutoencoder(
+            d_model=model.hidden_size,
+            d_sae=model.hidden_size * metadata["hyperparameters"]["expansionFactor"],
+            l1_coefficient=metadata["hyperparameters"]["l1Coefficient"]
+        )
+
+        # Load weights
+        sae.encoder.load_state_dict(torch.load(layer_dir / "encoder.pt"))
+        sae.decoder.load_state_dict(torch.load(layer_dir / "decoder.pt"))
+
+        # Initialize and load optimizer
+        optimizer = torch.optim.Adam(sae.parameters(), lr=metadata["hyperparameters"]["learningRate"])
+        optimizer.load_state_dict(torch.load(layer_dir / "optimizer.pt"))
+
+        saes[layer_idx] = sae
+        optimizers[layer_idx] = optimizer
+
+    return saes, optimizers, metadata
+```
+
+#### Training Pipeline for Multi-Layer
+
+**Initialization Phase:**
+```python
+def initialize_multilayer_training(config: TrainingConfig):
+    training_layers = config.hyperparameters["trainingLayers"]
+
+    # Validate memory requirements
+    estimated_memory = calculate_memory_requirements(
+        model_hidden_size=model.hidden_size,
+        expansion_factor=config.hyperparameters["expansionFactor"],
+        num_layers=len(training_layers)
+    )
+
+    if estimated_memory > 7.5 * 1e9:  # 7.5GB threshold
+        raise ValueError(f"Estimated memory {estimated_memory / 1e9:.1f}GB exceeds 7.5GB limit")
+
+    # Initialize separate SAE for each layer
+    saes = {}
+    optimizers = {}
+
+    for layer_idx in training_layers:
+        sae = SparseAutoencoder(
+            d_model=model.hidden_size,
+            d_sae=model.hidden_size * config.hyperparameters["expansionFactor"],
+            l1_coefficient=config.hyperparameters["l1Coefficient"]
+        )
+
+        optimizer = torch.optim.Adam(
+            sae.parameters(),
+            lr=config.hyperparameters["learningRate"]
+        )
+
+        saes[layer_idx] = sae.to(device)
+        optimizers[layer_idx] = optimizer
+
+    return saes, optimizers
+```
+
+**Training Loop:**
+```python
+def train_multilayer_step(batch, saes: dict, optimizers: dict, training_layers: list):
+    # Extract activations from all layers simultaneously
+    activations_by_layer = extract_multilayer_activations(
+        model=model,
+        batch=batch,
+        layers=training_layers
+    )
+
+    # Train each layer's SAE independently
+    losses = {}
+    metrics = {}
+
+    for layer_idx in training_layers:
+        activations = activations_by_layer[layer_idx]  # Shape: (batch_size, hidden_size)
+        sae = saes[layer_idx]
+        optimizer = optimizers[layer_idx]
+
+        # Forward pass
+        reconstructed, latents = sae(activations)
+
+        # Compute loss
+        reconstruction_loss = F.mse_loss(reconstructed, activations)
+        sparsity_loss = sae.l1_coefficient * latents.abs().mean()
+        total_loss = reconstruction_loss + sparsity_loss
+
+        # Backward pass
+        optimizer.zero_grad()
+        total_loss.backward()
+        optimizer.step()
+
+        # Track metrics
+        losses[layer_idx] = total_loss.item()
+        metrics[layer_idx] = {
+            "loss": total_loss.item(),
+            "sparsity": (latents.abs() > 1e-5).float().sum(dim=-1).mean().item(),
+            "reconstruction_error": reconstruction_loss.item()
+        }
+
+    # Aggregate metrics across layers
+    aggregated_metrics = {
+        "avg_loss": np.mean([m["loss"] for m in metrics.values()]),
+        "avg_sparsity": np.mean([m["sparsity"] for m in metrics.values()]),
+        "avg_reconstruction_error": np.mean([m["reconstruction_error"] for m in metrics.values()])
+    }
+
+    return metrics, aggregated_metrics
+```
+
+**Activation Extraction for Multi-Layer:**
+```python
+def extract_multilayer_activations(model, batch, layers: list):
+    """
+    Extract activations from multiple layers in a single forward pass.
+    Uses forward hooks to capture intermediate activations.
+    """
+    activations_by_layer = {}
+    hooks = []
+
+    # Register forward hooks
+    def create_hook(layer_idx):
+        def hook(module, input, output):
+            activations_by_layer[layer_idx] = output.detach()
+        return hook
+
+    for layer_idx in layers:
+        layer = model.transformer.h[layer_idx]  # Access transformer layer
+        hook = layer.register_forward_hook(create_hook(layer_idx))
+        hooks.append(hook)
+
+    # Forward pass
+    with torch.no_grad():
+        model(**batch)
+
+    # Remove hooks
+    for hook in hooks:
+        hook.remove()
+
+    return activations_by_layer
+```
+
+**Metrics Aggregation:**
+```python
+def aggregate_metrics(metrics_by_layer: dict) -> dict:
+    """Aggregate metrics across all layers for progress tracking."""
+    return {
+        "avg_loss": np.mean([m["loss"] for m in metrics_by_layer.values()]),
+        "min_loss": np.min([m["loss"] for m in metrics_by_layer.values()]),
+        "max_loss": np.max([m["loss"] for m in metrics_by_layer.values()]),
+        "avg_sparsity": np.mean([m["sparsity"] for m in metrics_by_layer.values()]),
+        "avg_reconstruction_error": np.mean([m["reconstruction_error"] for m in metrics_by_layer.values()])
+    }
+```
+
+**Error Handling:**
+- **OOM Error**: Catch torch.cuda.OutOfMemoryError, save partial checkpoint, notify user with memory reduction suggestions
+- **Layer Index Error**: Validate layer indices against model.config.num_layers before training starts
+- **Checkpoint Corruption**: Verify metadata.json exists and contains all required fields during loading
+- **Partial Training Failure**: If one layer's SAE fails, save checkpoints for successful layers and report error
+
 ### Data Validation Strategy
 
 **Training Configuration Validation (Pydantic):**
@@ -756,6 +1166,314 @@ socket.emit('subscribe', { channel: `training:${trainingId}` });
   "timestamp": "2025-10-06T10:50:00Z"
 }
 ```
+
+### Training Template Management API Endpoints
+
+Training templates follow the same API patterns as extraction templates (see Model Management TDD 002_FTDD). The following endpoints enable complete CRUD operations, favorites management, and export/import functionality.
+
+#### GET /api/templates/training
+**Purpose:** List all training templates with filtering
+
+**Query Parameters:**
+- `model_id` (optional): Filter by associated model
+- `dataset_id` (optional): Filter by associated dataset
+- `encoder_type` (optional): Filter by encoder type ('sparse', 'skip', 'transcoder')
+- `is_favorite` (optional): Filter favorites (boolean)
+- `limit` (default: 50): Max results per page
+- `offset` (default: 0): Pagination offset
+
+**Response:** 200 OK
+```json
+{
+  "templates": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "sparse_8x_10000steps_1430",
+      "description": "Standard sparse SAE training configuration",
+      "model_id": "m_tinyllama_123",
+      "dataset_id": "ds_openwebtext_456",
+      "encoder_type": "sparse",
+      "hyperparameters": {
+        "learningRate": 0.001,
+        "batchSize": 512,
+        "l1Coefficient": 0.0001,
+        "expansionFactor": 8,
+        "trainingSteps": 10000,
+        "trainingLayers": [0, 5, 10, 15, 20],
+        "optimizer": "Adam",
+        "lrSchedule": "cosine",
+        "ghostGradPenalty": 0.001
+      },
+      "is_favorite": true,
+      "created_at": "2025-10-07T14:30:00Z",
+      "updated_at": "2025-10-07T14:30:00Z"
+    }
+  ],
+  "total": 15,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Validation:**
+- `limit`: 1-100
+- `offset`: ≥0
+- `encoder_type`: Must be one of ['sparse', 'skip', 'transcoder']
+
+**Query Performance:**
+- Uses composite indexes for efficient filtering
+- Response time: <50ms for typical result sets
+
+---
+
+#### POST /api/templates/training
+**Purpose:** Create new training template from current configuration
+
+**Request Body:**
+```json
+{
+  "name": "sparse_8x_10000steps_1430",
+  "description": "Standard sparse SAE training configuration",
+  "model_id": "m_tinyllama_123",
+  "dataset_id": "ds_openwebtext_456",
+  "encoder_type": "sparse",
+  "hyperparameters": {
+    "learningRate": 0.001,
+    "batchSize": 512,
+    "l1Coefficient": 0.0001,
+    "expansionFactor": 8,
+    "trainingSteps": 10000,
+    "trainingLayers": [0, 5, 10, 15, 20],
+    "optimizer": "Adam",
+    "lrSchedule": "cosine",
+    "ghostGradPenalty": 0.001
+  },
+  "is_favorite": false
+}
+```
+
+**Validation Rules:**
+- `name`: Required, 1-255 characters, auto-generated default provided by frontend
+- `description`: Optional, max 500 characters
+- `model_id`: Optional UUID, must reference existing model if provided
+- `dataset_id`: Optional UUID, must reference existing dataset if provided
+- `encoder_type`: Required, must be one of ['sparse', 'skip', 'transcoder']
+- `hyperparameters`: Required, must validate against HyperparametersSchema:
+  - `learningRate`: 0.000001-0.1
+  - `batchSize`: 64-2048
+  - `l1Coefficient`: 0.00001-0.01
+  - `expansionFactor`: 4-64
+  - `trainingSteps`: 100-100000
+  - `trainingLayers`: Array of integers, each 0 ≤ layer < model.num_layers
+  - `optimizer`: One of ['Adam', 'AdamW', 'SGD']
+  - `lrSchedule`: One of ['constant', 'cosine', 'linear']
+  - `ghostGradPenalty`: 0.0-1.0
+
+**Response:** 201 Created
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "sparse_8x_10000steps_1430",
+  "description": "Standard sparse SAE training configuration",
+  "model_id": "m_tinyllama_123",
+  "dataset_id": "ds_openwebtext_456",
+  "encoder_type": "sparse",
+  "hyperparameters": { ... },
+  "is_favorite": false,
+  "created_at": "2025-10-07T14:30:00Z",
+  "updated_at": "2025-10-07T14:30:00Z"
+}
+```
+
+**Error Responses:**
+- 400 Bad Request: Validation error (invalid hyperparameters, invalid encoder_type, etc.)
+- 404 Not Found: Referenced model_id or dataset_id doesn't exist
+- 409 Conflict: Template name already exists
+
+---
+
+#### PUT /api/templates/training/:id
+**Purpose:** Update existing training template
+
+**Path Parameters:**
+- `id`: Template UUID
+
+**Request Body:** (Same as POST, all fields optional except those being updated)
+```json
+{
+  "name": "sparse_8x_10000steps_updated",
+  "description": "Updated description",
+  "is_favorite": true
+}
+```
+
+**Response:** 200 OK (returns updated template object)
+
+**Validation:**
+- Same validation rules as POST endpoint
+- Cannot update `id`, `created_at` (immutable)
+- `updated_at` automatically set to current timestamp
+
+**Error Responses:**
+- 400 Bad Request: Validation error
+- 404 Not Found: Template ID doesn't exist
+- 409 Conflict: New name conflicts with existing template
+
+---
+
+#### DELETE /api/templates/training/:id
+**Purpose:** Delete training template
+
+**Path Parameters:**
+- `id`: Template UUID
+
+**Response:** 204 No Content (successful deletion)
+
+**Error Responses:**
+- 404 Not Found: Template ID doesn't exist
+
+**Implementation Notes:**
+- Deletion is permanent (no soft delete)
+- Does NOT affect existing trainings that were created from this template
+- Frontend should show confirmation dialog before deletion
+
+---
+
+#### PATCH /api/templates/training/:id/favorite
+**Purpose:** Toggle favorite status for template
+
+**Path Parameters:**
+- `id`: Template UUID
+
+**Request Body:**
+```json
+{
+  "is_favorite": true
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "is_favorite": true,
+  "updated_at": "2025-10-07T15:00:00Z"
+}
+```
+
+**Validation:**
+- `is_favorite`: Required boolean
+
+**Error Responses:**
+- 400 Bad Request: Invalid boolean value
+- 404 Not Found: Template ID doesn't exist
+
+---
+
+#### POST /api/templates/export
+**Purpose:** Export all templates (training, extraction, steering) to single JSON file
+
+**Request Body:** (Optional filters)
+```json
+{
+  "include_training": true,
+  "include_extraction": true,
+  "include_steering": true
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "version": "1.0",
+  "exported_at": "2025-10-07T16:00:00Z",
+  "training_templates": [
+    {
+      "name": "sparse_8x_10000steps_1430",
+      "description": "Standard sparse SAE training configuration",
+      "model_id": null,
+      "dataset_id": null,
+      "encoder_type": "sparse",
+      "hyperparameters": {
+        "learningRate": 0.001,
+        "batchSize": 512,
+        "l1Coefficient": 0.0001,
+        "expansionFactor": 8,
+        "trainingSteps": 10000,
+        "trainingLayers": [0, 5, 10, 15, 20],
+        "optimizer": "Adam",
+        "lrSchedule": "cosine",
+        "ghostGradPenalty": 0.001
+      },
+      "is_favorite": true
+    }
+  ],
+  "extraction_templates": [ ... ],
+  "steering_presets": [ ... ]
+}
+```
+
+**Implementation Notes:**
+- Omits database IDs (UUIDs) - templates get new IDs on import
+- Includes all user-facing configuration data
+- Model/dataset references exported as IDs (may be NULL on import if not found)
+- Version field enables future format migrations
+
+---
+
+#### POST /api/templates/import
+**Purpose:** Import templates from exported JSON file
+
+**Request Body:** (Same format as export response)
+```json
+{
+  "version": "1.0",
+  "training_templates": [ ... ],
+  "extraction_templates": [ ... ],
+  "steering_presets": [ ... ]
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "imported": {
+    "training_templates": 5,
+    "extraction_templates": 3,
+    "steering_presets": 8
+  },
+  "skipped": {
+    "training_templates": 1,
+    "extraction_templates": 0,
+    "steering_presets": 0
+  },
+  "errors": [
+    {
+      "type": "training_template",
+      "name": "invalid_template",
+      "reason": "Invalid hyperparameters: expansionFactor must be 4-64"
+    }
+  ]
+}
+```
+
+**Validation:**
+- Version compatibility check (only "1.0" supported currently)
+- Each template validated against creation rules
+- Model/dataset references checked for existence (converted to NULL if not found)
+- Name conflicts handled by appending timestamp suffix
+
+**Import Behavior:**
+- **Name Conflicts**: Append `_imported_{timestamp}` suffix to avoid collisions
+- **Missing Model/Dataset**: Set reference to NULL (template still usable)
+- **Invalid Data**: Skip template, include in errors array
+- **Partial Success**: Import valid templates even if some fail
+
+**Error Responses:**
+- 400 Bad Request: Invalid JSON structure or unsupported version
+- 500 Internal Server Error: Database error during import
+
+---
 
 ### Error Handling Strategy
 

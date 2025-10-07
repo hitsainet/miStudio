@@ -966,8 +966,610 @@ export interface ModelConfig {
 
 ---
 
+## 10. Extraction Template Management Implementation
+
+This section provides implementation guidance for the extraction template save/load/favorite/export/import functionality (FR-4A from PRD).
+
+### Component: Saved Templates Section
+
+**Location:** Inside `ActivationExtractionConfig` modal (Mock UI lines 1440-1625)
+
+**Implementation Pattern:**
+
+```typescript
+// Add to ActivationExtractionConfig component state
+const [templates, setTemplates] = useState<ExtractionTemplate[]>([]);
+const [showTemplates, setShowTemplates] = useState(false);
+const [templateName, setTemplateName] = useState('');
+const [templateDescription, setTemplateDescription] = useState('');
+
+// Fetch templates on modal open
+useEffect(() => {
+  if (isOpen) {
+    fetchExtractionTemplates();
+  }
+}, [isOpen]);
+
+const fetchExtractionTemplates = async () => {
+  try {
+    const response = await fetch('/api/templates/extraction?limit=50');
+    const data = await response.json();
+    setTemplates(data.templates);
+  } catch (error) {
+    console.error('Failed to fetch templates:', error);
+  }
+};
+
+// Auto-generate template name
+const generateTemplateName = () => {
+  const timestamp = new Date().toLocaleTimeString('en-US', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit'
+  }).replace(':', '');
+
+  const hookType = hookTypes.join('_');
+
+  if (selectedLayers.length === 1) {
+    return `${hookType}_layer${selectedLayers[0]}_${maxSamples || 'all'}samples_${timestamp}`;
+  } else {
+    const min = Math.min(...selectedLayers);
+    const max = Math.max(...selectedLayers);
+    return `${hookType}_layers${min}-${max}_${maxSamples || 'all'}samples_${timestamp}`;
+  }
+};
+
+// Save template handler
+const handleSaveTemplate = async () => {
+  const name = templateName || generateTemplateName();
+
+  const template = {
+    name,
+    description: templateDescription,
+    layers: selectedLayers,
+    hook_types: hookTypes,
+    max_samples: maxSamples,
+    top_k_examples: 100,
+    is_favorite: false
+  };
+
+  try {
+    const response = await fetch('/api/templates/extraction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(template)
+    });
+
+    if (response.ok) {
+      await fetchExtractionTemplates();
+      setTemplateName('');
+      setTemplateDescription('');
+      // Show success toast
+    }
+  } catch (error) {
+    console.error('Failed to save template:', error);
+    // Show error toast
+  }
+};
+
+// Load template handler
+const handleLoadTemplate = (template: ExtractionTemplate) => {
+  setSelectedLayers(template.layers);
+  setHookTypes(template.hook_types);
+  setMaxSamples(template.max_samples);
+  // Show success toast: "Loaded template: {name}"
+};
+
+// Delete template handler
+const handleDeleteTemplate = async (templateId: string) => {
+  if (!confirm('Delete this template? This cannot be undone.')) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/templates/extraction/${templateId}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      await fetchExtractionTemplates();
+      // Show success toast
+    }
+  } catch (error) {
+    console.error('Failed to delete template:', error);
+    // Show error toast
+  }
+};
+
+// Toggle favorite handler
+const handleToggleFavorite = async (templateId: string, isFavorite: boolean) => {
+  try {
+    const response = await fetch(`/api/templates/extraction/${templateId}/favorite`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_favorite: !isFavorite })
+    });
+
+    if (response.ok) {
+      await fetchExtractionTemplates();
+    }
+  } catch (error) {
+    console.error('Failed to toggle favorite:', error);
+  }
+};
+```
+
+**UI Structure:**
+
+```typescript
+// Add collapsible section in ActivationExtractionConfig modal
+<div className="mb-4">
+  <button
+    onClick={() => setShowTemplates(!showTemplates)}
+    className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium text-gray-300 hover:text-white bg-gray-800 rounded"
+  >
+    <span>Saved Templates ({templates.length})</span>
+    <ChevronDown className={`w-4 h-4 transition-transform ${showTemplates ? 'rotate-180' : ''}`} />
+  </button>
+
+  {showTemplates && (
+    <div className="mt-2 space-y-2">
+      {/* Save New Template Form */}
+      <div className="p-3 bg-gray-800 rounded">
+        <input
+          type="text"
+          placeholder="Template name (auto-generated)"
+          value={templateName}
+          onChange={(e) => setTemplateName(e.target.value)}
+          className="w-full px-2 py-1 mb-2 text-sm bg-gray-700 border border-gray-600 rounded"
+        />
+        <textarea
+          placeholder="Description (optional)"
+          value={templateDescription}
+          onChange={(e) => setTemplateDescription(e.target.value)}
+          maxLength={500}
+          rows={2}
+          className="w-full px-2 py-1 mb-2 text-sm bg-gray-700 border border-gray-600 rounded resize-none"
+        />
+        <button
+          onClick={handleSaveTemplate}
+          disabled={selectedLayers.length === 0 || hookTypes.length === 0}
+          className="w-full px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Save className="inline w-4 h-4 mr-1" />
+          Save Current Configuration
+        </button>
+      </div>
+
+      {/* Template List */}
+      <div className="space-y-1 max-h-64 overflow-y-auto">
+        {templates.map((template) => (
+          <div
+            key={template.id}
+            className="flex items-center justify-between p-2 bg-gray-800 rounded hover:bg-gray-750"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleToggleFavorite(template.id, template.is_favorite)}
+                  className="text-gray-400 hover:text-yellow-400"
+                >
+                  <Star className={`w-4 h-4 ${template.is_favorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+                </button>
+                <span className="text-sm font-medium text-white truncate">{template.name}</span>
+              </div>
+              {template.description && (
+                <p className="mt-1 text-xs text-gray-400 truncate">{template.description}</p>
+              )}
+              <div className="flex gap-2 mt-1 text-xs text-gray-500">
+                <span>{template.layers.length} layers</span>
+                <span>•</span>
+                <span>{template.hook_types.join(', ')}</span>
+                {template.max_samples && (
+                  <>
+                    <span>•</span>
+                    <span>{template.max_samples} samples</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-1 ml-2">
+              <button
+                onClick={() => handleLoadTemplate(template)}
+                className="p-1 text-gray-400 hover:text-blue-400"
+                title="Load template"
+              >
+                <Upload className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleDeleteTemplate(template.id)}
+                className="p-1 text-gray-400 hover:text-red-400"
+                title="Delete template"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {templates.length === 0 && (
+          <div className="py-8 text-center text-gray-500">
+            <p className="text-sm">No saved templates</p>
+            <p className="text-xs">Configure extraction settings and save as a template</p>
+          </div>
+        )}
+      </div>
+
+      {/* Export/Import Buttons */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleExportTemplates}
+          className="flex-1 px-3 py-1 text-sm font-medium text-gray-300 bg-gray-700 rounded hover:bg-gray-600"
+        >
+          <Download className="inline w-4 h-4 mr-1" />
+          Export All
+        </button>
+        <button
+          onClick={() => document.getElementById('import-templates-input')?.click()}
+          className="flex-1 px-3 py-1 text-sm font-medium text-gray-300 bg-gray-700 rounded hover:bg-gray-600"
+        >
+          <Upload className="inline w-4 h-4 mr-1" />
+          Import
+        </button>
+        <input
+          id="import-templates-input"
+          type="file"
+          accept=".json"
+          onChange={handleImportTemplates}
+          className="hidden"
+        />
+      </div>
+    </div>
+  )}
+</div>
+```
+
+### Backend: Extraction Template Endpoints
+
+**File:** `backend/src/api/routes/templates.py`
+
+**Implementation Pattern:**
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from datetime import datetime
+import json
+
+from ..database import get_db
+from ..models.extraction_template import ExtractionTemplate
+from ..schemas.extraction_template import (
+    ExtractionTemplateCreate,
+    ExtractionTemplateUpdate,
+    ExtractionTemplateResponse,
+    ExtractionTemplatesListResponse,
+    ToggleFavoriteRequest
+)
+
+router = APIRouter(prefix="/api/templates", tags=["templates"])
+
+# GET /api/templates/extraction
+@router.get("/extraction", response_model=ExtractionTemplatesListResponse)
+async def list_extraction_templates(
+    is_favorite: Optional[bool] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """List extraction templates with optional filtering."""
+    query = db.query(ExtractionTemplate)
+
+    if is_favorite is not None:
+        query = query.filter(ExtractionTemplate.is_favorite == is_favorite)
+
+    total = query.count()
+    templates = query.order_by(ExtractionTemplate.updated_at.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "templates": templates,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
+
+# POST /api/templates/extraction
+@router.post("/extraction", response_model=ExtractionTemplateResponse, status_code=status.HTTP_201_CREATED)
+async def create_extraction_template(
+    template: ExtractionTemplateCreate,
+    db: Session = Depends(get_db)
+):
+    """Create new extraction template."""
+    # Check for name conflicts
+    existing = db.query(ExtractionTemplate).filter(ExtractionTemplate.name == template.name).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Template with name '{template.name}' already exists")
+
+    # Validate layers and hook_types not empty
+    if not template.layers or len(template.layers) == 0:
+        raise HTTPException(status_code=400, detail="layers array cannot be empty")
+    if not template.hook_types or len(template.hook_types) == 0:
+        raise HTTPException(status_code=400, detail="hook_types array cannot be empty")
+
+    # Create template
+    db_template = ExtractionTemplate(**template.dict())
+    db.add(db_template)
+    db.commit()
+    db.refresh(db_template)
+
+    return db_template
+
+# PUT /api/templates/extraction/:id
+@router.put("/extraction/{template_id}", response_model=ExtractionTemplateResponse)
+async def update_extraction_template(
+    template_id: str,
+    template: ExtractionTemplateUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update existing extraction template."""
+    db_template = db.query(ExtractionTemplate).filter(ExtractionTemplate.id == template_id).first()
+    if not db_template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # Check for name conflicts (if name is being updated)
+    if template.name and template.name != db_template.name:
+        existing = db.query(ExtractionTemplate).filter(ExtractionTemplate.name == template.name).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Template with name '{template.name}' already exists")
+
+    # Update fields
+    for key, value in template.dict(exclude_unset=True).items():
+        setattr(db_template, key, value)
+
+    db.commit()
+    db.refresh(db_template)
+
+    return db_template
+
+# DELETE /api/templates/extraction/:id
+@router.delete("/extraction/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_extraction_template(
+    template_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete extraction template."""
+    db_template = db.query(ExtractionTemplate).filter(ExtractionTemplate.id == template_id).first()
+    if not db_template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    db.delete(db_template)
+    db.commit()
+
+    return None
+
+# PATCH /api/templates/extraction/:id/favorite
+@router.patch("/extraction/{template_id}/favorite")
+async def toggle_extraction_template_favorite(
+    template_id: str,
+    request: ToggleFavoriteRequest,
+    db: Session = Depends(get_db)
+):
+    """Toggle favorite status for extraction template."""
+    db_template = db.query(ExtractionTemplate).filter(ExtractionTemplate.id == template_id).first()
+    if not db_template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    db_template.is_favorite = request.is_favorite
+    db.commit()
+    db.refresh(db_template)
+
+    return {
+        "id": db_template.id,
+        "is_favorite": db_template.is_favorite,
+        "updated_at": db_template.updated_at
+    }
+```
+
+### Export/Import Implementation
+
+**Export Handler:**
+
+```typescript
+const handleExportTemplates = async () => {
+  try {
+    const response = await fetch('/api/templates/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        include_training: true,
+        include_extraction: true,
+        include_steering: true
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `miStudio-templates-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  } catch (error) {
+    console.error('Failed to export templates:', error);
+  }
+};
+```
+
+**Import Handler:**
+
+```typescript
+const handleImportTemplates = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    const response = await fetch('/api/templates/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      await fetchExtractionTemplates();
+
+      // Show summary toast
+      const total = result.imported.extraction_templates;
+      const skipped = result.skipped.extraction_templates;
+      alert(`Import complete: ${total} templates imported, ${skipped} skipped`);
+
+      if (result.errors.length > 0) {
+        console.warn('Import errors:', result.errors);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to import templates:', error);
+    alert('Import failed. Please check the file format.');
+  }
+
+  // Reset file input
+  event.target.value = '';
+};
+```
+
+### Database Migration
+
+**File:** `backend/alembic/versions/XXXX_add_extraction_templates.py`
+
+```python
+"""add extraction_templates table
+
+Revision ID: XXXX
+Revises: YYYY
+Create Date: 2025-10-07
+
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers
+revision = 'XXXX'
+down_revision = 'YYYY'
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    op.create_table(
+        'extraction_templates',
+        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('name', sa.String(255), nullable=False),
+        sa.Column('description', sa.Text(), nullable=True),
+        sa.Column('layers', postgresql.ARRAY(sa.Integer()), nullable=False),
+        sa.Column('hook_types', postgresql.ARRAY(sa.String(50)), nullable=False),
+        sa.Column('max_samples', sa.Integer(), nullable=True),
+        sa.Column('top_k_examples', sa.Integer(), nullable=False, server_default='100'),
+        sa.Column('is_favorite', sa.Boolean(), nullable=False, server_default='false'),
+        sa.Column('created_at', sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('updated_at', sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.CheckConstraint("LENGTH(name) > 0", name='extraction_templates_name_not_empty'),
+        sa.CheckConstraint("array_length(layers, 1) > 0", name='extraction_templates_layers_not_empty'),
+        sa.CheckConstraint("array_length(hook_types, 1) > 0", name='extraction_templates_hooks_not_empty')
+    )
+
+    op.create_index('idx_extraction_templates_favorite', 'extraction_templates', ['is_favorite'])
+    op.create_index('idx_extraction_templates_updated_at', 'extraction_templates', ['updated_at'], postgresql_ops={'updated_at': 'DESC'})
+    op.create_index('idx_extraction_templates_name', 'extraction_templates', ['name'])
+
+    # Create trigger function for auto-updating updated_at
+    op.execute("""
+        CREATE OR REPLACE FUNCTION update_extraction_template_timestamp()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = CURRENT_TIMESTAMP;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+    """)
+
+    op.execute("""
+        CREATE TRIGGER trigger_extraction_template_updated_at
+        BEFORE UPDATE ON extraction_templates
+        FOR EACH ROW
+        EXECUTE FUNCTION update_extraction_template_timestamp();
+    """)
+
+def downgrade():
+    op.execute("DROP TRIGGER IF EXISTS trigger_extraction_template_updated_at ON extraction_templates")
+    op.execute("DROP FUNCTION IF EXISTS update_extraction_template_timestamp")
+    op.drop_index('idx_extraction_templates_name')
+    op.drop_index('idx_extraction_templates_updated_at')
+    op.drop_index('idx_extraction_templates_favorite')
+    op.drop_table('extraction_templates')
+```
+
+### TypeScript Interfaces
+
+**File:** `frontend/src/types/extractionTemplate.ts`
+
+```typescript
+export interface ExtractionTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  layers: number[];
+  hook_types: string[];
+  max_samples?: number;
+  top_k_examples: number;
+  is_favorite: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExtractionTemplateCreate {
+  name: string;
+  description?: string;
+  layers: number[];
+  hook_types: string[];
+  max_samples?: number;
+  top_k_examples?: number;
+  is_favorite?: boolean;
+}
+
+export interface ExtractionTemplatesListResponse {
+  templates: ExtractionTemplate[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+```
+
+### Implementation Checklist
+
+- [ ] Add extraction_templates table migration
+- [ ] Implement all 7 API endpoints with validation
+- [ ] Add "Saved Templates" collapsible section to ActivationExtractionConfig modal
+- [ ] Implement auto-generated template naming
+- [ ] Implement save/load/delete/favorite functionality
+- [ ] Implement export/import with file download/upload
+- [ ] Add TypeScript interfaces for extraction templates
+- [ ] Add unit tests for API endpoints
+- [ ] Add integration tests for template workflow
+- [ ] Test name conflict handling
+- [ ] Test import validation and error handling
+
+---
+
 **Document End**
 **Status:** Ready for Task Generation
-**Total Sections:** 10 (focused implementation guide)
-**Estimated Size:** ~35KB
+**Total Sections:** 11 (focused implementation guide with extraction templates)
+**Estimated Size:** ~45KB
 **Next:** 003_FTID|SAE_Training.md

@@ -532,7 +532,587 @@ class CheckpointService:
 
 ---
 
+## 8. Training Template Management Implementation
+
+This section provides implementation guidance for training template save/load/favorite/export/import functionality (FR-1A from PRD).
+
+### Component: Saved Templates Section
+
+**Location:** Inside TrainingPanel, above the "Start Training" button (Mock UI lines 1628-1842)
+
+**Implementation Pattern:**
+
+```typescript
+// Add to TrainingPanel component state
+const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
+const [showTemplates, setShowTemplates] = useState(false);
+const [templateName, setTemplateName] = useState('');
+const [templateDescription, setTemplateDescription] = useState('');
+
+// Fetch templates on mount
+useEffect(() => {
+  fetchTrainingTemplates();
+}, []);
+
+const fetchTrainingTemplates = async () => {
+  try {
+    const response = await fetch('/api/templates/training?limit=50');
+    const data = await response.json();
+    setTemplates(data.templates);
+  } catch (error) {
+    console.error('Failed to fetch templates:', error);
+  }
+};
+
+// Auto-generate template name
+const generateTemplateName = () => {
+  const timestamp = new Date().toLocaleTimeString('en-US', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit'
+  }).replace(':', '');
+
+  return `${encoderType}_${expansionFactor}x_${trainingSteps}steps_${timestamp}`;
+};
+
+// Save template handler
+const handleSaveTemplate = async () => {
+  const name = templateName || generateTemplateName();
+
+  const template = {
+    name,
+    description: templateDescription,
+    model_id: selectedModel,
+    dataset_id: selectedDataset,
+    encoder_type: encoderType,
+    hyperparameters: {
+      learningRate,
+      batchSize,
+      l1Coefficient,
+      expansionFactor,
+      trainingSteps,
+      trainingLayers: selectedLayers,  // Multi-layer support
+      optimizer,
+      lrSchedule,
+      ghostGradPenalty
+    },
+    is_favorite: false
+  };
+
+  try {
+    const response = await fetch('/api/templates/training', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(template)
+    });
+
+    if (response.ok) {
+      await fetchTrainingTemplates();
+      setTemplateName('');
+      setTemplateDescription('');
+      // Show success toast
+    }
+  } catch (error) {
+    console.error('Failed to save template:', error);
+    // Show error toast
+  }
+};
+
+// Load template handler
+const handleLoadTemplate = (template: TrainingTemplate) => {
+  // Load optional references
+  if (template.model_id) setSelectedModel(template.model_id);
+  if (template.dataset_id) setSelectedDataset(template.dataset_id);
+
+  // Load encoder type
+  setEncoderType(template.encoder_type);
+
+  // Load all hyperparameters
+  const hp = template.hyperparameters;
+  setLearningRate(hp.learningRate);
+  setBatchSize(hp.batchSize);
+  setL1Coefficient(hp.l1Coefficient);
+  setExpansionFactor(hp.expansionFactor);
+  setTrainingSteps(hp.trainingSteps);
+  setSelectedLayers(hp.trainingLayers || [0]);  // Multi-layer
+  setOptimizer(hp.optimizer);
+  setLrSchedule(hp.lrSchedule);
+  setGhostGradPenalty(hp.ghostGradPenalty);
+
+  // Show success toast
+};
+```
+
+**UI Structure (similar to extraction templates):**
+
+Add collapsible "Saved Templates" section in TrainingPanel with same UI pattern:
+- Save form (name + description + save button)
+- Template list with star/load/delete buttons
+- Export/Import buttons
+
+Implementation code follows same pattern as extraction templates section in Model Management TID.
+
+### Backend: Training Template Endpoints
+
+API endpoints follow same pattern as extraction templates. Refer to TDD section for complete specifications.
+
+Key differences:
+- Includes model_id and dataset_id (optional nullable references)
+- encoder_type validation: must be one of ['sparse', 'skip', 'transcoder']
+- hyperparameters JSONB validation (all fields required except trainingLayers defaults to [0])
+
+---
+
+## 9. Multi-Layer Training Implementation
+
+This section provides implementation guidance for training SAEs on multiple transformer layers simultaneously (FR-1B from PRD).
+
+### Component: Training Layers Selector
+
+**Location:** Inside "Advanced Hyperparameters" collapsible section (Mock UI lines 1740-1789)
+
+**Implementation Pattern:**
+
+```typescript
+// Add to TrainingPanel state
+const [selectedLayers, setSelectedLayers] = useState<number[]>([0]);
+const [modelNumLayers, setModelNumLayers] = useState<number | null>(null);
+
+// Fetch model architecture when model selected
+useEffect(() => {
+  if (selectedModel) {
+    fetchModelArchitecture(selectedModel);
+  }
+}, [selectedModel]);
+
+const fetchModelArchitecture = async (modelId: string) => {
+  try {
+    const response = await fetch(`/api/models/${modelId}`);
+    const data = await response.json();
+    setModelNumLayers(data.num_layers);
+  } catch (error) {
+    console.error('Failed to fetch model architecture:', error);
+  }
+};
+
+// Layer selection handlers
+const handleLayerToggle = (layer: number) => {
+  setSelectedLayers(prev => {
+    if (prev.includes(layer)) {
+      return prev.filter(l => l !== layer);
+    } else {
+      return [...prev, layer].sort((a, b) => a - b);
+    }
+  });
+};
+
+const handleSelectAllLayers = () => {
+  if (modelNumLayers) {
+    setSelectedLayers(Array.from({ length: modelNumLayers }, (_, i) => i));
+  }
+};
+
+const handleClearAllLayers = () => {
+  setSelectedLayers([]);
+};
+
+// Memory estimation
+const estimateMemoryRequirements = () => {
+  if (!modelNumLayers || selectedLayers.length === 0) return null;
+
+  const hiddenSize = 2048;  // From model architecture
+  const memoryPerSAE = hiddenSize * expansionFactor * 4 * 3; // FP32 * 3 (params + 2 optimizer states)
+  const totalSAEMemory = memoryPerSAE * selectedLayers.length;
+  const baseMemory = 2e9;  // Model + activations
+  const totalMemory = baseMemory + totalSAEMemory;
+
+  return {
+    totalGB: totalMemory / 1e9,
+    exceedsLimit: totalMemory > 6e9,  // Jetson 6GB limit
+    recommendation: totalMemory > 6e9 ? `Reduce to ≤${Math.floor(6e9 / memoryPerSAE)} layers` : null
+  };
+};
+
+const memoryEstimate = estimateMemoryRequirements();
+```
+
+**UI Structure:**
+
+```typescript
+{/* Add in Advanced Hyperparameters section */}
+<div className="mb-4">
+  <label className="block mb-2 text-sm font-medium text-gray-300">
+    Training Layers
+    <span className="ml-2 text-xs text-gray-500">
+      ({selectedLayers.length} selected)
+    </span>
+  </label>
+
+  {/* Select All / Clear All buttons */}
+  <div className="flex gap-2 mb-2">
+    <button
+      onClick={handleSelectAllLayers}
+      disabled={!modelNumLayers}
+      className="px-3 py-1 text-xs font-medium text-gray-300 bg-gray-700 rounded hover:bg-gray-600 disabled:opacity-50"
+    >
+      Select All
+    </button>
+    <button
+      onClick={handleClearAllLayers}
+      className="px-3 py-1 text-xs font-medium text-gray-300 bg-gray-700 rounded hover:bg-gray-600"
+    >
+      Clear All
+    </button>
+  </div>
+
+  {/* 8-column checkbox grid */}
+  {modelNumLayers ? (
+    <div className="grid grid-cols-8 gap-2 p-3 bg-gray-800 rounded max-h-48 overflow-y-auto">
+      {Array.from({ length: modelNumLayers }, (_, i) => (
+        <label
+          key={i}
+          className={`flex items-center justify-center px-2 py-1 text-xs rounded cursor-pointer transition-colors ${
+            selectedLayers.includes(i)
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={selectedLayers.includes(i)}
+            onChange={() => handleLayerToggle(i)}
+            className="sr-only"
+          />
+          L{i}
+        </label>
+      ))}
+    </div>
+  ) : (
+    <div className="p-3 text-sm text-center text-gray-500 bg-gray-800 rounded">
+      Select a model to choose training layers
+    </div>
+  )}
+
+  {/* Memory warning */}
+  {memoryEstimate && memoryEstimate.exceedsLimit && (
+    <div className="flex items-start gap-2 p-2 mt-2 text-sm text-yellow-400 bg-yellow-900/20 rounded">
+      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+      <div>
+        <div className="font-medium">Memory Warning</div>
+        <div className="text-xs text-yellow-400/80">
+          Estimated: {memoryEstimate.totalGB.toFixed(1)} GB exceeds 6GB limit.
+          {memoryEstimate.recommendation}
+        </div>
+      </div>
+    </div>
+  )}
+
+  {/* Helpful hint for multi-layer */}
+  {selectedLayers.length > 4 && (
+    <div className="p-2 mt-2 text-xs text-blue-400 bg-blue-900/20 rounded">
+      Training {selectedLayers.length} layers simultaneously will take longer but provides comprehensive layer analysis.
+    </div>
+  )}
+</div>
+```
+
+### Backend: Multi-Layer Training Pipeline
+
+**File:** `backend/src/services/training_service.py`
+
+**Initialization:**
+
+```python
+def initialize_multilayer_training(config: TrainingConfig, model, dataset):
+    """Initialize separate SAE for each selected layer."""
+    training_layers = config.hyperparameters.get('trainingLayers', [0])
+
+    # Validate memory requirements
+    estimated_memory = calculate_memory_requirements(
+        model_hidden_size=model.config.hidden_size,
+        expansion_factor=config.hyperparameters['expansionFactor'],
+        num_layers=len(training_layers)
+    )
+
+    if estimated_memory > 7.5e9:  # 7.5GB threshold
+        raise ValueError(
+            f"Estimated memory {estimated_memory / 1e9:.1f}GB exceeds 7.5GB limit. "
+            f"Reduce number of layers or expansion factor."
+        )
+
+    # Initialize separate SAE for each layer
+    saes = {}
+    optimizers = {}
+
+    for layer_idx in training_layers:
+        # Validate layer index
+        if layer_idx >= model.config.num_hidden_layers:
+            raise ValueError(f"Layer {layer_idx} exceeds model layer count {model.config.num_hidden_layers}")
+
+        # Initialize SAE
+        sae = SparseAutoencoder(
+            d_model=model.config.hidden_size,
+            d_sae=model.config.hidden_size * config.hyperparameters['expansionFactor'],
+            l1_coefficient=config.hyperparameters['l1Coefficient']
+        ).to(device)
+
+        # Initialize optimizer
+        optimizer = torch.optim.Adam(
+            sae.parameters(),
+            lr=config.hyperparameters['learningRate']
+        )
+
+        saes[layer_idx] = sae
+        optimizers[layer_idx] = optimizer
+
+    return saes, optimizers
+```
+
+**Training Loop:**
+
+```python
+def train_multilayer_step(batch, saes: dict, optimizers: dict, training_layers: list, model):
+    """Execute one training step for all layers."""
+
+    # Extract activations from all layers simultaneously
+    activations_by_layer = extract_multilayer_activations(model, batch, training_layers)
+
+    # Train each layer's SAE independently
+    losses = {}
+    metrics = {}
+
+    for layer_idx in training_layers:
+        activations = activations_by_layer[layer_idx]  # (batch_size, hidden_size)
+        sae = saes[layer_idx]
+        optimizer = optimizers[layer_idx]
+
+        # Forward pass
+        reconstructed, latents = sae(activations)
+
+        # Compute loss
+        reconstruction_loss = F.mse_loss(reconstructed, activations)
+        sparsity_loss = sae.l1_coefficient * latents.abs().mean()
+        total_loss = reconstruction_loss + sparsity_loss
+
+        # Backward pass
+        optimizer.zero_grad()
+        total_loss.backward()
+        optimizer.step()
+
+        # Track metrics
+        losses[layer_idx] = total_loss.item()
+        metrics[layer_idx] = {
+            "loss": total_loss.item(),
+            "sparsity": (latents.abs() > 1e-5).float().sum(dim=-1).mean().item(),
+            "reconstruction_error": reconstruction_loss.item()
+        }
+
+    # Aggregate metrics for progress tracking
+    aggregated_metrics = {
+        "avg_loss": np.mean([m["loss"] for m in metrics.values()]),
+        "avg_sparsity": np.mean([m["sparsity"] for m in metrics.values()]),
+        "avg_reconstruction_error": np.mean([m["reconstruction_error"] for m in metrics.values()])
+    }
+
+    return metrics, aggregated_metrics
+```
+
+**Activation Extraction:**
+
+```python
+def extract_multilayer_activations(model, batch, layers: list):
+    """Extract activations from multiple layers in single forward pass."""
+    activations_by_layer = {}
+    hooks = []
+
+    # Register forward hooks for all layers
+    def create_hook(layer_idx):
+        def hook(module, input, output):
+            # Detach to avoid gradient tracking
+            activations_by_layer[layer_idx] = output.detach()
+        return hook
+
+    for layer_idx in layers:
+        layer = model.transformer.h[layer_idx]
+        hook = layer.register_forward_hook(create_hook(layer_idx))
+        hooks.append(hook)
+
+    # Forward pass
+    with torch.no_grad():
+        model(**batch)
+
+    # Remove hooks
+    for hook in hooks:
+        hook.remove()
+
+    return activations_by_layer
+```
+
+**Checkpoint Management:**
+
+```python
+def save_multilayer_checkpoint(training_id: str, step: int, saes: dict, optimizers: dict, metrics: dict):
+    """Save multi-layer checkpoint with subdirectory structure."""
+    checkpoint_dir = Path(f"/data/trainings/{training_id}/checkpoints/checkpoint_{step}")
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save each layer's SAE independently
+    for layer_idx, sae in saes.items():
+        layer_dir = checkpoint_dir / f"layer_{layer_idx}"
+        layer_dir.mkdir(exist_ok=True)
+
+        # Save SAE weights
+        torch.save(sae.encoder.state_dict(), layer_dir / "encoder.pt")
+        torch.save(sae.decoder.state_dict(), layer_dir / "decoder.pt")
+
+        # Save optimizer state
+        torch.save(optimizers[layer_idx].state_dict(), layer_dir / "optimizer.pt")
+
+    # Save shared metadata
+    metadata = {
+        "step": step,
+        "training_id": training_id,
+        "trainingLayers": list(saes.keys()),
+        "metrics_by_layer": {str(k): v for k, v in metrics.items()},
+        "aggregated_metrics": aggregate_metrics(metrics),
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+    with open(checkpoint_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+
+def load_multilayer_checkpoint(checkpoint_path: Path, model_config):
+    """Load multi-layer checkpoint."""
+    # Load metadata
+    with open(checkpoint_path / "metadata.json", "r") as f:
+        metadata = json.load(f)
+
+    training_layers = metadata["trainingLayers"]
+
+    # Initialize SAEs for each layer
+    saes = {}
+    optimizers = {}
+
+    for layer_idx in training_layers:
+        layer_dir = checkpoint_path / f"layer_{layer_idx}"
+
+        # Initialize SAE
+        sae = SparseAutoencoder(
+            d_model=model_config.hidden_size,
+            d_sae=model_config.hidden_size * metadata["hyperparameters"]["expansionFactor"],
+            l1_coefficient=metadata["hyperparameters"]["l1Coefficient"]
+        )
+
+        # Load weights
+        sae.encoder.load_state_dict(torch.load(layer_dir / "encoder.pt"))
+        sae.decoder.load_state_dict(torch.load(layer_dir / "decoder.pt"))
+
+        # Initialize and load optimizer
+        optimizer = torch.optim.Adam(
+            sae.parameters(),
+            lr=metadata["hyperparameters"]["learningRate"]
+        )
+        optimizer.load_state_dict(torch.load(layer_dir / "optimizer.pt"))
+
+        saes[layer_idx] = sae
+        optimizers[layer_idx] = optimizer
+
+    return saes, optimizers, metadata
+```
+
+### Progress Tracking for Multi-Layer
+
+**WebSocket Updates:**
+
+```python
+# Emit progress with aggregated metrics
+await ws_manager.emit_training_progress(training_id, {
+    "current_step": step,
+    "progress": (step / total_steps) * 100,
+    "latest_loss": aggregated_metrics["avg_loss"],
+    "latest_sparsity": aggregated_metrics["avg_sparsity"],
+    "per_layer_metrics": metrics,  # Detailed per-layer metrics
+    "timestamp": datetime.utcnow().isoformat()
+})
+```
+
+**Frontend Display:**
+
+```typescript
+// Show aggregated metrics in main training card
+<div className="text-xs text-gray-400">
+  Loss: {training.latest_loss?.toFixed(4)} (avg across {training.num_layers} layers)
+</div>
+
+// Expandable per-layer metrics detail
+{showLayerDetails && training.per_layer_metrics && (
+  <div className="mt-2 space-y-1">
+    {Object.entries(training.per_layer_metrics).map(([layer, metrics]) => (
+      <div key={layer} className="flex justify-between text-xs text-gray-500">
+        <span>Layer {layer}:</span>
+        <span>Loss {metrics.loss.toFixed(4)} | Sparsity {metrics.sparsity.toFixed(1)}</span>
+      </div>
+    ))}
+  </div>
+)}
+```
+
+### Error Handling for Multi-Layer
+
+```python
+try:
+    # Training loop
+    for step in range(current_step, total_steps):
+        metrics, aggregated = train_multilayer_step(batch, saes, optimizers, training_layers, model)
+
+except torch.cuda.OutOfMemoryError as e:
+    # OOM - save partial checkpoint and notify
+    logger.error(f"OOM during multi-layer training at step {step}")
+
+    # Save checkpoint for completed steps
+    save_multilayer_checkpoint(training_id, step, saes, optimizers, metrics)
+
+    # Update training status
+    await training_repo.update_status(training_id, "error",
+        error_message=f"Out of memory during multi-layer training. Try reducing layers (currently {len(training_layers)}) or expansion factor."
+    )
+
+    # Emit error to frontend
+    await ws_manager.emit_training_error(training_id, {
+        "error": "OOM",
+        "message": "Insufficient memory for multi-layer training",
+        "suggestion": "Reduce number of layers or expansion factor",
+        "current_layers": len(training_layers)
+    })
+
+except Exception as e:
+    logger.exception(f"Error during multi-layer training: {e}")
+    # Handle other errors...
+```
+
+### Implementation Checklist
+
+- [ ] Add training_templates table migration
+- [ ] Implement all 7 API endpoints for training templates
+- [ ] Add "Saved Templates" section to TrainingPanel
+- [ ] Implement training layers selector (8-column checkbox grid)
+- [ ] Add memory estimation with warnings
+- [ ] Implement multi-layer SAE initialization
+- [ ] Implement multi-layer activation extraction with hooks
+- [ ] Implement multi-layer training loop
+- [ ] Implement multi-layer checkpoint save/load with subdirectories
+- [ ] Update progress tracking to show aggregated + per-layer metrics
+- [ ] Add OOM error handling with memory reduction suggestions
+- [ ] Add validation for layer indices vs. model architecture
+- [ ] Test with 1 layer (backward compatible)
+- [ ] Test with 4 layers (typical multi-layer scenario)
+- [ ] Test with 8+ layers (memory pressure scenario)
+- [ ] Test checkpoint resume for multi-layer training
+
+---
+
 **Document End**
 **Status:** Ready for Task Generation
-**Estimated Size:** ~30KB
+**Total Sections:** 10 (focused implementation guide with templates and multi-layer)
+**Estimated Size:** ~45KB
 **Next:** 004_FTID|Feature_Discovery.md

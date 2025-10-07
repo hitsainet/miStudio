@@ -196,38 +196,68 @@ Frontend: Display side-by-side outputs + metrics panel
 
 ### Database Schema
 
-**Note:** Steering feature does NOT persist experiments to database in MVP (in-memory only). Future enhancement: `steering_presets` table for saved configurations.
+**Note:** Steering experiments are NOT persisted to database in MVP (in-memory only for live generation). However, steering presets ARE persisted to enable save/load/favorite functionality.
 
-#### steering_presets Table (Future Enhancement)
+#### steering_presets Table
 
 ```sql
 CREATE TABLE steering_presets (
-    id VARCHAR(255) PRIMARY KEY,               -- Format: sp_{uuid}
-    name VARCHAR(500) NOT NULL,                -- User-provided preset name
-    description TEXT,                          -- Optional description
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- Configuration
-    feature_configs JSONB NOT NULL,            -- [{"feature_id": 42, "coefficient": 2.0}, ...]
-    intervention_layer INTEGER,                -- Default intervention layer
-    temperature FLOAT DEFAULT 0.7,             -- Default temperature
-    max_tokens INTEGER DEFAULT 100,            -- Default max_tokens
+    -- Training reference (required - defines feature space)
+    training_id UUID NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
 
-    -- Metadata
-    user_id VARCHAR(255),                      -- Future: multi-user support
+    -- Preset identification
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+
+    -- Feature configuration
+    features JSONB NOT NULL,                   -- [{"feature_id": 42, "coefficient": 2.0}, ...]
+
+    -- Multi-layer intervention configuration
+    intervention_layers INTEGER[] NOT NULL,     -- Array of layer indices (e.g., [5, 10, 15])
+
+    -- Generation defaults
+    temperature FLOAT DEFAULT 1.0,
+    max_tokens INTEGER DEFAULT 100,
+
+    -- User preferences
+    is_favorite BOOLEAN DEFAULT FALSE,
+
+    -- Timestamps
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
     -- Constraints
-    CONSTRAINT sp_temperature_range CHECK (temperature >= 0 AND temperature <= 2),
-    CONSTRAINT sp_max_tokens_range CHECK (max_tokens >= 1 AND max_tokens <= 2048),
-    CONSTRAINT sp_feature_configs_format CHECK (jsonb_typeof(feature_configs) = 'array')
+    CONSTRAINT steering_presets_name_not_empty CHECK (LENGTH(name) > 0),
+    CONSTRAINT steering_presets_temperature_range CHECK (temperature >= 0 AND temperature <= 2),
+    CONSTRAINT steering_presets_max_tokens_range CHECK (max_tokens >= 1 AND max_tokens <= 2048),
+    CONSTRAINT steering_presets_features_format CHECK (jsonb_typeof(features) = 'array'),
+    CONSTRAINT steering_presets_layers_not_empty CHECK (array_length(intervention_layers, 1) > 0)
 );
 
-CREATE INDEX idx_steering_presets_user ON steering_presets(user_id);
-CREATE INDEX idx_steering_presets_created ON steering_presets(created_at DESC);
+-- Indexes for efficient queries
+CREATE INDEX idx_steering_presets_training ON steering_presets(training_id);
+CREATE INDEX idx_steering_presets_favorite ON steering_presets(is_favorite);
+CREATE INDEX idx_steering_presets_updated_at ON steering_presets(updated_at DESC);
+CREATE INDEX idx_steering_presets_name ON steering_presets(name);
+
+-- Trigger to auto-update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_steering_preset_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_steering_preset_updated_at
+    BEFORE UPDATE ON steering_presets
+    FOR EACH ROW
+    EXECUTE FUNCTION update_steering_preset_timestamp();
 ```
 
-**JSONB Structure for `feature_configs`:**
+**JSONB Structure for `features`:**
 ```json
 [
     {"feature_id": 42, "coefficient": 2.0},
@@ -236,6 +266,286 @@ CREATE INDEX idx_steering_presets_created ON steering_presets(created_at DESC);
 ]
 ```
 
+**Auto-Generated Name Format:**
+- Single layer: `steering_{count}features_layer{N}_{HHMM}`
+- Multiple layers: `steering_{count}features_layers{min}-{max}_{HHMM}`
+- Examples:
+  - `steering_3features_layer10_1430` (3 features, single layer 10, created at 14:30)
+  - `steering_5features_layers5-15_0915` (5 features, layers 5-15, created at 09:15)
+
+**Key Design Changes:**
+1. **training_id required**: Presets are tied to a specific training job (features are training-specific)
+2. **intervention_layers array**: Supports multi-layer steering (replaces single intervention_layer)
+3. **is_favorite flag**: Quick access to frequently used presets
+4. **CASCADE delete**: If training is deleted, associated presets are also deleted (features no longer valid)
+
+**Storage Estimate:** ~1KB per preset × 100 presets = 100KB total
+
+**Query Performance:**
+- List presets for training: `SELECT * FROM steering_presets WHERE training_id = ? ORDER BY updated_at DESC` → Uses idx_steering_presets_training
+- List favorites: `SELECT * FROM steering_presets WHERE is_favorite = true ORDER BY updated_at DESC` → Uses idx_steering_presets_favorite
+- Search by name: `SELECT * FROM steering_presets WHERE name ILIKE '%pattern%'` → Uses idx_steering_presets_name
+
+### Training Job Selector Design
+
+The Training Job Selector enables users to select a completed training as the feature source for steering experiments. This is a critical component because:
+
+1. **Feature Space Dependency**: Features discovered by different training jobs are incompatible (different SAE architectures, different training data)
+2. **Dynamic Lookup**: Training job metadata (model name, dataset name, start date) must be fetched dynamically from database
+3. **Completion Filter**: Only completed trainings are valid sources (status = 'completed')
+
+#### Training Job Lookup Query
+
+**SQL Query:**
+```sql
+SELECT
+  t.id,
+  t.encoder_type,
+  t.status,
+  t.created_at,
+  m.id as model_id,
+  m.name as model_name,
+  d.id as dataset_id,
+  d.name as dataset_name
+FROM trainings t
+JOIN models m ON t.model_id = m.id
+JOIN datasets d ON t.dataset_id = d.id
+WHERE t.status = 'completed'
+ORDER BY t.created_at DESC;
+```
+
+**Response Format:**
+```json
+{
+  "trainings": [
+    {
+      "id": "tr_abc123_1696596000",
+      "encoder_type": "sparse",
+      "model_name": "TinyLlama-1.1B",
+      "dataset_name": "OpenWebText-10K",
+      "created_at": "2025-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+**Dropdown Display Format:**
+```
+{encoderType} SAE • {modelName} • {datasetName} • Started {date}
+
+Example:
+"sparse SAE • TinyLlama-1.1B • OpenWebText-10K • Started 1/15/2025"
+```
+
+#### Training Job Change Behavior
+
+**When user selects a different training job:**
+
+1. **Clear selected features**: Features from previous training are incompatible with new training's feature space
+2. **Show confirmation dialog**: "Changing training job will clear selected features. Continue?"
+3. **Reset feature list**: Load features from new training_id
+4. **Reset coefficients**: All feature coefficients reset to 0.0
+5. **Clear any active steering presets**: Preset is tied to specific training_id
+
+**Implementation Logic:**
+```typescript
+function handleTrainingJobChange(newTrainingId: string) {
+  if (selectedFeatures.length > 0) {
+    const confirmed = window.confirm(
+      "Changing training job will clear selected features. Continue?"
+    );
+    if (!confirmed) return;
+  }
+
+  // Clear current state
+  setSelectedTrainingId(newTrainingId);
+  setSelectedFeatures([]);
+  setFeatureCoefficients({});
+  setActivePreset(null);
+
+  // Load features for new training
+  fetchFeaturesForTraining(newTrainingId);
+}
+```
+
+### Multi-Layer Steering Architecture
+
+#### Overview
+
+Multi-layer steering enables applying the same steering vector across multiple transformer layers simultaneously. This approach provides:
+
+1. **Cascading Effects**: Interventions at multiple layers compound, creating stronger behavioral modifications
+2. **Layer Exploration**: Test which layers are most sensitive to specific feature interventions
+3. **Simplified Configuration**: Apply same features/coefficients to all selected layers
+4. **Flexible Scope**: From single-layer (precise) to all-layers (comprehensive) steering
+
+#### Architecture Decision: Same Steering Vector at All Layers
+
+**Design Approach:**
+- **One steering vector** computed from selected features and coefficients
+- **Multiple forward hooks** registered, one per selected layer
+- **Same intervention** applied at each hook (identical feature scaling)
+- **Independent activation streams** for each layer (no cross-layer coupling)
+
+**Rationale:**
+- Simplifies user mental model: "steer these features at these layers"
+- Enables clean A/B testing: same features at layer 5 vs. layer 15
+- Computationally efficient: Compute steering vector once, apply multiple times
+- Interpretable results: Can isolate which layers matter most for specific features
+
+#### Hook Registration Pattern
+
+**Single-Layer Steering (Legacy):**
+```python
+def register_single_layer_hook(model, layer_idx, steering_vector):
+    layer = model.transformer.h[layer_idx]
+
+    def steering_hook(module, input, output):
+        return output + steering_vector
+
+    hook = layer.register_forward_hook(steering_hook)
+    return hook
+```
+
+**Multi-Layer Steering (New):**
+```python
+def register_multilayer_hooks(model, intervention_layers, steering_vector):
+    hooks = []
+
+    for layer_idx in intervention_layers:
+        layer = model.transformer.h[layer_idx]
+
+        def steering_hook(module, input, output):
+            return output + steering_vector
+
+        hook = layer.register_forward_hook(steering_hook)
+        hooks.append(hook)
+
+    return hooks
+```
+
+**Hook Removal:**
+```python
+def remove_multilayer_hooks(hooks):
+    for hook in hooks:
+        hook.remove()
+```
+
+#### Steering Vector Computation
+
+**Process:**
+1. **Load SAE checkpoint** from training_id
+2. **Extract feature directions** from SAE encoder weights
+3. **Scale by coefficients** (user-specified per feature)
+4. **Sum into steering vector** (single vector in activation space)
+
+**Implementation:**
+```python
+def compute_steering_vector(sae, features, coefficients):
+    """
+    Compute steering vector from SAE features and user coefficients.
+
+    Args:
+        sae: Trained SparseAutoencoder instance
+        features: List of feature IDs [42, 137, 89]
+        coefficients: List of coefficients [2.0, -1.5, 0.5]
+
+    Returns:
+        steering_vector: Tensor of shape (hidden_size,)
+    """
+    steering_vector = torch.zeros(sae.d_model, device=sae.device)
+
+    for feature_id, coefficient in zip(features, coefficients):
+        # Get decoder direction for this feature
+        feature_direction = sae.decoder.weight[feature_id]  # Shape: (hidden_size,)
+
+        # Scale by coefficient and add to steering vector
+        steering_vector += coefficient * feature_direction
+
+    return steering_vector
+```
+
+**Key Properties:**
+- **Linearity**: Steering vectors sum linearly (coefficient=2 + coefficient=3 = coefficient=5)
+- **Interpretability**: Each feature contributes independently to final steering
+- **Scalability**: Vector computation is O(num_features), independent of num_layers
+
+#### Generation Pipeline for Multi-Layer Steering
+
+**Complete Workflow:**
+```python
+async def generate_with_multilayer_steering(
+    model,
+    tokenizer,
+    prompt: str,
+    training_id: str,
+    features: List[int],
+    coefficients: List[float],
+    intervention_layers: List[int],
+    temperature: float = 1.0,
+    max_tokens: int = 100
+):
+    # 1. Load SAE checkpoint from training
+    sae = load_sae_checkpoint(training_id)
+
+    # 2. Compute steering vector
+    steering_vector = compute_steering_vector(sae, features, coefficients)
+
+    # 3. Generate unsteered baseline (no hooks)
+    input_ids = tokenizer.encode(prompt, return_tensors="pt")
+    unsteered_output = model.generate(
+        input_ids,
+        max_new_tokens=max_tokens,
+        temperature=temperature,
+        do_sample=True
+    )
+
+    # 4. Register multi-layer steering hooks
+    hooks = register_multilayer_hooks(model, intervention_layers, steering_vector)
+
+    # 5. Generate steered output (with hooks active)
+    try:
+        steered_output = model.generate(
+            input_ids,
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            do_sample=True
+        )
+    finally:
+        # 6. Always remove hooks (even if generation fails)
+        remove_multilayer_hooks(hooks)
+
+    # 7. Decode outputs
+    unsteered_text = tokenizer.decode(unsteered_output[0], skip_special_tokens=True)
+    steered_text = tokenizer.decode(steered_output[0], skip_special_tokens=True)
+
+    return unsteered_text, steered_text
+```
+
+**Error Handling:**
+- **Invalid Layer Index**: Validate all intervention_layers < model.config.num_layers before hook registration
+- **OOM Error**: Catch torch.cuda.OutOfMemoryError, remove hooks, suggest reducing max_tokens
+- **Hook Registration Failure**: Verify layer exists in model.transformer.h before registering
+- **Generation Timeout**: Set 30-second timeout, remove hooks if exceeded
+
+#### UI Patterns for Multi-Layer Selection
+
+**Layer Selector Component:**
+- **Display**: 8-column checkbox grid (matches training layer selector UI)
+- **Dynamic Generation**: Grid populated from model.num_layers
+- **Select All / Clear All**: Bulk selection controls
+- **Visual Feedback**: Highlight selected layers, show count (e.g., "5 layers selected")
+
+**Memory Warning:**
+- Show warning if intervention_layers.length > 4: "Steering at many layers may produce unexpected results"
+- No hard limit (unlike training which has memory constraints)
+- User education: "More layers = stronger effect, but less predictable behavior"
+
+**Preset Integration:**
+- When loading preset, intervention_layers populates checkboxes automatically
+- When saving preset, current checkbox state saved to intervention_layers array
+- Validation: At least one layer must be selected (intervention_layers.length ≥ 1)
+
 ### Request/Response Payloads
 
 #### POST /api/steering/generate
@@ -243,32 +553,51 @@ CREATE INDEX idx_steering_presets_created ON steering_presets(created_at DESC);
 **Request Payload:**
 ```typescript
 interface SteeringGenerateRequest {
+    training_id: string;                       // Training ID (defines feature space and SAE checkpoint)
     model_id: string;                          // Model identifier (must be status='ready')
     prompt: string;                            // Input text (1-1024 tokens)
     features: Array<{                          // Steering configuration
         feature_id: number;                    // Feature ID from features table
         coefficient: number;                   // Range: -5.0 to +5.0
     }>;
-    intervention_layer: number;                // Layer index (0 to model.num_layers-1)
-    temperature: number;                       // Range: 0 to 2, default 0.7
+    intervention_layers: number[];             // Array of layer indices (e.g., [5, 10, 15])
+    temperature: number;                       // Range: 0 to 2, default 1.0
     max_tokens: number;                        // Range: 1 to 2048, default 100
     seed?: number;                             // Optional: deterministic generation
 }
 ```
 
-**Example Request:**
+**Example Request (Single-Layer):**
 ```json
 {
-    "model_id": "m_gpt2_medium_abc123",
+    "training_id": "tr_abc123_1696596000",
+    "model_id": "m_tinyllama_abc123",
     "prompt": "The cat sat on the mat",
     "features": [
         {"feature_id": 42, "coefficient": 2.0},
         {"feature_id": 137, "coefficient": -1.5}
     ],
-    "intervention_layer": 12,
-    "temperature": 0.7,
+    "intervention_layers": [10],
+    "temperature": 1.0,
     "max_tokens": 100,
     "seed": 42
+}
+```
+
+**Example Request (Multi-Layer):**
+```json
+{
+    "training_id": "tr_abc123_1696596000",
+    "model_id": "m_tinyllama_abc123",
+    "prompt": "The cat sat on the mat",
+    "features": [
+        {"feature_id": 42, "coefficient": 2.0},
+        {"feature_id": 137, "coefficient": -1.5},
+        {"feature_id": 89, "coefficient": 0.5}
+    ],
+    "intervention_layers": [5, 10, 15],
+    "temperature": 1.0,
+    "max_tokens": 100
 }
 ```
 
@@ -305,21 +634,27 @@ interface SteeringGenerateResponse {
 ### Validation Rules
 
 **Request Validation:**
+- `training_id`: Must exist in `trainings` table with `status='completed'`
 - `model_id`: Must exist in `models` table with `status='ready'`
 - `prompt`: Non-empty, max 1024 tokens after tokenization
 - `features`: Array with 1-10 elements (enforce max 10 features for performance)
-- `feature_id`: Must exist in `features` table
+- `feature_id`: Must exist in `features` table and belong to specified training_id
 - `coefficient`: Range [-5.0, 5.0]
-- `intervention_layer`: Range [0, model.num_layers - 1]
+- `intervention_layers`: Non-empty array, each element in range [0, model.num_layers - 1]
 - `temperature`: Range [0.0, 2.0]
 - `max_tokens`: Range [1, 2048]
 - `seed`: Optional integer >= 0
 
+**Cross-Validation:**
+- All feature_ids must belong to the specified training_id (same feature space)
+- All intervention_layers must be valid for the specified model
+- Training's model_id should match the request's model_id (warning if mismatch)
+
 **Error Responses:**
-- 400 Bad Request: Validation failures (invalid coefficient range, layer exceeds model depth)
-- 404 Not Found: Model or features not found
+- 400 Bad Request: Validation failures (invalid coefficient range, empty intervention_layers, layer exceeds model depth)
+- 404 Not Found: Training, model, or features not found
 - 408 Request Timeout: Generation exceeded 30 second timeout
-- 422 Unprocessable Entity: Feature from different training (mismatched SAE)
+- 422 Unprocessable Entity: Feature from different training (mismatched feature space)
 - 507 Insufficient Storage: OOM error during generation
 
 ---
@@ -420,6 +755,287 @@ interface SteeringGenerateResponse {
     ]
 }
 ```
+
+---
+
+#### GET /api/trainings/completed
+
+**Purpose:** List completed training jobs for training job selector
+
+**Query Parameters:**
+- `limit` (int, default: 50): Max results
+- `offset` (int, default: 0): Pagination offset
+
+**Response:** 200 OK
+```json
+{
+  "trainings": [
+    {
+      "id": "tr_abc123_1696596000",
+      "encoder_type": "sparse",
+      "model_name": "TinyLlama-1.1B",
+      "dataset_name": "OpenWebText-10K",
+      "created_at": "2025-01-15T10:30:00Z"
+    }
+  ],
+  "total": 8,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Implementation Note:**
+- Performs JOIN with models and datasets tables to fetch names dynamically
+- Only returns trainings with status='completed'
+- Orders by created_at DESC (most recent first)
+
+---
+
+### Steering Preset Management API Endpoints
+
+Steering presets follow the same API patterns as training/extraction templates. The following endpoints enable complete CRUD operations, favorites management, and export/import functionality.
+
+#### GET /api/presets/steering
+
+**Purpose:** List all steering presets with filtering
+
+**Query Parameters:**
+- `training_id` (optional): Filter by training job
+- `is_favorite` (optional): Filter favorites (boolean)
+- `limit` (default: 50): Max results per page
+- `offset` (default: 0): Pagination offset
+
+**Response:** 200 OK
+```json
+{
+  "presets": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "training_id": "tr_abc123_1696596000",
+      "name": "steering_3features_layers5-15_1430",
+      "description": "Positive sentiment steering across middle layers",
+      "features": [
+        {"feature_id": 42, "coefficient": 2.0},
+        {"feature_id": 137, "coefficient": -1.5},
+        {"feature_id": 89, "coefficient": 0.5}
+      ],
+      "intervention_layers": [5, 10, 15],
+      "temperature": 1.0,
+      "max_tokens": 100,
+      "is_favorite": true,
+      "created_at": "2025-10-07T14:30:00Z",
+      "updated_at": "2025-10-07T14:30:00Z"
+    }
+  ],
+  "total": 12,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Validation:**
+- `limit`: 1-100
+- `offset`: ≥0
+
+---
+
+#### POST /api/presets/steering
+
+**Purpose:** Create new steering preset from current configuration
+
+**Request Body:**
+```json
+{
+  "training_id": "tr_abc123_1696596000",
+  "name": "steering_3features_layers5-15_1430",
+  "description": "Positive sentiment steering across middle layers",
+  "features": [
+    {"feature_id": 42, "coefficient": 2.0},
+    {"feature_id": 137, "coefficient": -1.5},
+    {"feature_id": 89, "coefficient": 0.5}
+  ],
+  "intervention_layers": [5, 10, 15],
+  "temperature": 1.0,
+  "max_tokens": 100,
+  "is_favorite": false
+}
+```
+
+**Validation Rules:**
+- `training_id`: Required UUID, must reference existing completed training
+- `name`: Required, 1-255 characters, auto-generated default provided by frontend
+- `description`: Optional, max 500 characters
+- `features`: Required non-empty array, each element:
+  - `feature_id`: Integer, must belong to specified training_id
+  - `coefficient`: Float, range [-5.0, 5.0]
+- `intervention_layers`: Required non-empty array of integers, each valid for training's model
+- `temperature`: 0.0-2.0
+- `max_tokens`: 1-2048
+
+**Response:** 201 Created (returns created preset object)
+
+**Error Responses:**
+- 400 Bad Request: Validation error
+- 404 Not Found: training_id doesn't exist or features don't belong to training
+- 409 Conflict: Preset name already exists
+
+---
+
+#### PUT /api/presets/steering/:id
+
+**Purpose:** Update existing steering preset
+
+**Path Parameters:**
+- `id`: Preset UUID
+
+**Request Body:** (Same as POST, all fields optional except those being updated)
+```json
+{
+  "name": "steering_3features_layers5-15_updated",
+  "description": "Updated description",
+  "is_favorite": true
+}
+```
+
+**Response:** 200 OK (returns updated preset object)
+
+**Validation:**
+- Same validation rules as POST endpoint
+- Cannot update `id`, `created_at`, `training_id` (immutable)
+- `updated_at` automatically set to current timestamp
+
+**Error Responses:**
+- 400 Bad Request: Validation error
+- 404 Not Found: Preset ID doesn't exist
+- 409 Conflict: New name conflicts with existing preset
+
+---
+
+#### DELETE /api/presets/steering/:id
+
+**Purpose:** Delete steering preset
+
+**Path Parameters:**
+- `id`: Preset UUID
+
+**Response:** 204 No Content (successful deletion)
+
+**Error Responses:**
+- 404 Not Found: Preset ID doesn't exist
+
+**Implementation Notes:**
+- Deletion is permanent (no soft delete)
+- Does NOT affect steering experiments (presets are configuration templates only)
+- Frontend should show confirmation dialog before deletion
+
+---
+
+#### PATCH /api/presets/steering/:id/favorite
+
+**Purpose:** Toggle favorite status for steering preset
+
+**Path Parameters:**
+- `id`: Preset UUID
+
+**Request Body:**
+```json
+{
+  "is_favorite": true
+}
+```
+
+**Response:** 200 OK
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "is_favorite": true,
+  "updated_at": "2025-10-07T15:00:00Z"
+}
+```
+
+**Validation:**
+- `is_favorite`: Required boolean
+
+**Error Responses:**
+- 400 Bad Request: Invalid boolean value
+- 404 Not Found: Preset ID doesn't exist
+
+---
+
+#### POST /api/templates/export
+
+**Purpose:** Export all templates and presets (training, extraction, steering) to single JSON file
+
+**Note:** This endpoint is shared across all template types (defined in Model Management TDD 002_FTDD). Steering presets are included in the export alongside training/extraction templates.
+
+**Response Format:**
+```json
+{
+  "version": "1.0",
+  "exported_at": "2025-10-07T16:00:00Z",
+  "training_templates": [ ... ],
+  "extraction_templates": [ ... ],
+  "steering_presets": [
+    {
+      "training_id": "tr_abc123_1696596000",
+      "name": "steering_3features_layers5-15_1430",
+      "description": "Positive sentiment steering across middle layers",
+      "features": [
+        {"feature_id": 42, "coefficient": 2.0},
+        {"feature_id": 137, "coefficient": -1.5},
+        {"feature_id": 89, "coefficient": 0.5}
+      ],
+      "intervention_layers": [5, 10, 15],
+      "temperature": 1.0,
+      "max_tokens": 100,
+      "is_favorite": true
+    }
+  ]
+}
+```
+
+**Implementation Notes:**
+- Omits database IDs (UUIDs) - presets get new IDs on import
+- training_id preserved (preset tied to specific training)
+- Feature IDs preserved (must validate on import that training_id exists)
+
+---
+
+#### POST /api/templates/import
+
+**Purpose:** Import templates and presets from exported JSON file
+
+**Note:** This endpoint is shared across all template types (defined in Model Management TDD 002_FTDD).
+
+**Response Format:**
+```json
+{
+  "imported": {
+    "training_templates": 5,
+    "extraction_templates": 3,
+    "steering_presets": 8
+  },
+  "skipped": {
+    "training_templates": 0,
+    "extraction_templates": 0,
+    "steering_presets": 2
+  },
+  "errors": [
+    {
+      "type": "steering_preset",
+      "name": "steering_invalid",
+      "reason": "training_id 'tr_xyz' not found"
+    }
+  ]
+}
+```
+
+**Import Behavior for Steering Presets:**
+- **Training Dependency**: Skip preset if training_id not found in database
+- **Feature Validation**: Verify all feature_ids belong to training_id, skip if mismatch
+- **Layer Validation**: Verify intervention_layers valid for training's model, skip if invalid
+- **Name Conflicts**: Append `_imported_{timestamp}` suffix to avoid collisions
+- **Partial Success**: Import valid presets even if some fail
 
 ---
 

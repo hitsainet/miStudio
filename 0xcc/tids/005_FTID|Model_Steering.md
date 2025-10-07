@@ -605,8 +605,594 @@ async def test_zero_coefficients_no_effect():
 
 ---
 
+## 5. Training Job Selector Implementation
+
+This section provides implementation guidance for the training job selector dropdown (FR-3A from PRD).
+
+### Component: Training Job Dropdown
+
+**Location:** At the top of SteeringPanel, before feature selection (Mock UI lines 3512-3951)
+
+**Implementation Pattern:**
+
+```typescript
+// Add to SteeringPanel state
+const [trainings, setTrainings] = useState<CompletedTraining[]>([]);
+const [selectedTrainingId, setSelectedTrainingId] = useState<string>('');
+const [selectedFeatures, setSelectedFeatures] = useState<SelectedFeature[]>([]);
+
+// Fetch completed trainings on mount
+useEffect(() => {
+  fetchCompletedTrainings();
+}, []);
+
+const fetchCompletedTrainings = async () => {
+  try {
+    const response = await fetch('/api/trainings/completed?limit=100');
+    const data = await response.json();
+    setTrainings(data.trainings);
+
+    // Auto-select first training if available
+    if (data.trainings.length > 0 && !selectedTrainingId) {
+      setSelectedTrainingId(data.trainings[0].id);
+    }
+  } catch (error) {
+    console.error('Failed to fetch completed trainings:', error);
+  }
+};
+
+// Handle training selection change
+const handleTrainingChange = (newTrainingId: string) => {
+  if (selectedFeatures.length > 0) {
+    const confirmed = window.confirm(
+      'Changing training job will clear selected features. Continue?'
+    );
+    if (!confirmed) return;
+  }
+
+  // Clear feature-related state
+  setSelectedTrainingId(newTrainingId);
+  setSelectedFeatures([]);
+  setFeatureCoefficients({});
+  setActivePreset(null);
+
+  // Fetch features for new training
+  if (newTrainingId) {
+    fetchFeaturesForTraining(newTrainingId);
+  }
+};
+
+// Format training display name
+const formatTrainingDisplayName = (training: CompletedTraining) => {
+  const date = new Date(training.created_at).toLocaleDateString('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric'
+  });
+
+  return `${training.encoder_type} SAE • ${training.model_name} • ${training.dataset_name} • Started ${date}`;
+};
+```
+
+**UI Structure:**
+
+```typescript
+<div className="mb-6">
+  <label className="block mb-2 text-sm font-medium text-gray-300">
+    Training Job
+    <span className="ml-2 text-xs text-gray-500">
+      (defines feature space)
+    </span>
+  </label>
+
+  <select
+    value={selectedTrainingId}
+    onChange={(e) => handleTrainingChange(e.target.value)}
+    className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded focus:outline-none focus:ring-2 focus:ring-emerald-500"
+  >
+    <option value="">Select a training job...</option>
+    {trainings.map((training) => (
+      <option key={training.id} value={training.id}>
+        {formatTrainingDisplayName(training)}
+      </option>
+    ))}
+  </select>
+
+  {trainings.length === 0 && (
+    <p className="mt-2 text-xs text-gray-500">
+      No completed trainings available. Complete a training first to use steering.
+    </p>
+  )}
+
+  {selectedFeatures.length > 0 && (
+    <div className="flex items-center gap-2 px-3 py-2 mt-2 text-xs bg-blue-900/20 rounded">
+      <Info className="w-4 h-4 text-blue-400 flex-shrink-0" />
+      <span className="text-blue-400">
+        Features are specific to this training. Changing training will clear selections.
+      </span>
+    </div>
+  )}
+</div>
+```
+
+### Backend: Completed Trainings Endpoint
+
+**File:** `backend/src/api/routes/trainings.py`
+
+```python
+@router.get("/trainings/completed")
+async def list_completed_trainings(
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """List completed training jobs with model and dataset names."""
+    # Query with JOINs to fetch names dynamically
+    query = db.query(
+        Training.id,
+        Training.encoder_type,
+        Training.status,
+        Training.created_at,
+        Model.id.label('model_id'),
+        Model.name.label('model_name'),
+        Dataset.id.label('dataset_id'),
+        Dataset.name.label('dataset_name')
+    ).join(
+        Model, Training.model_id == Model.id
+    ).join(
+        Dataset, Training.dataset_id == Dataset.id
+    ).filter(
+        Training.status == 'completed'
+    ).order_by(
+        Training.created_at.desc()
+    )
+
+    total = query.count()
+    results = query.offset(offset).limit(limit).all()
+
+    trainings = [
+        {
+            "id": r.id,
+            "encoder_type": r.encoder_type,
+            "model_name": r.model_name,
+            "dataset_name": r.dataset_name,
+            "created_at": r.created_at.isoformat()
+        }
+        for r in results
+    ]
+
+    return {
+        "trainings": trainings,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
+```
+
+### TypeScript Interfaces
+
+```typescript
+export interface CompletedTraining {
+  id: string;
+  encoder_type: string;
+  model_name: string;
+  dataset_name: string;
+  created_at: string;
+}
+```
+
+---
+
+## 6. Steering Preset Management Implementation
+
+This section provides implementation guidance for steering preset save/load/favorite/export/import functionality (FR-3B from PRD).
+
+### Component: Saved Presets Section
+
+**Location:** Inside SteeringPanel, below training job selector (Mock UI lines 3512-3951)
+
+**Implementation Pattern:**
+
+```typescript
+// Add to SteeringPanel state
+const [presets, setPresets] = useState<SteeringPreset[]>([]);
+const [showPresets, setShowPresets] = useState(false);
+const [presetName, setPresetName] = useState('');
+const [presetDescription, setPresetDescription] = useState('');
+
+// Fetch presets when training selected
+useEffect(() => {
+  if (selectedTrainingId) {
+    fetchSteeringPresets(selectedTrainingId);
+  }
+}, [selectedTrainingId]);
+
+const fetchSteeringPresets = async (trainingId: string) => {
+  try {
+    const response = await fetch(`/api/presets/steering?training_id=${trainingId}&limit=50`);
+    const data = await response.json();
+    setPresets(data.presets);
+  } catch (error) {
+    console.error('Failed to fetch presets:', error);
+  }
+};
+
+// Auto-generate preset name
+const generatePresetName = () => {
+  const timestamp = new Date().toLocaleTimeString('en-US', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit'
+  }).replace(':', '');
+
+  if (interventionLayers.length === 1) {
+    return `steering_${selectedFeatures.length}features_layer${interventionLayers[0]}_${timestamp}`;
+  } else {
+    const min = Math.min(...interventionLayers);
+    const max = Math.max(...interventionLayers);
+    return `steering_${selectedFeatures.length}features_layers${min}-${max}_${timestamp}`;
+  }
+};
+
+// Save preset handler
+const handleSavePreset = async () => {
+  const name = presetName || generatePresetName();
+
+  const preset = {
+    training_id: selectedTrainingId,
+    name,
+    description: presetDescription,
+    features: selectedFeatures.map(f => ({
+      feature_id: f.id,
+      coefficient: f.coefficient
+    })),
+    intervention_layers: interventionLayers,
+    temperature,
+    max_tokens: maxTokens,
+    is_favorite: false
+  };
+
+  try {
+    const response = await fetch('/api/presets/steering', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(preset)
+    });
+
+    if (response.ok) {
+      await fetchSteeringPresets(selectedTrainingId);
+      setPresetName('');
+      setPresetDescription('');
+      // Show success toast
+    }
+  } catch (error) {
+    console.error('Failed to save preset:', error);
+  }
+};
+
+// Load preset handler
+const handleLoadPreset = (preset: SteeringPreset) => {
+  // Load features with coefficients
+  setSelectedFeatures(preset.features.map(f => ({
+    id: f.feature_id,
+    name: '', // Will be populated from feature lookup
+    coefficient: f.coefficient
+  })));
+
+  // Load intervention layers
+  setInterventionLayers(preset.intervention_layers);
+
+  // Load generation settings
+  setTemperature(preset.temperature);
+  setMaxTokens(preset.max_tokens);
+
+  // Show success toast
+};
+```
+
+**UI Structure:** (Similar to training/extraction templates with same patterns)
+
+---
+
+## 7. Multi-Layer Steering Implementation
+
+This section provides implementation guidance for applying steering across multiple layers (FR-3C from PRD).
+
+### Component: Intervention Layers Selector
+
+**Location:** Inside SteeringPanel generation configuration section
+
+**Implementation Pattern:**
+
+```typescript
+// Add to SteeringPanel state
+const [interventionLayers, setInterventionLayers] = useState<number[]>([10]);
+const [modelNumLayers, setModelNumLayers] = useState<number | null>(null);
+
+// Fetch model architecture from selected training
+useEffect(() => {
+  if (selectedTrainingId) {
+    fetchTrainingModelArchitecture(selectedTrainingId);
+  }
+}, [selectedTrainingId]);
+
+const fetchTrainingModelArchitecture = async (trainingId: string) => {
+  try {
+    const response = await fetch(`/api/trainings/${trainingId}`);
+    const data = await response.json();
+
+    // Fetch model details
+    const modelResponse = await fetch(`/api/models/${data.model_id}`);
+    const modelData = await modelResponse.json();
+    setModelNumLayers(modelData.num_layers);
+  } catch (error) {
+    console.error('Failed to fetch model architecture:', error);
+  }
+};
+
+// Layer selection handlers (same as training layers)
+const handleLayerToggle = (layer: number) => {
+  setInterventionLayers(prev => {
+    if (prev.includes(layer)) {
+      return prev.filter(l => l !== layer);
+    } else {
+      return [...prev, layer].sort((a, b) => a - b);
+    }
+  });
+};
+
+const handleSelectAllLayers = () => {
+  if (modelNumLayers) {
+    setInterventionLayers(Array.from({ length: modelNumLayers }, (_, i) => i));
+  }
+};
+
+const handleClearAllLayers = () => {
+  setInterventionLayers([10]); // Reset to default middle layer
+};
+```
+
+**UI Structure:** (8-column checkbox grid, same as training layers selector)
+
+```typescript
+<div className="mb-4">
+  <label className="block mb-2 text-sm font-medium text-gray-300">
+    Intervention Layers
+    <span className="ml-2 text-xs text-gray-500">
+      ({interventionLayers.length} selected)
+    </span>
+  </label>
+
+  {/* Select All / Clear All buttons */}
+  <div className="flex gap-2 mb-2">
+    <button onClick={handleSelectAllLayers} /* ... */>Select All</button>
+    <button onClick={handleClearAllLayers} /* ... */>Clear All</button>
+  </div>
+
+  {/* 8-column checkbox grid */}
+  {modelNumLayers && (
+    <div className="grid grid-cols-8 gap-2 p-3 bg-gray-800 rounded max-h-48 overflow-y-auto">
+      {Array.from({ length: modelNumLayers }, (_, i) => (
+        <label key={i} className={/* ... */}>
+          <input
+            type="checkbox"
+            checked={interventionLayers.includes(i)}
+            onChange={() => handleLayerToggle(i)}
+            className="sr-only"
+          />
+          L{i}
+        </label>
+      ))}
+    </div>
+  )}
+
+  {/* Warning for many layers */}
+  {interventionLayers.length > 4 && (
+    <div className="p-2 mt-2 text-xs text-yellow-400 bg-yellow-900/20 rounded">
+      <AlertTriangle className="inline w-4 h-4 mr-1" />
+      Steering at {interventionLayers.length} layers may produce unexpected results. Effects compound across layers.
+    </div>
+  )}
+</div>
+```
+
+### Backend: Multi-Layer Steering Pipeline
+
+**File:** `backend/src/services/steering_service.py`
+
+**Hook Registration:**
+
+```python
+def register_multilayer_hooks(model, intervention_layers: list, steering_vector: torch.Tensor):
+    """Register forward hooks at multiple layers."""
+    hooks = []
+
+    for layer_idx in intervention_layers:
+        # Validate layer index
+        if layer_idx >= model.config.num_hidden_layers:
+            raise ValueError(f"Layer {layer_idx} exceeds model layer count")
+
+        layer = model.transformer.h[layer_idx]
+
+        def steering_hook(module, input, output):
+            # Apply steering vector by adding to activations
+            return output + steering_vector.to(output.device)
+
+        hook = layer.register_forward_hook(steering_hook)
+        hooks.append(hook)
+
+    return hooks
+
+def remove_multilayer_hooks(hooks: list):
+    """Remove all registered hooks."""
+    for hook in hooks:
+        hook.remove()
+```
+
+**Steering Vector Computation:**
+
+```python
+def compute_steering_vector(sae, features: list, coefficients: list):
+    """Compute steering vector from SAE features and coefficients."""
+    steering_vector = torch.zeros(sae.d_model, device=sae.device)
+
+    for feature_id, coefficient in zip(features, coefficients):
+        # Get decoder direction for this feature
+        feature_direction = sae.decoder.weight[feature_id]  # (hidden_size,)
+
+        # Scale by coefficient and add to steering vector
+        steering_vector += coefficient * feature_direction
+
+    return steering_vector
+```
+
+**Generation Pipeline:**
+
+```python
+async def generate_with_multilayer_steering(
+    training_id: str,
+    model_id: str,
+    prompt: str,
+    features: list,
+    coefficients: list,
+    intervention_layers: list,
+    temperature: float = 1.0,
+    max_tokens: int = 100,
+    seed: Optional[int] = None
+):
+    # 1. Load model and SAE checkpoint
+    model = load_model(model_id)
+    sae = load_sae_checkpoint(training_id)
+
+    # 2. Compute steering vector (once, applied to all layers)
+    steering_vector = compute_steering_vector(sae, features, coefficients)
+
+    # 3. Tokenize prompt
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+
+    # 4. Generate unsteered baseline (no hooks)
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    with torch.no_grad():
+        unsteered_output = model.generate(
+            input_ids,
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            do_sample=True
+        )
+
+    # 5. Register multi-layer steering hooks
+    hooks = register_multilayer_hooks(model, intervention_layers, steering_vector)
+
+    # 6. Generate steered output (with hooks active)
+    try:
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        with torch.no_grad():
+            steered_output = model.generate(
+                input_ids,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+                do_sample=True
+            )
+    finally:
+        # 7. Always remove hooks (even if generation fails)
+        remove_multilayer_hooks(hooks)
+
+    # 8. Decode outputs
+    unsteered_text = tokenizer.decode(unsteered_output[0], skip_special_tokens=True)
+    steered_text = tokenizer.decode(steered_output[0], skip_special_tokens=True)
+
+    # 9. Calculate comparison metrics
+    metrics = calculate_comparison_metrics(unsteered_text, steered_text)
+
+    return {
+        "unsteered_output": unsteered_text,
+        "steered_output": steered_text,
+        "metrics": metrics
+    }
+```
+
+**API Request/Response Updates:**
+
+```python
+class SteeringGenerateRequest(BaseModel):
+    training_id: str  # NEW: Required
+    model_id: str
+    prompt: str
+    features: List[dict]  # [{"feature_id": 42, "coefficient": 2.0}, ...]
+    intervention_layers: List[int]  # NEW: Array instead of single layer
+    temperature: float = 1.0
+    max_tokens: int = 100
+    seed: Optional[int] = None
+
+    @validator('intervention_layers')
+    def validate_intervention_layers(cls, v):
+        if not v or len(v) == 0:
+            raise ValueError("intervention_layers cannot be empty")
+        if len(v) > 20:
+            raise ValueError("intervention_layers cannot exceed 20 layers")
+        return sorted(v)  # Ensure sorted order
+
+    @validator('features')
+    def validate_features(cls, v, values):
+        # Validate all features belong to training_id
+        training_id = values.get('training_id')
+        if training_id:
+            # Query database to verify features belong to this training
+            pass
+        return v
+```
+
+### Error Handling:
+
+```python
+try:
+    result = await generate_with_multilayer_steering(...)
+
+except ValueError as e:
+    # Validation error (invalid layers, features don't match training, etc.)
+    raise HTTPException(status_code=400, detail=str(e))
+
+except torch.cuda.OutOfMemoryError:
+    # OOM during generation
+    raise HTTPException(
+        status_code=507,
+        detail="Out of memory during generation. Try reducing max_tokens or using fewer intervention layers."
+    )
+
+except Exception as e:
+    logger.exception(f"Error during multi-layer steering: {e}")
+    raise HTTPException(status_code=500, detail="Internal server error during steering")
+```
+
+### Implementation Checklist
+
+- [ ] Add steering_presets table migration with intervention_layers array and training_id FK
+- [ ] Implement GET /api/trainings/completed with dynamic JOINs
+- [ ] Add training job selector dropdown to SteeringPanel
+- [ ] Implement training change confirmation dialog
+- [ ] Implement all 7 API endpoints for steering presets
+- [ ] Add "Saved Presets" section to SteeringPanel
+- [ ] Implement intervention layers selector (8-column checkbox grid)
+- [ ] Update POST /api/steering/generate to accept training_id and intervention_layers array
+- [ ] Implement multi-layer hook registration
+- [ ] Implement steering vector computation from SAE features
+- [ ] Update generation pipeline to use multi-layer hooks
+- [ ] Add validation for features belonging to training_id
+- [ ] Add validation for intervention_layers vs. model architecture
+- [ ] Test with single layer (backward compatible)
+- [ ] Test with multiple layers (3-5 layers typical)
+- [ ] Test preset save/load with multi-layer configuration
+- [ ] Test training job change behavior (clears features)
+- [ ] Test OOM handling for generation
+
+---
+
 **Document End**
 **Status:** Ready for Task Generation
-**All 5 TIDs Complete!**
-**Total TID Size:** ~170KB across 5 documents
-**Next Step:** Use TIDs to generate detailed task lists via @0xcc/instruct/006_generate-tasks.md
+**Total Sections:** 8 (comprehensive implementation guide)
+**Estimated Size:** ~50KB
+**Next:** Generate task lists for all three enhanced features

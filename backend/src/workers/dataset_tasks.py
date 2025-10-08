@@ -163,13 +163,29 @@ def download_dataset_task(
             token=access_token,
         )
 
+        # Update progress: saving to disk
+        loop.run_until_complete(
+            self.emit_progress(
+                dataset_id,
+                "progress",
+                {
+                    "progress": 70.0,
+                    "status": "downloading",
+                    "message": "Saving dataset to disk...",
+                },
+            )
+        )
+
+        # Save dataset to our organized location
+        dataset.save_to_disk(str(raw_path))
+
         # Update progress
         loop.run_until_complete(
             self.emit_progress(
                 dataset_id,
                 "progress",
                 {
-                    "progress": 80.0,
+                    "progress": 90.0,
                     "status": "downloading",
                     "message": "Download complete, processing metadata...",
                 },

@@ -358,8 +358,21 @@ async def get_dataset_samples(
         )
 
     try:
-        # Load dataset from disk
-        hf_dataset = load_from_disk(dataset.raw_path)
+        # Try to load dataset from disk (Arrow format)
+        # If that fails, try loading from HuggingFace cache
+        try:
+            hf_dataset = load_from_disk(dataset.raw_path)
+        except Exception:
+            # Fall back to loading from HuggingFace cache
+            if dataset.hf_repo_id:
+                from datasets import load_dataset
+                hf_dataset = load_dataset(
+                    dataset.hf_repo_id,
+                    cache_dir="data/datasets",
+                    split="train"  # Default to train split
+                )
+            else:
+                raise
 
         # Calculate pagination
         total_samples = len(hf_dataset)

@@ -10,11 +10,13 @@ from typing import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
-from app.core.config import settings
-from app.core.database import Base
+from src.core.config import settings
+from src.core.database import Base
+from src.main import app
 
 
 # Configure pytest-asyncio
@@ -88,6 +90,31 @@ async def async_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
         await session.rollback()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def client(async_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """
+    Create an async HTTP client for testing API endpoints.
+
+    Provides a test client that uses the test database session
+    via dependency override.
+
+    Usage:
+        async def test_something(client: AsyncClient):
+            response = await client.get("/api/v1/health")
+    """
+    from src.core.deps import get_db
+
+    async def override_get_db():
+        yield async_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="session")

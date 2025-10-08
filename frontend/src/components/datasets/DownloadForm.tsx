@@ -1,0 +1,115 @@
+/**
+ * DownloadForm component for downloading datasets from HuggingFace.
+ *
+ * This component renders a form to input repository ID and access token.
+ */
+
+import React, { useState } from 'react';
+import { Download } from 'lucide-react';
+import { validateHfRepoId } from '../../utils/validators';
+
+interface DownloadFormProps {
+  onDownload: (repoId: string, accessToken?: string) => Promise<void>;
+  className?: string;
+}
+
+export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) {
+  const [hfRepo, setHfRepo] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    // Validate repository ID
+    const validation = validateHfRepoId(hfRepo);
+    if (validation !== true) {
+      setError(validation);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await onDownload(hfRepo, accessToken || undefined);
+      // Reset form on success
+      setHfRepo('');
+      setAccessToken('');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to download dataset';
+      setError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className={`bg-slate-900/50 border border-slate-800 rounded-lg p-6 ${className}`}
+    >
+      <h2 className="text-lg font-semibold text-slate-100 mb-4">
+        Download from HuggingFace
+      </h2>
+
+      <div className="space-y-4">
+        <div>
+          <label
+            htmlFor="hf-repo"
+            className="block text-sm font-medium text-slate-300 mb-2"
+          >
+            Repository ID
+          </label>
+          <input
+            id="hf-repo"
+            type="text"
+            value={hfRepo}
+            onChange={(e) => setHfRepo(e.target.value)}
+            placeholder="username/dataset-name"
+            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            disabled={isSubmitting}
+            required
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="access-token"
+            className="block text-sm font-medium text-slate-300 mb-2"
+          >
+            Access Token (optional)
+          </label>
+          <input
+            id="access-token"
+            type="password"
+            value={accessToken}
+            onChange={(e) => setAccessToken(e.target.value)}
+            placeholder="hf_..."
+            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+            disabled={isSubmitting}
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Required for private or gated datasets
+          </p>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={isSubmitting || !hfRepo}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium rounded transition-colors"
+        >
+          <Download className="w-4 h-4" />
+          {isSubmitting ? 'Downloading...' : 'Download Dataset'}
+        </button>
+      </div>
+    </form>
+  );
+}

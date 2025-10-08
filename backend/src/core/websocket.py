@@ -8,7 +8,6 @@ training metrics, and other real-time events to connected clients.
 from typing import Any, Dict, Optional, Set
 
 import socketio
-from socketio.asyncio_manager import AsyncManager
 
 from .config import settings
 
@@ -25,7 +24,7 @@ sio = socketio.AsyncServer(
 # ASGI app for mounting in FastAPI
 socket_app = socketio.ASGIApp(
     sio,
-    socketio_path="/ws/socket.io",
+    socketio_path="socket.io",
 )
 
 

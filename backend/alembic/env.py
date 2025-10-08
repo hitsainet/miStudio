@@ -14,8 +14,11 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 # Import models Base for autogenerate support
-from app.core.database import Base
-from app.core.config import settings
+from src.core.database import Base
+from src.core.config import settings
+
+# Import all models for autogenerate support
+from src.models import Dataset  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

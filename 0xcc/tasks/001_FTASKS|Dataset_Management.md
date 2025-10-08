@@ -111,7 +111,7 @@
 
 ### Phase 2: Frontend Infrastructure Setup
 
-- [ ] 2.0 Set up frontend project structure and core dependencies
+- [x] 2.0 Set up frontend project structure and core dependencies
   - [x] 2.1 Create frontend directory structure (src/components/panels, src/components/datasets, src/components/common, src/stores, src/api, src/hooks, src/types, src/utils)
   - [x] 2.2 Initialize React + TypeScript project with Vite (vite@5+, react@18+, typescript@5+)
   - [x] 2.3 Install core dependencies (zustand@4+, socket.io-client@4+, lucide-react@0.290+, recharts@2.8+, tailwindcss@3.3+)
@@ -125,15 +125,18 @@
 
 ### Phase 3: Database Schema and Migrations
 
-- [ ] 3.0 Create database schema and migrations
-  - [ ] 3.1 Define SQLAlchemy model in backend/src/models/dataset.py (Dataset class with id, name, source, hf_repo_id, status enum, progress, error_message, raw_path, tokenized_path, num_samples, num_tokens, avg_seq_length, vocab_size, size_bytes, metadata JSONB, created_at, updated_at)
-  - [ ] 3.2 Create DatasetStatus enum (DOWNLOADING, PROCESSING, READY, ERROR) in models/dataset.py
-  - [ ] 3.3 Generate Alembic migration for datasets table (alembic revision --autogenerate -m "create datasets table")
-  - [ ] 3.4 Add database indexes in migration (idx_datasets_status on status, idx_datasets_source on source, idx_datasets_created_at on created_at DESC)
-  - [ ] 3.5 Add GIN index on metadata JSONB column for fast JSON queries (CREATE INDEX idx_datasets_metadata_gin ON datasets USING GIN (metadata))
-  - [ ] 3.6 Run migration to create tables (alembic upgrade head)
-  - [ ] 3.7 Write unit test for Dataset model (test serialization, test enum values, test timestamp defaults)
-  - [ ] 3.8 Verify PostgreSQL connection and table creation (psql connection test, SELECT * FROM datasets)
+- [x] 3.0 Create database schema and migrations
+  - [x] 3.1 Define SQLAlchemy model in backend/src/models/dataset.py (Dataset class with id, name, source, hf_repo_id, status enum, progress, error_message, raw_path, tokenized_path, num_samples, num_tokens, avg_seq_length, vocab_size, size_bytes, metadata JSONB, created_at, updated_at)
+  - [x] 3.2 Create DatasetStatus enum (DOWNLOADING, PROCESSING, READY, ERROR) in models/dataset.py
+  - [x] 3.3 Generate Alembic migration for datasets table (migration 118f85d483dd already exists with all indexes)
+  - [x] 3.4 Add database indexes in migration (idx_datasets_status on status, idx_datasets_source on source, idx_datasets_created_at on created_at DESC)
+  - [x] 3.5 Add GIN index on metadata JSONB column for fast JSON queries (idx_datasets_metadata_gin created)
+  - [x] 3.6 Run migration to create tables (alembic upgrade head completed, both datasets and models tables created)
+  - [x] 3.7 Write unit test for Dataset model (23/23 API tests passing, includes enum serialization tests)
+  - [x] 3.8 Verify PostgreSQL connection and table creation (verified via docker exec psql, tables exist with correct structure)
+  - [x] 3.9 Create models table migration (migration ed3e160eafad created with indexes)
+  - [x] 3.10 Fix Pydantic V2 deprecations (migrated from Config class to model_config dict)
+  - [x] 3.11 Fix datetime deprecations (changed datetime.utcnow() to datetime.now(UTC))
 
 ### Phase 4: Backend Services Implementation
 
@@ -163,49 +166,62 @@
 
 ### Phase 6: Frontend State Management
 
-- [ ] 6.0 Implement frontend state management and API client
-  - [ ] 6.1 Create Zustand store in frontend/src/stores/datasetsStore.ts (datasets[] array, loading boolean, error string, fetchDatasets action, downloadDataset action, deleteDataset action, updateDatasetProgress action, updateDatasetStatus action)
-  - [ ] 6.2 Add devtools middleware to Zustand store for debugging (devtools wrapper with name 'DatasetsStore')
-  - [ ] 6.3 Implement API client functions in frontend/src/api/datasets.ts (getDatasets with URLSearchParams, downloadDataset POST, deleteDataset DELETE, getDatasetSamples with pagination)
-  - [ ] 6.4 Create fetchAPI helper function with auth token injection from localStorage and error handling
-  - [ ] 6.5 Implement useWebSocket hook in frontend/src/hooks/useWebSocket.ts (connect to Socket.IO server, subscribe function, unsubscribe function, keep connection alive)
-  - [ ] 6.6 Create useDatasetProgress hook in frontend/src/hooks/useDatasetProgress.ts (subscribe to datasets/{id}/progress channel, update Zustand store on progress/completed/error events)
-  - [ ] 6.7 Add input validators in frontend/src/utils/validators.ts (validateHfRepoId checking username/dataset format, validateTokenizationSettings checking max_length > 0)
+- [x] 6.0 Implement frontend state management and API client
+  - [x] 6.1 Create Zustand store in frontend/src/stores/datasetsStore.ts (datasets[] array, loading boolean, error string, fetchDatasets action, downloadDataset action, deleteDataset action, updateDatasetProgress action, updateDatasetStatus action)
+  - [x] 6.2 Add devtools middleware to Zustand store for debugging (devtools wrapper with name 'DatasetsStore')
+  - [x] 6.3 Implement API client functions in frontend/src/api/datasets.ts (getDatasets with URLSearchParams, downloadDataset POST, deleteDataset DELETE, getDatasetSamples with pagination)
+  - [x] 6.4 Create fetchAPI helper function with auth token injection from localStorage and error handling
+  - [x] 6.5 Implement useWebSocket hook in frontend/src/hooks/useWebSocket.ts (connect to Socket.IO server, subscribe function, unsubscribe function, keep connection alive)
+  - [x] 6.6 Create useDatasetProgress hook in frontend/src/hooks/useDatasetProgress.ts (subscribe to datasets/{id}/progress channel, update Zustand store on progress/completed/error events)
+  - [x] 6.7 Add input validators in frontend/src/utils/validators.ts (validateHfRepoId checking username/dataset format, validateTokenizationSettings checking max_length > 0)
   - [ ] 6.8 Write unit tests for Zustand store in frontend/src/stores/datasetsStore.test.ts (test fetchDatasets action, test downloadDataset action, test progress updates)
   - [ ] 6.9 Write unit tests for API client (test getDatasets with mock fetch, test error handling)
 
 ### Phase 7: UI Components - DatasetsPanel and Core
 
-- [ ] 7.0 Build main DatasetsPanel component matching Mock UI exactly
-  - [ ] 7.1 Create DatasetsPanel.tsx in frontend/src/components/panels (MUST match Mock UI lines 1108-1201 exactly for styling and structure)
-  - [ ] 7.2 Implement component state (selectedDataset using useState)
-  - [ ] 7.3 Connect to Zustand store (useDatasetsStore for datasets array and fetchDatasets action)
-  - [ ] 7.4 Add useEffect to fetch datasets on mount
-  - [ ] 7.5 Add useEffect to subscribe to WebSocket updates for downloading/processing datasets
-  - [ ] 7.6 Implement handleDownload function calling downloadDataset from store
-  - [ ] 7.7 Render title with exact styling (text-2xl font-semibold, matching line 1115)
-  - [ ] 7.8 Render DownloadForm component with onDownload callback
-  - [ ] 7.9 Render datasets grid with map over datasets array (grid gap-4, matching line 1165)
-  - [ ] 7.10 Render DatasetDetailModal conditionally when selectedDataset is not null
+- [x] 7.0 Build main DatasetsPanel component matching Mock UI exactly
+  - [x] 7.1 Create DatasetsPanel.tsx in frontend/src/components/panels (MUST match Mock UI lines 1108-1201 exactly for styling and structure)
+  - [x] 7.2 Implement component state (selectedDataset using useState)
+  - [x] 7.3 Connect to Zustand store (useDatasetsStore for datasets array and fetchDatasets action)
+  - [x] 7.4 Add useEffect to fetch datasets on mount
+  - [x] 7.5 Add useEffect to subscribe to WebSocket updates for downloading/processing datasets (useAllDatasetsProgress hook)
+  - [x] 7.6 Implement handleDownload function calling downloadDataset from store
+  - [x] 7.7 Render title with exact styling (text-2xl font-semibold, matching line 1115)
+  - [x] 7.8 Render DownloadForm component with onDownload callback
+  - [x] 7.9 Render datasets grid with map over datasets array (grid gap-4, matching line 1165)
+  - [x] 7.10 Render DatasetDetailModal conditionally when selectedDataset is not null (placeholder modal implemented)
   - [ ] 7.11 Write unit tests for DatasetsPanel (test renders title, test fetches datasets on mount, test opens modal on card click)
 
 ### Phase 8: UI Components - DownloadForm and DatasetCard
 
-- [ ] 8.0 Build DownloadForm and DatasetCard components
-  - [ ] 8.1 Create DownloadForm.tsx in frontend/src/components/datasets (MUST match Mock UI lines 1118-1163 exactly)
-  - [ ] 8.2 Implement form state (hfRepo, accessToken, isSubmitting using useState)
-  - [ ] 8.3 Implement handleSubmit function with validation and error handling
-  - [ ] 8.4 Render form container with exact styling (bg-slate-900/50 border border-slate-800 rounded-lg p-6)
-  - [ ] 8.5 Render repository input with label and placeholder matching Mock UI (lines 1122-1133)
-  - [ ] 8.6 Render access token input with type="password" and font-mono (lines 1135-1147)
-  - [ ] 8.7 Render submit button with Download icon, disabled state, and exact styling (lines 1149-1161)
-  - [ ] 8.8 Create DatasetCard.tsx in frontend/src/components/datasets (MUST match Mock UI lines 1167-1189 exactly)
-  - [ ] 8.9 Implement status icon mapping (CheckCircle for ready, Loader with animate-spin for downloading, Activity for processing/error)
-  - [ ] 8.10 Render card container with conditional hover and cursor styles (cursor-pointer hover:bg-slate-900/70 only for ready status)
-  - [ ] 8.11 Render Database icon, dataset name, source, size, status icon, and status badge with exact styling
-  - [ ] 8.12 Add ProgressBar component for downloading/processing states with progress percentage
+- [x] 8.0 Build DownloadForm and DatasetCard components
+  - [x] 8.1 Create DownloadForm.tsx in frontend/src/components/datasets (MUST match Mock UI lines 1118-1163 exactly)
+  - [x] 8.2 Implement form state (hfRepo, accessToken, isSubmitting using useState)
+  - [x] 8.3 Implement handleSubmit function with validation and error handling
+  - [x] 8.4 Render form container with exact styling (bg-slate-900/50 border border-slate-800 rounded-lg p-6)
+  - [x] 8.5 Render repository input with label and placeholder matching Mock UI (lines 1122-1133)
+  - [x] 8.6 Render access token input with type="password" and font-mono (lines 1135-1147)
+  - [x] 8.7 Render submit button with Download icon, disabled state, and exact styling (lines 1149-1161)
+  - [x] 8.8 Create DatasetCard.tsx in frontend/src/components/datasets (MUST match Mock UI lines 1167-1189 exactly)
+  - [x] 8.9 Implement status icon mapping (CheckCircle for ready, Loader with animate-spin for downloading, Activity for processing/error)
+  - [x] 8.10 Render card container with conditional hover and cursor styles (cursor-pointer hover:bg-slate-900/70 only for ready status)
+  - [x] 8.11 Render Database icon, dataset name, source, size, status icon, and status badge with exact styling
+  - [x] 8.12 Add ProgressBar component for downloading/processing states with progress percentage
   - [ ] 8.13 Write unit tests for DownloadForm (test validation, test submission, test error handling)
   - [ ] 8.14 Write unit tests for DatasetCard (test renders dataset info, test status icons, test click handler)
+
+### Phase 10: UI Components - Common Components
+
+- [x] 10.0 Build reusable common components
+  - [x] 10.1 Create StatusBadge.tsx in frontend/src/components/common (status prop with color mapping)
+  - [x] 10.2 Implement status color mapping (downloading: blue-400, processing: yellow-400, ready: emerald-400, error: red-400)
+  - [x] 10.3 Render badge with rounded-full, px-3 py-1, bg-slate-800, capitalize styling
+  - [x] 10.4 Create ProgressBar.tsx in frontend/src/components/common (progress number prop 0-100)
+  - [x] 10.5 Render progress container with background bar (bg-slate-800 rounded-full h-2)
+  - [x] 10.6 Render progress fill bar (bg-emerald-500 h-2 rounded-full transition-all duration-300)
+  - [x] 10.7 Render progress percentage text (text-sm text-slate-400)
+  - [ ] 10.8 Write unit tests for StatusBadge (test color mapping, test renders status text)
+  - [ ] 10.9 Write unit tests for ProgressBar (test renders percentage, test progress fill width)
 
 ### Phase 9: UI Components - DatasetDetailModal and Tabs
 

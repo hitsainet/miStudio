@@ -263,7 +263,7 @@ This ADR establishes the foundational technology choices, architectural patterns
 **Rationale:**
 - **Standardized API**: Consistent interface for all model architectures
 - **Quantization Support**: Built-in INT8/INT4 quantization via bitsandbytes
-- **Automatic Downloads**: Seamless model downloads from HuggingFace Hub
+- **Automatic Downloads**: Seamless model downloads from HuggingFace Hubfu
 - **Architecture Support**: GPT-2, LLaMA, Pythia, Phi, Gemma, Qwen families
 - **Edge Optimization**: Device mapping and offloading for memory management
 

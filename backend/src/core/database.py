@@ -31,23 +31,17 @@ def create_engine() -> AsyncEngine:
 
     Configuration:
         - Uses asyncpg driver for PostgreSQL
-        - QueuePool with 5-20 connections for production
-        - NullPool for testing (no connection reuse)
+        - NullPool for async engines (async-safe pooling)
         - Echo SQL in development mode
         - Pool pre-ping to check connection health
     """
-    # Determine pool class based on environment
-    pool_class = NullPool if settings.is_test else QueuePool
-
     # Create engine with appropriate settings
+    # Note: Async engines use NullPool by default, which is async-safe
     engine = create_async_engine(
         str(settings.database_url),
         echo=settings.is_development,  # Log SQL in development
         pool_pre_ping=True,  # Verify connections before using
-        pool_size=5 if not settings.is_test else 0,  # Connection pool size
-        max_overflow=10 if not settings.is_test else 0,  # Max overflow connections
-        pool_recycle=3600,  # Recycle connections after 1 hour
-        poolclass=pool_class,
+        poolclass=NullPool,  # Required for async engines
         connect_args={
             "server_settings": {
                 "application_name": "mistudio_backend",

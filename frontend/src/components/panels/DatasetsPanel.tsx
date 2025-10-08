@@ -1,0 +1,103 @@
+/**
+ * DatasetsPanel - Main dataset management panel.
+ *
+ * This component provides the primary interface for managing datasets,
+ * including viewing, downloading, and monitoring dataset operations.
+ */
+
+import React, { useEffect, useState } from 'react';
+import { useDatasetsStore } from '../../stores/datasetsStore';
+import { useAllDatasetsProgress } from '../../hooks/useDatasetProgress';
+import { DownloadForm } from '../datasets/DownloadForm';
+import { DatasetCard } from '../datasets/DatasetCard';
+import { DatasetDetailModal } from '../datasets/DatasetDetailModal';
+import { Dataset } from '../../types/dataset';
+
+export function DatasetsPanel() {
+  const { datasets, loading, error, fetchDatasets, downloadDataset } = useDatasetsStore();
+  const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
+
+  // Subscribe to WebSocket progress updates for active datasets
+  useAllDatasetsProgress();
+
+  // Fetch datasets on mount
+  useEffect(() => {
+    fetchDatasets();
+  }, [fetchDatasets]);
+
+  const handleDownload = async (repoId: string, accessToken?: string) => {
+    await downloadDataset(repoId, accessToken);
+  };
+
+  const handleDatasetClick = (dataset: Dataset) => {
+    setSelectedDataset(dataset);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950">
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-slate-100 mb-2">Datasets</h1>
+          <p className="text-slate-400">
+            Manage training datasets from HuggingFace or local sources
+          </p>
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400">
+            {error}
+          </div>
+        )}
+
+        {/* Download Form */}
+        <div className="mb-8">
+          <DownloadForm onDownload={handleDownload} />
+        </div>
+
+        {/* Loading state */}
+        {loading && datasets.length === 0 && (
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-700 border-t-emerald-500"></div>
+            <p className="text-slate-400 mt-4">Loading datasets...</p>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!loading && datasets.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-slate-400 text-lg">No datasets yet</p>
+            <p className="text-slate-500 mt-2">Download a dataset from HuggingFace to get started</p>
+          </div>
+        )}
+
+        {/* Datasets grid */}
+        {datasets.length > 0 && (
+          <div>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">
+              Your Datasets ({datasets.length})
+            </h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              {datasets.map((dataset) => (
+                <DatasetCard
+                  key={dataset.id}
+                  dataset={dataset}
+                  onClick={() => handleDatasetClick(dataset)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Dataset Detail Modal */}
+        {selectedDataset && (
+          <DatasetDetailModal
+            dataset={selectedDataset}
+            onClose={() => setSelectedDataset(null)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

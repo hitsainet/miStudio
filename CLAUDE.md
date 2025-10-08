@@ -1,44 +1,61 @@
 # Project: MechInterp Studio (miStudio)
 
 ## Current Status
-- **Phase:** Feature Development - Feature PRDs
-- **Last Session:** 2025-10-05 - ADR created, CLAUDE.md updated with Project Standards
-- **Next Steps:** Begin Feature PRD creation starting with Dataset Management (001_FPRD|Dataset_Management.md)
-- **Active Document:** 0xcc/adrs/000_PADR|miStudio.md (Completed)
-- **Current Feature:** N/A (transitioning to feature development phase)
+- **Phase:** Implementation - Phase 6: Frontend State Management & UI Components
+- **Last Session:** 2025-10-08 - Completed Phase 3 migrations, all backend tests passing
+- **Next Steps:** Implement Zustand stores, API client, and Dataset Management Panel UI
+- **Active Document:** 0xcc/tasks/001_FTASKS|Dataset_Management.md (Phase 6 ready)
+- **Current Feature:** Dataset Management (Core Feature #1 - P0)
+- **Test Status:** 23/23 backend tests passing, database migrations complete, API server running
+- **Services Status:** Backend (port 8000) ✅, Frontend (port 3000) ✅, PostgreSQL ✅, Redis ✅
 
 ## PRIMARY UI/UX REFERENCE
-**CRITICAL:** The file `0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx` is the PRIMARY and AUTHORITATIVE specification for:
+
+Key aspects (load full file only when needed):
 - UI/UX design patterns and visual style
 - Component layouts and interactions
 - User workflows and navigation
 - API contracts and data structures
 - Feature completeness and behavior
 
-All implementation MUST match the Mock UI specification exactly. This is the definitive reference for how the application should look and behave.
+All implementation MUST match the Mock UI specification exactly.
 
 ## Quick Resume Commands
+
+### Lean Session Start (Recommended)
 ```bash
-# XCC session start sequence
+# Minimal context loading - most efficient approach
 "Please help me resume where I left off"
-# Or manual if needed:
-@CLAUDE.md
-@0xcc/session_state.json
-ls -la 0xcc/*/
+# This automatically loads: CLAUDE.md + session_state.json
 
-# Research integration (requires ref MCP server)
-# Format: "Use /mcp ref search '[context-specific search term]'"
+# Load specific current work area only when needed:
+# 0xcc/tasks/[current-task-file].md  # The specific task being worked on
+```
 
-# Load project context
-@0xcc/prds/000_PPRD|miStudio.md
-@0xcc/adrs/000_PADR|miStudio.md
-@0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx  # PRIMARY UI REFERENCE
+### On-Demand Loading Strategy
+⚠️ **IMPORTANT**: The following files are LARGE (40k+ chars) and should ONLY be loaded when you encounter specific questions. **DO NOT load them automatically at session start.**
 
-# Load current work area based on phase
-@0xcc/prds/      # For PRD work
-@0xcc/tdds/      # For TDD work  
-@0xcc/tids/      # For TID work
-@0xcc/tasks/     # For task execution
+```bash
+# Load when UI/styling question arises (207k chars):
+# 0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx
+
+# Load when business context/feature priority question arises (54k chars):
+# 0xcc/prds/000_PPRD|miStudio.md
+
+# Load when architectural decision question arises (72k chars):
+# 0xcc/adrs/000_PADR|miStudio.md
+
+# Load when design clarification needed:
+# 0xcc/tdds/[feature]_FTDD.md
+
+# Load when implementation guidance needed:
+# 0xcc/tids/[feature]_FTID.md
+```
+
+### Research Integration
+```bash
+# Use MCP ref server for contextual research (when available)
+/mcp ref search "[context-specific query]"
 ```
 
 ## Housekeeping Commands
@@ -123,7 +140,7 @@ ls -la 0xcc/*/
 
 ### UI/UX Standards
 
-**PRIMARY REFERENCE:** `0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx`
+#### **PRIMARY REFERENCE:** `0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx`
 
 - Dark theme: slate color palette (bg-slate-950, 900, 800)
 - Emerald accents: buttons, success states
@@ -169,14 +186,14 @@ ls -la 0xcc/*/
    - `[###]_FTASKS|[feature-name].md` → `0xcc/tasks/` (Task List)
 
 ### Instruction Documents Reference
-- `@0xcc/instruct/001_create-project-prd.md` - Creates project vision and feature breakdown
-- `@0xcc/instruct/002_create-adr.md` - Establishes tech stack and standards
-- `@0xcc/instruct/003_create-feature-prd.md` - Details individual feature requirements
-- `@0xcc/instruct/004_create-tdd.md` - Creates technical architecture and design
-- `@0xcc/instruct/005_create-tid.md` - Provides implementation guidance and coding hints
-- `@0xcc/instruct/006_generate-tasks.md` - Generates actionable development tasks
-- `@0xcc/instruct/007_process-task-list.md` - Guides task execution and progress tracking
-- `@0xcc/instruct/008_housekeeping.md` - Session management and context preservation
+- `0xcc/instruct/001_create-project-prd.md` - Creates project vision and feature breakdown
+- `0xcc/instruct/002_create-adr.md` - Establishes tech stack and standards
+- `0xcc/instruct/003_create-feature-prd.md` - Details individual feature requirements
+- `0xcc/instruct/004_create-tdd.md` - Creates technical architecture and design
+- `0xcc/instruct/005_create-tid.md` - Provides implementation guidance and coding hints
+- `0xcc/instruct/006_generate-tasks.md` - Generates actionable development tasks
+- `0xcc/instruct/007_process-task-list.md` - Guides task execution and progress tracking
+- `0xcc/instruct/008_housekeeping.md` - Session management and context preservation
 
 ## Document Inventory
 
@@ -259,28 +276,25 @@ git commit -m "docs: completed [task] - Next: [specific action]"
 
 ### Context Recovery (If Lost)
 ```bash
-# Mild context loss
-@CLAUDE.md
-@0xcc/session_state.json
+# Mild context loss - files to reference if needed:
+# CLAUDE.md
+# 0xcc/session_state.json
 ls -la 0xcc/*/
-@0xcc/instruct/[current-phase].md
+# 0xcc/instruct/[current-phase].md
 
-# Severe context loss  
-@CLAUDE.md
-@0xcc/prds/000_PPRD|[project-name].md
-@0xcc/adrs/000_PADR|[project-name].md
+# Severe context loss - files to reference if needed:
+# CLAUDE.md
+# 0xcc/prds/000_PPRD|[project-name].md
+# 0xcc/adrs/000_PADR|[project-name].md
 ls -la 0xcc/*/
-@0xcc/instruct/
+# 0xcc/instruct/
 ```
 
 ### Resume Commands for Next Session
 ```bash
 # Standard resume sequence
 "Please help me resume where I left off"
-# Or manual if needed:
-@CLAUDE.md
-@0xcc/session_state.json
-@[specific-file-currently-working-on]
+# Files are automatically loaded from context - no need to manually load
 # Specific next action: [detailed action]
 ```
 
@@ -373,7 +387,7 @@ After each development session, update:
   - Created comprehensive Project PRD (000_PPRD|miStudio.md) based on Mock UI specification
   - Updated CLAUDE.md with project name, status, and UI reference priority
   - Established Mock UI as PRIMARY reference for all implementation
-- **Next:** Create Architecture Decision Record using @0xcc/instruct/002_create-adr.md
+- **Next:** Create Architecture Decision Record using 0xcc/instruct/002_create-adr.md
 - **Files Created:**
   - 0xcc/prds/000_PPRD|miStudio.md (14,000+ lines)
   - Updated CLAUDE.md with project context
@@ -431,12 +445,12 @@ project-root/
 - **Project Files:** Standard locations (src/, tests/, package.json, etc.)
 
 ### Emergency Contacts & Resources
-- **Framework Documentation:** @0xcc/instruct/000_README.md
-- **Current Project PRD:** @0xcc/prds/000_PPRD|miStudio.md
-- **PRIMARY UI REFERENCE:** @0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx
-- **Tech Specification:** @0xcc/project-specs/core/miStudio_Specification.md
-- **Tech Standards:** @0xcc/adrs/000_PADR|miStudio.md (to be created)
-- **Housekeeping Guide:** @0xcc/instruct/008_housekeeping.md
+- **Framework Documentation:** 0xcc/instruct/000_README.md
+- **Current Project PRD:** 0xcc/prds/000_PPRD|miStudio.md
+- **PRIMARY UI REFERENCE:** 0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx
+- **Tech Specification:** 0xcc/project-specs/core/miStudio_Specification.md
+- **Tech Standards:** 0xcc/adrs/000_PADR|miStudio.md
+- **Housekeeping Guide:** 0xcc/instruct/008_housekeeping.md
 
 ---
 

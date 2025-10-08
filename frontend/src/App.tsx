@@ -1,4 +1,5 @@
 import React from 'react';
+import { DatasetsPanel } from './components/panels/DatasetsPanel';
 
 function App() {
   return (
@@ -9,8 +10,8 @@ function App() {
           <p className="text-sm text-slate-400">Edge AI Feature Discovery Platform</p>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <p className="text-slate-400">Frontend initialization successful</p>
+      <main>
+        <DatasetsPanel />
       </main>
     </div>
   );

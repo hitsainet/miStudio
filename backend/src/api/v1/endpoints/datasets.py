@@ -309,3 +309,94 @@ async def tokenize_dataset(
     )
 
     return dataset
+
+
+@router.get("/{dataset_id}/samples")
+async def get_dataset_samples(
+    dataset_id: UUID,
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get paginated samples from a dataset.
+
+    Args:
+        dataset_id: Dataset UUID
+        page: Page number (1-indexed)
+        limit: Items per page
+        db: Database session
+
+    Returns:
+        Paginated list of dataset samples
+
+    Raises:
+        HTTPException: If dataset not found or not ready
+    """
+    from datasets import load_from_disk
+    from pathlib import Path
+
+    # Get dataset
+    dataset = await DatasetService.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} not found"
+        )
+
+    # Check if dataset is ready
+    if dataset.status != DatasetStatus.READY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset must be in 'ready' status to view samples (current: {dataset.status})"
+        )
+
+    if not dataset.raw_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Dataset has no raw_path"
+        )
+
+    try:
+        # Load dataset from disk
+        hf_dataset = load_from_disk(dataset.raw_path)
+
+        # Calculate pagination
+        total_samples = len(hf_dataset)
+        start_idx = (page - 1) * limit
+        end_idx = min(start_idx + limit, total_samples)
+
+        # Get samples for current page
+        samples = []
+        for idx in range(start_idx, end_idx):
+            sample = hf_dataset[idx]
+            # Convert sample to dict if it's not already
+            if not isinstance(sample, dict):
+                sample = {"data": str(sample)}
+            samples.append({
+                "index": idx,
+                "data": sample
+            })
+
+        # Calculate pagination metadata
+        total_pages = (total_samples + limit - 1) // limit
+        has_next = page < total_pages
+        has_prev = page > 1
+
+        return {
+            "data": samples,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total_samples,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load samples: {str(e)}"
+        )

@@ -5,8 +5,8 @@
  * for samples, statistics, and tokenization settings.
  */
 
-import React, { useState } from 'react';
-import { X, FileText, BarChart, Settings } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, FileText, BarChart, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dataset } from '../../types/dataset';
 import { formatFileSize, formatDateTime } from '../../utils/formatters';
 import { StatusBadge } from '../common/StatusBadge';
@@ -152,15 +152,148 @@ function OverviewTab({ dataset }: { dataset: Dataset }) {
   );
 }
 
-// Samples Tab Component (Placeholder)
+// Samples Tab Component
 function SamplesTab({ dataset }: { dataset: Dataset }) {
+  const [samples, setSamples] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<any>(null);
+  const limit = 20;
+
+  useEffect(() => {
+    const fetchSamples = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch(
+          `http://localhost:8000/api/v1/datasets/${dataset.id}/samples?page=${page}&limit=${limit}`
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch samples');
+        }
+
+        const data = await response.json();
+        setSamples(data.data);
+        setPagination(data.pagination);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load samples');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (dataset.status === 'ready') {
+      fetchSamples();
+    }
+  }, [dataset.id, dataset.status, page]);
+
+  if (dataset.status !== 'ready') {
+    return (
+      <div className="text-center py-12">
+        <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+        <p className="text-slate-400 text-lg">Dataset not ready</p>
+        <p className="text-slate-500 mt-2">
+          Samples can be viewed once the dataset is in "ready" status
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="text-center py-12">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-700 border-t-emerald-500 mb-4"></div>
+        <p className="text-slate-400">Loading samples...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg inline-block">
+          <p className="text-red-400">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="text-center py-12">
-      <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-      <p className="text-slate-400 text-lg">Sample browser coming in next phase</p>
-      <p className="text-slate-500 mt-2">
-        Will display paginated dataset samples with search and filtering
-      </p>
+    <div className="space-y-4">
+      {/* Pagination Header */}
+      {pagination && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-slate-400">
+            Showing {((page - 1) * limit) + 1} - {Math.min(page * limit, pagination.total)} of {pagination.total.toLocaleString()} samples
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={!pagination.has_prev}
+              className="p-2 rounded hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-400" />
+            </button>
+            <span className="text-sm text-slate-400">
+              Page {page} of {pagination.total_pages.toLocaleString()}
+            </span>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={!pagination.has_next}
+              className="p-2 rounded hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-400" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Samples List */}
+      <div className="space-y-3">
+        {samples.map((sample) => (
+          <div
+            key={sample.index}
+            className="bg-slate-800/50 rounded-lg p-4 border border-slate-700"
+          >
+            <div className="flex items-start justify-between mb-2">
+              <span className="text-xs font-mono text-slate-500">Sample #{sample.index}</span>
+            </div>
+            <div className="space-y-2">
+              {Object.entries(sample.data).map(([key, value]) => (
+                <div key={key}>
+                  <span className="text-xs font-medium text-emerald-400">{key}:</span>
+                  <pre className="text-sm text-slate-300 mt-1 whitespace-pre-wrap font-mono">
+                    {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Pagination Footer */}
+      {pagination && pagination.total_pages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-4">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={!pagination.has_prev}
+            className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm text-slate-300"
+          >
+            Previous
+          </button>
+          <button
+            onClick={() => setPage(p => p + 1)}
+            disabled={!pagination.has_next}
+            className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm text-slate-300"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

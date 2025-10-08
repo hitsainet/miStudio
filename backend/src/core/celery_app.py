@@ -28,9 +28,9 @@ celery_app.conf.update(
 
     # Task routing
     task_routes={
-        "app.workers.dataset_tasks.*": {"queue": "datasets"},
-        "app.workers.training_tasks.*": {"queue": "training"},
-        "app.workers.extraction_tasks.*": {"queue": "extraction"},
+        "src.workers.dataset_tasks.*": {"queue": "datasets"},
+        "src.workers.training_tasks.*": {"queue": "training"},
+        "src.workers.extraction_tasks.*": {"queue": "extraction"},
     },
 
     # Task priority queues (higher priority = processed first)
@@ -67,9 +67,9 @@ celery_app.conf.update(
 # Task autodiscovery - automatically discover tasks in these modules
 celery_app.autodiscover_tasks(
     [
-        "app.workers.dataset_tasks",
-        "app.workers.training_tasks",
-        "app.workers.extraction_tasks",
+        "src.workers.dataset_tasks",
+        "src.workers.training_tasks",
+        "src.workers.extraction_tasks",
     ],
     force=True,
 )

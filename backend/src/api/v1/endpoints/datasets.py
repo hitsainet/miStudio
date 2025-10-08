@@ -235,12 +235,13 @@ async def download_dataset(
 
     dataset = await DatasetService.create_dataset(db, dataset_create)
 
-    # TODO: Queue download job with Celery
-    # download_dataset_task.delay(
-    #     dataset_id=str(dataset.id),
-    #     repo_id=request.repo_id,
-    #     access_token=request.access_token,
-    #     split=request.split
-    # )
+    # Queue download job with Celery
+    from ....workers.dataset_tasks import download_dataset_task
+    download_dataset_task.delay(
+        dataset_id=str(dataset.id),
+        repo_id=request.repo_id,
+        access_token=request.access_token,
+        split=request.split
+    )
 
     return dataset

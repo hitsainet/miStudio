@@ -111,3 +111,11 @@ class DatasetDownloadRequest(BaseModel):
         if "/" not in v:
             raise ValueError("repo_id must be in format 'username/dataset-name'")
         return v
+
+
+class DatasetTokenizeRequest(BaseModel):
+    """Schema for dataset tokenization request."""
+
+    tokenizer_name: str = Field(..., min_length=1, description="HuggingFace tokenizer name (e.g., 'gpt2', 'bert-base-uncased')")
+    max_length: int = Field(512, ge=1, le=8192, description="Maximum sequence length in tokens")
+    stride: int = Field(0, ge=0, description="Sliding window stride for long sequences (0 = no overlap)")

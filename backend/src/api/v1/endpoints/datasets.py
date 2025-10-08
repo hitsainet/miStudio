@@ -18,6 +18,7 @@ from ....schemas.dataset import (
     DatasetResponse,
     DatasetListResponse,
     DatasetDownloadRequest,
+    DatasetTokenizeRequest,
 )
 from ....services.dataset_service import DatasetService
 
@@ -242,6 +243,69 @@ async def download_dataset(
         repo_id=request.repo_id,
         access_token=request.access_token,
         split=request.split
+    )
+
+    return dataset
+
+
+@router.post("/{dataset_id}/tokenize", response_model=DatasetResponse, status_code=202)
+async def tokenize_dataset(
+    dataset_id: UUID,
+    request: DatasetTokenizeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Tokenize a dataset using a HuggingFace tokenizer.
+
+    This endpoint queues the tokenization job to run asynchronously.
+    The dataset status will be updated to 'processing' during tokenization.
+
+    Args:
+        dataset_id: Dataset UUID
+        request: Tokenization request with tokenizer name and parameters
+        db: Database session
+
+    Returns:
+        Dataset with status 'processing'
+
+    Raises:
+        HTTPException: If dataset not found or not ready for tokenization
+    """
+    # Get dataset
+    dataset = await DatasetService.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} not found"
+        )
+
+    # Check if dataset is ready for tokenization
+    if dataset.status != DatasetStatus.READY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset must be in 'ready' status for tokenization (current: {dataset.status})"
+        )
+
+    if not dataset.raw_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Dataset has no raw_path - cannot tokenize"
+        )
+
+    # Update status to processing
+    updates = DatasetUpdate(
+        status=DatasetStatus.PROCESSING.value,
+        progress=0.0,
+    )
+    dataset = await DatasetService.update_dataset(db, dataset_id, updates)
+
+    # Queue tokenization job with Celery
+    from ....workers.dataset_tasks import tokenize_dataset_task
+    tokenize_dataset_task.delay(
+        dataset_id=str(dataset_id),
+        tokenizer_name=request.tokenizer_name,
+        max_length=request.max_length,
+        stride=request.stride,
     )
 
     return dataset

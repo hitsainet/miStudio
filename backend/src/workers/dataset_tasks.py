@@ -21,6 +21,7 @@ from ..core.websocket import ws_manager
 from ..models.dataset import DatasetStatus
 from ..schemas.dataset import DatasetUpdate
 from ..services.dataset_service import DatasetService
+from ..services.tokenization_service import TokenizationService
 
 
 class DatasetTask(Task):
@@ -296,37 +297,134 @@ def tokenize_dataset_task(
             )
         )
 
-        # TODO: Implement actual tokenization logic
-        # This is a placeholder - full implementation would:
-        # 1. Load dataset from raw_path
-        # 2. Load tokenizer
-        # 3. Tokenize samples with progress tracking
-        # 4. Save tokenized dataset to Arrow format
-        # 5. Calculate statistics (num_tokens, avg_seq_length, vocab_size)
+        # Get dataset from database to retrieve raw_path
+        async def get_dataset_info():
+            session = await self.get_session()
+            dataset_obj = await DatasetService.get_dataset(session, dataset_uuid)
+            if not dataset_obj:
+                raise ValueError(f"Dataset {dataset_id} not found")
+            if not dataset_obj.raw_path:
+                raise ValueError(f"Dataset {dataset_id} has no raw_path")
+            return dataset_obj.raw_path
 
-        # For now, just mark as ready after a short delay
-        import time
-        for progress in [20, 40, 60, 80, 100]:
-            time.sleep(0.5)
-            loop.run_until_complete(
-                self.emit_progress(
-                    dataset_id,
-                    "progress",
-                    {
-                        "progress": float(progress),
-                        "status": "processing",
-                        "message": f"Tokenizing... {progress}%",
-                    },
-                )
+        raw_path = loop.run_until_complete(get_dataset_info())
+
+        # Emit progress: 10%
+        loop.run_until_complete(
+            self.emit_progress(
+                dataset_id,
+                "progress",
+                {
+                    "progress": 10.0,
+                    "status": "processing",
+                    "message": "Loading tokenizer...",
+                },
             )
+        )
 
-        # Mark as ready
+        # Load tokenizer
+        tokenizer = TokenizationService.load_tokenizer(tokenizer_name)
+
+        # Emit progress: 20%
+        loop.run_until_complete(
+            self.emit_progress(
+                dataset_id,
+                "progress",
+                {
+                    "progress": 20.0,
+                    "status": "processing",
+                    "message": "Loading dataset...",
+                },
+            )
+        )
+
+        # Load dataset from disk
+        dataset = TokenizationService.load_dataset_from_disk(raw_path)
+
+        # Emit progress: 40%
+        loop.run_until_complete(
+            self.emit_progress(
+                dataset_id,
+                "progress",
+                {
+                    "progress": 40.0,
+                    "status": "processing",
+                    "message": f"Tokenizing {len(dataset)} samples...",
+                },
+            )
+        )
+
+        # Tokenize dataset
+        tokenized_dataset = TokenizationService.tokenize_dataset(
+            dataset=dataset,
+            tokenizer=tokenizer,
+            max_length=max_length,
+            stride=stride,
+            truncation=True,
+            padding="max_length",
+            batch_size=1000,
+        )
+
+        # Emit progress: 80%
+        loop.run_until_complete(
+            self.emit_progress(
+                dataset_id,
+                "progress",
+                {
+                    "progress": 80.0,
+                    "status": "processing",
+                    "message": "Calculating statistics...",
+                },
+            )
+        )
+
+        # Calculate statistics
+        stats = TokenizationService.calculate_statistics(tokenized_dataset)
+
+        # Save tokenized dataset
+        tokenized_path = Path(raw_path).parent / f"{Path(raw_path).name}_tokenized"
+        TokenizationService.save_tokenized_dataset(
+            tokenized_dataset,
+            tokenized_path,
+        )
+
+        # Emit progress: 95%
+        loop.run_until_complete(
+            self.emit_progress(
+                dataset_id,
+                "progress",
+                {
+                    "progress": 95.0,
+                    "status": "processing",
+                    "message": "Saving results...",
+                },
+            )
+        )
+
+        # Update dataset with tokenization results
         async def finalize_tokenization():
-            await self.update_dataset_status(
-                dataset_uuid,
-                DatasetStatus.READY,
+            session = await self.get_session()
+
+            # Update dataset metadata with tokenization stats
+            updates = DatasetUpdate(
+                status=DatasetStatus.READY.value,
                 progress=100.0,
+                tokenized_path=str(tokenized_path),
+                metadata={
+                    "tokenization": {
+                        "tokenizer_name": tokenizer_name,
+                        "max_length": max_length,
+                        "stride": stride,
+                        "num_tokens": stats["num_tokens"],
+                        "avg_seq_length": stats["avg_seq_length"],
+                        "min_seq_length": stats["min_seq_length"],
+                        "max_seq_length": stats["max_seq_length"],
+                    }
+                },
             )
+            await DatasetService.update_dataset(session, dataset_uuid, updates)
+            await session.commit()
+
             await self.emit_progress(
                 dataset_id,
                 "completed",
@@ -334,6 +432,7 @@ def tokenize_dataset_task(
                     "progress": 100.0,
                     "status": "ready",
                     "message": "Tokenization complete",
+                    "statistics": stats,
                 },
             )
 
@@ -342,6 +441,8 @@ def tokenize_dataset_task(
         return {
             "dataset_id": dataset_id,
             "status": "ready",
+            "tokenized_path": str(tokenized_path),
+            "statistics": stats,
         }
 
     except Exception as e:

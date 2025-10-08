@@ -143,8 +143,8 @@
 - [x] 4.0 Implement core backend services and API routes
   - [x] 4.1 Create Pydantic schemas in backend/src/schemas/dataset.py (DatasetResponse with orm_mode, DatasetDownloadRequest with validator for repo_id format, DatasetListResponse)
   - [x] 4.2 Implement DatasetService in backend/src/services/dataset_service.py with async methods (list_datasets with status/source filters, get_dataset by id, create_dataset_from_hf generating ds_{uuid} id, update_progress, delete_dataset with file cleanup, check_dependencies)
-  - [ ] 4.3 Implement file utilities in backend/src/utils/file_utils.py (ensure_dir, get_directory_size walking file tree, delete_directory with shutil.rmtree, format_size with unit conversion)
-  - [ ] 4.4 Implement HuggingFace utilities in backend/src/utils/hf_utils.py (validate_repo_id checking username/dataset format, check_repo_exists via HF API, get_repo_info with dataset card)
+  - [x] 4.3 Implement file utilities in backend/src/utils/file_utils.py (ensure_dir, get_directory_size walking file tree, delete_directory with shutil.rmtree, format_size with unit conversion)
+  - [x] 4.4 Implement HuggingFace utilities in backend/src/utils/hf_utils.py (validate_repo_id checking username/dataset format, check_repo_exists via HF API, get_repo_info with dataset card)
   - [x] 4.5 Create FastAPI router in backend/src/api/v1/endpoints/datasets.py (GET /api/datasets with query params, GET /api/datasets/:id, POST /api/datasets/download enqueuing Celery task, DELETE /api/datasets/:id with dependency check, GET /api/datasets/:id/samples with pagination)
   - [x] 4.6 Add error handling middleware to FastAPI router (HTTPException for 404/409/500, logging with structured logger)
   - [x] 4.7 Write unit tests for DatasetService (23/23 API tests passing including DatasetService operations)
@@ -239,16 +239,17 @@
 
 ### Phase 9: UI Components - DatasetDetailModal and Tabs
 
-- [ ] 9.0 Build DatasetDetailModal with tabbed interface
-  - [ ] 9.1 Create DatasetDetailModal.tsx in frontend/src/components/datasets (full-screen modal with tabs)
-  - [ ] 9.2 Implement modal state (activeTab: 'samples' | 'statistics' | 'tokenization' using useState)
-  - [ ] 9.3 Render modal backdrop (fixed inset-0 bg-black/50 z-50)
-  - [ ] 9.4 Render modal container (bg-slate-900 border border-slate-800 rounded-lg max-w-6xl max-h-[90vh])
-  - [ ] 9.5 Render header with dataset name, sample count, size, and close button (X icon from lucide-react)
-  - [ ] 9.6 Render tab buttons (Samples, Statistics, Tokenization) with FileText, BarChart, Settings icons
-  - [ ] 9.7 Implement tab active styling (border-emerald-500 text-emerald-400 for active, border-transparent text-slate-400 for inactive)
-  - [ ] 9.8 Render tab content area with overflow-y-auto
-  - [ ] 9.9 Create DatasetSamplesBrowser.tsx for samples tab (pagination, search input, sample list)
+- [x] 9.0 Build DatasetDetailModal with tabbed interface
+  - [x] 9.1 Create DatasetDetailModal.tsx in frontend/src/components/datasets (full-screen modal with tabs)
+  - [x] 9.2 Implement modal state (activeTab: 'overview' | 'samples' | 'statistics' | 'tokenization' using useState)
+  - [x] 9.3 Render modal backdrop (fixed inset-0 bg-black/50 z-50)
+  - [x] 9.4 Render modal container (bg-slate-900 border border-slate-800 rounded-lg max-w-6xl max-h-[90vh])
+  - [x] 9.5 Render header with dataset name, sample count, size, and close button (X icon from lucide-react)
+  - [x] 9.6 Render tab buttons (Overview, Samples, Statistics, Tokenization) with FileText, BarChart, Settings icons
+  - [x] 9.7 Implement tab active styling (border-emerald-500 text-emerald-400 for active, border-transparent text-slate-400 for inactive)
+  - [x] 9.8 Render tab content area with overflow-y-auto
+  - [x] 9.9 Implement OverviewTab with dataset metadata and statistics (complete)
+  - [ ] 9.9b Create DatasetSamplesBrowser.tsx for samples tab (pagination, search input, sample list)
   - [ ] 9.10 Implement pagination logic (page state, limit=50, fetch on page change)
   - [ ] 9.11 Implement search functionality (search input with debounce, full-text search via API)
   - [ ] 9.12 Render sample cards with text, token count, split badge

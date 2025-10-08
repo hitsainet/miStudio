@@ -298,15 +298,164 @@ function SamplesTab({ dataset }: { dataset: Dataset }) {
   );
 }
 
-// Statistics Tab Component (Placeholder)
+// Statistics Tab Component
 function StatisticsTab({ dataset }: { dataset: Dataset }) {
+  // Extract tokenization statistics from metadata
+  const tokenizationStats = dataset.metadata?.tokenization;
+
+  if (!tokenizationStats) {
+    return (
+      <div className="text-center py-12">
+        <BarChart className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+        <p className="text-slate-400 text-lg">No tokenization statistics available</p>
+        <p className="text-slate-500 mt-2">
+          Tokenize this dataset to view detailed statistics
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="text-center py-12">
-      <BarChart className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-      <p className="text-slate-400 text-lg">Statistics visualizations coming in next phase</p>
-      <p className="text-slate-500 mt-2">
-        Will display token distribution histograms and detailed analytics
-      </p>
+    <div className="space-y-6">
+      {/* Tokenization Info */}
+      <div className="bg-slate-800/50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4">Tokenization Configuration</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <InfoCard label="Tokenizer" value={tokenizationStats.tokenizer_name} />
+          <InfoCard label="Max Length" value={tokenizationStats.max_length} />
+          <InfoCard label="Stride" value={tokenizationStats.stride || 0} />
+        </div>
+      </div>
+
+      {/* Token Statistics */}
+      <div className="bg-slate-800/50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4">Token Statistics</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard
+            label="Total Tokens"
+            value={tokenizationStats.num_tokens.toLocaleString()}
+          />
+          <StatCard
+            label="Avg Length"
+            value={tokenizationStats.avg_seq_length.toFixed(1)}
+          />
+          <StatCard
+            label="Min Length"
+            value={tokenizationStats.min_seq_length.toString()}
+          />
+          <StatCard
+            label="Max Length"
+            value={tokenizationStats.max_seq_length.toString()}
+          />
+        </div>
+      </div>
+
+      {/* Sequence Length Distribution Visualization */}
+      <div className="bg-slate-800/50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4">Sequence Length Distribution</h3>
+        <div className="space-y-4">
+          {/* Simple bar chart representation */}
+          <div className="flex items-end justify-between h-48 gap-2">
+            {/* Min bar */}
+            <div className="flex-1 flex flex-col items-center">
+              <div
+                className="w-full bg-emerald-500/30 border-t-2 border-emerald-500"
+                style={{
+                  height: `${(tokenizationStats.min_seq_length / tokenizationStats.max_seq_length) * 100}%`,
+                  minHeight: '4px'
+                }}
+              ></div>
+              <span className="text-xs text-slate-400 mt-2">Min</span>
+              <span className="text-xs font-mono text-slate-500">{tokenizationStats.min_seq_length}</span>
+            </div>
+
+            {/* Avg bar */}
+            <div className="flex-1 flex flex-col items-center">
+              <div
+                className="w-full bg-emerald-500/50 border-t-2 border-emerald-400"
+                style={{
+                  height: `${(tokenizationStats.avg_seq_length / tokenizationStats.max_seq_length) * 100}%`,
+                  minHeight: '4px'
+                }}
+              ></div>
+              <span className="text-xs text-slate-400 mt-2">Avg</span>
+              <span className="text-xs font-mono text-slate-500">{tokenizationStats.avg_seq_length.toFixed(1)}</span>
+            </div>
+
+            {/* Max bar */}
+            <div className="flex-1 flex flex-col items-center">
+              <div
+                className="w-full bg-emerald-500/70 border-t-2 border-emerald-300"
+                style={{ height: '100%', minHeight: '4px' }}
+              ></div>
+              <span className="text-xs text-slate-400 mt-2">Max</span>
+              <span className="text-xs font-mono text-slate-500">{tokenizationStats.max_seq_length}</span>
+            </div>
+          </div>
+
+          {/* Distribution insights */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
+            <div>
+              <p className="text-sm text-slate-400">Length Range</p>
+              <p className="text-lg text-slate-200 font-mono">
+                {tokenizationStats.min_seq_length} - {tokenizationStats.max_seq_length} tokens
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-slate-400">Range Span</p>
+              <p className="text-lg text-slate-200 font-mono">
+                {tokenizationStats.max_seq_length - tokenizationStats.min_seq_length} tokens
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Efficiency Metrics */}
+      <div className="bg-slate-800/50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4">Efficiency Metrics</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm text-slate-400 mb-1">Average Utilization</p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500"
+                  style={{
+                    width: `${(tokenizationStats.avg_seq_length / tokenizationStats.max_length) * 100}%`
+                  }}
+                ></div>
+              </div>
+              <span className="text-sm font-mono text-slate-300">
+                {((tokenizationStats.avg_seq_length / tokenizationStats.max_length) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Average sequence length relative to max_length ({tokenizationStats.max_length})
+            </p>
+          </div>
+
+          <div>
+            <p className="text-sm text-slate-400 mb-1">Padding Overhead</p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-500"
+                  style={{
+                    width: `${((tokenizationStats.max_length - tokenizationStats.avg_seq_length) / tokenizationStats.max_length) * 100}%`
+                  }}
+                ></div>
+              </div>
+              <span className="text-sm font-mono text-slate-300">
+                {(((tokenizationStats.max_length - tokenizationStats.avg_seq_length) / tokenizationStats.max_length) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Wasted tokens due to padding (avg {(tokenizationStats.max_length - tokenizationStats.avg_seq_length).toFixed(1)} padding tokens/sample)
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

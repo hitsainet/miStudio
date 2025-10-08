@@ -185,18 +185,22 @@ class DatasetService:
     @staticmethod
     async def delete_dataset(
         db: AsyncSession,
-        dataset_id: UUID
+        dataset_id: UUID,
+        delete_files: bool = True
     ) -> bool:
         """
-        Delete a dataset.
+        Delete a dataset and optionally its files.
 
         Args:
             db: Database session
             dataset_id: Dataset UUID
+            delete_files: If True, delete associated files from disk
 
         Returns:
             True if deleted, False if not found
         """
+        from ..utils.file_utils import delete_directory
+
         result = await db.execute(
             select(Dataset).where(Dataset.id == dataset_id)
         )
@@ -205,6 +209,21 @@ class DatasetService:
         if not db_dataset:
             return False
 
+        # Delete files from disk if requested
+        if delete_files:
+            if db_dataset.raw_path:
+                try:
+                    delete_directory(db_dataset.raw_path, missing_ok=True)
+                except Exception as e:
+                    print(f"Warning: Failed to delete raw files at {db_dataset.raw_path}: {e}")
+
+            if db_dataset.tokenized_path:
+                try:
+                    delete_directory(db_dataset.tokenized_path, missing_ok=True)
+                except Exception as e:
+                    print(f"Warning: Failed to delete tokenized files at {db_dataset.tokenized_path}: {e}")
+
+        # Delete database record
         await db.delete(db_dataset)
         await db.commit()
 

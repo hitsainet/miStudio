@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Database, CheckCircle, Loader, Activity } from 'lucide-react';
+import { Database, CheckCircle, Loader, Activity, Trash2 } from 'lucide-react';
 import { Dataset, DatasetStatus } from '../../types/dataset';
 import { StatusBadge } from '../common/StatusBadge';
 import { ProgressBar } from '../common/ProgressBar';
@@ -14,9 +14,10 @@ import { formatFileSize } from '../../utils/formatters';
 interface DatasetCardProps {
   dataset: Dataset;
   onClick?: () => void;
+  onDelete?: (id: string) => void;
 }
 
-export function DatasetCard({ dataset, onClick }: DatasetCardProps) {
+export function DatasetCard({ dataset, onClick, onDelete }: DatasetCardProps) {
   const isClickable = dataset.status === DatasetStatus.READY;
   const showProgress =
     dataset.status === DatasetStatus.DOWNLOADING ||
@@ -43,6 +44,13 @@ export function DatasetCard({ dataset, onClick }: DatasetCardProps) {
     }
     return '';
   }, [dataset.status]);
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    if (window.confirm(`Are you sure you want to delete "${dataset.name}"? This will remove all downloaded files.`)) {
+      onDelete?.(dataset.id);
+    }
+  };
 
   return (
     <div
@@ -73,6 +81,15 @@ export function DatasetCard({ dataset, onClick }: DatasetCardProps) {
             <div className="flex items-center gap-2 flex-shrink-0">
               <StatusIcon className={`w-5 h-5 text-slate-400 ${iconClassName}`} />
               <StatusBadge status={dataset.status} />
+              {onDelete && (
+                <button
+                  onClick={handleDelete}
+                  className="ml-2 p-1.5 hover:bg-red-500/10 rounded transition-colors group"
+                  title="Delete dataset"
+                >
+                  <Trash2 className="w-4 h-4 text-slate-500 group-hover:text-red-400 transition-colors" />
+                </button>
+              )}
             </div>
           </div>
 

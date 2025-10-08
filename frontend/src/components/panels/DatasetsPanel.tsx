@@ -14,7 +14,7 @@ import { DatasetDetailModal } from '../datasets/DatasetDetailModal';
 import { Dataset } from '../../types/dataset';
 
 export function DatasetsPanel() {
-  const { datasets, loading, error, fetchDatasets, downloadDataset } = useDatasetsStore();
+  const { datasets, loading, error, fetchDatasets, downloadDataset, deleteDataset } = useDatasetsStore();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
 
   // Subscribe to WebSocket progress updates for active datasets
@@ -31,6 +31,14 @@ export function DatasetsPanel() {
 
   const handleDatasetClick = (dataset: Dataset) => {
     setSelectedDataset(dataset);
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDataset(id);
+    } catch (error) {
+      console.error('Failed to delete dataset:', error);
+    }
   };
 
   return (
@@ -84,6 +92,7 @@ export function DatasetsPanel() {
                   key={dataset.id}
                   dataset={dataset}
                   onClick={() => handleDatasetClick(dataset)}
+                  onDelete={handleDelete}
                 />
               ))}
             </div>

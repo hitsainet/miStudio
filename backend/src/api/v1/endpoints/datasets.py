@@ -230,6 +230,7 @@ async def download_dataset(
         hf_repo_id=request.repo_id,
         metadata={
             "split": request.split,
+            "config": request.config,
             "access_token_provided": bool(request.access_token)
         }
     )
@@ -242,7 +243,8 @@ async def download_dataset(
         dataset_id=str(dataset.id),
         repo_id=request.repo_id,
         access_token=request.access_token,
-        split=request.split
+        split=request.split,
+        config=request.config
     )
 
     return dataset

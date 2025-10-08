@@ -103,6 +103,7 @@ class DatasetDownloadRequest(BaseModel):
     repo_id: str = Field(..., min_length=1, description="HuggingFace repository ID (e.g., 'roneneldan/TinyStories')")
     access_token: Optional[str] = Field(None, description="HuggingFace access token for gated datasets")
     split: Optional[str] = Field(None, description="Dataset split to download (e.g., 'train', 'validation', 'test')")
+    config: Optional[str] = Field(None, description="Dataset configuration name (e.g., 'en', 'zh') for datasets with multiple configs")
 
     @field_validator("repo_id")
     @classmethod

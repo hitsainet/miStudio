@@ -102,6 +102,7 @@ def download_dataset_task(
     repo_id: str,
     access_token: Optional[str] = None,
     split: Optional[str] = None,
+    config: Optional[str] = None,
 ):
     """
     Download dataset from HuggingFace Hub.
@@ -111,6 +112,7 @@ def download_dataset_task(
         repo_id: HuggingFace repository ID (e.g., 'roneneldan/TinyStories')
         access_token: HuggingFace access token for gated datasets
         split: Dataset split to download (e.g., 'train', 'validation', 'test')
+        config: Dataset configuration name (e.g., 'en', 'zh') for datasets with multiple configs
 
     Returns:
         dict: Download result with dataset path and statistics
@@ -158,6 +160,7 @@ def download_dataset_task(
 
         dataset = load_dataset(
             repo_id,
+            name=config,
             split=split,
             cache_dir=str(data_dir),
             token=access_token,

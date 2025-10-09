@@ -85,3 +85,22 @@ async def root():
         "message": "MechInterp Studio API",
         "docs": "/api/docs"
     }
+
+
+@app.post("/api/internal/ws/emit")
+async def emit_websocket_event(request: dict):
+    """
+    Internal endpoint for Celery workers to emit WebSocket events.
+
+    This endpoint should only be called from within the backend system.
+    """
+    channel = request.get("channel")
+    event = request.get("event")
+    data = request.get("data")
+
+    if not all([channel, event, data]):
+        return {"error": "Missing required fields"}, 400
+
+    await ws_manager.emit_event(channel=channel, event=event, data=data)
+
+    return {"status": "ok"}

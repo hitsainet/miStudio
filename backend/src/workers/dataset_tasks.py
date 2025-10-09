@@ -6,6 +6,7 @@ and tokenizing datasets with real-time progress updates via WebSocket.
 """
 
 import asyncio
+import httpx
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
@@ -17,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.celery_app import celery_app
 from ..core.database import AsyncSessionLocal
-from ..core.websocket import ws_manager
 from ..models.dataset import DatasetStatus
 from ..schemas.dataset import DatasetUpdate
 from ..services.dataset_service import DatasetService
@@ -43,14 +43,14 @@ class DatasetTask(Task):
             await self._session.close()
             self._session = None
 
-    async def emit_progress(
+    def emit_progress(
         self,
         dataset_id: str,
         event: str,
         data: dict,
     ):
         """
-        Emit progress update via WebSocket.
+        Emit progress update via WebSocket through HTTP callback.
 
         Args:
             dataset_id: Dataset UUID
@@ -58,7 +58,21 @@ class DatasetTask(Task):
             data: Event data payload
         """
         channel = f"datasets/{dataset_id}/progress"
-        await ws_manager.emit_event(channel=channel, event=event, data=data)
+
+        try:
+            # Use httpx synchronous client to call the FastAPI internal endpoint
+            with httpx.Client() as client:
+                client.post(
+                    "http://localhost:8000/api/internal/ws/emit",
+                    json={
+                        "channel": channel,
+                        "event": event,
+                        "data": data,
+                    },
+                    timeout=1.0,
+                )
+        except Exception as e:
+            print(f"Failed to emit WebSocket event: {e}")
 
     async def update_dataset_status(
         self,
@@ -127,16 +141,14 @@ def download_dataset_task(
         loop.run_until_complete(
             self.update_dataset_status(dataset_uuid, DatasetStatus.DOWNLOADING, progress=0.0)
         )
-        loop.run_until_complete(
-            self.emit_progress(
-                dataset_id,
-                "progress",
-                {
-                    "progress": 0.0,
-                    "status": "downloading",
-                    "message": f"Starting download of {repo_id}...",
-                },
-            )
+        self.emit_progress(
+            dataset_id,
+            "progress",
+            {
+                "progress": 0.0,
+                "status": "downloading",
+                "message": f"Starting download of {repo_id}...",
+            },
         )
 
         # Prepare download directory (use relative path for development)
@@ -146,16 +158,14 @@ def download_dataset_task(
 
         # Download dataset from HuggingFace
         # Note: load_dataset is synchronous but has its own progress
-        loop.run_until_complete(
-            self.emit_progress(
-                dataset_id,
-                "progress",
-                {
-                    "progress": 10.0,
-                    "status": "downloading",
-                    "message": "Downloading from HuggingFace Hub...",
-                },
-            )
+        self.emit_progress(
+            dataset_id,
+            "progress",
+            {
+                "progress": 10.0,
+                "status": "downloading",
+                "message": "Downloading from HuggingFace Hub...",
+            },
         )
 
         dataset = load_dataset(
@@ -167,8 +177,7 @@ def download_dataset_task(
         )
 
         # Update progress: saving to disk
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -176,15 +185,13 @@ def download_dataset_task(
                     "status": "downloading",
                     "message": "Saving dataset to disk...",
                 },
-            )
         )
 
         # Save dataset to our organized location
         dataset.save_to_disk(str(raw_path))
 
         # Update progress
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -192,7 +199,6 @@ def download_dataset_task(
                     "status": "downloading",
                     "message": "Download complete, processing metadata...",
                 },
-            )
         )
 
         # Calculate dataset statistics
@@ -304,8 +310,7 @@ def tokenize_dataset_task(
         loop.run_until_complete(
             self.update_dataset_status(dataset_uuid, DatasetStatus.PROCESSING, progress=0.0)
         )
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -313,7 +318,6 @@ def tokenize_dataset_task(
                     "status": "processing",
                     "message": "Starting tokenization...",
                 },
-            )
         )
 
         # Get dataset from database to retrieve raw_path
@@ -329,8 +333,7 @@ def tokenize_dataset_task(
         raw_path = loop.run_until_complete(get_dataset_info())
 
         # Emit progress: 10%
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -338,15 +341,13 @@ def tokenize_dataset_task(
                     "status": "processing",
                     "message": "Loading tokenizer...",
                 },
-            )
         )
 
         # Load tokenizer
         tokenizer = TokenizationService.load_tokenizer(tokenizer_name)
 
         # Emit progress: 20%
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -354,15 +355,13 @@ def tokenize_dataset_task(
                     "status": "processing",
                     "message": "Loading dataset...",
                 },
-            )
         )
 
         # Load dataset from disk
         dataset = TokenizationService.load_dataset_from_disk(raw_path)
 
         # Emit progress: 40%
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -370,7 +369,6 @@ def tokenize_dataset_task(
                     "status": "processing",
                     "message": f"Tokenizing {len(dataset)} samples...",
                 },
-            )
         )
 
         # Tokenize dataset
@@ -385,8 +383,7 @@ def tokenize_dataset_task(
         )
 
         # Emit progress: 80%
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -394,7 +391,6 @@ def tokenize_dataset_task(
                     "status": "processing",
                     "message": "Calculating statistics...",
                 },
-            )
         )
 
         # Calculate statistics
@@ -408,8 +404,7 @@ def tokenize_dataset_task(
         )
 
         # Emit progress: 95%
-        loop.run_until_complete(
-            self.emit_progress(
+        self.emit_progress(
                 dataset_id,
                 "progress",
                 {
@@ -417,7 +412,6 @@ def tokenize_dataset_task(
                     "status": "processing",
                     "message": "Saving results...",
                 },
-            )
         )
 
         # Update dataset with tokenization results

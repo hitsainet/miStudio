@@ -21,7 +21,7 @@ interface DatasetsState {
 
   // Actions
   fetchDatasets: () => Promise<void>;
-  downloadDataset: (repoId: string, accessToken?: string) => Promise<void>;
+  downloadDataset: (repoId: string, accessToken?: string, split?: string, config?: string) => Promise<void>;
   deleteDataset: (id: string) => Promise<void>;
   updateDatasetProgress: (id: string, progress: number) => void;
   updateDatasetStatus: (id: string, status: DatasetStatus, errorMessage?: string) => void;
@@ -54,18 +54,23 @@ export const useDatasetsStore = create<DatasetsState>()(
       },
 
       // Download dataset from HuggingFace
-      downloadDataset: async (repoId: string, accessToken?: string) => {
+      downloadDataset: async (repoId: string, accessToken?: string, split?: string, config?: string) => {
         set({ loading: true, error: null });
         try {
+          const body: Record<string, string | undefined> = {
+            repo_id: repoId,
+            access_token: accessToken,
+          };
+
+          if (split) body.split = split;
+          if (config) body.config = config;
+
           const response = await fetch('http://localhost:8000/api/v1/datasets/download', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              repo_id: repoId,
-              access_token: accessToken,
-            }),
+            body: JSON.stringify(body),
           });
 
           if (!response.ok) {

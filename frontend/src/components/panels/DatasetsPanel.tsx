@@ -25,8 +25,8 @@ export function DatasetsPanel() {
     fetchDatasets();
   }, [fetchDatasets]);
 
-  const handleDownload = async (repoId: string, accessToken?: string) => {
-    await downloadDataset(repoId, accessToken);
+  const handleDownload = async (repoId: string, accessToken?: string, split?: string, config?: string) => {
+    await downloadDataset(repoId, accessToken, split, config);
   };
 
   const handleDatasetClick = (dataset: Dataset) => {

@@ -9,13 +9,15 @@ import { Download } from 'lucide-react';
 import { validateHfRepoId } from '../../utils/validators';
 
 interface DownloadFormProps {
-  onDownload: (repoId: string, accessToken?: string) => Promise<void>;
+  onDownload: (repoId: string, accessToken?: string, split?: string, config?: string) => Promise<void>;
   className?: string;
 }
 
 export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) {
   const [hfRepo, setHfRepo] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [split, setSplit] = useState('');
+  const [config, setConfig] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,10 +35,17 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
     setIsSubmitting(true);
 
     try {
-      await onDownload(hfRepo, accessToken || undefined);
+      await onDownload(
+        hfRepo,
+        accessToken || undefined,
+        split || undefined,
+        config || undefined
+      );
       // Reset form on success
       setHfRepo('');
       setAccessToken('');
+      setSplit('');
+      setConfig('');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to download dataset';
       setError(errorMessage);
@@ -93,6 +102,50 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
           <p className="text-xs text-slate-500 mt-1">
             Required for private or gated datasets
           </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label
+              htmlFor="split"
+              className="block text-sm font-medium text-slate-300 mb-2"
+            >
+              Split (optional)
+            </label>
+            <input
+              id="split"
+              type="text"
+              value={split}
+              onChange={(e) => setSplit(e.target.value)}
+              placeholder="train, validation, test"
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              disabled={isSubmitting}
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Dataset split to download
+            </p>
+          </div>
+
+          <div>
+            <label
+              htmlFor="config"
+              className="block text-sm font-medium text-slate-300 mb-2"
+            >
+              Config (optional)
+            </label>
+            <input
+              id="config"
+              type="text"
+              value={config}
+              onChange={(e) => setConfig(e.target.value)}
+              placeholder="en, zh, etc."
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              disabled={isSubmitting}
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Dataset configuration
+            </p>
+          </div>
         </div>
 
         {error && (

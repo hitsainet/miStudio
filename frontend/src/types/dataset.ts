@@ -33,6 +33,10 @@ export interface TokenizationMetadata {
   max_length: number;
   /** Sliding window stride (0 = no overlap) */
   stride: number;
+  /** Padding strategy used (e.g., 'max_length', 'longest', 'do_not_pad') */
+  padding?: string;
+  /** Truncation strategy used (e.g., 'longest_first', 'only_first', 'only_second', 'do_not_truncate') */
+  truncation?: string;
   /** Total number of tokens across all samples */
   num_tokens: number;
   /** Average sequence length in tokens */
@@ -41,6 +45,14 @@ export interface TokenizationMetadata {
   min_seq_length: number;
   /** Maximum sequence length in tokens */
   max_seq_length: number;
+  /** Median sequence length in tokens */
+  median_seq_length?: number;
+  /** Number of unique tokens in the tokenized dataset (vocabulary size) */
+  vocab_size?: number;
+  /** Distribution of sequence lengths bucketed by range (e.g., '0-100': 150) */
+  length_distribution?: Record<string, number>;
+  /** Distribution of samples across splits (e.g., {'train': 8000, 'validation': 1500, 'test': 500}) */
+  split_distribution?: Record<string, number>;
 }
 
 /**

@@ -95,6 +95,14 @@ class TokenizationMetadata(BaseModel):
         ge=0,
         description="Sliding window stride (0 = no overlap)"
     )
+    padding: Optional[str] = Field(
+        None,
+        description="Padding strategy used (e.g., 'max_length', 'longest', 'do_not_pad')"
+    )
+    truncation: Optional[str] = Field(
+        None,
+        description="Truncation strategy used (e.g., 'longest_first', 'only_first', 'only_second', 'do_not_truncate')"
+    )
     num_tokens: int = Field(
         ...,
         ge=0,
@@ -115,6 +123,24 @@ class TokenizationMetadata(BaseModel):
         ge=0,
         description="Maximum sequence length in tokens"
     )
+    median_seq_length: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Median sequence length in tokens"
+    )
+    vocab_size: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Number of unique tokens in the tokenized dataset (vocabulary size)"
+    )
+    length_distribution: Optional[Dict[str, int]] = Field(
+        None,
+        description="Distribution of sequence lengths bucketed by range (e.g., '0-100': 150)"
+    )
+    split_distribution: Optional[Dict[str, int]] = Field(
+        None,
+        description="Distribution of samples across splits (e.g., {'train': 8000, 'validation': 1500, 'test': 500})"
+    )
 
     @model_validator(mode='after')
     def validate_sequence_length_consistency(self) -> 'TokenizationMetadata':
@@ -123,6 +149,7 @@ class TokenizationMetadata(BaseModel):
 
         Ensures:
         - min_seq_length <= avg_seq_length <= max_seq_length
+        - median_seq_length (if present) is between min and max
         - max_seq_length <= max_length (can't exceed tokenizer limit)
         """
         if self.min_seq_length > self.max_seq_length:
@@ -142,6 +169,19 @@ class TokenizationMetadata(BaseModel):
                 f"avg_seq_length ({self.avg_seq_length:.2f}) cannot exceed "
                 f"max_seq_length ({self.max_seq_length})"
             )
+
+        # Validate median if present
+        if self.median_seq_length is not None:
+            if self.median_seq_length < self.min_seq_length:
+                raise ValueError(
+                    f"median_seq_length ({self.median_seq_length:.2f}) cannot be less than "
+                    f"min_seq_length ({self.min_seq_length})"
+                )
+            if self.median_seq_length > self.max_seq_length:
+                raise ValueError(
+                    f"median_seq_length ({self.median_seq_length:.2f}) cannot exceed "
+                    f"max_seq_length ({self.max_seq_length})"
+                )
 
         if self.max_seq_length > self.max_length:
             raise ValueError(
@@ -249,10 +289,23 @@ class DatasetMetadata(BaseModel):
                         "text_column_used": "text",
                         "max_length": 512,
                         "stride": 0,
+                        "padding": "max_length",
+                        "truncation": "longest_first",
                         "num_tokens": 1000000,
                         "avg_seq_length": 245.5,
                         "min_seq_length": 10,
-                        "max_seq_length": 512
+                        "max_seq_length": 512,
+                        "median_seq_length": 230.0,
+                        "vocab_size": 50257,
+                        "length_distribution": {
+                            "0-100": 150,
+                            "100-200": 450,
+                            "200-400": 2100,
+                            "400-600": 1800,
+                            "600-800": 300,
+                            "800-1000": 150,
+                            "1000+": 50
+                        }
                     },
                     "download": {
                         "split": "train",

@@ -1773,7 +1773,97 @@ export function formatDateTime(date: string | Date): string {
 
 ---
 
-## 12. Error Handling and Logging Strategy
+## 12. Implementation Patterns
+
+### Pattern: Deep Metadata Merge
+
+**Function:** `deep_merge_metadata()`
+**Location:** `backend/src/services/dataset_service.py:176-188`
+
+**Purpose:** Preserve existing metadata when adding new sections
+
+**Implementation:**
+```python
+def deep_merge_metadata(existing: Optional[dict], new: Optional[dict]) -> dict:
+    """
+    Deep merge two metadata dictionaries, preserving existing data.
+
+    Rules:
+    - None values in new dict are skipped (preserve existing)
+    - Nested dicts are merged recursively
+    - Non-dict values are overwritten
+    """
+    if not existing:
+        return new if new else {}
+    if not new:
+        return existing
+
+    merged = existing.copy()
+    for key, value in new.items():
+        if value is None:
+            continue
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = deep_merge_metadata(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+```
+
+**Usage:**
+```python
+# In DatasetService.update_dataset()
+if updates.metadata:
+    merged_metadata = deep_merge_metadata(
+        dataset.extra_metadata,
+        updates.metadata
+    )
+    dataset.extra_metadata = merged_metadata
+```
+
+---
+
+### Pattern: Pydantic Metadata Validation
+
+**Schema:** `TokenizationMetadata`
+**Location:** `backend/src/schemas/metadata.py:15-50`
+
+**Purpose:** Validate tokenization statistics structure and constraints
+
+**Key Features:**
+```python
+class TokenizationMetadata(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tokenizer_name: str
+    max_length: int = Field(ge=1, le=8192)  # Bounds checking
+    num_tokens: int = Field(ge=0)  # Non-negative
+
+    @field_validator('avg_seq_length')
+    @classmethod
+    def validate_avg_seq_length(cls, v, info):
+        # Cross-field validation
+        if v > info.data['max_length']:
+            raise ValueError('avg cannot exceed max_length')
+        return v
+```
+
+**Integration:**
+```python
+# In DatasetUpdate schema
+class DatasetUpdate(BaseModel):
+    metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator('metadata')
+    @classmethod
+    def validate_metadata_structure(cls, v):
+        if v and 'tokenization' in v:
+            TokenizationMetadata(**v['tokenization'])
+        return v
+```
+
+---
+
+## 13. Error Handling and Logging Strategy
 
 ### Error Handling Pattern
 

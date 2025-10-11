@@ -3,9 +3,9 @@
 **Feature ID:** 001_FPRD|Dataset_Management
 **Feature Name:** Dataset Management Panel
 **Priority:** P0 (Blocker for MVP)
-**Status:** Draft
+**Status:** ✅ Complete (MVP Implementation)
 **Created:** 2025-10-05
-**Last Updated:** 2025-10-05
+**Last Updated:** 2025-10-11 (Post-implementation review)
 
 ---
 
@@ -272,6 +272,14 @@ This feature directly supports the project's core objective of democratizing mec
 10. **FR-1.10**: System shall update database record to "ingesting" upon download completion
 11. **FR-1.11**: System shall handle gated datasets requiring explicit access permissions
 12. **FR-1.12**: System shall implement automatic retry (3 attempts) with exponential backoff on transient failures
+13. **FR-1.13**: Split Selection - System shall allow users to specify dataset split (train, validation, test) via download form
+   - **Implementation**: `DownloadForm.tsx` lines 70-82 with split dropdown
+   - **Backend**: `datasets.py:download_dataset()` lines 242-247 passes split to Celery task
+   - **Status**: ✅ COMPLETE
+14. **FR-1.14**: Configuration Selection - System shall support multi-configuration datasets (e.g., language variants)
+   - **Implementation**: `DownloadForm.tsx` lines 84-96 with config dropdown
+   - **Backend**: `datasets.py:download_dataset()` lines 242-247 passes config to Celery task
+   - **Status**: ✅ COMPLETE
 
 ### FR-2: Dataset Ingestion and Validation
 1. **FR-2.1**: System shall support HuggingFace datasets in Parquet and Arrow formats
@@ -329,13 +337,14 @@ This feature directly supports the project's core objective of democratizing mec
    - Split (train/validation/test)
    - Expand button to view full text
 5. **FR-4.5**: System shall implement pagination (50 samples per page)
-6. **FR-4.6**: System shall provide search box with full-text search across sample text
-7. **FR-4.7**: System shall implement filters:
-   - Split selector (train/validation/test/all)
-   - Token count range slider (min-max)
-8. **FR-4.8**: Search and filtering shall update results within 500ms
-9. **FR-4.9**: System shall highlight search terms in sample text
-10. **FR-4.10**: System shall use PostgreSQL full-text search (GIN indexes) for performance
+6. **FR-4.6**: Full-text search → ⏸️ **DEFERRED TO PHASE 12**
+   - **Reason**: Basic pagination sufficient for MVP; search adds complexity without blocking core workflows
+7. **FR-4.7**: Advanced filtering (by split, token length) → ⏸️ **DEFERRED TO PHASE 12**
+   - **Reason**: Users can browse all samples; filtering is optimization, not requirement
+8. **FR-4.8**: Search and filtering shall update results within 500ms → ⏸️ **DEFERRED TO PHASE 12**
+9. **FR-4.9**: System shall highlight search terms in sample text → ⏸️ **DEFERRED TO PHASE 12**
+10. **FR-4.10**: PostgreSQL GIN indexes for metadata search → ⏸️ **DEFERRED TO PHASE 12**
+    - **Reason**: Depends on FR-4.6/4.7 implementation; not needed for pagination
 
 ### FR-5: Dataset Statistics Visualization
 1. **FR-5.1**: Statistics tab shall display metrics grid:
@@ -375,13 +384,14 @@ This feature directly supports the project's core objective of democratizing mec
    - Update UI immediately (remove card with fade-out animation)
 5. **FR-6.5**: System shall log deletion events for audit trail
 6. **FR-6.6**: System shall handle partial deletion failures gracefully (orphaned files, missing files)
-7. **FR-6.7**: System shall provide "Delete All Unused Datasets" bulk action:
-   - Identify datasets not referenced by any trainings
-   - Display list of candidates with total storage savings
-   - Allow user to select which datasets to delete
-   - Perform batch deletion
+7. **FR-6.7**: Bulk deletion (select multiple datasets) → ⏸️ **DEFERRED (Future Enhancement)**
+   - **Reason**: Single-dataset deletion sufficient for MVP; bulk operations are optimization
 
-### FR-7: Local Dataset Upload (Secondary)
+### FR-7: Local Dataset Upload → ⏸️ **DEFERRED (Not in MVP)**
+
+**Deferral Reason:** HuggingFace integration covers 95% of use cases for MVP. Local upload adds significant complexity (file validation, format detection, schema inference) without blocking core research workflows. Planned for Phase 2.
+
+**Original Requirements** (for future reference):
 1. **FR-7.1**: System shall provide "Upload Local Dataset" button
 2. **FR-7.2**: System shall open file picker accepting: .csv, .json, .jsonl, .txt
 3. **FR-7.3**: System shall validate file size (<10GB limit) before upload

@@ -721,6 +721,47 @@ This phase focuses on improvements appropriate for an internal research tool. Co
 
 ---
 
+## MVP Scope Decisions & Feature Deferrals
+
+### Intentionally Deferred Features
+
+The following features were **intentionally deferred** to maintain focus on core functionality and meet MVP timeline:
+
+**Phase 12 Deferrals (Non-Blocking Optimizations):**
+- **FR-4.6**: Full-text search in sample browser
+  - **Reason**: Pagination provides adequate browsing capability for MVP
+  - **Impact**: Users can browse all samples, just not search specific text
+  - **Complexity**: Requires Elasticsearch or PostgreSQL full-text search setup
+  - **Timeline**: Phase 12 (after core features 2-5 complete)
+
+- **FR-4.7**: Advanced filtering (split, token length ranges)
+  - **Reason**: Users can manually browse; filtering is optimization, not requirement
+  - **Impact**: Slightly slower manual browsing vs. filtered results
+  - **Complexity**: UI components + backend query logic
+  - **Timeline**: Phase 12 (after core features 2-5 complete)
+
+- **FR-4.10**: PostgreSQL GIN indexes for metadata search
+  - **Reason**: Depends on FR-4.6/FR-4.7 being implemented first
+  - **Impact**: No current impact (no search to optimize)
+  - **Timeline**: Phase 12 (with FR-4.6/FR-4.7)
+
+**Future Enhancements (Post-MVP):**
+- **FR-6.7**: Bulk deletion (select multiple datasets for deletion)
+  - **Reason**: Single-dataset deletion sufficient for MVP use cases
+  - **Impact**: Users delete one at a time (minor inconvenience)
+  - **Complexity**: Multi-select UI + confirmation dialog
+  - **Timeline**: Feature enhancement based on user feedback
+
+- **FR-7**: Local dataset upload (JSONL, CSV, Parquet)
+  - **Reason**: HuggingFace integration covers 95% of research use cases
+  - **Impact**: Users must upload datasets to HuggingFace first
+  - **Complexity**: File validation, format detection, schema inference, data quality checks
+  - **Timeline**: Phase 2 feature (significant scope)
+
+**Rationale:** These deferrals allow focused MVP delivery while preserving a clear roadmap for enhancements. All core workflows (download, tokenize, browse, visualize, delete) are fully functional.
+
+---
+
 ## Session Progress Summary
 
 ### Session 2025-10-11: Code Review & Critical Bug Fixes

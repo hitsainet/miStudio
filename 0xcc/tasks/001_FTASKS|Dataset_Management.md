@@ -190,7 +190,7 @@
   - [x] 7.8 Render DownloadForm component with onDownload callback
   - [x] 7.9 Render datasets grid with map over datasets array (grid gap-4, matching line 1165)
   - [x] 7.10 Render DatasetDetailModal conditionally when selectedDataset is not null (placeholder modal implemented)
-  - [ ] 7.11 Write unit tests for DatasetsPanel (test renders title, test fetches datasets on mount, test opens modal on card click)
+  - [x] 7.11 Write unit tests for DatasetsPanel (28 tests created in frontend/src/components/panels/DatasetsPanel.test.tsx, all passing: renders title/description/download form, fetches on mount, loading states, empty states, error states, datasets display, download interaction, dataset card interaction with modal open/close/delete, store integration, props passing, edge cases)
 
 ### Phase 8: UI Components - DownloadForm and DatasetCard
 

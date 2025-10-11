@@ -3,6 +3,21 @@ Celery application configuration for background task processing.
 
 This module initializes Celery with Redis broker for distributed task queue
 processing, including dataset downloads, tokenization, and training jobs.
+
+⚠️ IMPORTANT: Worker Startup Configuration
+===========================================
+Workers MUST be started with explicit queue configuration using the -Q flag!
+
+❌ WRONG (will only listen to default "celery" queue):
+    celery -A src.core.celery_app worker --loglevel=info
+
+✅ CORRECT (listens to all required queues):
+    celery -A src.core.celery_app worker -Q high_priority,datasets,processing,training,extraction,low_priority -c 8 --loglevel=info
+
+OR use the startup script:
+    ./backend/start-celery-worker.sh
+
+See backend/CELERY_WORKERS.md for full documentation.
 """
 
 from celery import Celery
@@ -40,7 +55,7 @@ celery_app.conf.update(
             "priority": 7,
         },
         "src.workers.dataset_tasks.tokenize_dataset_task": {
-            "queue": "processing",
+            "queue": "datasets",  # Changed from "processing" to "datasets" for consistency
             "priority": 7,
         },
 

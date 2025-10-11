@@ -120,6 +120,7 @@ export interface DatasetDownloadRequest {
   repo_id: string;
   access_token?: string;
   split?: string;
+  config?: string;
 }
 
 export interface DatasetListResponse {

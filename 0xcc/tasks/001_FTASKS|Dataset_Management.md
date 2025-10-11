@@ -208,7 +208,7 @@
   - [x] 8.11 Render Database icon, dataset name, source, size, status icon, and status badge with exact styling
   - [x] 8.12 Add ProgressBar component for downloading/processing states with progress percentage
   - [x] 8.13 Add delete button to DatasetCard with Trash2 icon, confirmation dialog, and proper styling (hover:bg-red-500/10, group-hover:text-red-400)
-  - [ ] 8.14 Write unit tests for DownloadForm (test validation, test submission, test error handling)
+  - [x] 8.14 Write unit tests for DownloadForm (37 tests created in frontend/src/components/datasets/DownloadForm.test.tsx, all passing: renders form elements, form state updates, validation for invalid formats, form submission with all parameter combinations, loading states, input disabling, form reset on success, error handling with generic and specific messages, error persistence, styling/accessibility, edge cases for rapid submissions and special characters)
   - [ ] 8.15 Write unit tests for DatasetCard (test renders dataset info, test status icons, test click handler, test delete confirmation)
 
 ### Phase 10: UI Components - Common Components

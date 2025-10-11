@@ -161,7 +161,7 @@
   - [x] 5.6 Implement TokenizationService in backend/src/services/tokenization_service.py (load_tokenizer, tokenize_dataset with max_length/truncation/padding, calculate_statistics, save_tokenized_dataset, load_dataset_from_disk)
   - [x] 5.7 Implement StatisticsService (integrated into TokenizationService.calculate_statistics - returns num_tokens, avg_seq_length, min_seq_length, max_seq_length)
   - [x] 5.8 Add tokenization progress tracking (emit WebSocket events in tokenize_dataset_task with 0%, 10%, 20%, 40%, 80%, 95%, 100% milestones)
-  - [ ] 5.9 Write unit tests for Celery tasks (test_download_dataset_task with mocked load_dataset, test_tokenize_dataset_task with mocked tokenizer)
+  - [x] 5.9 Write unit tests for Celery tasks (14 tests created in backend/tests/unit/test_dataset_tasks.py, all passing: DatasetTask base class, download_dataset_task, tokenize_dataset_task)
   - [x] 5.10 Test Celery worker execution (celery worker verified operational, downloads working, database updates confirmed)
 
 ### Phase 6: Frontend State Management
@@ -174,7 +174,7 @@
   - [x] 6.5 Implement useWebSocket hook in frontend/src/hooks/useWebSocket.ts (connect to Socket.IO server, subscribe function, unsubscribe function, keep connection alive)
   - [x] 6.6 Create useDatasetProgress hook in frontend/src/hooks/useDatasetProgress.ts (subscribe to datasets/{id}/progress channel, update Zustand store on progress/completed/error events)
   - [x] 6.7 Add input validators in frontend/src/utils/validators.ts (validateHfRepoId checking username/dataset format, validateTokenizationSettings checking max_length > 0)
-  - [ ] 6.8 Write unit tests for Zustand store in frontend/src/stores/datasetsStore.test.ts (test fetchDatasets action, test downloadDataset action, test progress updates)
+  - [x] 6.8 Write unit tests for Zustand store in frontend/src/stores/datasetsStore.test.ts (31 tests created, all passing: initial state, fetchDatasets, downloadDataset with params, deleteDataset, progress/status updates, error handling, subscription callbacks)
   - [ ] 6.9 Write unit tests for API client (test getDatasets with mock fetch, test error handling)
 
 ### Phase 7: UI Components - DatasetsPanel and Core

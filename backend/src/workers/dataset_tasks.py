@@ -326,6 +326,10 @@ def tokenize_dataset_task(
     tokenizer_name: str,
     max_length: int = 512,
     stride: int = 0,
+    padding: str = "max_length",
+    truncation: str = "longest_first",
+    add_special_tokens: bool = True,
+    return_attention_mask: bool = True,
 ):
     """
     Tokenize dataset using specified tokenizer.
@@ -335,6 +339,10 @@ def tokenize_dataset_task(
         tokenizer_name: HuggingFace tokenizer name (e.g., 'gpt2')
         max_length: Maximum sequence length
         stride: Sliding window stride for long sequences
+        padding: Padding strategy ('max_length', 'longest', or 'do_not_pad')
+        truncation: Truncation strategy ('longest_first', 'only_first', 'only_second', or 'do_not_truncate')
+        add_special_tokens: Add special tokens (BOS, EOS, PAD, etc.)
+        return_attention_mask: Return attention mask
 
     Returns:
         dict: Tokenization result with statistics
@@ -471,6 +479,15 @@ def tokenize_dataset_task(
                 },
             )
 
+        # Map truncation strategy to tokenizer parameter
+        truncation_config = {
+            "longest_first": True,  # Default HuggingFace behavior
+            "only_first": "only_first",
+            "only_second": "only_second",
+            "do_not_truncate": False,
+        }
+        truncation_param = truncation_config.get(truncation, True)
+
         # Tokenize dataset with progress tracking
         tokenized_dataset = TokenizationService.tokenize_dataset(
             dataset=dataset,
@@ -478,8 +495,10 @@ def tokenize_dataset_task(
             text_column=text_column,
             max_length=max_length,
             stride=stride,
-            truncation=True,
-            padding="max_length",
+            truncation=truncation_param,  # Use dynamic truncation strategy from request
+            padding=padding,  # Use dynamic padding strategy from request
+            add_special_tokens=add_special_tokens,
+            return_attention_mask=return_attention_mask,
             batch_size=1000,
             progress_callback=tokenization_progress,
         )
@@ -540,10 +559,18 @@ def tokenize_dataset_task(
                             "text_column_used": text_column,
                             "max_length": max_length,
                             "stride": stride,
+                            "padding": padding,
+                            "truncation": truncation,
+                            "add_special_tokens": add_special_tokens,
+                            "return_attention_mask": return_attention_mask,
                             "num_tokens": stats["num_tokens"],
                             "avg_seq_length": stats["avg_seq_length"],
                             "min_seq_length": stats["min_seq_length"],
                             "max_seq_length": stats["max_seq_length"],
+                            "median_seq_length": stats["median_seq_length"],
+                            "vocab_size": stats["vocab_size"],
+                            "length_distribution": stats["length_distribution"],
+                            "split_distribution": stats.get("split_distribution"),
                         }
                     },
                 )

@@ -6,7 +6,7 @@ and serialization for all dataset-related API operations.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, field_serializer, ValidationError
@@ -159,3 +159,59 @@ class DatasetTokenizeRequest(BaseModel):
     tokenizer_name: str = Field(..., min_length=1, description="HuggingFace tokenizer name (e.g., 'gpt2', 'bert-base-uncased')")
     max_length: int = Field(512, ge=1, le=8192, description="Maximum sequence length in tokens")
     stride: int = Field(0, ge=0, description="Sliding window stride for long sequences (0 = no overlap)")
+    padding: Literal["max_length", "longest", "do_not_pad"] = Field(
+        "max_length",
+        description="Padding strategy: 'max_length' pads to max_length, 'longest' pads to longest in batch, 'do_not_pad' disables padding"
+    )
+    truncation: Literal["longest_first", "only_first", "only_second", "do_not_truncate"] = Field(
+        "longest_first",
+        description="Truncation strategy: 'longest_first' truncates longest sequence first, 'only_first' truncates only first sequence, 'only_second' truncates only second sequence, 'do_not_truncate' disables truncation"
+    )
+    add_special_tokens: bool = Field(
+        True,
+        description="Add special tokens (BOS, EOS, PAD, etc.) - Recommended for most models"
+    )
+    return_attention_mask: bool = Field(
+        True,
+        description="Return attention mask - Set to False to save memory if model doesn't use attention masks"
+    )
+
+    @field_validator("stride")
+    @classmethod
+    def validate_stride(cls, v: int, info) -> int:
+        """Validate that stride is less than or equal to max_length."""
+        max_length = info.data.get("max_length", 512)
+        if v > max_length:
+            raise ValueError(f"stride ({v}) must be less than or equal to max_length ({max_length})")
+        return v
+
+
+class TokenizePreviewRequest(BaseModel):
+    """Schema for tokenization preview request."""
+
+    tokenizer_name: str = Field(..., min_length=1, description="HuggingFace tokenizer name")
+    text: str = Field(..., min_length=1, max_length=1000, description="Text to tokenize (max 1000 chars)")
+    max_length: int = Field(512, ge=1, le=8192, description="Maximum sequence length")
+    padding: Literal["max_length", "longest", "do_not_pad"] = Field("max_length", description="Padding strategy")
+    truncation: Literal["longest_first", "only_first", "only_second", "do_not_truncate"] = Field("longest_first", description="Truncation strategy")
+    add_special_tokens: bool = Field(True, description="Add special tokens (BOS, EOS, etc.)")
+    return_attention_mask: bool = Field(True, description="Return attention mask")
+
+
+class TokenInfo(BaseModel):
+    """Information about a single token."""
+
+    id: int = Field(..., description="Token ID")
+    text: str = Field(..., description="Token text")
+    type: Literal["special", "regular"] = Field(..., description="Token type")
+    position: int = Field(..., ge=0, description="Position in sequence")
+
+
+class TokenizePreviewResponse(BaseModel):
+    """Schema for tokenization preview response."""
+
+    tokens: list[TokenInfo] = Field(..., description="List of tokens with metadata")
+    attention_mask: Optional[list[int]] = Field(None, description="Attention mask (if requested)")
+    token_count: int = Field(..., ge=0, description="Total number of tokens")
+    sequence_length: int = Field(..., ge=0, description="Length of tokenized sequence")
+    special_token_count: int = Field(..., ge=0, description="Number of special tokens")

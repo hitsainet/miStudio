@@ -6,13 +6,14 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, FileText, BarChart, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, FileText, BarChart, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dataset } from '../../types/dataset';
 import { formatFileSize, formatDateTime } from '../../utils/formatters';
 import { StatusBadge } from '../common/StatusBadge';
 import { ProgressBar } from '../common/ProgressBar';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { API_BASE_URL } from '../../config/api';
+import { TokenizationPreview } from './TokenizationPreview';
 
 interface DatasetDetailModalProps {
   dataset: Dataset;
@@ -28,7 +29,7 @@ export function DatasetDetailModal({ dataset, onClose, onDatasetUpdate }: Datase
   const tabs = [
     { id: 'overview' as TabType, label: 'Overview', icon: FileText },
     { id: 'samples' as TabType, label: 'Samples', icon: FileText },
-    { id: 'tokenization' as TabType, label: 'Tokenization', icon: Settings },
+    { id: 'tokenization' as TabType, label: 'Tokenization', icon: Zap },
     { id: 'statistics' as TabType, label: 'Statistics', icon: BarChart },
   ];
 
@@ -340,36 +341,32 @@ function StatisticsTab({ dataset }: { dataset: Dataset }) {
 
   return (
     <div className="space-y-6">
-      {/* Tokenization Info */}
-      <div className="bg-slate-800/50 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-slate-100 mb-4">Tokenization Configuration</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <InfoCard label="Tokenizer" value={tokenizationStats.tokenizer_name ?? 'N/A'} />
-          <InfoCard label="Max Length" value={tokenizationStats.max_length ?? 'N/A'} />
-          <InfoCard label="Stride" value={tokenizationStats.stride ?? 0} />
-        </div>
-      </div>
-
       {/* Token Statistics */}
       <div className="bg-slate-800/50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-slate-100 mb-4">Token Statistics</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard
+          <ColoredStatCard
+            label="Total Samples"
+            value={dataset.num_samples?.toLocaleString() ?? 'N/A'}
+            color="emerald"
+          />
+          <ColoredStatCard
             label="Total Tokens"
             value={tokenizationStats.num_tokens!.toLocaleString()}
+            color="blue"
           />
-          <StatCard
-            label="Avg Length"
+          <ColoredStatCard
+            label="Avg Tokens/Sample"
             value={tokenizationStats.avg_seq_length!.toFixed(1)}
+            color="purple"
           />
-          <StatCard
-            label="Min Length"
-            value={tokenizationStats.min_seq_length!.toString()}
-          />
-          <StatCard
-            label="Max Length"
-            value={tokenizationStats.max_seq_length!.toString()}
-          />
+          {tokenizationStats.vocab_size !== undefined && (
+            <ColoredStatCard
+              label="Unique Tokens"
+              value={tokenizationStats.vocab_size.toLocaleString()}
+              color="yellow"
+            />
+          )}
         </div>
       </div>
 
@@ -377,108 +374,104 @@ function StatisticsTab({ dataset }: { dataset: Dataset }) {
       <div className="bg-slate-800/50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-slate-100 mb-4">Sequence Length Distribution</h3>
         <div className="space-y-4">
-          {/* Simple bar chart representation */}
-          <div className="flex items-end justify-between h-48 gap-2">
-            {/* Min bar */}
-            <div className="flex-1 flex flex-col items-center">
-              <div
-                className="w-full bg-emerald-500/30 border-t-2 border-emerald-500"
-                style={{
-                  height: `${(tokenizationStats.min_seq_length / tokenizationStats.max_seq_length) * 100}%`,
-                  minHeight: '4px'
-                }}
-              ></div>
-              <span className="text-xs text-slate-400 mt-2">Min</span>
-              <span className="text-xs font-mono text-slate-500">{tokenizationStats.min_seq_length}</span>
-            </div>
+          {/* Bucketed histogram - Horizontal bars */}
+          {tokenizationStats.length_distribution ? (
+            <div className="space-y-3">
+              {Object.entries(tokenizationStats.length_distribution).map(([range, count]) => {
+                const maxCount = Math.max(...Object.values(tokenizationStats.length_distribution!));
+                const widthPercent = maxCount > 0 ? (count / maxCount) * 100 : 0;
 
-            {/* Avg bar */}
-            <div className="flex-1 flex flex-col items-center">
-              <div
-                className="w-full bg-emerald-500/50 border-t-2 border-emerald-400"
-                style={{
-                  height: `${(tokenizationStats.avg_seq_length / tokenizationStats.max_seq_length) * 100}%`,
-                  minHeight: '4px'
-                }}
-              ></div>
-              <span className="text-xs text-slate-400 mt-2">Avg</span>
-              <span className="text-xs font-mono text-slate-500">{tokenizationStats.avg_seq_length.toFixed(1)}</span>
+                return (
+                  <div key={range} className="flex items-center gap-3">
+                    <div className="w-20 text-xs text-slate-400 text-right">{range}</div>
+                    <div className="flex-1 h-8 bg-slate-700 rounded overflow-hidden relative">
+                      <div
+                        className="h-full bg-emerald-500/60 flex items-center justify-end pr-2 transition-all"
+                        style={{
+                          width: `${widthPercent}%`,
+                          minWidth: count > 0 ? '24px' : '0px'
+                        }}
+                      >
+                        {count > 0 && (
+                          <span className="text-xs font-mono text-white">{count.toLocaleString()}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+          ) : (
+            // Fallback to simple Min/Avg/Max bars if length_distribution not available
+            <div className="flex items-end justify-between h-48 gap-2">
+              <div className="flex-1 flex flex-col items-center">
+                <div
+                  className="w-full bg-emerald-500/30 border-t-2 border-emerald-500"
+                  style={{
+                    height: `${(tokenizationStats.min_seq_length / tokenizationStats.max_seq_length) * 100}%`,
+                    minHeight: '4px'
+                  }}
+                ></div>
+                <span className="text-xs text-slate-400 mt-2">Min</span>
+                <span className="text-xs font-mono text-slate-500">{tokenizationStats.min_seq_length}</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center">
+                <div
+                  className="w-full bg-emerald-500/50 border-t-2 border-emerald-400"
+                  style={{
+                    height: `${(tokenizationStats.avg_seq_length / tokenizationStats.max_seq_length) * 100}%`,
+                    minHeight: '4px'
+                  }}
+                ></div>
+                <span className="text-xs text-slate-400 mt-2">Avg</span>
+                <span className="text-xs font-mono text-slate-500">{tokenizationStats.avg_seq_length.toFixed(1)}</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center">
+                <div
+                  className="w-full bg-emerald-500/70 border-t-2 border-emerald-300"
+                  style={{ height: '100%', minHeight: '4px' }}
+                ></div>
+                <span className="text-xs text-slate-400 mt-2">Max</span>
+                <span className="text-xs font-mono text-slate-500">{tokenizationStats.max_seq_length}</span>
+              </div>
+            </div>
+          )}
 
-            {/* Max bar */}
-            <div className="flex-1 flex flex-col items-center">
-              <div
-                className="w-full bg-emerald-500/70 border-t-2 border-emerald-300"
-                style={{ height: '100%', minHeight: '4px' }}
-              ></div>
-              <span className="text-xs text-slate-400 mt-2">Max</span>
-              <span className="text-xs font-mono text-slate-500">{tokenizationStats.max_seq_length}</span>
-            </div>
-          </div>
-
-          {/* Distribution insights */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
-            <div>
-              <p className="text-sm text-slate-400">Length Range</p>
-              <p className="text-lg text-slate-200 font-mono">
-                {tokenizationStats.min_seq_length} - {tokenizationStats.max_seq_length} tokens
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-slate-400">Range Span</p>
-              <p className="text-lg text-slate-200 font-mono">
-                {tokenizationStats.max_seq_length - tokenizationStats.min_seq_length} tokens
-              </p>
+          {/* Distribution summary with median */}
+          <div className="mt-4 pt-4 border-t border-slate-700">
+            <p className="text-sm text-slate-400 mb-2">Sequence Length Summary:</p>
+            <div className="flex items-center gap-2 text-sm text-slate-200 font-mono">
+              <span>Min: {tokenizationStats.min_seq_length}</span>
+              <span className="text-slate-600">•</span>
+              {tokenizationStats.median_seq_length !== undefined ? (
+                <>
+                  <span>Median: {tokenizationStats.median_seq_length.toFixed(1)}</span>
+                  <span className="text-slate-600">•</span>
+                </>
+              ) : null}
+              <span>Max: {tokenizationStats.max_seq_length}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Efficiency Metrics */}
-      <div className="bg-slate-800/50 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-slate-100 mb-4">Efficiency Metrics</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm text-slate-400 mb-1">Average Utilization</p>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500"
-                  style={{
-                    width: `${(tokenizationStats.avg_seq_length / tokenizationStats.max_length) * 100}%`
-                  }}
-                ></div>
+      {/* Split Distribution */}
+      {tokenizationStats.split_distribution && (
+        <div className="bg-slate-800/50 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-slate-100 mb-4">Split Distribution</h3>
+          <div className="grid grid-cols-3 gap-4">
+            {Object.entries(tokenizationStats.split_distribution).map(([splitName, count]) => (
+              <div key={splitName} className="text-center">
+                <div className="text-sm text-slate-400 mb-1 capitalize">{splitName}</div>
+                <div className="text-2xl font-bold text-emerald-400">{count.toLocaleString()}</div>
+                <div className="text-xs text-slate-500 mt-1">
+                  {((count / dataset.num_samples!) * 100).toFixed(1)}% of total
+                </div>
               </div>
-              <span className="text-sm font-mono text-slate-300">
-                {((tokenizationStats.avg_seq_length / tokenizationStats.max_length) * 100).toFixed(1)}%
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Average sequence length relative to max_length ({tokenizationStats.max_length})
-            </p>
-          </div>
-
-          <div>
-            <p className="text-sm text-slate-400 mb-1">Padding Overhead</p>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-500"
-                  style={{
-                    width: `${((tokenizationStats.max_length - tokenizationStats.avg_seq_length) / tokenizationStats.max_length) * 100}%`
-                  }}
-                ></div>
-              </div>
-              <span className="text-sm font-mono text-slate-300">
-                {(((tokenizationStats.max_length - tokenizationStats.avg_seq_length) / tokenizationStats.max_length) * 100).toFixed(1)}%
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Wasted tokens due to padding (avg {(tokenizationStats.max_length - tokenizationStats.avg_seq_length).toFixed(1)} padding tokens/sample)
-            </p>
+            ))}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -488,6 +481,10 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
   const [tokenizerName, setTokenizerName] = useState('gpt2');
   const [maxLength, setMaxLength] = useState(512);
   const [stride, setStride] = useState(0);
+  const [paddingStrategy, setPaddingStrategy] = useState<'max_length' | 'longest' | 'do_not_pad'>('max_length');
+  const [truncationStrategy, setTruncationStrategy] = useState<'longest_first' | 'only_first' | 'only_second' | 'do_not_truncate'>('longest_first');
+  const [addSpecialTokens, setAddSpecialTokens] = useState(true);
+  const [returnAttentionMask, setReturnAttentionMask] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -618,6 +615,10 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
             tokenizer_name: tokenizerName,
             max_length: maxLength,
             stride: stride,
+            padding: paddingStrategy,
+            truncation: truncationStrategy,
+            add_special_tokens: addSpecialTokens,
+            return_attention_mask: returnAttentionMask,
           }),
         }
       );
@@ -675,7 +676,7 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-6">
           <div className="flex items-start gap-3">
             <div className="p-2 bg-emerald-500/20 rounded">
-              <Settings className="w-5 h-5 text-emerald-400" />
+              <Zap className="w-5 h-5 text-emerald-400" />
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-emerald-400 mb-2">
@@ -800,6 +801,49 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
             </p>
           </div>
 
+          {/* Padding Strategy */}
+          <div>
+            <label htmlFor="padding-strategy" className="block text-sm font-medium text-slate-300 mb-2">
+              Padding Strategy
+            </label>
+            <select
+              id="padding-strategy"
+              value={paddingStrategy}
+              onChange={(e) => setPaddingStrategy(e.target.value as 'max_length' | 'longest' | 'do_not_pad')}
+              disabled={!canTokenize || isSubmitting}
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="max_length">Max Length - Pad all sequences to max_length</option>
+              <option value="longest">Longest - Pad to longest sequence in batch</option>
+              <option value="do_not_pad">Do Not Pad - No padding applied</option>
+            </select>
+            <p className="text-xs text-slate-500 mt-2">
+              Padding strategy determines how sequences shorter than max_length are handled. "Max Length" pads all to max_length, "Longest" pads to longest in batch (dynamic), "Do Not Pad" disables padding.
+            </p>
+          </div>
+
+          {/* Truncation Strategy */}
+          <div>
+            <label htmlFor="truncation-strategy" className="block text-sm font-medium text-slate-300 mb-2">
+              Truncation Strategy
+            </label>
+            <select
+              id="truncation-strategy"
+              value={truncationStrategy}
+              onChange={(e) => setTruncationStrategy(e.target.value as 'longest_first' | 'only_first' | 'only_second' | 'do_not_truncate')}
+              disabled={!canTokenize || isSubmitting}
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="longest_first">Longest First - Truncate longest sequence first (default)</option>
+              <option value="only_first">Only First - Truncate only first sequence</option>
+              <option value="only_second">Only Second - Truncate only second sequence</option>
+              <option value="do_not_truncate">Do Not Truncate - Disable truncation</option>
+            </select>
+            <p className="text-xs text-slate-500 mt-2">
+              Controls truncation for sequences exceeding max_length. Useful for Q&A pairs or multi-sequence inputs.
+            </p>
+          </div>
+
           {/* Stride */}
           <div>
             <label htmlFor="stride" className="block text-sm font-medium text-slate-300 mb-2">
@@ -832,6 +876,76 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
             </p>
           </div>
 
+          {/* Special Tokens Toggle */}
+          <div>
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <span className="block text-sm font-medium text-slate-300 mb-1">
+                  Add Special Tokens
+                </span>
+                <p className="text-xs text-slate-500">
+                  Include BOS, EOS, PAD tokens - Recommended for most models
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddSpecialTokens(!addSpecialTokens)}
+                disabled={!canTokenize || isSubmitting}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  addSpecialTokens ? 'bg-emerald-600' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    addSpecialTokens ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </label>
+          </div>
+
+          {/* Attention Mask Toggle */}
+          <div>
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <span className="block text-sm font-medium text-slate-300 mb-1">
+                  Return Attention Mask
+                </span>
+                <p className="text-xs text-slate-500">
+                  Generate attention masks - Set to False to save memory if model doesn't use them
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReturnAttentionMask(!returnAttentionMask)}
+                disabled={!canTokenize || isSubmitting}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  returnAttentionMask ? 'bg-emerald-600' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    returnAttentionMask ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </label>
+          </div>
+        </div>
+      </form>
+
+      {/* Tokenization Preview */}
+      <TokenizationPreview
+        tokenizerName={tokenizerName}
+        maxLength={maxLength}
+        paddingStrategy={paddingStrategy}
+        truncationStrategy={truncationStrategy}
+        disabled={!canTokenize || isSubmitting}
+      />
+
+      {/* Tokenization Form - Action Section */}
+      <form onSubmit={handleTokenize} className="bg-slate-800/50 rounded-lg p-6">
+        <div className="space-y-6">
           {/* Error/Success Messages */}
           {error && (
             <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -851,7 +965,7 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
             disabled={!canTokenize || isSubmitting || !tokenizerName}
             className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium rounded transition-colors"
           >
-            <Settings className="w-5 h-5" />
+            <Zap className="w-5 h-5" />
             {isSubmitting ? 'Starting Tokenization...' : isTokenized ? 'Re-tokenize Dataset' : 'Start Tokenization'}
           </button>
 
@@ -899,6 +1013,22 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="text-center">
       <div className="text-2xl font-bold text-emerald-400">{value}</div>
+      <div className="text-sm text-slate-400 mt-1">{label}</div>
+    </div>
+  );
+}
+
+function ColoredStatCard({ label, value, color }: { label: string; value: string; color: 'emerald' | 'blue' | 'purple' | 'yellow' }) {
+  const colorClasses = {
+    emerald: 'text-emerald-400',
+    blue: 'text-blue-400',
+    purple: 'text-purple-400',
+    yellow: 'text-yellow-400',
+  };
+
+  return (
+    <div className="text-center">
+      <div className={`text-2xl font-bold ${colorClasses[color]}`}>{value}</div>
       <div className="text-sm text-slate-400 mt-1">{label}</div>
     </div>
   );

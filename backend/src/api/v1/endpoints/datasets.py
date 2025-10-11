@@ -4,11 +4,13 @@ Dataset API endpoints.
 This module contains all FastAPI routes for dataset management operations.
 """
 
+from functools import lru_cache
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from transformers import AutoTokenizer
 
 from ....core.deps import get_db
 from ....models.dataset import DatasetStatus
@@ -19,6 +21,9 @@ from ....schemas.dataset import (
     DatasetListResponse,
     DatasetDownloadRequest,
     DatasetTokenizeRequest,
+    TokenizePreviewRequest,
+    TokenizePreviewResponse,
+    TokenInfo,
 )
 from ....services.dataset_service import DatasetService
 
@@ -315,6 +320,10 @@ async def tokenize_dataset(
         tokenizer_name=request.tokenizer_name,
         max_length=request.max_length,
         stride=request.stride,
+        padding=request.padding,
+        truncation=request.truncation,
+        add_special_tokens=request.add_special_tokens,
+        return_attention_mask=request.return_attention_mask,
     )
 
     return dataset
@@ -419,4 +428,127 @@ async def get_dataset_samples(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load samples: {str(e)}"
+        )
+
+
+@lru_cache(maxsize=10)
+def load_tokenizer_cached(tokenizer_name: str):
+    """
+    Load and cache a HuggingFace tokenizer.
+
+    Uses LRU cache to keep the last 10 tokenizers in memory for fast previews.
+
+    Args:
+        tokenizer_name: HuggingFace tokenizer name
+
+    Returns:
+        Loaded tokenizer
+
+    Raises:
+        Exception: If tokenizer loading fails
+    """
+    return AutoTokenizer.from_pretrained(tokenizer_name)
+
+
+@router.post("/tokenize-preview", response_model=TokenizePreviewResponse)
+async def tokenize_preview(
+    request: TokenizePreviewRequest
+):
+    """
+    Preview tokenization on a small text sample.
+
+    This endpoint provides fast tokenization preview without modifying any datasets.
+    Tokenizers are cached for performance.
+
+    Args:
+        request: Tokenization preview request
+
+    Returns:
+        Tokenization result with token details
+
+    Raises:
+        HTTPException: If tokenization fails or tokenizer is invalid
+    """
+    try:
+        # Load tokenizer (cached for performance)
+        tokenizer = load_tokenizer_cached(request.tokenizer_name)
+
+        # Set pad token if not already set (e.g., GPT-2 doesn't have one by default)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        # Map truncation strategy to tokenizer parameter
+        truncation_config = {
+            "longest_first": True,
+            "only_first": "only_first",
+            "only_second": "only_second",
+            "do_not_truncate": False,
+        }
+        truncation_param = truncation_config.get(request.truncation, True)
+
+        # Map padding strategy to tokenizer parameter
+        padding_config = {
+            "max_length": "max_length",
+            "longest": "longest",
+            "do_not_pad": False,
+        }
+        padding_param = padding_config.get(request.padding, "max_length")
+
+        # Tokenize the text
+        encoded = tokenizer(
+            request.text,
+            max_length=request.max_length,
+            truncation=truncation_param,
+            padding=padding_param,
+            add_special_tokens=request.add_special_tokens,
+            return_attention_mask=request.return_attention_mask,
+        )
+
+        # Get token IDs and convert to tokens
+        input_ids = encoded["input_ids"]
+        tokens_list = tokenizer.convert_ids_to_tokens(input_ids)
+
+        # Identify special tokens
+        special_token_ids = set()
+        if hasattr(tokenizer, "all_special_ids"):
+            special_token_ids = set(tokenizer.all_special_ids)
+
+        # Build token info list
+        token_infos = []
+        special_count = 0
+        for position, (token_id, token_text) in enumerate(zip(input_ids, tokens_list)):
+            is_special = token_id in special_token_ids
+            if is_special:
+                special_count += 1
+
+            token_infos.append(TokenInfo(
+                id=token_id,
+                text=token_text,
+                type="special" if is_special else "regular",
+                position=position
+            ))
+
+        # Build response
+        response = TokenizePreviewResponse(
+            tokens=token_infos,
+            attention_mask=encoded.get("attention_mask") if request.return_attention_mask else None,
+            token_count=len(input_ids),
+            sequence_length=len(input_ids),
+            special_token_count=special_count
+        )
+
+        return response
+
+    except Exception as e:
+        # Check if it's a tokenizer loading error
+        if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid tokenizer name: {request.tokenizer_name}"
+            )
+
+        # General error
+        raise HTTPException(
+            status_code=500,
+            detail=f"Tokenization failed: {str(e)}"
         )

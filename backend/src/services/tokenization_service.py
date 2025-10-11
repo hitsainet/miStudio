@@ -113,6 +113,8 @@ class TokenizationService:
         truncation: bool = True,
         padding: str = "max_length",
         return_overflowing_tokens: bool = False,
+        add_special_tokens: bool = True,
+        return_attention_mask: bool = True,
         batch_size: int = 1000,
         progress_callback: Optional[Callable[[float, str], None]] = None,
     ) -> HFDataset:
@@ -128,6 +130,8 @@ class TokenizationService:
             truncation: Whether to truncate sequences
             padding: Padding strategy ('max_length', 'longest', or False)
             return_overflowing_tokens: Whether to return overflow from sliding window
+            add_special_tokens: Add special tokens (BOS, EOS, PAD, etc.)
+            return_attention_mask: Return attention mask
             batch_size: Batch size for tokenization
             progress_callback: Optional callback function(progress_pct, message) for progress updates
 
@@ -161,6 +165,8 @@ class TokenizationService:
                 "max_length": max_length,
                 "truncation": truncation,
                 "padding": padding,
+                "add_special_tokens": add_special_tokens,
+                "return_attention_mask": return_attention_mask,
             }
 
             if stride > 0:
@@ -189,13 +195,21 @@ class TokenizationService:
 
             return result
 
-        # Tokenize the dataset
+        # Determine which columns to remove (keep 'split' if it exists)
+        columns_to_remove = [col for col in dataset.column_names if col != "split"]
+
+        # Tokenize the dataset with multiprocessing for faster CPU utilization
+        # Use num_proc for parallel processing across CPU cores
+        import os
+        num_proc = max(1, os.cpu_count() // 2)  # Use half of available CPU cores
+
         tokenized_dataset = dataset.map(
             tokenize_function,
             batched=True,
             batch_size=batch_size,
             with_indices=True,  # Pass indices to track progress
-            remove_columns=dataset.column_names,  # Remove original columns
+            remove_columns=columns_to_remove,  # Remove original columns except 'split'
+            num_proc=num_proc,  # Enable multiprocessing
             desc="Tokenizing dataset",
         )
 
@@ -222,6 +236,9 @@ class TokenizationService:
                 - avg_seq_length: Average sequence length
                 - min_seq_length: Minimum sequence length
                 - max_seq_length: Maximum sequence length
+                - median_seq_length: Median sequence length
+                - vocab_size: Number of unique tokens (vocabulary size)
+                - length_distribution: Dictionary mapping length ranges to counts
 
         Raises:
             ValueError: If dataset is empty or no samples have input_ids
@@ -240,13 +257,72 @@ class TokenizationService:
             # Vectorized calculation using NumPy (10x faster for large datasets)
             seq_lengths = np.array([len(ids) for ids in input_ids])
 
-            return {
+            # Calculate median sequence length
+            median_seq_length = float(np.median(seq_lengths))
+
+            # Calculate vocabulary size (unique tokens across entire dataset)
+            unique_tokens = set()
+            for ids in input_ids:
+                unique_tokens.update(ids)
+            vocab_size = len(unique_tokens)
+
+            # Calculate length distribution with bucketing
+            # Buckets: 0-100, 100-200, 200-400, 400-600, 600-800, 800-1000, 1000+
+            length_distribution = {
+                "0-100": 0,
+                "100-200": 0,
+                "200-400": 0,
+                "400-600": 0,
+                "600-800": 0,
+                "800-1000": 0,
+                "1000+": 0,
+            }
+
+            for length in seq_lengths:
+                if length < 100:
+                    length_distribution["0-100"] += 1
+                elif length < 200:
+                    length_distribution["100-200"] += 1
+                elif length < 400:
+                    length_distribution["200-400"] += 1
+                elif length < 600:
+                    length_distribution["400-600"] += 1
+                elif length < 800:
+                    length_distribution["600-800"] += 1
+                elif length < 1000:
+                    length_distribution["800-1000"] += 1
+                else:
+                    length_distribution["1000+"] += 1
+
+            # Calculate split distribution if 'split' column exists
+            split_distribution = None
+            try:
+                if "split" in tokenized_dataset.column_names:
+                    splits = tokenized_dataset["split"]
+                    split_counts = {}
+                    for split_name in splits:
+                        split_counts[split_name] = split_counts.get(split_name, 0) + 1
+                    split_distribution = split_counts
+            except (KeyError, AttributeError):
+                # If split column doesn't exist or can't be accessed, skip it
+                pass
+
+            stats = {
                 "num_tokens": int(seq_lengths.sum()),
                 "num_samples": len(tokenized_dataset),
                 "avg_seq_length": float(seq_lengths.mean()),
                 "min_seq_length": int(seq_lengths.min()),
                 "max_seq_length": int(seq_lengths.max()),
+                "median_seq_length": median_seq_length,
+                "vocab_size": vocab_size,
+                "length_distribution": length_distribution,
             }
+
+            # Only add split_distribution if it was calculated
+            if split_distribution is not None:
+                stats["split_distribution"] = split_distribution
+
+            return stats
         except KeyError:
             raise ValueError(
                 f"Cannot calculate statistics: Dataset missing 'input_ids' field. "

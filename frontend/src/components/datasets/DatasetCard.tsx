@@ -5,8 +5,8 @@
  */
 
 import React from 'react';
-import { Database, CheckCircle, Loader, Activity, Trash2 } from 'lucide-react';
-import { Dataset, DatasetStatus } from '../../types/dataset';
+import { Database, CheckCircle, Loader, Activity, Trash2, Settings } from 'lucide-react';
+import { Dataset } from '../../types/dataset';
 import { StatusBadge } from '../common/StatusBadge';
 import { ProgressBar } from '../common/ProgressBar';
 import { formatFileSize } from '../../utils/formatters';
@@ -18,32 +18,33 @@ interface DatasetCardProps {
 }
 
 export function DatasetCard({ dataset, onClick, onDelete }: DatasetCardProps) {
-  const isClickable = dataset.status === DatasetStatus.READY;
-  const showProgress =
-    dataset.status === DatasetStatus.DOWNLOADING ||
-    dataset.status === DatasetStatus.PROCESSING;
+  // Normalize status to string for consistent comparisons
+  const statusString = String(dataset.status).toLowerCase();
+
+  const isClickable = statusString === 'ready';
+  const showProgress = statusString === 'downloading' || statusString === 'processing';
+  const isTokenized = dataset.metadata?.tokenization !== undefined;
 
   // Status icon mapping
   const StatusIcon = React.useMemo(() => {
-    switch (dataset.status) {
-      case DatasetStatus.READY:
-        return CheckCircle;
-      case DatasetStatus.DOWNLOADING:
-        return Loader;
-      case DatasetStatus.PROCESSING:
-      case DatasetStatus.ERROR:
-        return Activity;
-      default:
-        return Database;
+    if (statusString === 'ready') {
+      return CheckCircle;
     }
-  }, [dataset.status]);
+    if (statusString === 'downloading') {
+      return Loader;
+    }
+    if (statusString === 'processing' || statusString === 'error') {
+      return Activity;
+    }
+    return Database;
+  }, [statusString]);
 
   const iconClassName = React.useMemo(() => {
-    if (dataset.status === DatasetStatus.DOWNLOADING) {
+    if (statusString === 'downloading') {
       return 'animate-spin';
     }
     return '';
-  }, [dataset.status]);
+  }, [statusString]);
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
@@ -103,6 +104,13 @@ export function DatasetCard({ dataset, onClick, onDelete }: DatasetCardProps) {
             <p className="text-sm text-slate-400 mt-1">
               Samples: {dataset.num_samples.toLocaleString()}
             </p>
+          )}
+
+          {isTokenized && (
+            <div className="inline-flex items-center gap-1.5 mt-2 px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded text-xs text-emerald-400">
+              <Settings className="w-3 h-3" />
+              <span>Tokenized</span>
+            </div>
           )}
 
           {showProgress && dataset.progress !== undefined && (

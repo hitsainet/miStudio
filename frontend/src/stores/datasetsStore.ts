@@ -12,6 +12,14 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { Dataset, DatasetStatus } from '../types/dataset';
+import { API_BASE_URL } from '../config/api';
+
+// Callback for subscribing to dataset progress (set by WebSocket context)
+let subscribeToDatasetCallback: ((datasetId: string) => void) | null = null;
+
+export function setDatasetSubscriptionCallback(callback: (datasetId: string) => void) {
+  subscribeToDatasetCallback = callback;
+}
 
 interface DatasetsState {
   // State
@@ -31,7 +39,7 @@ interface DatasetsState {
 
 export const useDatasetsStore = create<DatasetsState>()(
   devtools(
-    (set, get) => ({
+    (set, _get) => ({
       // Initial state
       datasets: [],
       loading: false,
@@ -41,7 +49,7 @@ export const useDatasetsStore = create<DatasetsState>()(
       fetchDatasets: async () => {
         set({ loading: true, error: null });
         try {
-          const response = await fetch('http://localhost:8000/api/v1/datasets');
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets`);
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
@@ -55,6 +63,7 @@ export const useDatasetsStore = create<DatasetsState>()(
 
       // Download dataset from HuggingFace
       downloadDataset: async (repoId: string, accessToken?: string, split?: string, config?: string) => {
+        console.log('[Store] downloadDataset called for repo:', repoId);
         set({ loading: true, error: null });
         try {
           const body: Record<string, string | undefined> = {
@@ -65,7 +74,8 @@ export const useDatasetsStore = create<DatasetsState>()(
           if (split) body.split = split;
           if (config) body.config = config;
 
-          const response = await fetch('http://localhost:8000/api/v1/datasets/download', {
+          console.log('[Store] Initiating download request...');
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/download`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -79,10 +89,74 @@ export const useDatasetsStore = create<DatasetsState>()(
           }
 
           const newDataset = await response.json();
+          console.log('[Store] Download initiated, dataset ID:', newDataset.id, 'status:', newDataset.status);
+
+          // Ensure status is set properly as a string enum value
+          if (newDataset.status) {
+            newDataset.status = newDataset.status.toLowerCase();
+          }
+
+          // Proactively subscribe to progress updates BEFORE adding to store
+          // This ensures we catch early progress events
+          if (subscribeToDatasetCallback && newDataset.id) {
+            console.log('[Store] Proactively subscribing to dataset:', newDataset.id, 'with status:', newDataset.status);
+            subscribeToDatasetCallback(newDataset.id);
+          }
+
+          // Add dataset to store
           set((state) => ({
             datasets: [...state.datasets, newDataset],
             loading: false,
           }));
+
+          console.log('[Store] About to start polling for dataset:', newDataset.id);
+
+          // Start aggressive polling for fast downloads
+          // This catches progress updates even for very quick downloads
+          const startPolling = () => {
+            console.log('[Store] startPolling() function called');
+            let pollCount = 0;
+            const maxPolls = 50; // Maximum 25 seconds of polling (50 * 500ms)
+
+            const pollInterval = setInterval(async () => {
+              pollCount++;
+
+              try {
+                const pollResponse = await fetch(`${API_BASE_URL}/api/v1/datasets/${newDataset.id}`);
+                if (pollResponse.ok) {
+                  const updatedDataset = await pollResponse.json();
+
+                  console.log(`[Store] Poll ${pollCount}: Dataset ${newDataset.id} status=${updatedDataset.status}, progress=${updatedDataset.progress}`);
+
+                  // Update the dataset in the store
+                  set((state) => ({
+                    datasets: state.datasets.map((d) =>
+                      d.id === updatedDataset.id ? { ...d, ...updatedDataset, status: updatedDataset.status.toLowerCase() } : d
+                    ),
+                  }));
+
+                  // Stop polling if no longer downloading/processing
+                  if (updatedDataset.status !== 'downloading' && updatedDataset.status !== 'processing') {
+                    console.log(`[Store] Stopping poll for dataset ${newDataset.id} - final status: ${updatedDataset.status}`);
+                    clearInterval(pollInterval);
+                  }
+                }
+              } catch (error) {
+                console.error('[Store] Polling error:', error);
+              }
+
+              // Stop after max polls
+              if (pollCount >= maxPolls) {
+                console.log(`[Store] Stopping poll for dataset ${newDataset.id} - max polls reached`);
+                clearInterval(pollInterval);
+              }
+            }, 500); // Poll every 500ms for fast updates
+          };
+
+          // Start polling immediately
+          startPolling();
+
+          return newDataset;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to download dataset';
           set({ error: errorMessage, loading: false });
@@ -94,7 +168,7 @@ export const useDatasetsStore = create<DatasetsState>()(
       deleteDataset: async (id: string) => {
         set({ loading: true, error: null });
         try {
-          const response = await fetch(`http://localhost:8000/api/v1/datasets/${id}`, {
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${id}`, {
             method: 'DELETE',
           });
 

@@ -61,6 +61,8 @@ class Settings(BaseSettings):
             "http://mistudio.mcslab.io",
             "http://localhost:3000",
             "http://localhost",
+            "http://192.168.224.222:3000",
+            "http://192.168.224.222",
         ],
         description="Allowed CORS origins",
     )
@@ -94,6 +96,10 @@ class Settings(BaseSettings):
     )
     websocket_ping_timeout: int = Field(
         default=10, ge=5, le=60, description="WebSocket ping timeout in seconds"
+    )
+    websocket_emit_url: str = Field(
+        default="http://localhost:8000/api/internal/ws/emit",
+        description="Internal WebSocket emission endpoint URL for Celery workers"
     )
 
     # Rate Limiting

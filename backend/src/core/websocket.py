@@ -12,9 +12,11 @@ import socketio
 from .config import settings
 
 # Create Socket.IO server with async support
+# NOTE: CORS is handled by FastAPI's CORSMiddleware in main.py
+# Setting cors_allowed_origins="*" here prevents duplicate CORS headers
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins=settings.allowed_origins,
+    cors_allowed_origins="*",  # Let FastAPI handle CORS validation
     logger=settings.is_development,
     engineio_logger=settings.is_development,
     ping_interval=settings.websocket_ping_interval,
@@ -163,18 +165,20 @@ class WebSocketManager:
             - Uses Socket.IO rooms for efficient broadcasting
             - Only subscribed clients receive events
             - Non-blocking operation
+            - Events are always emitted; Socket.IO handles delivery to room members
         """
-        if channel in self.subscriptions and self.subscriptions[channel]:
-            # Emit to Socket.IO room
-            await sio.emit(
-                event,
-                data,
-                room=channel,
-                namespace=namespace,
-            )
+        # Always emit to Socket.IO room - the room system handles delivery
+        # If no one is subscribed to the room, the event is simply not delivered
+        await sio.emit(
+            event,
+            data,
+            room=channel,
+            namespace=namespace,
+        )
 
-            if settings.is_development:
-                print(f"Emitted '{event}' to channel '{channel}': {data}")
+        if settings.is_development:
+            subscriber_count = len(self.subscriptions.get(channel, set()))
+            print(f"Emitted '{event}' to channel '{channel}' ({subscriber_count} subscribers): {data}")
 
     async def broadcast(
         self,

@@ -10,8 +10,10 @@ import {
   DatasetListResponse,
   DatasetSample,
 } from '../types/dataset';
+import { API_BASE_URL } from '../config/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+// API endpoints are prefixed with /api/v1
+const API_V1_BASE = `${API_BASE_URL}/api/v1`;
 
 /**
  * Fetch helper with authentication and error handling
@@ -22,16 +24,16 @@ async function fetchAPI<T>(
 ): Promise<T> {
   const token = localStorage.getItem('auth_token');
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${API_V1_BASE}${endpoint}`, {
     ...options,
     headers,
   });

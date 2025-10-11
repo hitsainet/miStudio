@@ -26,16 +26,50 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
 
-    # Task routing
+    # Task routing - Multi-queue architecture for optimal resource allocation
     task_routes={
-        "src.workers.dataset_tasks.*": {"queue": "datasets"},
-        "src.workers.training_tasks.*": {"queue": "training"},
-        "src.workers.extraction_tasks.*": {"queue": "extraction"},
+        # High priority: Quick operations, metadata updates
+        "src.workers.quick_tasks.*": {
+            "queue": "high_priority",
+            "priority": 10,
+        },
+
+        # Dataset operations: I/O bound, medium concurrency
+        "src.workers.dataset_tasks.download_dataset_task": {
+            "queue": "datasets",
+            "priority": 7,
+        },
+        "src.workers.dataset_tasks.tokenize_dataset_task": {
+            "queue": "processing",
+            "priority": 7,
+        },
+
+        # Training operations: GPU bound, low concurrency
+        "src.workers.training_tasks.*": {
+            "queue": "training",
+            "priority": 5,
+        },
+
+        # Extraction operations: GPU bound, medium concurrency
+        "src.workers.extraction_tasks.*": {
+            "queue": "extraction",
+            "priority": 5,
+        },
+
+        # Maintenance operations: Background tasks
+        "src.workers.maintenance_tasks.*": {
+            "queue": "low_priority",
+            "priority": 3,
+        },
     },
 
     # Task priority queues (higher priority = processed first)
     task_queue_max_priority=10,
     task_default_priority=5,
+
+    # Queue configuration
+    task_default_queue="datasets",  # Default queue for unrouted tasks
+    task_create_missing_queues=True,  # Auto-create queues if they don't exist
 
     # Task time limits (soft/hard)
     task_soft_time_limit=3600,  # 1 hour soft limit
@@ -209,10 +243,113 @@ def revoke_task(task_id: str, terminate: bool = False) -> None:
     celery_app.control.revoke(task_id, terminate=terminate)
 
 
+def get_queue_lengths() -> dict:
+    """
+    Get the length of all Celery queues.
+
+    Returns:
+        dict: Queue names mapped to number of pending tasks
+
+    Usage:
+        ```python
+        from app.core.celery_app import get_queue_lengths
+
+        lengths = get_queue_lengths()
+        # {'high_priority': 0, 'datasets': 2, 'processing': 1, ...}
+        ```
+    """
+    from kombu import Connection
+
+    queue_names = [
+        "high_priority",
+        "datasets",
+        "processing",
+        "training",
+        "extraction",
+        "low_priority",
+    ]
+
+    with Connection(str(settings.celery_broker_url)) as conn:
+        lengths = {}
+        for queue_name in queue_names:
+            try:
+                queue = conn.SimpleQueue(queue_name)
+                lengths[queue_name] = queue.qsize()
+                queue.close()
+            except Exception as e:
+                # Queue doesn't exist yet or error accessing it
+                lengths[queue_name] = 0
+
+        return lengths
+
+
+def get_active_tasks() -> dict:
+    """
+    Get currently active (running) tasks across all workers.
+
+    Returns:
+        dict: Worker names mapped to list of active tasks
+
+    Usage:
+        ```python
+        from app.core.celery_app import get_active_tasks
+
+        active = get_active_tasks()
+        # {
+        #     'celery@worker1': [
+        #         {'id': 'task-123', 'name': 'download_dataset_task', ...}
+        #     ]
+        # }
+        ```
+    """
+    inspect = celery_app.control.inspect()
+    active = inspect.active()
+    return active or {}
+
+
+def get_worker_stats() -> dict:
+    """
+    Get statistics for all connected workers.
+
+    Returns:
+        dict: Worker statistics including queue assignments and resource usage
+
+    Usage:
+        ```python
+        from app.core.celery_app import get_worker_stats
+
+        stats = get_worker_stats()
+        ```
+    """
+    inspect = celery_app.control.inspect()
+
+    stats = {}
+    active_queues = inspect.active_queues()
+    stats_data = inspect.stats()
+
+    if active_queues:
+        for worker, queues in active_queues.items():
+            worker_stats = {
+                "queues": [q["name"] for q in queues],
+                "queue_details": queues,
+            }
+
+            # Add additional stats if available
+            if stats_data and worker in stats_data:
+                worker_stats["stats"] = stats_data[worker]
+
+            stats[worker] = worker_stats
+
+    return stats
+
+
 # Export commonly used objects
 __all__ = [
     "celery_app",
     "create_task_signature",
     "get_task_status",
     "revoke_task",
+    "get_queue_lengths",
+    "get_active_tasks",
+    "get_worker_stats",
 ]

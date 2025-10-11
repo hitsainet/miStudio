@@ -4,8 +4,6 @@
  * This component renders a progress bar with percentage display.
  */
 
-import React from 'react';
-
 interface ProgressBarProps {
   progress: number; // 0-100
   className?: string;

@@ -1,0 +1,186 @@
+# Multi-worker Celery configuration for miStudio
+#
+# Usage:
+#   docker-compose -f docker-compose.dev.yml -f docker-compose.workers.yml up
+#
+# This file extends docker-compose.dev.yml with multiple specialized Celery workers
+
+version: '3.8'
+
+services:
+  # High-priority worker: Quick operations and metadata updates
+  worker-high-priority:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-worker-high-priority
+    command: celery -A src.core.celery_app worker -Q high_priority -c 8 --loglevel=info --hostname=worker-high-priority@%h
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:devpassword@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql://postgres:devpassword@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      API_PORT: 8000
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Dataset worker: I/O-bound downloads and ingestion
+  worker-datasets:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-worker-datasets
+    command: celery -A src.core.celery_app worker -Q datasets -c 4 --loglevel=info --hostname=worker-datasets@%h
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:devpassword@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql://postgres:devpassword@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      API_PORT: 8000
+      ENVIRONMENT: development
+      HF_HOME: /data/huggingface_cache
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+      - huggingface_cache:/data/huggingface_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Processing worker: CPU-bound tokenization and preprocessing
+  worker-processing:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-worker-processing
+    command: celery -A src.core.celery_app worker -Q processing -c 4 --loglevel=info --hostname=worker-processing@%h
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:devpassword@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql://postgres:devpassword@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      API_PORT: 8000
+      ENVIRONMENT: development
+      HF_HOME: /data/huggingface_cache
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+      - huggingface_cache:/data/huggingface_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Training worker: GPU-bound SAE training (low concurrency)
+  worker-training:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-worker-training
+    command: celery -A src.core.celery_app worker -Q training -c 1 --loglevel=info --hostname=worker-training@%h --max-memory-per-child=4000000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:devpassword@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql://postgres:devpassword@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      API_PORT: 8000
+      ENVIRONMENT: development
+      HF_HOME: /data/huggingface_cache
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+      - huggingface_cache:/data/huggingface_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Uncomment to enable GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Extraction worker: GPU-bound feature extraction (medium concurrency)
+  worker-extraction:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-worker-extraction
+    command: celery -A src.core.celery_app worker -Q extraction -c 2 --loglevel=info --hostname=worker-extraction@%h --max-memory-per-child=2000000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:devpassword@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql://postgres:devpassword@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      API_PORT: 8000
+      ENVIRONMENT: development
+      HF_HOME: /data/huggingface_cache
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+      - huggingface_cache:/data/huggingface_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Uncomment to enable GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Low-priority worker: Maintenance and background tasks
+  worker-low-priority:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-worker-low-priority
+    command: celery -A src.core.celery_app worker -Q low_priority -c 2 --loglevel=info --hostname=worker-low-priority@%h
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:devpassword@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql://postgres:devpassword@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      API_PORT: 8000
+      ENVIRONMENT: development
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  huggingface_cache:

@@ -8,12 +8,62 @@ dataset-related business logic and database operations.
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, UTC
+import copy
 
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.dataset import Dataset, DatasetStatus
 from ..schemas.dataset import DatasetCreate, DatasetUpdate
+
+
+def deep_merge_metadata(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deep merge metadata dictionaries, preserving existing values.
+
+    Rules:
+    1. New non-None values overwrite existing values
+    2. None values in new dict do NOT overwrite existing values
+    3. Nested dicts are recursively merged
+    4. Lists and other types are replaced (not merged)
+
+    Args:
+        existing: Existing metadata dictionary
+        new: New metadata to merge in
+
+    Returns:
+        Merged metadata dictionary
+    """
+    if not existing:
+        # Filter out None values from new metadata
+        return {k: v for k, v in new.items() if v is not None}
+
+    if not new:
+        return copy.deepcopy(existing)
+
+    # Start with a deep copy of existing to avoid mutations
+    result = copy.deepcopy(existing)
+
+    for key, new_value in new.items():
+        # Skip None values - they don't overwrite existing data
+        if new_value is None:
+            continue
+
+        # If key doesn't exist in result, just add it
+        if key not in result:
+            result[key] = new_value
+            continue
+
+        existing_value = result[key]
+
+        # If both are dicts, recursively merge
+        if isinstance(existing_value, dict) and isinstance(new_value, dict):
+            result[key] = deep_merge_metadata(existing_value, new_value)
+        else:
+            # For non-dict types (lists, primitives), replace with new value
+            result[key] = new_value
+
+    return result
 
 
 class DatasetService:
@@ -40,7 +90,7 @@ class DatasetService:
             hf_repo_id=dataset.hf_repo_id,
             raw_path=dataset.raw_path,
             status=DatasetStatus.DOWNLOADING if dataset.hf_repo_id else DatasetStatus.PROCESSING,
-            metadata=dataset.metadata or {},
+            extra_metadata=dataset.metadata or {},
         )
 
         db.add(db_dataset)
@@ -173,7 +223,22 @@ class DatasetService:
             if field == "status" and isinstance(value, str):
                 # Convert string to enum
                 value = DatasetStatus[value.upper()]
-            setattr(db_dataset, field, value)
+            elif field == "metadata":
+                # Map 'metadata' to 'extra_metadata' (SQLAlchemy attribute name)
+                # Deep merge metadata to preserve existing fields and skip None values
+                existing_metadata = db_dataset.extra_metadata or {}
+                if isinstance(value, dict):
+                    # Use deep merge that skips None values and recursively merges nested dicts
+                    merged_metadata = deep_merge_metadata(existing_metadata, value)
+                    setattr(db_dataset, "extra_metadata", merged_metadata)
+                    continue
+                elif value is None:
+                    # None means "no update to metadata" - skip it
+                    continue
+
+            # Map 'metadata' field to 'extra_metadata' attribute if not already handled
+            attr_name = "extra_metadata" if field == "metadata" else field
+            setattr(db_dataset, attr_name, value)
 
         db_dataset.updated_at = datetime.now(UTC)
 

@@ -5,9 +5,8 @@
  * including viewing, downloading, and monitoring dataset operations.
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDatasetsStore } from '../../stores/datasetsStore';
-import { useAllDatasetsProgress } from '../../hooks/useDatasetProgress';
 import { DownloadForm } from '../datasets/DownloadForm';
 import { DatasetCard } from '../datasets/DatasetCard';
 import { DatasetDetailModal } from '../datasets/DatasetDetailModal';
@@ -17,8 +16,7 @@ export function DatasetsPanel() {
   const { datasets, loading, error, fetchDatasets, downloadDataset, deleteDataset } = useDatasetsStore();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
 
-  // Subscribe to WebSocket progress updates for active datasets
-  useAllDatasetsProgress();
+  // WebSocket progress updates are now handled globally in App.tsx via useGlobalDatasetProgress()
 
   // Fetch datasets on mount
   useEffect(() => {
@@ -31,6 +29,13 @@ export function DatasetsPanel() {
 
   const handleDatasetClick = (dataset: Dataset) => {
     setSelectedDataset(dataset);
+  };
+
+  const handleDatasetUpdate = (updatedDataset: Dataset) => {
+    // Update the selected dataset with the new data
+    setSelectedDataset(updatedDataset);
+    // Optionally, refresh all datasets to keep the list in sync
+    fetchDatasets();
   };
 
   const handleDelete = async (id: string) => {
@@ -104,6 +109,7 @@ export function DatasetsPanel() {
           <DatasetDetailModal
             dataset={selectedDataset}
             onClose={() => setSelectedDataset(null)}
+            onDatasetUpdate={handleDatasetUpdate}
           />
         )}
       </div>

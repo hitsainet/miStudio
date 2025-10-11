@@ -5,7 +5,6 @@ Main application entry point for the backend API.
 """
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from .api.v1.router import api_router
 from .core.config import settings
@@ -26,14 +25,8 @@ ws_manager = WebSocketManager()
 # Mount Socket.IO app
 app.mount("/ws", socket_app)
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# NOTE: CORS is handled by nginx reverse proxy
+# Do not add CORSMiddleware here as it will create duplicate headers
 
 # Include API router
 app.include_router(api_router, prefix="/api")

@@ -64,7 +64,7 @@ export function useDatasetProgress(datasetId?: string) {
 export function useAllDatasetsProgress() {
   const { datasets } = useDatasetsStore();
   const { subscribe, unsubscribe } = useWebSocket();
-  const { updateDatasetProgress, updateDatasetStatus } = useDatasetsStore();
+  const { updateDatasetProgress, updateDatasetStatus, fetchDatasets } = useDatasetsStore();
 
   useEffect(() => {
     // Subscribe to progress updates for all downloading/processing datasets
@@ -73,41 +73,68 @@ export function useAllDatasetsProgress() {
         d.status === DatasetStatus.DOWNLOADING || d.status === DatasetStatus.PROCESSING
     );
 
-    const handlers: Array<{ channel: string; handler: (event: ProgressEvent) => void }> = [];
+    // Handler for 'progress' events
+    const handleProgress = (data: any) => {
+      console.log('All datasets progress update:', data);
 
+      if (data.progress !== undefined) {
+        // Extract dataset ID from the data or context
+        // We need to track which dataset this progress is for
+        const datasetId = data.dataset_id || data.id;
+        if (datasetId) {
+          updateDatasetProgress(datasetId, data.progress);
+        }
+      }
+    };
+
+    // Handler for 'completed' events
+    const handleCompleted = (data: any) => {
+      console.log('Dataset completed:', data);
+      const datasetId = data.dataset_id || data.id;
+      if (datasetId) {
+        updateDatasetStatus(datasetId, DatasetStatus.READY);
+        // Refresh all datasets to get the latest data
+        fetchDatasets();
+      }
+    };
+
+    // Handler for 'error' events
+    const handleError = (data: any) => {
+      console.error('Dataset error:', data);
+      const datasetId = data.dataset_id || data.id;
+      if (datasetId) {
+        updateDatasetStatus(
+          datasetId,
+          DatasetStatus.ERROR,
+          data.message || data.error || 'An error occurred'
+        );
+      }
+    };
+
+    // Subscribe to the event types (these are global, but only room members receive them)
+    subscribe('progress', handleProgress);
+    subscribe('completed', handleCompleted);
+    subscribe('error', handleError);
+
+    // Subscribe to each active dataset's channel (joins the rooms)
     activeDatasets.forEach((dataset) => {
       const channel = `datasets/${dataset.id}/progress`;
-
-      const handler = (event: ProgressEvent) => {
-        switch (event.type) {
-          case 'progress':
-            if (event.progress !== undefined) {
-              updateDatasetProgress(event.dataset_id, event.progress);
-            }
-            break;
-
-          case 'completed':
-            updateDatasetStatus(event.dataset_id, DatasetStatus.READY);
-            break;
-
-          case 'error':
-            updateDatasetStatus(
-              event.dataset_id,
-              DatasetStatus.ERROR,
-              event.error || 'An error occurred'
-            );
-            break;
-        }
-      };
-
-      subscribe(channel, handler);
-      handlers.push({ channel, handler });
+      subscribe(channel, () => {
+        console.log(`Joined channel for dataset: ${dataset.id}`);
+      });
     });
 
     return () => {
-      handlers.forEach(({ channel, handler }) => {
-        unsubscribe(channel, handler);
+      // Unsubscribe from event handlers
+      unsubscribe('progress', handleProgress);
+      unsubscribe('completed', handleCompleted);
+      unsubscribe('error', handleError);
+
+      // Leave all rooms
+      activeDatasets.forEach((dataset) => {
+        const channel = `datasets/${dataset.id}/progress`;
+        unsubscribe(channel);
       });
     };
-  }, [datasets, subscribe, unsubscribe, updateDatasetProgress, updateDatasetStatus]);
+  }, [datasets, subscribe, unsubscribe, updateDatasetProgress, updateDatasetStatus, fetchDatasets]);
 }

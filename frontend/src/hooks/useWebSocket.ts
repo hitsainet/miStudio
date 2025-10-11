@@ -6,9 +6,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-
-const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:8000';
-const WS_PATH = '/ws/socket.io';
+import { WS_URL, WS_PATH } from '../config/api';
 
 interface UseWebSocketOptions {
   onConnect?: () => void;
@@ -66,7 +64,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         return;
       }
 
+      // Listen for events on this channel
       socket.on(channel, handler);
+
+      // Notify server to add us to the channel's subscriber list
+      socket.emit('subscribe', { channel });
+
+      console.log(`Subscribed to channel: ${channel}`);
     },
     []
   );
@@ -84,6 +88,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       } else {
         socket.off(channel);
       }
+
+      // Notify server to remove us from the channel's subscriber list
+      socket.emit('unsubscribe', { channel });
+
+      console.log(`Unsubscribed from channel: ${channel}`);
     },
     []
   );

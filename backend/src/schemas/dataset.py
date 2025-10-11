@@ -6,12 +6,13 @@ and serialization for all dataset-related API operations.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, field_serializer
+from pydantic import BaseModel, Field, field_validator, field_serializer, ValidationError
 
 from ..models.dataset import DatasetStatus
+from .metadata import DatasetMetadata
 
 
 class DatasetBase(BaseModel):
@@ -33,7 +34,7 @@ class DatasetUpdate(BaseModel):
     """Schema for updating an existing dataset."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    status: Optional[str] = Field(None, pattern="^(downloading|ingesting|ready|error)$")
+    status: Optional[str] = Field(None, pattern="^(downloading|ingesting|processing|ready|error)$")
     progress: Optional[float] = Field(None, ge=0, le=100)
     error_message: Optional[str] = None
     raw_path: Optional[str] = Field(None, max_length=512)
@@ -43,7 +44,53 @@ class DatasetUpdate(BaseModel):
     avg_seq_length: Optional[float] = Field(None, ge=0)
     vocab_size: Optional[int] = Field(None, ge=0)
     size_bytes: Optional[int] = Field(None, ge=0)
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Union[DatasetMetadata, Dict[str, Any]]] = Field(
+        None,
+        description="Dataset metadata (validated structure or raw dict for backwards compatibility)"
+    )
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def validate_metadata(cls, v):
+        """
+        Validate metadata structure if provided.
+
+        Attempts to validate against DatasetMetadata schema for structured validation.
+        Falls back to raw dict for backwards compatibility with existing data.
+        """
+        if v is None:
+            return None
+
+        # If already a DatasetMetadata instance, return as-is
+        if isinstance(v, DatasetMetadata):
+            return v
+
+        # If it's a dict, check if it looks like structured metadata
+        if isinstance(v, dict):
+            # Check if dict has any of the expected metadata top-level keys
+            expected_keys = {"schema", "tokenization", "download"}
+            has_expected_structure = any(key in v for key in expected_keys)
+
+            if has_expected_structure:
+                # Try to validate structured metadata
+                try:
+                    validated = DatasetMetadata(**v)
+                    return validated.model_dump(by_alias=True)  # Return as dict with aliases
+                except ValidationError as e:
+                    # For backwards compatibility, allow raw dicts
+                    # Log validation errors for debugging but don't fail
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        f"Metadata validation failed, storing as raw dict: {e.error_count()} errors. "
+                        f"First error: {e.errors()[0] if e.errors() else 'unknown'}"
+                    )
+                    return v
+            else:
+                # Unstructured metadata (no expected keys) - keep as raw dict
+                return v
+
+        return v
 
 
 class DatasetResponse(DatasetBase):
@@ -64,7 +111,7 @@ class DatasetResponse(DatasetBase):
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata",
-        alias="extra_metadata"  # Map to SQLAlchemy model's extra_metadata attribute
+        validation_alias="extra_metadata"  # Read from extra_metadata attribute
     )
     created_at: datetime = Field(..., description="Record creation timestamp")
     updated_at: datetime = Field(..., description="Record last update timestamp")
@@ -75,14 +122,6 @@ class DatasetResponse(DatasetBase):
         if isinstance(status, DatasetStatus):
             return status.value  # Returns "downloading" for frontend enum
         return str(status).lower() if status else status
-
-    @field_serializer('metadata')
-    def serialize_metadata(self, metadata: Any, _info) -> Dict[str, Any]:
-        """Serialize metadata, handling SQLAlchemy model attribute mapping."""
-        if metadata is None or isinstance(metadata, dict):
-            return metadata or {}
-        # If it's a SQLAlchemy MetaData object or something unexpected, return empty dict
-        return {}
 
     model_config = {
         "from_attributes": True,  # Enable ORM mode for SQLAlchemy models

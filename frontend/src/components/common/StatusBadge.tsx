@@ -4,7 +4,6 @@
  * This component renders a colored badge based on the status value.
  */
 
-import React from 'react';
 import { DatasetStatus } from '../../types/dataset';
 
 interface StatusBadgeProps {

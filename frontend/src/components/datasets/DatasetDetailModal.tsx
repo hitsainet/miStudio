@@ -5,27 +5,31 @@
  * for samples, statistics, and tokenization settings.
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, FileText, BarChart, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dataset } from '../../types/dataset';
 import { formatFileSize, formatDateTime } from '../../utils/formatters';
 import { StatusBadge } from '../common/StatusBadge';
+import { ProgressBar } from '../common/ProgressBar';
+import { useWebSocket } from '../../hooks/useWebSocket';
+import { API_BASE_URL } from '../../config/api';
 
 interface DatasetDetailModalProps {
   dataset: Dataset;
   onClose: () => void;
+  onDatasetUpdate?: (updatedDataset: Dataset) => void;
 }
 
 type TabType = 'overview' | 'samples' | 'statistics' | 'tokenization';
 
-export function DatasetDetailModal({ dataset, onClose }: DatasetDetailModalProps) {
+export function DatasetDetailModal({ dataset, onClose, onDatasetUpdate }: DatasetDetailModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
   const tabs = [
     { id: 'overview' as TabType, label: 'Overview', icon: FileText },
     { id: 'samples' as TabType, label: 'Samples', icon: FileText },
-    { id: 'statistics' as TabType, label: 'Statistics', icon: BarChart },
     { id: 'tokenization' as TabType, label: 'Tokenization', icon: Settings },
+    { id: 'statistics' as TabType, label: 'Statistics', icon: BarChart },
   ];
 
   return (
@@ -88,8 +92,8 @@ export function DatasetDetailModal({ dataset, onClose }: DatasetDetailModalProps
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'overview' && <OverviewTab dataset={dataset} />}
           {activeTab === 'samples' && <SamplesTab dataset={dataset} />}
+          {activeTab === 'tokenization' && <TokenizationTab dataset={dataset} onDatasetUpdate={onDatasetUpdate} />}
           {activeTab === 'statistics' && <StatisticsTab dataset={dataset} />}
-          {activeTab === 'tokenization' && <TokenizationTab dataset={dataset} />}
         </div>
       </div>
     </div>
@@ -126,17 +130,17 @@ function OverviewTab({ dataset }: { dataset: Dataset }) {
           <h3 className="text-lg font-semibold text-slate-100 mb-4">Dataset Statistics</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard label="Samples" value={dataset.num_samples.toLocaleString()} />
-            {dataset.num_tokens && (
-              <StatCard label="Tokens" value={dataset.num_tokens.toLocaleString()} />
+            {dataset.metadata?.tokenization?.num_tokens && (
+              <StatCard label="Tokens" value={dataset.metadata.tokenization.num_tokens.toLocaleString()} />
             )}
-            {dataset.avg_seq_length && (
+            {dataset.metadata?.tokenization?.avg_seq_length && (
               <StatCard
                 label="Avg Length"
-                value={dataset.avg_seq_length.toFixed(1)}
+                value={dataset.metadata.tokenization.avg_seq_length.toFixed(1)}
               />
             )}
-            {dataset.vocab_size && (
-              <StatCard label="Vocab Size" value={dataset.vocab_size.toLocaleString()} />
+            {dataset.size_bytes && (
+              <StatCard label="Size" value={formatFileSize(dataset.size_bytes)} />
             )}
           </div>
         </div>
@@ -168,7 +172,7 @@ function SamplesTab({ dataset }: { dataset: Dataset }) {
 
       try {
         const response = await fetch(
-          `http://localhost:8000/api/v1/datasets/${dataset.id}/samples?page=${page}&limit=${limit}`
+          `${API_BASE_URL}/api/v1/datasets/${dataset.id}/samples?page=${page}&limit=${limit}`
         );
 
         if (!response.ok) {
@@ -303,6 +307,13 @@ function StatisticsTab({ dataset }: { dataset: Dataset }) {
   // Extract tokenization statistics from metadata
   const tokenizationStats = dataset.metadata?.tokenization;
 
+  // Check if tokenization stats exist and have required fields
+  const hasCompleteStats = tokenizationStats &&
+    tokenizationStats.num_tokens !== undefined &&
+    tokenizationStats.avg_seq_length !== undefined &&
+    tokenizationStats.min_seq_length !== undefined &&
+    tokenizationStats.max_seq_length !== undefined;
+
   if (!tokenizationStats) {
     return (
       <div className="text-center py-12">
@@ -315,15 +326,27 @@ function StatisticsTab({ dataset }: { dataset: Dataset }) {
     );
   }
 
+  if (!hasCompleteStats) {
+    return (
+      <div className="text-center py-12">
+        <BarChart className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+        <p className="text-slate-400 text-lg">Incomplete tokenization statistics</p>
+        <p className="text-slate-500 mt-2">
+          This dataset was tokenized with an older version. Please re-tokenize to view complete statistics.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Tokenization Info */}
       <div className="bg-slate-800/50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-slate-100 mb-4">Tokenization Configuration</h3>
         <div className="grid grid-cols-2 gap-4">
-          <InfoCard label="Tokenizer" value={tokenizationStats.tokenizer_name} />
-          <InfoCard label="Max Length" value={tokenizationStats.max_length} />
-          <InfoCard label="Stride" value={tokenizationStats.stride || 0} />
+          <InfoCard label="Tokenizer" value={tokenizationStats.tokenizer_name ?? 'N/A'} />
+          <InfoCard label="Max Length" value={tokenizationStats.max_length ?? 'N/A'} />
+          <InfoCard label="Stride" value={tokenizationStats.stride ?? 0} />
         </div>
       </div>
 
@@ -333,19 +356,19 @@ function StatisticsTab({ dataset }: { dataset: Dataset }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
             label="Total Tokens"
-            value={tokenizationStats.num_tokens.toLocaleString()}
+            value={tokenizationStats.num_tokens!.toLocaleString()}
           />
           <StatCard
             label="Avg Length"
-            value={tokenizationStats.avg_seq_length.toFixed(1)}
+            value={tokenizationStats.avg_seq_length!.toFixed(1)}
           />
           <StatCard
             label="Min Length"
-            value={tokenizationStats.min_seq_length.toString()}
+            value={tokenizationStats.min_seq_length!.toString()}
           />
           <StatCard
             label="Max Length"
-            value={tokenizationStats.max_seq_length.toString()}
+            value={tokenizationStats.max_seq_length!.toString()}
           />
         </div>
       </div>
@@ -460,15 +483,404 @@ function StatisticsTab({ dataset }: { dataset: Dataset }) {
   );
 }
 
-// Tokenization Tab Component (Placeholder)
-function TokenizationTab({ dataset }: { dataset: Dataset }) {
+// Tokenization Tab Component
+function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDatasetUpdate?: (updatedDataset: Dataset) => void }) {
+  const [tokenizerName, setTokenizerName] = useState('gpt2');
+  const [maxLength, setMaxLength] = useState(512);
+  const [stride, setStride] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [progress, setProgress] = useState(dataset.progress || 0);
+  const [progressMessage, setProgressMessage] = useState('');
+
+  // Check if dataset is already tokenized
+  const isTokenized = dataset.metadata?.tokenization !== undefined;
+  const isProcessing = dataset.status === 'processing';
+  const canTokenize = dataset.status === 'ready' && !isProcessing;
+
+  // Initialize progress from dataset when component mounts or dataset changes
+  useEffect(() => {
+    if (dataset.progress !== undefined) {
+      setProgress(dataset.progress);
+    }
+  }, [dataset.progress]);
+
+  // WebSocket for real-time progress updates
+  const { subscribe, unsubscribe } = useWebSocket();
+
+  // Subscribe to progress updates when processing
+  useEffect(() => {
+    if (isProcessing && dataset.id) {
+      const channel = `datasets/${dataset.id}/progress`;
+
+      // Handler for 'progress' events
+      const handleProgress = (data: any) => {
+        console.log('Progress update received:', data);
+
+        if (data.progress !== undefined) {
+          setProgress(data.progress);
+        }
+
+        if (data.message) {
+          setProgressMessage(data.message);
+        }
+
+        // Handle status changes in progress events
+        if (data.status === 'ready' || data.event === 'completed') {
+          setProgress(100);
+          setProgressMessage('Tokenization complete!');
+        }
+      };
+
+      // Handler for 'completed' events
+      const handleCompleted = async (data: any) => {
+        console.log('Tokenization completed:', data);
+        setProgress(100);
+        setProgressMessage(data.message || 'Tokenization complete!');
+
+        // Refresh the dataset from API to get latest data including statistics
+        if (onDatasetUpdate) {
+          setTimeout(async () => {
+            try {
+              // Fetch the updated dataset
+              const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${dataset.id}`);
+              if (response.ok) {
+                const updatedDataset = await response.json();
+                console.log('Refreshed dataset after tokenization:', updatedDataset);
+                onDatasetUpdate(updatedDataset);
+              }
+            } catch (error) {
+              console.error('Failed to refresh dataset:', error);
+            }
+          }, 1500); // Give backend time to commit
+        }
+      };
+
+      // Handler for 'error' events
+      const handleError = (data: any) => {
+        console.error('Tokenization error:', data);
+        setError(data.message || 'Tokenization failed');
+        setProgress(0);
+      };
+
+      // Subscribe to the channel (joins the Socket.IO room)
+      // This is required for the client to receive events emitted to this room
+      subscribe(channel, () => {
+        console.log(`Joined channel: ${channel}`);
+      });
+
+      // Now subscribe to the actual event types
+      // Backend emits: sio.emit('progress', data, room=channel)
+      // Only clients in 'channel' room will receive these events
+      subscribe('progress', handleProgress);
+      subscribe('completed', handleCompleted);
+      subscribe('error', handleError);
+
+      return () => {
+        // Unsubscribe from event handlers
+        unsubscribe('progress', handleProgress);
+        unsubscribe('completed', handleCompleted);
+        unsubscribe('error', handleError);
+        // Leave the room
+        unsubscribe(channel);
+      };
+    }
+    return undefined;
+  }, [isProcessing, dataset.id, subscribe, unsubscribe, onDatasetUpdate]);
+
+  const commonTokenizers = [
+    { value: 'gpt2', label: 'GPT-2 (default)', description: 'OpenAI GPT-2 tokenizer' },
+    { value: 'gpt2-medium', label: 'GPT-2 Medium', description: '345M parameter model' },
+    { value: 'gpt2-large', label: 'GPT-2 Large', description: '774M parameter model' },
+    { value: 'bert-base-uncased', label: 'BERT Base Uncased', description: 'Google BERT base model' },
+    { value: 'bert-base-cased', label: 'BERT Base Cased', description: 'Case-sensitive BERT' },
+    { value: 'roberta-base', label: 'RoBERTa Base', description: 'Facebook RoBERTa model' },
+    { value: 'EleutherAI/gpt-neo-125M', label: 'GPT-Neo 125M', description: 'EleutherAI GPT-Neo' },
+    { value: 'EleutherAI/gpt-j-6B', label: 'GPT-J 6B', description: 'EleutherAI GPT-J' },
+  ];
+
+  const handleTokenize = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/datasets/${dataset.id}/tokenize`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            tokenizer_name: tokenizerName,
+            max_length: maxLength,
+            stride: stride,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to start tokenization');
+      }
+
+      const updatedDataset = await response.json();
+
+      // Notify parent component of the update
+      onDatasetUpdate?.(updatedDataset);
+
+      // Initialize progress state
+      setProgress(updatedDataset.progress || 0);
+      setProgressMessage('Tokenization started...');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to tokenize dataset';
+      setError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isProcessing) {
+    return (
+      <div className="text-center py-12 max-w-2xl mx-auto">
+        <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-slate-700 border-t-emerald-500 mb-6"></div>
+        <p className="text-slate-400 text-lg mb-4">Tokenization in progress...</p>
+
+        {/* Progress Bar */}
+        <div className="mb-4">
+          <ProgressBar progress={progress} showPercentage={true} />
+        </div>
+
+        {/* Progress Message */}
+        {progressMessage && (
+          <p className="text-slate-500 text-sm mt-3">
+            {progressMessage}
+          </p>
+        )}
+
+        <p className="text-slate-500 text-xs mt-6">
+          You can close this modal - tokenization will continue in the background
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="text-center py-12">
-      <Settings className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-      <p className="text-slate-400 text-lg">Tokenization settings coming in next phase</p>
-      <p className="text-slate-500 mt-2">
-        Will allow configuration of tokenization parameters and execution
-      </p>
+    <div className="space-y-6">
+      {/* Current Tokenization Status */}
+      {isTokenized && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-6">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-emerald-500/20 rounded">
+              <Settings className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-emerald-400 mb-2">
+                Dataset Already Tokenized
+              </h3>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-slate-400">Tokenizer:</span>
+                  <span className="text-slate-200 ml-2 font-mono">
+                    {dataset.metadata?.tokenization?.tokenizer_name ?? 'N/A'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400">Max Length:</span>
+                  <span className="text-slate-200 ml-2 font-mono">
+                    {dataset.metadata?.tokenization?.max_length ?? 'N/A'}
+                  </span>
+                </div>
+                {dataset.metadata?.tokenization?.num_tokens !== undefined && (
+                  <div>
+                    <span className="text-slate-400">Total Tokens:</span>
+                    <span className="text-slate-200 ml-2 font-mono">
+                      {dataset.metadata.tokenization.num_tokens.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {dataset.metadata?.tokenization?.avg_seq_length !== undefined && (
+                  <div>
+                    <span className="text-slate-400">Avg Length:</span>
+                    <span className="text-slate-200 ml-2 font-mono">
+                      {dataset.metadata.tokenization.avg_seq_length.toFixed(1)}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="text-slate-400 text-sm mt-3">
+                You can re-tokenize with different settings below to overwrite the current tokenization.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tokenization Form */}
+      <form onSubmit={handleTokenize} className="bg-slate-800/50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4">
+          {isTokenized ? 'Re-tokenize Dataset' : 'Tokenize Dataset'}
+        </h3>
+
+        <div className="space-y-6">
+          {/* Tokenizer Selection */}
+          <div>
+            <label htmlFor="tokenizer" className="block text-sm font-medium text-slate-300 mb-2">
+              Tokenizer Model
+            </label>
+            <select
+              id="tokenizer"
+              value={tokenizerName}
+              onChange={(e) => setTokenizerName(e.target.value)}
+              disabled={!canTokenize || isSubmitting}
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {commonTokenizers.map((tokenizer) => (
+                <option key={tokenizer.value} value={tokenizer.value}>
+                  {tokenizer.label} - {tokenizer.description}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-2">
+              Select a HuggingFace tokenizer. Common choices include GPT-2, BERT, and RoBERTa.
+            </p>
+          </div>
+
+          {/* Custom Tokenizer Input */}
+          <div>
+            <label htmlFor="custom-tokenizer" className="block text-sm font-medium text-slate-300 mb-2">
+              Or Enter Custom Tokenizer Name
+            </label>
+            <input
+              id="custom-tokenizer"
+              type="text"
+              value={tokenizerName}
+              onChange={(e) => setTokenizerName(e.target.value)}
+              placeholder="e.g., EleutherAI/gpt-neo-2.7B"
+              disabled={!canTokenize || isSubmitting}
+              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <p className="text-xs text-slate-500 mt-2">
+              Any valid HuggingFace tokenizer identifier (username/model-name)
+            </p>
+          </div>
+
+          {/* Max Length */}
+          <div>
+            <label htmlFor="max-length" className="block text-sm font-medium text-slate-300 mb-2">
+              Maximum Sequence Length
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                id="max-length"
+                type="range"
+                min="128"
+                max="2048"
+                step="128"
+                value={maxLength}
+                onChange={(e) => setMaxLength(Number(e.target.value))}
+                disabled={!canTokenize || isSubmitting}
+                className="flex-1"
+              />
+              <input
+                type="number"
+                min="1"
+                max="8192"
+                value={maxLength}
+                onChange={(e) => setMaxLength(Number(e.target.value))}
+                disabled={!canTokenize || isSubmitting}
+                className="w-24 px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Maximum number of tokens per sequence. Longer sequences will be truncated. Range: 1-8192 tokens.
+            </p>
+          </div>
+
+          {/* Stride */}
+          <div>
+            <label htmlFor="stride" className="block text-sm font-medium text-slate-300 mb-2">
+              Stride (Sliding Window Overlap)
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                id="stride"
+                type="range"
+                min="0"
+                max={Math.floor(maxLength / 2)}
+                step="32"
+                value={stride}
+                onChange={(e) => setStride(Number(e.target.value))}
+                disabled={!canTokenize || isSubmitting}
+                className="flex-1"
+              />
+              <input
+                type="number"
+                min="0"
+                max={maxLength}
+                value={stride}
+                onChange={(e) => setStride(Math.min(Number(e.target.value), maxLength))}
+                disabled={!canTokenize || isSubmitting}
+                className="w-24 px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Number of overlapping tokens between consecutive sequences. 0 = no overlap. Useful for preserving context across boundaries.
+            </p>
+          </div>
+
+          {/* Error/Success Messages */}
+          {error && (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          {success && (
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+              <p className="text-emerald-400 text-sm">{success}</p>
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={!canTokenize || isSubmitting || !tokenizerName}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium rounded transition-colors"
+          >
+            <Settings className="w-5 h-5" />
+            {isSubmitting ? 'Starting Tokenization...' : isTokenized ? 'Re-tokenize Dataset' : 'Start Tokenization'}
+          </button>
+
+          {!canTokenize && !isProcessing && (
+            <p className="text-sm text-amber-400 text-center">
+              Dataset must be in "ready" status to tokenize
+            </p>
+          )}
+        </div>
+      </form>
+
+      {/* Information Panel */}
+      <div className="bg-slate-800/30 border border-slate-700 rounded-lg p-6">
+        <h4 className="text-sm font-semibold text-slate-300 mb-3">About Tokenization</h4>
+        <div className="space-y-2 text-sm text-slate-400">
+          <p>
+            <strong className="text-slate-300">Tokenization</strong> converts text into numerical tokens that models can process.
+          </p>
+          <p>
+            <strong className="text-slate-300">Tokenizer Selection:</strong> Different models use different tokenizers. Choose one compatible with your intended model.
+          </p>
+          <p>
+            <strong className="text-slate-300">Max Length:</strong> Determines computational and memory requirements. Longer sequences = more compute.
+          </p>
+          <p>
+            <strong className="text-slate-300">Stride:</strong> Enables sliding window approach for long documents, preserving context across chunk boundaries.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

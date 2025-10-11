@@ -346,11 +346,11 @@ async def get_dataset_samples(
             detail=f"Dataset {dataset_id} not found"
         )
 
-    # Check if dataset is ready
-    if dataset.status != DatasetStatus.READY:
+    # Check if dataset has raw data available (allow viewing during processing)
+    if dataset.status not in [DatasetStatus.READY, DatasetStatus.PROCESSING]:
         raise HTTPException(
             status_code=400,
-            detail=f"Dataset must be in 'ready' status to view samples (current: {dataset.status})"
+            detail=f"Dataset must be in 'ready' or 'processing' status to view samples (current: {dataset.status})"
         )
 
     if not dataset.raw_path:
@@ -360,21 +360,19 @@ async def get_dataset_samples(
         )
 
     try:
-        # Try to load dataset from disk (Arrow format)
-        # If that fails, try loading from HuggingFace cache
-        try:
-            hf_dataset = load_from_disk(dataset.raw_path)
-        except Exception:
-            # Fall back to loading from HuggingFace cache
-            if dataset.hf_repo_id:
-                from datasets import load_dataset
-                hf_dataset = load_dataset(
-                    dataset.hf_repo_id,
-                    cache_dir="data/datasets",
-                    split="train"  # Default to train split
-                )
+        # Load dataset from disk (Arrow format saved by download task)
+        hf_dataset = load_from_disk(dataset.raw_path)
+
+        # Handle DatasetDict (multi-split datasets) - use 'train' split by default
+        from datasets import DatasetDict
+        if isinstance(hf_dataset, DatasetDict):
+            # Try to get train split, or first available split
+            if 'train' in hf_dataset:
+                hf_dataset = hf_dataset['train']
             else:
-                raise
+                # Get first available split
+                first_split = next(iter(hf_dataset.keys()))
+                hf_dataset = hf_dataset[first_split]
 
         # Calculate pagination
         total_samples = len(hf_dataset)

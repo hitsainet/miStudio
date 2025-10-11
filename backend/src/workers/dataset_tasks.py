@@ -297,9 +297,14 @@ def download_dataset_task(
 
         loop.run_until_complete(handle_error())
 
-        # Retry if not max retries
+        # Retry with exponential backoff if not max retries
+        # Formula: base_delay * (2 ** retry_count)
+        # Attempt 1: 60s, Attempt 2: 120s, Attempt 3: 240s
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=e, countdown=60)
+            base_delay = 60
+            retry_delay = base_delay * (2 ** self.request.retries)
+            print(f"Retrying download (attempt {self.request.retries + 1}/{self.max_retries}) in {retry_delay}s...")
+            raise self.retry(exc=e, countdown=retry_delay)
 
         raise
 
@@ -609,8 +614,14 @@ def tokenize_dataset_task(
 
         loop.run_until_complete(handle_error())
 
+        # Retry with exponential backoff if not max retries
+        # Formula: base_delay * (2 ** retry_count)
+        # Attempt 1: 120s, Attempt 2: 240s
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=e, countdown=120)
+            base_delay = 120
+            retry_delay = base_delay * (2 ** self.request.retries)
+            print(f"Retrying tokenization (attempt {self.request.retries + 1}/{self.max_retries}) in {retry_delay}s...")
+            raise self.retry(exc=e, countdown=retry_delay)
 
         raise
 

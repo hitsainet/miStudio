@@ -175,7 +175,7 @@
   - [x] 6.6 Create useDatasetProgress hook in frontend/src/hooks/useDatasetProgress.ts (subscribe to datasets/{id}/progress channel, update Zustand store on progress/completed/error events)
   - [x] 6.7 Add input validators in frontend/src/utils/validators.ts (validateHfRepoId checking username/dataset format, validateTokenizationSettings checking max_length > 0)
   - [x] 6.8 Write unit tests for Zustand store in frontend/src/stores/datasetsStore.test.ts (31 tests created, all passing: initial state, fetchDatasets, downloadDataset with params, deleteDataset, progress/status updates, error handling, subscription callbacks)
-  - [ ] 6.9 Write unit tests for API client (test getDatasets with mock fetch, test error handling)
+  - [x] 6.9 Write unit tests for API client (32 tests created in frontend/src/api/datasets.test.ts, all passing: getDatasets with query params, getDataset, downloadDataset, deleteDataset, getDatasetSamples, getDatasetStatistics, tokenizeDataset, authentication, error handling)
 
 ### Phase 7: UI Components - DatasetsPanel and Core
 

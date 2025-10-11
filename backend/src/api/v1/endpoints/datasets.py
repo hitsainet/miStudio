@@ -282,6 +282,13 @@ async def tokenize_dataset(
         )
 
     # Check if dataset is ready for tokenization
+    # Prevent duplicate requests while processing
+    if dataset.status == DatasetStatus.PROCESSING:
+        raise HTTPException(
+            status_code=409,
+            detail="Dataset is already being processed. Please wait for the current operation to complete."
+        )
+
     if dataset.status != DatasetStatus.READY:
         raise HTTPException(
             status_code=400,

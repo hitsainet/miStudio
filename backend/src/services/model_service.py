@@ -325,27 +325,42 @@ class ModelService:
         return db_model
 
     @staticmethod
-    async def delete_model(db: AsyncSession, model_id: str) -> bool:
+    async def delete_model(db: AsyncSession, model_id: str) -> Optional[dict]:
         """
-        Delete a model.
+        Delete a model and return file paths for cleanup.
 
         Args:
             db: Database session
             model_id: Model ID
 
         Returns:
-            True if deleted, False if not found
+            Dict with deletion status and file paths if deleted, None if not found
+            Format: {
+                "deleted": True,
+                "model_id": str,
+                "file_path": Optional[str],
+                "quantized_path": Optional[str]
+            }
         """
         db_model = await ModelService.get_model(db, model_id)
         if not db_model:
-            return False
+            return None
+
+        # Capture file paths before deletion
+        file_path = db_model.file_path
+        quantized_path = db_model.quantized_path
 
         await db.delete(db_model)
         await db.commit()
 
-        logger.info(f"Model {model_id} deleted")
+        logger.info(f"Model {model_id} deleted from database")
 
-        return True
+        return {
+            "deleted": True,
+            "model_id": model_id,
+            "file_path": file_path,
+            "quantized_path": quantized_path,
+        }
 
     @staticmethod
     async def get_model_architecture_info(

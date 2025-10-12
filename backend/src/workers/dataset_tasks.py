@@ -5,77 +5,27 @@ This module contains background tasks for downloading, processing,
 and tokenizing datasets with real-time progress updates via WebSocket.
 """
 
-import asyncio
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
-from celery import Task
 from datasets import load_dataset
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from ..core.celery_app import celery_app
 from ..core.config import settings
-from ..core.database import AsyncSessionLocal
-from ..models.dataset import DatasetStatus
+from ..models.dataset import DatasetStatus, Dataset
 from ..schemas.dataset import DatasetUpdate
 from ..services.dataset_service import DatasetService
 from ..services.tokenization_service import TokenizationService
+from .base_task import DatabaseTask
 from .websocket_emitter import emit_dataset_progress
-
-
-class DatasetTask(Task):
-    """Base class for dataset-related Celery tasks with progress tracking."""
-
-    def __init__(self):
-        super().__init__()
-        self._session: Optional[AsyncSession] = None
-
-    async def get_session(self) -> AsyncSession:
-        """Get or create async database session."""
-        if self._session is None:
-            self._session = AsyncSessionLocal()
-        return self._session
-
-    async def close_session(self):
-        """Close database session."""
-        if self._session:
-            await self._session.close()
-            self._session = None
-
-    async def update_dataset_status(
-        self,
-        dataset_id: UUID,
-        status: DatasetStatus,
-        progress: Optional[float] = None,
-        error_message: Optional[str] = None,
-    ):
-        """
-        Update dataset status in database.
-
-        Args:
-            dataset_id: Dataset UUID
-            status: New status
-            progress: Progress percentage (0-100)
-            error_message: Error message if status is ERROR
-        """
-        session = await self.get_session()
-
-        update_data = {"status": status.value}
-        if progress is not None:
-            update_data["progress"] = progress
-        if error_message is not None:
-            update_data["error_message"] = error_message
-
-        updates = DatasetUpdate(**update_data)
-        await DatasetService.update_dataset(session, dataset_id, updates)
-        await session.commit()
 
 
 @celery_app.task(
     bind=True,
-    base=DatasetTask,
+    base=DatabaseTask,
     name="src.workers.dataset_tasks.download_dataset_task",
     max_retries=3,
     default_retry_delay=60,
@@ -101,16 +51,19 @@ def download_dataset_task(
     Returns:
         dict: Download result with dataset path and statistics
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
         dataset_uuid = UUID(dataset_id)
 
         # Update status to downloading
-        loop.run_until_complete(
-            self.update_dataset_status(dataset_uuid, DatasetStatus.DOWNLOADING, progress=0.0)
-        )
+        with self.get_db() as db:
+            self.update_progress(
+                db=db,
+                model_class=Dataset,
+                record_id=dataset_id,
+                progress=0.0,
+                status=DatasetStatus.DOWNLOADING.value,
+            )
+
         emit_dataset_progress(
             dataset_id,
             "progress",
@@ -128,7 +81,6 @@ def download_dataset_task(
         raw_path = data_dir / repo_id.replace("/", "_")
 
         # Download dataset from HuggingFace
-        # Note: load_dataset is synchronous but has its own progress
         emit_dataset_progress(
             dataset_id,
             "progress",
@@ -151,14 +103,14 @@ def download_dataset_task(
 
         # Update progress: saving to disk
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 70.0,
-                    "status": "downloading",
-                    "message": "Saving dataset to disk...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 70.0,
+                "status": "downloading",
+                "message": "Saving dataset to disk...",
+            },
         )
 
         # Save dataset to our organized location
@@ -166,14 +118,14 @@ def download_dataset_task(
 
         # Update progress
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 90.0,
-                    "status": "downloading",
-                    "message": "Download complete, processing metadata...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 90.0,
+                "status": "downloading",
+                "message": "Download complete, processing metadata...",
+            },
         )
 
         # Calculate dataset statistics
@@ -181,19 +133,20 @@ def download_dataset_task(
         size_bytes = dataset.size_in_bytes if hasattr(dataset, "size_in_bytes") else None
 
         # Update dataset record with download results
-        async def finalize_download():
-            session = await self.get_session()
-
+        with self.get_db() as db:
             try:
-                updates = DatasetUpdate(
-                    status=DatasetStatus.READY.value,
-                    progress=100.0,
-                    raw_path=str(raw_path),
-                    num_samples=num_samples,
-                    size_bytes=size_bytes,
-                )
-                await DatasetService.update_dataset(session, dataset_uuid, updates)
-                await session.commit()
+                dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                if not dataset_obj:
+                    raise ValueError(f"Dataset {dataset_id} not found")
+
+                dataset_obj.status = DatasetStatus.READY
+                dataset_obj.progress = 100.0
+                dataset_obj.raw_path = str(raw_path)
+                dataset_obj.num_samples = num_samples
+                dataset_obj.size_bytes = size_bytes
+
+                db.commit()
+                db.refresh(dataset_obj)
 
                 # Only emit "completed" event after successful database commit
                 emit_dataset_progress(
@@ -211,7 +164,7 @@ def download_dataset_task(
 
             except Exception as commit_error:
                 # Rollback transaction on failure
-                await session.rollback()
+                db.rollback()
                 error_msg = f"Failed to save download results: {str(commit_error)}"
                 print(f"Database commit error: {error_msg}")
 
@@ -229,8 +182,6 @@ def download_dataset_task(
                 # Re-raise to trigger outer error handler
                 raise
 
-        loop.run_until_complete(finalize_download())
-
         return {
             "dataset_id": dataset_id,
             "status": "ready",
@@ -244,23 +195,25 @@ def download_dataset_task(
         error_message = f"Download failed: {str(e)}"
         print(f"Dataset download error: {error_message}")
 
-        async def handle_error():
-            await self.update_dataset_status(
-                UUID(dataset_id),
-                DatasetStatus.ERROR,
+        with self.get_db() as db:
+            self.update_progress(
+                db=db,
+                model_class=Dataset,
+                record_id=dataset_id,
+                progress=None,
+                status=DatasetStatus.ERROR.value,
                 error_message=error_message,
             )
-            emit_dataset_progress(
-                dataset_id,
-                "error",
-                {
-                    "dataset_id": dataset_id,
-                    "status": "error",
-                    "message": error_message,
-                },
-            )
 
-        loop.run_until_complete(handle_error())
+        emit_dataset_progress(
+            dataset_id,
+            "error",
+            {
+                "dataset_id": dataset_id,
+                "status": "error",
+                "message": error_message,
+            },
+        )
 
         # Retry with exponential backoff if not max retries
         # Formula: base_delay * (2 ** retry_count)
@@ -273,14 +226,10 @@ def download_dataset_task(
 
         raise
 
-    finally:
-        loop.run_until_complete(self.close_session())
-        loop.close()
-
 
 @celery_app.task(
     bind=True,
-    base=DatasetTask,
+    base=DatabaseTask,
     name="src.workers.dataset_tasks.tokenize_dataset_task",
     max_retries=2,
     default_retry_delay=120,
@@ -312,49 +261,49 @@ def tokenize_dataset_task(
     Returns:
         dict: Tokenization result with statistics
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
         dataset_uuid = UUID(dataset_id)
 
         # Update status to processing
-        loop.run_until_complete(
-            self.update_dataset_status(dataset_uuid, DatasetStatus.PROCESSING, progress=0.0)
-        )
+        with self.get_db() as db:
+            self.update_progress(
+                db=db,
+                model_class=Dataset,
+                record_id=dataset_id,
+                progress=0.0,
+                status=DatasetStatus.PROCESSING.value,
+            )
+
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 0.0,
-                    "status": "processing",
-                    "message": "Starting tokenization...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 0.0,
+                "status": "processing",
+                "message": "Starting tokenization...",
+            },
         )
 
         # Get dataset from database to retrieve raw_path
-        async def get_dataset_info():
-            session = await self.get_session()
-            dataset_obj = await DatasetService.get_dataset(session, dataset_uuid)
+        with self.get_db() as db:
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
             if not dataset_obj:
                 raise ValueError(f"Dataset {dataset_id} not found")
             if not dataset_obj.raw_path:
                 raise ValueError(f"Dataset {dataset_id} has no raw_path")
-            return dataset_obj.raw_path
-
-        raw_path = loop.run_until_complete(get_dataset_info())
+            raw_path = dataset_obj.raw_path
 
         # Emit progress: 10%
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 10.0,
-                    "status": "processing",
-                    "message": "Loading tokenizer...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 10.0,
+                "status": "processing",
+                "message": "Loading tokenizer...",
+            },
         )
 
         # Load tokenizer
@@ -362,14 +311,14 @@ def tokenize_dataset_task(
 
         # Emit progress: 20%
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 20.0,
-                    "status": "processing",
-                    "message": "Loading dataset...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 20.0,
+                "status": "processing",
+                "message": "Loading dataset...",
+            },
         )
 
         # Load dataset from disk
@@ -388,14 +337,14 @@ def tokenize_dataset_task(
 
         # Analyze dataset schema to determine best text column
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 30.0,
-                    "status": "processing",
-                    "message": "Analyzing dataset schema...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 30.0,
+                "status": "processing",
+                "message": "Analyzing dataset schema...",
+            },
         )
 
         schema_info = TokenizationService.analyze_dataset_schema(dataset)
@@ -420,14 +369,14 @@ def tokenize_dataset_task(
 
         # Emit progress: 40%
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 40.0,
-                    "status": "processing",
-                    "message": f"Tokenizing {len(dataset)} samples using column '{text_column}'...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 40.0,
+                "status": "processing",
+                "message": f"Tokenizing {len(dataset)} samples using column '{text_column}'...",
+            },
         )
 
         # Define progress callback for tokenization
@@ -470,14 +419,14 @@ def tokenize_dataset_task(
 
         # Emit progress: 80%
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 80.0,
-                    "status": "processing",
-                    "message": "Calculating statistics...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 80.0,
+                "status": "processing",
+                "message": "Calculating statistics...",
+            },
         )
 
         # Calculate statistics
@@ -492,55 +441,56 @@ def tokenize_dataset_task(
 
         # Emit progress: 95%
         emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": 95.0,
-                    "status": "processing",
-                    "message": "Saving results...",
-                },
+            dataset_id,
+            "progress",
+            {
+                "dataset_id": dataset_id,
+                "progress": 95.0,
+                "status": "processing",
+                "message": "Saving results...",
+            },
         )
 
         # Update dataset with tokenization results
-        async def finalize_tokenization():
-            session = await self.get_session()
-
+        with self.get_db() as db:
             try:
+                dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                if not dataset_obj:
+                    raise ValueError(f"Dataset {dataset_id} not found")
+
                 # Update dataset metadata with tokenization stats and schema info
-                updates = DatasetUpdate(
-                    status=DatasetStatus.READY.value,
-                    progress=100.0,
-                    tokenized_path=str(tokenized_path),
-                    metadata={
-                        "schema": {
-                            "text_columns": schema_info["text_columns"],
-                            "column_info": schema_info["column_info"],
-                            "all_columns": schema_info["all_columns"],
-                            "is_multi_column": schema_info["is_multi_column"],
-                        },
-                        "tokenization": {
-                            "tokenizer_name": tokenizer_name,
-                            "text_column_used": text_column,
-                            "max_length": max_length,
-                            "stride": stride,
-                            "padding": padding,
-                            "truncation": truncation,
-                            "add_special_tokens": add_special_tokens,
-                            "return_attention_mask": return_attention_mask,
-                            "num_tokens": stats["num_tokens"],
-                            "avg_seq_length": stats["avg_seq_length"],
-                            "min_seq_length": stats["min_seq_length"],
-                            "max_seq_length": stats["max_seq_length"],
-                            "median_seq_length": stats["median_seq_length"],
-                            "vocab_size": stats["vocab_size"],
-                            "length_distribution": stats["length_distribution"],
-                            "split_distribution": stats.get("split_distribution"),
-                        }
+                dataset_obj.status = DatasetStatus.READY
+                dataset_obj.progress = 100.0
+                dataset_obj.tokenized_path = str(tokenized_path)
+                dataset_obj.metadata = {
+                    "schema": {
+                        "text_columns": schema_info["text_columns"],
+                        "column_info": schema_info["column_info"],
+                        "all_columns": schema_info["all_columns"],
+                        "is_multi_column": schema_info["is_multi_column"],
                     },
-                )
-                await DatasetService.update_dataset(session, dataset_uuid, updates)
-                await session.commit()
+                    "tokenization": {
+                        "tokenizer_name": tokenizer_name,
+                        "text_column_used": text_column,
+                        "max_length": max_length,
+                        "stride": stride,
+                        "padding": padding,
+                        "truncation": truncation,
+                        "add_special_tokens": add_special_tokens,
+                        "return_attention_mask": return_attention_mask,
+                        "num_tokens": stats["num_tokens"],
+                        "avg_seq_length": stats["avg_seq_length"],
+                        "min_seq_length": stats["min_seq_length"],
+                        "max_seq_length": stats["max_seq_length"],
+                        "median_seq_length": stats["median_seq_length"],
+                        "vocab_size": stats["vocab_size"],
+                        "length_distribution": stats["length_distribution"],
+                        "split_distribution": stats.get("split_distribution"),
+                    }
+                }
+
+                db.commit()
+                db.refresh(dataset_obj)
 
                 # Only emit "completed" event after successful database commit
                 emit_dataset_progress(
@@ -557,7 +507,7 @@ def tokenize_dataset_task(
 
             except Exception as commit_error:
                 # Rollback transaction on failure
-                await session.rollback()
+                db.rollback()
                 error_msg = f"Failed to save tokenization results: {str(commit_error)}"
                 print(f"Database commit error: {error_msg}")
 
@@ -575,8 +525,6 @@ def tokenize_dataset_task(
                 # Re-raise to trigger outer error handler
                 raise
 
-        loop.run_until_complete(finalize_tokenization())
-
         return {
             "dataset_id": dataset_id,
             "status": "ready",
@@ -588,23 +536,25 @@ def tokenize_dataset_task(
         error_message = f"Tokenization failed: {str(e)}"
         print(f"Dataset tokenization error: {error_message}")
 
-        async def handle_error():
-            await self.update_dataset_status(
-                UUID(dataset_id),
-                DatasetStatus.ERROR,
+        with self.get_db() as db:
+            self.update_progress(
+                db=db,
+                model_class=Dataset,
+                record_id=dataset_id,
+                progress=None,
+                status=DatasetStatus.ERROR.value,
                 error_message=error_message,
             )
-            emit_dataset_progress(
-                dataset_id,
-                "error",
-                {
-                    "dataset_id": dataset_id,
-                    "status": "error",
-                    "message": error_message,
-                },
-            )
 
-        loop.run_until_complete(handle_error())
+        emit_dataset_progress(
+            dataset_id,
+            "error",
+            {
+                "dataset_id": dataset_id,
+                "status": "error",
+                "message": error_message,
+            },
+        )
 
         # Retry with exponential backoff if not max retries
         # Formula: base_delay * (2 ** retry_count)
@@ -617,13 +567,113 @@ def tokenize_dataset_task(
 
         raise
 
-    finally:
-        loop.run_until_complete(self.close_session())
-        loop.close()
+
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
+    name="src.workers.dataset_tasks.cancel_dataset_download"
+)
+def cancel_dataset_download(self, dataset_id: str, task_id: Optional[str] = None):
+    """
+    Cancel an in-progress dataset download or tokenization.
+
+    This task:
+    1. Revokes the Celery task if task_id provided
+    2. Updates dataset status to ERROR with "Cancelled by user"
+    3. Cleans up partial download/tokenization files
+    4. Sends WebSocket notification
+
+    Args:
+        dataset_id: Dataset UUID
+        task_id: Optional Celery task ID to revoke
+
+    Returns:
+        dict with cancellation status
+    """
+    import logging
+    import shutil
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        logger.info(f"Cancelling download/processing for dataset {dataset_id}")
+
+        dataset_uuid = UUID(dataset_id)
+
+        # Get dataset from database
+        with self.get_db() as db:
+            dataset = db.query(Dataset).filter_by(id=dataset_uuid).first()
+
+            if not dataset:
+                return {"error": f"Dataset {dataset_id} not found"}
+
+            # Check if dataset is in a cancellable state
+            if dataset.status not in [DatasetStatus.DOWNLOADING, DatasetStatus.PROCESSING]:
+                return {
+                    "error": f"Dataset {dataset_id} is not in a cancellable state (status: {dataset.status.value})"
+                }
+
+            # Revoke the Celery task if task_id provided
+            if task_id:
+                from celery import current_app
+                current_app.control.revoke(task_id, terminate=True)
+                logger.info(f"Revoked Celery task {task_id} for dataset {dataset_id}")
+
+            # Clean up partial download files
+            if dataset.raw_path:
+                raw_path = Path(dataset.raw_path)
+                if raw_path.exists():
+                    try:
+                        shutil.rmtree(raw_path)
+                        logger.info(f"Cleaned up raw dataset files: {raw_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up raw files {raw_path}: {e}")
+
+            # Clean up partial tokenization files
+            if dataset.tokenized_path:
+                tokenized_path = Path(dataset.tokenized_path)
+                if tokenized_path.exists():
+                    try:
+                        shutil.rmtree(tokenized_path)
+                        logger.info(f"Cleaned up tokenized files: {tokenized_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up tokenized files {tokenized_path}: {e}")
+
+            # Update dataset status
+            dataset.status = DatasetStatus.ERROR
+            dataset.error_message = "Cancelled by user"
+            dataset.progress = 0.0
+            db.commit()
+
+        # Send WebSocket notification
+        emit_dataset_progress(
+            dataset_id,
+            "error",
+            {
+                "dataset_id": dataset_id,
+                "progress": 0.0,
+                "status": "error",
+                "message": "Download/processing cancelled by user"
+            }
+        )
+
+        logger.info(f"Successfully cancelled download/processing for dataset {dataset_id}")
+
+        return {
+            "dataset_id": dataset_id,
+            "status": "cancelled",
+            "message": "Download/processing cancelled successfully"
+        }
+
+    except Exception as e:
+        error_msg = f"Failed to cancel download/processing for dataset {dataset_id}: {str(e)}"
+        logger.error(error_msg)
+        return {"error": error_msg}
 
 
 # Export tasks
 __all__ = [
     "download_dataset_task",
     "tokenize_dataset_task",
+    "cancel_dataset_download",
 ]

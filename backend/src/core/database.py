@@ -1,19 +1,22 @@
 """
 Database connection and session management for MechInterp Studio.
 
-This module provides async SQLAlchemy engine and session factories using
-SQLAlchemy 2.0+ with asyncpg driver for PostgreSQL.
+This module provides both async and sync SQLAlchemy engines and session factories.
+- Async sessions for FastAPI endpoints (asyncpg driver)
+- Sync sessions for Celery workers (psycopg2 driver)
 """
 
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Generator
+from contextlib import contextmanager
 
+from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     create_async_engine,
     async_sessionmaker,
 )
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.pool import NullPool, QueuePool
 
 from .config import settings
@@ -166,3 +169,93 @@ async def check_db_connection() -> bool:
         return True
     except Exception:
         return False
+
+
+# ============================================================================
+# Synchronous Database Sessions (for Celery Workers)
+# ============================================================================
+
+
+def create_sync_engine_instance():
+    """
+    Create synchronous SQLAlchemy engine for Celery workers.
+
+    Returns:
+        Engine: Configured sync database engine
+
+    Configuration:
+        - Uses psycopg2 driver for PostgreSQL
+        - QueuePool for connection pooling (pool_size=5, max_overflow=10)
+        - Echo SQL in development mode
+        - Pool pre-ping to check connection health
+
+    Notes:
+        - Celery workers run in separate processes and need sync sessions
+        - Connection pooling is safe for sync engines
+    """
+    # Convert async URL (asyncpg) to sync URL (psycopg2)
+    sync_url = str(settings.database_url).replace('+asyncpg', '')
+
+    engine = create_sync_engine(
+        sync_url,
+        echo=settings.is_development,  # Log SQL in development
+        pool_pre_ping=True,  # Verify connections before using
+        poolclass=QueuePool,  # Standard connection pooling for sync
+        pool_size=5,  # Number of connections to keep in pool
+        max_overflow=10,  # Max connections beyond pool_size
+        connect_args={
+            "application_name": "mistudio_celery",
+        },
+    )
+
+    return engine
+
+
+# Global sync engine instance for Celery workers
+sync_engine = create_sync_engine_instance()
+
+# Sync session factory for creating new sessions
+SyncSessionLocal = sessionmaker(
+    bind=sync_engine,
+    class_=Session,
+    expire_on_commit=False,  # Don't expire objects after commit
+    autocommit=False,  # Manual commit control
+    autoflush=False,  # Manual flush control
+)
+
+
+@contextmanager
+def get_sync_db() -> Generator[Session, None, None]:
+    """
+    Context manager for Celery workers to get sync database sessions.
+
+    Yields:
+        Session: Database session
+
+    Usage:
+        ```python
+        from app.core.database import get_sync_db
+
+        @celery_app.task
+        def process_dataset(dataset_id: str):
+            with get_sync_db() as db:
+                dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+                # ... process dataset ...
+                db.commit()
+        ```
+
+    Notes:
+        - Session is automatically closed after use
+        - Exceptions trigger rollback
+        - Successful completion triggers commit
+        - Use this instead of async sessions in Celery tasks
+    """
+    session = SyncSessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

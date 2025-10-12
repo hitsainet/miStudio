@@ -12,12 +12,9 @@ import time
 from pathlib import Path
 from typing import Optional, List
 
-from celery import shared_task
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
+from ..core.celery_app import celery_app
 from ..core.config import settings
-from ..core.websocket import ws_manager
+from ..core.database import get_sync_db
 from ..ml.model_loader import (
     load_model_from_hf,
     ModelLoadError,
@@ -26,13 +23,10 @@ from ..ml.model_loader import (
 from ..models.model import Model, ModelStatus, QuantizationFormat
 from ..services.model_service import ModelService
 from ..services.activation_service import ActivationService, ActivationExtractionError
+from .base_task import DatabaseTask
 from .websocket_emitter import emit_model_progress, emit_extraction_progress
 
 logger = logging.getLogger(__name__)
-
-# Create synchronous database session for Celery tasks
-sync_engine = create_engine(str(settings.database_url_sync))
-SyncSessionLocal = sessionmaker(bind=sync_engine, autoflush=False, autocommit=False)
 
 
 def get_directory_size(path: Path) -> int:
@@ -114,12 +108,11 @@ class DownloadProgressMonitor:
 
                     # Update database
                     try:
-                        db = SyncSessionLocal()
-                        model = db.query(Model).filter_by(id=self.model_id).first()
-                        if model:
-                            model.progress = progress
-                            db.commit()
-                        db.close()
+                        with get_sync_db() as db:
+                            model = db.query(Model).filter_by(id=self.model_id).first()
+                            if model:
+                                model.progress = progress
+                                db.commit()
                     except Exception as db_e:
                         logger.warning(f"[ProgressMonitor] Failed to update database: {db_e}")
 
@@ -169,9 +162,10 @@ def send_progress_update(model_id: str, progress: float, status: str, message: s
     )
 
 
-@shared_task(
-    name="workers.model_tasks.download_and_load_model",
+@celery_app.task(
     bind=True,
+    base=DatabaseTask,
+    name="workers.model_tasks.download_and_load_model",
     max_retries=3,
     default_retry_delay=300,  # 5 minutes
     queue="processing",
@@ -204,8 +198,6 @@ def download_and_load_model(
     Returns:
         dict with model metadata
     """
-    db = SyncSessionLocal()
-
     try:
         logger.info(f"Starting model download: {model_id} from {repo_id}")
 
@@ -213,14 +205,15 @@ def download_and_load_model(
         quant_format = QuantizationFormat(quantization)
 
         # Update status to DOWNLOADING
-        model = db.query(Model).filter_by(id=model_id).first()
+        with self.get_db() as db:
+            model = db.query(Model).filter_by(id=model_id).first()
 
-        if not model:
-            raise ModelLoadError(f"Model {model_id} not found in database")
+            if not model:
+                raise ModelLoadError(f"Model {model_id} not found in database")
 
-        model.status = ModelStatus.DOWNLOADING
-        model.progress = 0.0
-        db.commit()
+            model.status = ModelStatus.DOWNLOADING
+            model.progress = 0.0
+            db.commit()
 
         # Send initial progress
         send_progress_update(
@@ -288,9 +281,13 @@ def download_and_load_model(
 
         except OutOfMemoryError as e:
             logger.error(f"Out of memory loading model {model_id}: {e}")
-            model.status = ModelStatus.ERROR
-            model.error_message = str(e)
-            db.commit()
+
+            with self.get_db() as db:
+                model = db.query(Model).filter_by(id=model_id).first()
+                if model:
+                    model.status = ModelStatus.ERROR
+                    model.error_message = str(e)
+                    db.commit()
 
             send_progress_update(
                 model_id=model_id,
@@ -302,9 +299,13 @@ def download_and_load_model(
 
         except Exception as e:
             logger.error(f"Failed to load model {model_id}: {e}")
-            model.status = ModelStatus.ERROR
-            model.error_message = f"Failed to load model: {str(e)}"
-            db.commit()
+
+            with self.get_db() as db:
+                model = db.query(Model).filter_by(id=model_id).first()
+                if model:
+                    model.status = ModelStatus.ERROR
+                    model.error_message = f"Failed to load model: {str(e)}"
+                    db.commit()
 
             send_progress_update(
                 model_id=model_id,
@@ -327,17 +328,20 @@ def download_and_load_model(
             quantized_path = str(settings.models_dir / "quantized" / f"{model_id}_{quant_format.value}")
 
         # Update model in database with all metadata
-        model.architecture = metadata["architecture"]
-        model.params_count = metadata["params_count"]
-        model.architecture_config = metadata["architecture_config"]
-        model.memory_required_bytes = metadata["memory_required_bytes"]
-        model.disk_size_bytes = disk_size
-        model.file_path = str(cache_dir)
-        model.quantized_path = quantized_path
-        model.status = ModelStatus.READY
-        model.progress = 100.0
-        model.error_message = None
-        db.commit()
+        with self.get_db() as db:
+            model = db.query(Model).filter_by(id=model_id).first()
+            if model:
+                model.architecture = metadata["architecture"]
+                model.params_count = metadata["params_count"]
+                model.architecture_config = metadata["architecture_config"]
+                model.memory_required_bytes = metadata["memory_required_bytes"]
+                model.disk_size_bytes = disk_size
+                model.file_path = str(cache_dir)
+                model.quantized_path = quantized_path
+                model.status = ModelStatus.READY
+                model.progress = 100.0
+                model.error_message = None
+                db.commit()
 
         logger.info(f"Model {model_id} successfully loaded and ready")
 
@@ -363,11 +367,12 @@ def download_and_load_model(
 
         # Update database with error
         try:
-            model = db.query(Model).filter_by(id=model_id).first()
-            if model:
-                model.status = ModelStatus.ERROR
-                model.error_message = str(exc)
-                db.commit()
+            with self.get_db() as db:
+                model = db.query(Model).filter_by(id=model_id).first()
+                if model:
+                    model.status = ModelStatus.ERROR
+                    model.error_message = str(exc)
+                    db.commit()
         except Exception as db_exc:
             logger.error(f"Failed to update error state in database: {db_exc}")
 
@@ -378,11 +383,8 @@ def download_and_load_model(
 
         raise
 
-    finally:
-        db.close()
 
-
-@shared_task(name="workers.model_tasks.delete_model_files")
+@celery_app.task(name="workers.model_tasks.delete_model_files")
 def delete_model_files(model_id: str, file_path: Optional[str] = None, quantized_path: Optional[str] = None):
     """
     Delete model files from disk after database deletion.
@@ -431,8 +433,12 @@ def delete_model_files(model_id: str, file_path: Optional[str] = None, quantized
         }
 
 
-@shared_task(name="workers.model_tasks.update_model_progress")
-def update_model_progress(model_id: str, progress: float, status: Optional[str] = None):
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
+    name="workers.model_tasks.update_model_progress"
+)
+def update_model_progress(self, model_id: str, progress: float, status: Optional[str] = None):
     """
     Update model download/loading progress in database.
 
@@ -446,26 +452,25 @@ def update_model_progress(model_id: str, progress: float, status: Optional[str] 
     Returns:
         dict with update status
     """
-    db = SyncSessionLocal()
-
     try:
-        model = db.query(Model).filter_by(id=model_id).first()
+        with self.get_db() as db:
+            model = db.query(Model).filter_by(id=model_id).first()
 
-        if not model:
-            logger.warning(f"Model {model_id} not found for progress update")
-            return {"error": "Model not found"}
+            if not model:
+                logger.warning(f"Model {model_id} not found for progress update")
+                return {"error": "Model not found"}
 
-        model.progress = progress
-        if status:
-            model.status = ModelStatus(status)
+            model.progress = progress
+            if status:
+                model.status = ModelStatus(status)
 
-        db.commit()
+            db.commit()
 
         # Send WebSocket update
         send_progress_update(
             model_id=model_id,
             progress=progress,
-            status=status or model.status.value,
+            status=status or model.status.value if model else "unknown",
             message=f"Progress: {progress:.1f}%"
         )
 
@@ -475,13 +480,11 @@ def update_model_progress(model_id: str, progress: float, status: Optional[str] 
         logger.error(f"Failed to update progress for model {model_id}: {e}")
         return {"error": str(e)}
 
-    finally:
-        db.close()
 
-
-@shared_task(
-    name="workers.model_tasks.extract_activations",
+@celery_app.task(
     bind=True,
+    base=DatabaseTask,
+    name="workers.model_tasks.extract_activations",
     max_retries=2,
     default_retry_delay=60,
     queue="extraction",
@@ -523,8 +526,6 @@ def extract_activations(
         ActivationExtractionError: If extraction fails
         OutOfMemoryError: If GPU runs out of memory
     """
-    db = SyncSessionLocal()
-
     try:
         logger.info(
             f"Starting activation extraction for model {model_id}, "
@@ -532,14 +533,20 @@ def extract_activations(
         )
 
         # Get model from database
-        model = db.query(Model).filter_by(id=model_id).first()
-        if not model:
-            raise ActivationExtractionError(f"Model {model_id} not found in database")
+        with self.get_db() as db:
+            model = db.query(Model).filter_by(id=model_id).first()
+            if not model:
+                raise ActivationExtractionError(f"Model {model_id} not found in database")
 
-        if model.status != ModelStatus.READY:
-            raise ActivationExtractionError(
-                f"Model {model_id} is not ready (status: {model.status.value})"
-            )
+            if model.status != ModelStatus.READY:
+                raise ActivationExtractionError(
+                    f"Model {model_id} is not ready (status: {model.status.value})"
+                )
+
+            # Get model file paths before closing session
+            model_file_path = model.file_path
+            model_architecture = model.architecture
+            model_quantization = model.quantization
 
         # Get dataset path (assuming we have a Dataset model similar to Model)
         # For now, we'll construct the path from dataset_id
@@ -581,9 +588,9 @@ def extract_activations(
             # Run extraction
             result = activation_service.extract_activations(
                 model_id=model_id,
-                model_path=model.file_path,
-                architecture=model.architecture,
-                quantization=model.quantization,
+                model_path=model_file_path,
+                architecture=model_architecture,
+                quantization=model_quantization,
                 dataset_path=dataset_path,
                 layer_indices=layer_indices,
                 hook_types=hook_types,
@@ -689,12 +696,13 @@ def extract_activations(
 
         raise
 
-    finally:
-        db.close()
 
-
-@shared_task(name="workers.model_tasks.cancel_download")
-def cancel_download(model_id: str, task_id: Optional[str] = None):
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
+    name="workers.model_tasks.cancel_download"
+)
+def cancel_download(self, model_id: str, task_id: Optional[str] = None):
     """
     Cancel an in-progress model download.
 
@@ -711,44 +719,43 @@ def cancel_download(model_id: str, task_id: Optional[str] = None):
     Returns:
         dict with cancellation status
     """
-    db = SyncSessionLocal()
-
     try:
         logger.info(f"Cancelling download for model {model_id}")
 
         # Get model from database
-        model = db.query(Model).filter_by(id=model_id).first()
+        with self.get_db() as db:
+            model = db.query(Model).filter_by(id=model_id).first()
 
-        if not model:
-            return {"error": f"Model {model_id} not found"}
+            if not model:
+                return {"error": f"Model {model_id} not found"}
 
-        # Check if model is in a cancellable state
-        if model.status not in [ModelStatus.DOWNLOADING, ModelStatus.LOADING, ModelStatus.QUANTIZING]:
-            return {
-                "error": f"Model {model_id} is not in a cancellable state (status: {model.status.value})"
-            }
+            # Check if model is in a cancellable state
+            if model.status not in [ModelStatus.DOWNLOADING, ModelStatus.LOADING, ModelStatus.QUANTIZING]:
+                return {
+                    "error": f"Model {model_id} is not in a cancellable state (status: {model.status.value})"
+                }
 
-        # Revoke the Celery task if task_id provided
-        if task_id:
-            from celery import current_app
-            current_app.control.revoke(task_id, terminate=True)
-            logger.info(f"Revoked Celery task {task_id} for model {model_id}")
+            # Revoke the Celery task if task_id provided
+            if task_id:
+                from celery import current_app
+                current_app.control.revoke(task_id, terminate=True)
+                logger.info(f"Revoked Celery task {task_id} for model {model_id}")
 
-        # Clean up partial download files
-        cache_dir = settings.models_dir / "raw" / model_id
-        if cache_dir.exists():
-            import shutil
-            try:
-                shutil.rmtree(cache_dir)
-                logger.info(f"Cleaned up cache directory: {cache_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up cache directory {cache_dir}: {e}")
+            # Clean up partial download files
+            cache_dir = settings.models_dir / "raw" / model_id
+            if cache_dir.exists():
+                import shutil
+                try:
+                    shutil.rmtree(cache_dir)
+                    logger.info(f"Cleaned up cache directory: {cache_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up cache directory {cache_dir}: {e}")
 
-        # Update model status
-        model.status = ModelStatus.ERROR
-        model.error_message = "Cancelled by user"
-        model.progress = 0.0
-        db.commit()
+            # Update model status
+            model.status = ModelStatus.ERROR
+            model.error_message = "Cancelled by user"
+            model.progress = 0.0
+            db.commit()
 
         # Send WebSocket notification
         send_progress_update(
@@ -770,6 +777,3 @@ def cancel_download(model_id: str, task_id: Optional[str] = None):
         error_msg = f"Failed to cancel download for model {model_id}: {str(e)}"
         logger.error(error_msg)
         return {"error": error_msg}
-
-    finally:
-        db.close()

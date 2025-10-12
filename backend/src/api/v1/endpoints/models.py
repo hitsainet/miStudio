@@ -4,10 +4,13 @@ Model API endpoints.
 This module contains all FastAPI routes for model management operations.
 """
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from ....core.deps import get_db
 from ....models.model import ModelStatus, QuantizationFormat
@@ -19,7 +22,7 @@ from ....schemas.model import (
     ActivationExtractionRequest,
 )
 from ....services.model_service import ModelService
-from ....workers.model_tasks import download_and_load_model, extract_activations
+from ....workers.model_tasks import download_and_load_model, extract_activations, delete_model_files
 from ....core.celery_app import celery_app
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -242,7 +245,10 @@ async def delete_model(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Delete a model.
+    Delete a model and queue file cleanup task.
+
+    This endpoint deletes the model record from the database and queues
+    a background task to remove associated files from disk.
 
     Args:
         model_id: Model ID (string format: m_{uuid})
@@ -251,13 +257,26 @@ async def delete_model(
     Raises:
         HTTPException: If model not found
     """
-    deleted = await ModelService.delete_model(db, model_id)
+    result = await ModelService.delete_model(db, model_id)
 
-    if not deleted:
+    if not result:
         raise HTTPException(
             status_code=404,
             detail=f"Model '{model_id}' not found"
         )
+
+    # Queue background file cleanup task
+    try:
+        delete_model_files.delay(
+            model_id=result["model_id"],
+            file_path=result.get("file_path"),
+            quantized_path=result.get("quantized_path")
+        )
+        logger.info(f"Queued file cleanup for model {model_id}")
+    except Exception as e:
+        # Log error but don't fail the deletion
+        # (database record is already deleted)
+        logger.error(f"Failed to queue file cleanup for model {model_id}: {e}")
 
 
 @router.post("/{model_id}/extract-activations", status_code=202)

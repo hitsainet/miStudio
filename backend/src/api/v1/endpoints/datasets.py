@@ -329,6 +329,72 @@ async def tokenize_dataset(
     return dataset
 
 
+@router.delete("/{dataset_id}/cancel", status_code=200)
+async def cancel_dataset_download(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an in-progress dataset download or tokenization.
+
+    This endpoint cancels the processing task, cleans up partial files,
+    and updates the dataset status to ERROR with "Cancelled by user".
+
+    Args:
+        dataset_id: Dataset UUID
+        db: Database session
+
+    Returns:
+        Cancellation status
+
+    Raises:
+        HTTPException: If dataset not found or not in cancellable state
+    """
+    from ....workers.dataset_tasks import cancel_dataset_download as cancel_task
+
+    # Verify dataset exists
+    dataset = await DatasetService.get_dataset(db, dataset_id)
+
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} not found"
+        )
+
+    # Check if dataset is in a cancellable state
+    if dataset.status not in [DatasetStatus.DOWNLOADING, DatasetStatus.PROCESSING]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset {dataset_id} cannot be cancelled (status: {dataset.status.value})"
+        )
+
+    try:
+        # Call cancel_dataset_download task (runs synchronously for immediate response)
+        # Note: We don't have task_id stored, so we can't revoke the specific task
+        # Instead, the cancel task will clean up files and update database
+        result = cancel_task(dataset_id=str(dataset_id))
+
+        if "error" in result:
+            raise HTTPException(
+                status_code=500,
+                detail=result["error"]
+            )
+
+        return {
+            "dataset_id": str(dataset_id),
+            "status": "cancelled",
+            "message": "Download/processing cancelled successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to cancel download/processing: {str(e)}"
+        )
+
+
 @router.get("/{dataset_id}/samples")
 async def get_dataset_samples(
     dataset_id: UUID,

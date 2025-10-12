@@ -1,14 +1,27 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DatasetsPanel } from './components/panels/DatasetsPanel';
+import { ModelsPanel } from './components/panels/ModelsPanel';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
 import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
 
+type ActivePanel = 'datasets' | 'models';
+
 function AppContent() {
   const ws = useWebSocketContext();
+  // Restore active panel from localStorage, default to 'datasets'
+  const [activePanel, setActivePanel] = useState<ActivePanel>(() => {
+    const saved = localStorage.getItem('activePanel');
+    return (saved === 'models' || saved === 'datasets') ? saved : 'datasets';
+  });
 
   // Set up global dataset progress tracking
   useGlobalDatasetProgress();
+
+  // Save active panel to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('activePanel', activePanel);
+  }, [activePanel]);
 
   // Wire up the subscription callback so the store can subscribe proactively
   useEffect(() => {
@@ -26,8 +39,44 @@ function AppContent() {
           <p className="text-sm text-slate-400">Edge AI Feature Discovery Platform</p>
         </div>
       </header>
+
+      {/* Navigation Tabs */}
+      <nav className="border-b border-slate-800 bg-slate-900/30">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setActivePanel('datasets')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'datasets'
+                  ? 'text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Datasets
+              {activePanel === 'datasets' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+              )}
+            </button>
+            <button
+              onClick={() => setActivePanel('models')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'models'
+                  ? 'text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Models
+              {activePanel === 'models' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+              )}
+            </button>
+          </div>
+        </div>
+      </nav>
+
       <main>
-        <DatasetsPanel />
+        {activePanel === 'datasets' && <DatasetsPanel />}
+        {activePanel === 'models' && <ModelsPanel />}
       </main>
     </div>
   );

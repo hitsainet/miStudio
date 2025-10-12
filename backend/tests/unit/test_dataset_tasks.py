@@ -18,6 +18,7 @@ from src.workers.dataset_tasks import (
     tokenize_dataset_task,
     DatasetTask,
 )
+from src.workers.websocket_emitter import emit_dataset_progress
 from src.models.dataset import Dataset, DatasetStatus
 from src.schemas.dataset import DatasetUpdate
 
@@ -50,10 +51,11 @@ class TestDatasetTaskBase:
 
         assert task._session is None
 
-    @patch('httpx.Client')
-    def test_emit_progress(self, mock_client_class):
-        """Test WebSocket progress emission via HTTP."""
-        task = DatasetTask()
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
+    def test_emit_progress(self, mock_settings, mock_client_class):
+        """Test WebSocket progress emission via HTTP using shared emitter."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         mock_client = Mock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -63,7 +65,7 @@ class TestDatasetTaskBase:
         mock_client_class.return_value = mock_client
 
         dataset_id = str(uuid4())
-        task.emit_progress(
+        emit_dataset_progress(
             dataset_id,
             "progress",
             {"progress": 50.0, "message": "Test message"}
@@ -77,10 +79,11 @@ class TestDatasetTaskBase:
         assert call_args[1]['json']['event'] == "progress"
         assert call_args[1]['json']['data']['progress'] == 50.0
 
-    @patch('httpx.Client')
-    def test_emit_progress_failure(self, mock_client_class):
-        """Test WebSocket emission handles errors gracefully."""
-        task = DatasetTask()
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
+    def test_emit_progress_failure(self, mock_settings, mock_client_class):
+        """Test WebSocket emission handles errors gracefully using shared emitter."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         mock_client = Mock()
         mock_client.post.side_effect = Exception("Network error")
         mock_client.__enter__ = Mock(return_value=mock_client)
@@ -88,11 +91,14 @@ class TestDatasetTaskBase:
         mock_client_class.return_value = mock_client
 
         # Should not raise exception
-        task.emit_progress(
+        result = emit_dataset_progress(
             str(uuid4()),
             "progress",
             {"progress": 50.0}
         )
+
+        # Verify it returned False (failed but didn't raise)
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_update_dataset_status(self):
@@ -125,15 +131,18 @@ class TestDownloadDatasetTask:
 
     @patch('src.workers.dataset_tasks.load_dataset')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_download_dataset_success(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_load_dataset
     ):
         """Test successful dataset download."""
         # Setup mocks
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
         repo_id = "test/dataset"
 
@@ -179,14 +188,17 @@ class TestDownloadDatasetTask:
 
     @patch('src.workers.dataset_tasks.load_dataset')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_download_dataset_with_config_and_split(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_load_dataset
     ):
         """Test dataset download with specific config and split."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
         repo_id = "test/dataset"
         config = "default"
@@ -224,14 +236,17 @@ class TestDownloadDatasetTask:
 
     @patch('src.workers.dataset_tasks.load_dataset')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_download_dataset_failure(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_load_dataset
     ):
         """Test dataset download error handling."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
         repo_id = "test/nonexistent"
 
@@ -265,14 +280,17 @@ class TestDownloadDatasetTask:
 
     @patch('src.workers.dataset_tasks.load_dataset')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_download_dataset_database_commit_failure(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_load_dataset
     ):
         """Test handling of database commit failure."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
         repo_id = "test/dataset"
 
@@ -309,14 +327,17 @@ class TestTokenizeDatasetTask:
 
     @patch('src.workers.dataset_tasks.TokenizationService')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_tokenize_dataset_success(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_tokenization_service
     ):
         """Test successful dataset tokenization."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
         tokenizer_name = "gpt2"
         max_length = 512
@@ -356,7 +377,10 @@ class TestTokenizeDatasetTask:
             'num_tokens': 250000,
             'avg_seq_length': 250.5,
             'min_seq_length': 10,
-            'max_seq_length': 512
+            'max_seq_length': 512,
+            'median_seq_length': 245,
+            'vocab_size': 50257,
+            'length_distribution': {'100': 50, '200': 200, '300': 400, '400': 250, '500': 100}
         }
         mock_tokenization_service.calculate_statistics.return_value = mock_stats
         mock_tokenization_service.save_tokenized_dataset.return_value = None
@@ -392,14 +416,17 @@ class TestTokenizeDatasetTask:
 
     @patch('src.workers.dataset_tasks.TokenizationService')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_tokenize_dataset_with_dataset_dict(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_tokenization_service
     ):
         """Test tokenization with DatasetDict (multi-split dataset)."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
 
         # Mock dataset in database
@@ -433,7 +460,7 @@ class TestTokenizeDatasetTask:
         mock_tokenization_service.tokenize_dataset.return_value = mock_tokenized
 
         # Mock statistics
-        mock_stats = {'num_tokens': 200000, 'avg_seq_length': 250.0, 'min_seq_length': 10, 'max_seq_length': 512}
+        mock_stats = {'num_tokens': 200000, 'avg_seq_length': 250.0, 'min_seq_length': 10, 'max_seq_length': 512, 'median_seq_length': 240, 'vocab_size': 50257, 'length_distribution': {'100': 40, '200': 160, '300': 320, '400': 200, '500': 80}}
         mock_tokenization_service.calculate_statistics.return_value = mock_stats
         mock_tokenization_service.save_tokenized_dataset.return_value = None
 
@@ -454,14 +481,17 @@ class TestTokenizeDatasetTask:
 
     @patch('src.workers.dataset_tasks.TokenizationService')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_tokenize_dataset_no_text_column(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_tokenization_service
     ):
         """Test tokenization failure when no text column found."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
 
         # Mock dataset in database
@@ -505,14 +535,17 @@ class TestTokenizeDatasetTask:
 
     @patch('src.workers.dataset_tasks.TokenizationService')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_tokenize_dataset_not_found(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_tokenization_service
     ):
         """Test tokenization when dataset not found in database."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
 
         # Mock dataset not found
@@ -536,14 +569,17 @@ class TestTokenizeDatasetTask:
 
     @patch('src.workers.dataset_tasks.TokenizationService')
     @patch('src.workers.dataset_tasks.DatasetService')
-    @patch('httpx.Client')
+    @patch('src.workers.websocket_emitter.httpx.Client')
+    @patch('src.workers.websocket_emitter.settings')
     def test_tokenize_dataset_statistics_failure(
         self,
+        mock_settings,
         mock_client_class,
         mock_service,
         mock_tokenization_service
     ):
         """Test handling of statistics calculation failure."""
+        mock_settings.websocket_emit_url = "http://localhost:8000/api/internal/ws/emit"
         dataset_id = str(uuid4())
 
         # Mock dataset in database

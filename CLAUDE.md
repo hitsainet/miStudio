@@ -20,6 +20,47 @@ Key aspects (load full file only when needed):
 
 All implementation MUST match the Mock UI specification exactly.
 
+## Application Startup
+
+### Complete Startup (All Services)
+```bash
+# ONE COMMAND to start everything:
+./start-mistudio.sh
+
+# This starts (in order):
+# 1. Docker services (PostgreSQL, Redis, Nginx)
+# 2. Celery worker
+# 3. Backend (FastAPI on port 8000)
+# 4. Frontend (Vite on port 3000)
+#
+# Access at: http://mistudio.mcslab.io
+```
+
+**IMPORTANT**: Before first run, add domain to /etc/hosts:
+```bash
+sudo bash -c 'echo "127.0.0.1  mistudio.mcslab.io" >> /etc/hosts'
+```
+
+### Stop All Services
+```bash
+./stop-mistudio.sh
+```
+
+### Service Status Check
+```bash
+# Check all services:
+docker ps  # Should show: mistudio-postgres, mistudio-redis, mistudio-nginx
+lsof -i :8000  # Backend should be running
+lsof -i :3000  # Frontend should be running
+pgrep -f celery  # Celery worker should be running
+
+# Access points:
+# - Main app: http://mistudio.mcslab.io
+# - Frontend direct: http://localhost:3000
+# - Backend direct: http://localhost:8000
+# - API docs: http://localhost:8000/docs
+```
+
 ## Quick Resume Commands
 
 ### Lean Session Start (Recommended)

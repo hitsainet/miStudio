@@ -28,6 +28,8 @@ SUPPORTED_ARCHITECTURES = {
     "gpt2",
     "gpt_neox",
     "phi",
+    "phi3",  # Phi-3 and Phi-4 models
+    "phi3_v",  # Phi-3 Vision models
     "pythia",
     "mistral",
     "mixtral",

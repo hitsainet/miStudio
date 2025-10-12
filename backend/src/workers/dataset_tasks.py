@@ -6,7 +6,6 @@ and tokenizing datasets with real-time progress updates via WebSocket.
 """
 
 import asyncio
-import httpx
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
@@ -23,6 +22,7 @@ from ..models.dataset import DatasetStatus
 from ..schemas.dataset import DatasetUpdate
 from ..services.dataset_service import DatasetService
 from ..services.tokenization_service import TokenizationService
+from .websocket_emitter import emit_dataset_progress
 
 
 class DatasetTask(Task):
@@ -43,41 +43,6 @@ class DatasetTask(Task):
         if self._session:
             await self._session.close()
             self._session = None
-
-    def emit_progress(
-        self,
-        dataset_id: str,
-        event: str,
-        data: dict,
-    ):
-        """
-        Emit progress update via WebSocket through HTTP callback.
-
-        Args:
-            dataset_id: Dataset UUID
-            event: Event type (progress, completed, error)
-            data: Event data payload
-        """
-        channel = f"datasets/{dataset_id}/progress"
-
-        try:
-            # Use httpx synchronous client to call the FastAPI internal endpoint
-            # Use configured WebSocket emit URL (supports both local and Docker deployments)
-            api_url = settings.websocket_emit_url
-
-            with httpx.Client() as client:
-                response = client.post(
-                    api_url,
-                    json={
-                        "channel": channel,
-                        "event": event,
-                        "data": data,
-                    },
-                    timeout=1.0,
-                )
-                print(f"WebSocket emit: {event} to {channel} - Status: {response.status_code}")
-        except Exception as e:
-            print(f"Failed to emit WebSocket event: {e}")
 
     async def update_dataset_status(
         self,
@@ -146,7 +111,7 @@ def download_dataset_task(
         loop.run_until_complete(
             self.update_dataset_status(dataset_uuid, DatasetStatus.DOWNLOADING, progress=0.0)
         )
-        self.emit_progress(
+        emit_dataset_progress(
             dataset_id,
             "progress",
             {
@@ -164,7 +129,7 @@ def download_dataset_task(
 
         # Download dataset from HuggingFace
         # Note: load_dataset is synchronous but has its own progress
-        self.emit_progress(
+        emit_dataset_progress(
             dataset_id,
             "progress",
             {
@@ -185,7 +150,7 @@ def download_dataset_task(
         )
 
         # Update progress: saving to disk
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -200,7 +165,7 @@ def download_dataset_task(
         dataset.save_to_disk(str(raw_path))
 
         # Update progress
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -231,7 +196,7 @@ def download_dataset_task(
                 await session.commit()
 
                 # Only emit "completed" event after successful database commit
-                self.emit_progress(
+                emit_dataset_progress(
                     dataset_id,
                     "completed",
                     {
@@ -251,7 +216,7 @@ def download_dataset_task(
                 print(f"Database commit error: {error_msg}")
 
                 # Emit error event instead of success
-                self.emit_progress(
+                emit_dataset_progress(
                     dataset_id,
                     "error",
                     {
@@ -285,7 +250,7 @@ def download_dataset_task(
                 DatasetStatus.ERROR,
                 error_message=error_message,
             )
-            self.emit_progress(
+            emit_dataset_progress(
                 dataset_id,
                 "error",
                 {
@@ -357,7 +322,7 @@ def tokenize_dataset_task(
         loop.run_until_complete(
             self.update_dataset_status(dataset_uuid, DatasetStatus.PROCESSING, progress=0.0)
         )
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -381,7 +346,7 @@ def tokenize_dataset_task(
         raw_path = loop.run_until_complete(get_dataset_info())
 
         # Emit progress: 10%
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -396,7 +361,7 @@ def tokenize_dataset_task(
         tokenizer = TokenizationService.load_tokenizer(tokenizer_name)
 
         # Emit progress: 20%
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -422,7 +387,7 @@ def tokenize_dataset_task(
                 dataset = dataset[first_split]
 
         # Analyze dataset schema to determine best text column
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -454,7 +419,7 @@ def tokenize_dataset_task(
         print(f"  Is multi-column: {schema_info['is_multi_column']}")
 
         # Emit progress: 40%
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -468,7 +433,7 @@ def tokenize_dataset_task(
         # Define progress callback for tokenization
         def tokenization_progress(progress_pct: float, message: str):
             """Report tokenization progress."""
-            self.emit_progress(
+            emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -504,7 +469,7 @@ def tokenize_dataset_task(
         )
 
         # Emit progress: 80%
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -526,7 +491,7 @@ def tokenize_dataset_task(
         )
 
         # Emit progress: 95%
-        self.emit_progress(
+        emit_dataset_progress(
                 dataset_id,
                 "progress",
                 {
@@ -578,7 +543,7 @@ def tokenize_dataset_task(
                 await session.commit()
 
                 # Only emit "completed" event after successful database commit
-                self.emit_progress(
+                emit_dataset_progress(
                     dataset_id,
                     "completed",
                     {
@@ -597,7 +562,7 @@ def tokenize_dataset_task(
                 print(f"Database commit error: {error_msg}")
 
                 # Emit error event instead of success
-                self.emit_progress(
+                emit_dataset_progress(
                     dataset_id,
                     "error",
                     {
@@ -629,7 +594,7 @@ def tokenize_dataset_task(
                 DatasetStatus.ERROR,
                 error_message=error_message,
             )
-            self.emit_progress(
+            emit_dataset_progress(
                 dataset_id,
                 "error",
                 {

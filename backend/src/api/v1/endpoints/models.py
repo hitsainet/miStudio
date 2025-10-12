@@ -16,9 +16,10 @@ from ....schemas.model import (
     ModelResponse,
     ModelListResponse,
     ModelDownloadRequest,
+    ActivationExtractionRequest,
 )
 from ....services.model_service import ModelService
-from ....workers.model_tasks import download_and_load_model
+from ....workers.model_tasks import download_and_load_model, extract_activations
 from ....core.celery_app import celery_app
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -65,7 +66,8 @@ async def download_model(
             model_id=model.id,
             repo_id=request.repo_id,
             quantization=request.quantization.value,
-            access_token=request.access_token
+            access_token=request.access_token,
+            trust_remote_code=request.trust_remote_code
         )
 
         return model
@@ -255,6 +257,136 @@ async def delete_model(
         raise HTTPException(
             status_code=404,
             detail=f"Model '{model_id}' not found"
+        )
+
+
+@router.post("/{model_id}/extract-activations", status_code=202)
+async def extract_model_activations(
+    model_id: str,
+    request: ActivationExtractionRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Extract activations from a model using a tokenized dataset.
+
+    This endpoint queues an activation extraction job via Celery.
+    The actual extraction happens asynchronously.
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        request: Extraction configuration (dataset_id, layers, hook_types, etc.)
+        db: Database session
+
+    Returns:
+        Job information with job_id for tracking
+
+    Raises:
+        HTTPException: If model not found or not ready
+    """
+    # Verify model exists and is ready
+    model = await ModelService.get_model(db, model_id)
+
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    if model.status != ModelStatus.READY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model_id}' is not ready (status: {model.status.value})"
+        )
+
+    try:
+        # Queue extraction job with Celery
+        task = extract_activations.delay(
+            model_id=model_id,
+            dataset_id=request.dataset_id,
+            layer_indices=request.layer_indices,
+            hook_types=request.hook_types,
+            max_samples=request.max_samples,
+            batch_size=request.batch_size or 8,
+        )
+
+        return {
+            "job_id": task.id,
+            "model_id": model_id,
+            "dataset_id": request.dataset_id,
+            "status": "queued",
+            "message": "Activation extraction job queued successfully"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to queue extraction job: {str(e)}"
+        )
+
+
+@router.delete("/{model_id}/cancel", status_code=200)
+async def cancel_model_download(
+    model_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an in-progress model download.
+
+    This endpoint cancels the download task, cleans up partial files,
+    and updates the model status to ERROR with "Cancelled by user".
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        db: Database session
+
+    Returns:
+        Cancellation status
+
+    Raises:
+        HTTPException: If model not found or not in cancellable state
+    """
+    from ....workers.model_tasks import cancel_download
+
+    # Verify model exists
+    model = await ModelService.get_model(db, model_id)
+
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    # Check if model is in a cancellable state
+    if model.status not in [ModelStatus.DOWNLOADING, ModelStatus.LOADING, ModelStatus.QUANTIZING]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model_id}' cannot be cancelled (status: {model.status.value})"
+        )
+
+    try:
+        # Call cancel_download task (runs synchronously for immediate response)
+        # Note: We don't have task_id stored, so we can't revoke the specific task
+        # Instead, the cancel task will clean up files and update database
+        result = cancel_download(model_id=model_id)
+
+        if "error" in result:
+            raise HTTPException(
+                status_code=500,
+                detail=result["error"]
+            )
+
+        return {
+            "model_id": model_id,
+            "status": "cancelled",
+            "message": "Download cancelled successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to cancel download: {str(e)}"
         )
 
 

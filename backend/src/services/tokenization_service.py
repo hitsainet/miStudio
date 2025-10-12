@@ -14,6 +14,81 @@ from transformers import AutoTokenizer
 logger = logging.getLogger(__name__)
 
 
+class _TokenizationMapper:
+    """
+    Picklable tokenization mapper for multiprocessing support.
+
+    This class encapsulates the tokenization logic in a way that can be
+    pickled for use with HuggingFace's multiprocessing. The tokenizer is
+    loaded lazily in each worker process to avoid pickling issues.
+    """
+
+    def __init__(
+        self,
+        tokenizer_name: str,
+        text_column: str,
+        max_length: int,
+        truncation: bool,
+        padding: str,
+        add_special_tokens: bool,
+        return_attention_mask: bool,
+        stride: int = 0,
+        return_overflowing_tokens: bool = False,
+    ):
+        """Initialize the tokenization mapper with parameters."""
+        self.tokenizer_name = tokenizer_name
+        self.text_column = text_column
+        self.max_length = max_length
+        self.truncation = truncation
+        self.padding = padding
+        self.add_special_tokens = add_special_tokens
+        self.return_attention_mask = return_attention_mask
+        self.stride = stride
+        self.return_overflowing_tokens = return_overflowing_tokens
+        self._tokenizer = None  # Lazy-loaded in worker process
+
+    def _get_tokenizer(self):
+        """Lazy-load tokenizer in worker process (avoids pickling issues)."""
+        if self._tokenizer is None:
+            self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
+            # Ensure tokenizer has padding token
+            if self._tokenizer.pad_token is None:
+                if self._tokenizer.eos_token is not None:
+                    self._tokenizer.pad_token = self._tokenizer.eos_token
+                else:
+                    self._tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+        return self._tokenizer
+
+    def __call__(self, examples):
+        """
+        Tokenize a batch of examples.
+
+        Note: Progress tracking is not supported in multiprocessing mode
+        because shared state between processes is complex. Progress tracking
+        only works when num_proc=1 (single process mode).
+        """
+        tokenizer = self._get_tokenizer()
+
+        kwargs = {
+            "max_length": self.max_length,
+            "truncation": self.truncation,
+            "padding": self.padding,
+            "add_special_tokens": self.add_special_tokens,
+            "return_attention_mask": self.return_attention_mask,
+        }
+
+        if self.stride > 0:
+            kwargs["stride"] = self.stride
+            kwargs["return_overflowing_tokens"] = self.return_overflowing_tokens
+
+        result = tokenizer(
+            examples[self.text_column],
+            **kwargs
+        )
+
+        return result
+
+
 class TokenizationService:
     """Service for tokenizing datasets with schema-aware column detection."""
 
@@ -135,91 +210,128 @@ class TokenizationService:
             return_attention_mask: Return attention mask
             batch_size: Batch size for tokenization
             progress_callback: Optional callback function(progress_pct, message) for progress updates
-            num_proc: Number of processes for parallel processing (None = auto, 1 = no multiprocessing)
+                              Note: Progress tracking only works in single-process mode (num_proc=1)
+            num_proc: Number of processes for parallel processing (None = auto, 1 = single-process)
 
         Returns:
             Tokenized dataset with 'input_ids', 'attention_mask', etc.
         """
-        # Track progress manually since dataset.map() doesn't provide callbacks
         total_samples = len(dataset)
-        processed_samples = 0
-
-        # Calculate total batches for more accurate progress reporting
-        total_batches = (total_samples + batch_size - 1) // batch_size  # Ceiling division
-        current_batch = 0
-
-        # Report progress every N batches (adjust based on dataset size)
-        # For small datasets: report every batch
-        # For medium datasets (10k+): report every 5 batches
-        # For large datasets (100k+): report every 10 batches
-        if total_samples < 10000:
-            report_interval = max(1, total_batches // 20)  # Report ~20 times total
-        elif total_samples < 100000:
-            report_interval = max(5, total_batches // 15)  # Report ~15 times
-        else:
-            report_interval = max(10, total_batches // 10)  # Report ~10 times
-
-        def tokenize_function(examples, indices):
-            """Tokenize a batch of examples and report progress."""
-            nonlocal processed_samples, current_batch
-
-            kwargs = {
-                "max_length": max_length,
-                "truncation": truncation,
-                "padding": padding,
-                "add_special_tokens": add_special_tokens,
-                "return_attention_mask": return_attention_mask,
-            }
-
-            if stride > 0:
-                kwargs["stride"] = stride
-                kwargs["return_overflowing_tokens"] = return_overflowing_tokens
-
-            result = tokenizer(
-                examples[text_column],
-                **kwargs
-            )
-
-            # Update progress tracking
-            current_batch += 1
-            batch_size_actual = len(examples[text_column])
-            processed_samples = min(processed_samples + batch_size_actual, total_samples)
-
-            # Calculate progress percentage (40% to 75% range for tokenization)
-            progress_pct = 40.0 + (processed_samples / total_samples) * 35.0  # 40% to 75%
-
-            # Report progress at calculated intervals
-            if progress_callback and (current_batch % report_interval == 0 or current_batch == total_batches):
-                progress_callback(
-                    progress_pct,
-                    f"Tokenizing... {processed_samples:,}/{total_samples:,} samples (Batch {current_batch}/{total_batches})"
-                )
-
-            return result
 
         # Determine which columns to remove (keep 'split' if it exists)
         columns_to_remove = [col for col in dataset.column_names if col != "split"]
 
-        # Tokenize the dataset with optional multiprocessing for faster CPU utilization
-        # If num_proc is None, auto-detect (use half of available CPU cores)
-        # If num_proc is 1, disable multiprocessing (useful for tests to avoid pickling issues)
+        # Auto-detect number of processes if not specified
         if num_proc is None:
             import os
             num_proc = max(1, os.cpu_count() // 2)  # Use half of available CPU cores
 
-        tokenized_dataset = dataset.map(
-            tokenize_function,
-            batched=True,
-            batch_size=batch_size,
-            with_indices=True,  # Pass indices to track progress
-            remove_columns=columns_to_remove,  # Remove original columns except 'split'
-            num_proc=num_proc,  # Enable multiprocessing (or disable with num_proc=1)
-            desc="Tokenizing dataset",
-        )
+        # Choose between single-process and multi-process modes
+        # Single-process when: num_proc==1 OR progress_callback requested
+        # Multi-process when: num_proc>1 AND no progress_callback
+        if num_proc == 1 or progress_callback:
+            # Single-process mode: Use closure with progress tracking
+            processed_samples = 0
+            total_batches = (total_samples + batch_size - 1) // batch_size
+            current_batch = 0
 
-        # Final progress update
-        if progress_callback:
-            progress_callback(75.0, f"Tokenization complete ({total_samples} samples)")
+            # Calculate progress reporting interval
+            if total_samples < 10000:
+                report_interval = max(1, total_batches // 20)
+            elif total_samples < 100000:
+                report_interval = max(5, total_batches // 15)
+            else:
+                report_interval = max(10, total_batches // 10)
+
+            def tokenize_function(examples, indices):
+                """Tokenize a batch of examples and report progress."""
+                nonlocal processed_samples, current_batch
+
+                kwargs = {
+                    "max_length": max_length,
+                    "truncation": truncation,
+                    "padding": padding,
+                    "add_special_tokens": add_special_tokens,
+                    "return_attention_mask": return_attention_mask,
+                }
+
+                if stride > 0:
+                    kwargs["stride"] = stride
+                    kwargs["return_overflowing_tokens"] = return_overflowing_tokens
+
+                result = tokenizer(
+                    examples[text_column],
+                    **kwargs
+                )
+
+                # Update progress tracking
+                current_batch += 1
+                batch_size_actual = len(examples[text_column])
+                processed_samples = min(processed_samples + batch_size_actual, total_samples)
+
+                # Calculate progress percentage (40% to 75% range for tokenization)
+                progress_pct = 40.0 + (processed_samples / total_samples) * 35.0
+
+                # Report progress at calculated intervals
+                if progress_callback and (current_batch % report_interval == 0 or current_batch == total_batches):
+                    progress_callback(
+                        progress_pct,
+                        f"Tokenizing... {processed_samples:,}/{total_samples:,} samples (Batch {current_batch}/{total_batches})"
+                    )
+
+                return result
+
+            tokenized_dataset = dataset.map(
+                tokenize_function,
+                batched=True,
+                batch_size=batch_size,
+                with_indices=True,
+                remove_columns=columns_to_remove,
+                num_proc=1,
+                desc="Tokenizing dataset",
+            )
+
+            # Final progress update
+            if progress_callback:
+                progress_callback(75.0, f"Tokenization complete ({total_samples} samples)")
+
+        else:
+            # Multi-process mode: Use picklable mapper (no progress tracking)
+            # Extract tokenizer name from tokenizer object (for lazy loading in workers)
+            tokenizer_name = getattr(tokenizer, 'name_or_path', None)
+            if not tokenizer_name:
+                # Fallback: Try to get from init_kwargs or raise error
+                tokenizer_name = getattr(tokenizer, 'init_kwargs', {}).get('name_or_path')
+                if not tokenizer_name:
+                    raise ValueError(
+                        "Cannot determine tokenizer name for multiprocessing. "
+                        "Please pass num_proc=1 to use single-process mode."
+                    )
+
+            mapper = _TokenizationMapper(
+                tokenizer_name=tokenizer_name,
+                text_column=text_column,
+                max_length=max_length,
+                truncation=truncation,
+                padding=padding,
+                add_special_tokens=add_special_tokens,
+                return_attention_mask=return_attention_mask,
+                stride=stride,
+                return_overflowing_tokens=return_overflowing_tokens,
+            )
+
+            tokenized_dataset = dataset.map(
+                mapper,
+                batched=True,
+                batch_size=batch_size,
+                remove_columns=columns_to_remove,
+                num_proc=num_proc,
+                desc="Tokenizing dataset",
+            )
+
+            # Single progress update at the end (for multi-process mode)
+            if progress_callback:
+                progress_callback(75.0, f"Tokenization complete ({total_samples} samples)")
 
         return tokenized_dataset
 

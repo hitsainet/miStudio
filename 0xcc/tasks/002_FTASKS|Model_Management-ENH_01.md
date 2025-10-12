@@ -555,33 +555,51 @@ This enhancement implements all recommendations from the comprehensive architect
 **Duration**: 5 days
 **Risk Level**: Low-Medium
 
-### Task 2.1: Add Dataset Cancellation Support
+### Task 2.1: Add Dataset Cancellation Support ✅ BACKEND COMPLETE
 
 **Priority**: P1 (Important for UX parity)
+**Status**: ✅ Backend Complete (2025-10-12) | ⏳ Frontend Pending
 **Files Modified**:
-- [ ] **MODIFY**: `backend/src/workers/dataset_tasks.py` (add cancel task)
-- [ ] **MODIFY**: `backend/src/api/v1/endpoints/datasets.py` (add cancel endpoint)
+- [x] **MODIFY**: `backend/src/workers/dataset_tasks.py` (add cancel task) ✅
+- [x] **MODIFY**: `backend/src/api/v1/endpoints/datasets.py` (add cancel endpoint) ✅
+- [x] **NEW**: `backend/tests/integration/test_dataset_cancellation.py` (12 tests) ✅
 - [ ] **MODIFY**: `frontend/src/stores/datasetsStore.ts` (add cancel action)
 - [ ] **MODIFY**: `frontend/src/api/datasets.ts` (add cancel API call)
 - [ ] **MODIFY**: `frontend/src/components/datasets/DatasetCard.tsx` (add cancel button)
 
 **Subtasks**:
-- [ ] 2.1.1 Create cancel task in dataset_tasks.py
-  - [ ] Add `cancel_dataset_download()` task (follow model pattern)
-  - [ ] Revoke Celery task if task_id provided
-  - [ ] Update dataset status to ERROR with "Cancelled by user"
-  - [ ] Clean up partial download files
-  - [ ] Emit WebSocket notification
-  - [ ] Add comprehensive error handling
-  - [ ] Add logging
+- [x] 2.1.1 Create cancel task in dataset_tasks.py ✅
+  - [x] Add `cancel_dataset_download()` task (follow model pattern)
+  - [x] Revoke Celery task if task_id provided
+  - [x] Update dataset status to ERROR with "Cancelled by user"
+  - [x] Clean up partial download files (raw_path and tokenized_path)
+  - [x] Emit WebSocket notification
+  - [x] Add comprehensive error handling
+  - [x] Add logging
 
-- [ ] 2.1.2 Add cancel API endpoint (datasets.py)
-  - [ ] Add `@router.delete("/{dataset_id}/cancel")` endpoint
-  - [ ] Verify dataset exists
-  - [ ] Check status is cancellable (DOWNLOADING or PROCESSING)
-  - [ ] Call cancel task synchronously
-  - [ ] Return cancellation status
-  - [ ] Add error handling for non-cancellable states
+- [x] 2.1.2 Add cancel API endpoint (datasets.py) ✅
+  - [x] Add `@router.delete("/{dataset_id}/cancel")` endpoint
+  - [x] Verify dataset exists
+  - [x] Check status is cancellable (DOWNLOADING or PROCESSING)
+  - [x] Call cancel task synchronously
+  - [x] Return cancellation status
+  - [x] Add error handling for non-cancellable states
+
+- [x] 2.1.2.5 Write backend tests ✅
+  - [x] **NEW**: `backend/tests/integration/test_dataset_cancellation.py` (12 comprehensive tests)
+  - [x] Test cancel with both paths
+  - [x] Test cancel with only raw_path
+  - [x] Test cancel with PROCESSING status
+  - [x] Test cancel handles missing dataset
+  - [x] Test cancel handles wrong status
+  - [x] Test cancel handles missing paths
+  - [x] Test cancel handles None paths
+  - [x] Test cancel sends WebSocket notification
+  - [x] Test cancel endpoint success
+  - [x] Test cancel endpoint not found
+  - [x] Test cancel endpoint wrong status
+  - [x] Test complete cancellation workflow
+  - [x] **All 12 tests passing**
 
 - [ ] 2.1.3 Update frontend API client
   - [ ] Add `cancelDatasetDownload(datasetId: string)` function
@@ -620,12 +638,13 @@ This enhancement implements all recommendations from the comprehensive architect
 
 ---
 
-### Task 2.2: Extract Frontend Shared Utilities
+### Task 2.2: Extract Frontend Shared Utilities ✅ UTILITIES CREATED
 
 **Priority**: P1 (Reduces duplication)
+**Status**: ✅ Utilities Created (2025-10-12) | ⏳ Integration Pending
 **Files Modified**:
-- [ ] **NEW**: `frontend/src/api/client.ts` (shared API client)
-- [ ] **NEW**: `frontend/src/hooks/usePolling.ts` (shared polling hook)
+- [x] **NEW**: `frontend/src/api/client.ts` (shared API client) ✅
+- [x] **NEW**: `frontend/src/hooks/usePolling.ts` (shared polling hook) ✅
 - [ ] **MODIFY**: `frontend/src/api/datasets.ts` (use shared client)
 - [ ] **MODIFY**: `frontend/src/api/models.ts` (use shared client)
 - [ ] **MODIFY**: `frontend/src/stores/datasetsStore.ts` (use polling hook)
@@ -633,15 +652,25 @@ This enhancement implements all recommendations from the comprehensive architect
 - [ ] **OBSOLETE**: Remove duplicate `fetchAPI` from datasets.ts and models.ts
 
 **Subtasks**:
-- [ ] 2.2.1 Create shared API client (frontend/src/api/client.ts)
-  - [ ] Define `API_V1_BASE` constant
-  - [ ] Create `APIError` class with status and detail
-  - [ ] Implement `fetchAPI<T>()` function
-  - [ ] Add authentication header injection
-  - [ ] Add error handling with structured errors
-  - [ ] Handle 204 No Content responses
-  - [ ] Create `buildQueryString()` helper
-  - [ ] Add JSDoc comments with examples
+- [x] 2.2.1 Create shared API client (frontend/src/api/client.ts) ✅
+  - [x] Define `API_V1_BASE` constant
+  - [x] Create `APIError` class with status and detail
+  - [x] Implement `fetchAPI<T>()` function
+  - [x] Add authentication header injection
+  - [x] Add error handling with structured errors
+  - [x] Handle 204 No Content responses
+  - [x] Create `buildQueryString()` helper
+  - [x] Add JSDoc comments with examples
+
+- [x] 2.2.4 Create shared polling hook (frontend/src/hooks/usePolling.ts) ✅
+  - [x] Define `PollingConfig` interface
+  - [x] Implement `usePolling()` hook
+  - [x] Add interval management with useRef
+  - [x] Add terminal state detection
+  - [x] Add max polls timeout
+  - [x] Add cleanup on unmount
+  - [x] Add comprehensive logging
+  - [x] Add JSDoc with usage examples
 
 - [ ] 2.2.2 Update datasets.ts to use shared client
   - [ ] Import `fetchAPI` and `buildQueryString` from `./client`

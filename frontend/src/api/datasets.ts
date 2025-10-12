@@ -10,43 +10,7 @@ import {
   DatasetListResponse,
   DatasetSample,
 } from '../types/dataset';
-import { API_BASE_URL } from '../config/api';
-
-// API endpoints are prefixed with /api/v1
-const API_V1_BASE = `${API_BASE_URL}/api/v1`;
-
-/**
- * Fetch helper with authentication and error handling
- */
-async function fetchAPI<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const token = localStorage.getItem('auth_token');
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_V1_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      detail: `HTTP error! status: ${response.status}`,
-    }));
-    throw new Error(error.detail || error.message || 'API request failed');
-  }
-
-  return response.json();
-}
+import { fetchAPI, buildQueryString } from './client';
 
 /**
  * Get list of datasets with optional filters
@@ -60,17 +24,8 @@ export async function getDatasets(params?: {
   sort_by?: string;
   order?: 'asc' | 'desc';
 }): Promise<DatasetListResponse> {
-  const queryParams = new URLSearchParams();
-
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        queryParams.append(key, String(value));
-      }
-    });
-  }
-
-  const endpoint = `/datasets${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  const query = params ? buildQueryString(params) : '';
+  const endpoint = `/datasets${query ? `?${query}` : ''}`;
   return fetchAPI<DatasetListResponse>(endpoint);
 }
 
@@ -113,17 +68,8 @@ export async function getDatasetSamples(
     search?: string;
   }
 ): Promise<{ data: DatasetSample[]; total: number }> {
-  const queryParams = new URLSearchParams();
-
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        queryParams.append(key, String(value));
-      }
-    });
-  }
-
-  const endpoint = `/datasets/${id}/samples${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  const query = params ? buildQueryString(params) : '';
+  const endpoint = `/datasets/${id}/samples${query ? `?${query}` : ''}`;
   return fetchAPI<{ data: DatasetSample[]; total: number }>(endpoint);
 }
 
@@ -149,5 +95,28 @@ export async function tokenizeDataset(
   return fetchAPI<Dataset>(`/datasets/${id}/tokenize`, {
     method: 'POST',
     body: JSON.stringify(settings),
+  });
+}
+
+/**
+ * Cancel an in-progress dataset download or tokenization.
+ *
+ * This will stop the background task, clean up partial files,
+ * and update the dataset status to ERROR with "Cancelled by user".
+ *
+ * @param id - Dataset ID
+ * @returns Cancellation status
+ */
+export async function cancelDatasetDownload(id: string): Promise<{
+  dataset_id: string;
+  status: string;
+  message: string;
+}> {
+  return fetchAPI<{
+    dataset_id: string;
+    status: string;
+    message: string;
+  }>(`/datasets/${id}/cancel`, {
+    method: 'DELETE',
   });
 }

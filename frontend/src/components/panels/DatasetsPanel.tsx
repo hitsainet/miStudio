@@ -13,7 +13,7 @@ import { DatasetDetailModal } from '../datasets/DatasetDetailModal';
 import { Dataset } from '../../types/dataset';
 
 export function DatasetsPanel() {
-  const { datasets, loading, error, fetchDatasets, downloadDataset, deleteDataset } = useDatasetsStore();
+  const { datasets, loading, error, fetchDatasets, downloadDataset, deleteDataset, cancelDownload } = useDatasetsStore();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
 
   // WebSocket progress updates are now handled globally in App.tsx via useGlobalDatasetProgress()
@@ -43,6 +43,14 @@ export function DatasetsPanel() {
       await deleteDataset(id);
     } catch (error) {
       console.error('Failed to delete dataset:', error);
+    }
+  };
+
+  const handleCancel = async (id: string) => {
+    try {
+      await cancelDownload(id);
+    } catch (error) {
+      console.error('Failed to cancel dataset operation:', error);
     }
   };
 
@@ -98,6 +106,7 @@ export function DatasetsPanel() {
                   dataset={dataset}
                   onClick={() => handleDatasetClick(dataset)}
                   onDelete={handleDelete}
+                  onCancel={handleCancel}
                 />
               ))}
             </div>

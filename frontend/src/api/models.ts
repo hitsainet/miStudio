@@ -13,48 +13,7 @@ import {
   ActivationExtractionConfig,
   ActivationExtractionResult,
 } from '../types/model';
-import { API_BASE_URL } from '../config/api';
-
-// API endpoints are prefixed with /api/v1
-const API_V1_BASE = `${API_BASE_URL}/api/v1`;
-
-/**
- * Fetch helper with authentication and error handling
- */
-async function fetchAPI<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const token = localStorage.getItem('auth_token');
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_V1_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      detail: `HTTP error! status: ${response.status}`,
-    }));
-    throw new Error(error.detail || error.message || 'API request failed');
-  }
-
-  // Handle 204 No Content responses (e.g., DELETE)
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json();
-}
+import { fetchAPI, buildQueryString } from './client';
 
 /**
  * Get list of models with optional filters
@@ -69,17 +28,8 @@ export async function getModels(params?: {
   sort_by?: string;
   order?: 'asc' | 'desc';
 }): Promise<ModelListResponse> {
-  const queryParams = new URLSearchParams();
-
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        queryParams.append(key, String(value));
-      }
-    });
-  }
-
-  const endpoint = `/models${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  const query = params ? buildQueryString(params) : '';
+  const endpoint = `/models${query ? `?${query}` : ''}`;
   return fetchAPI<ModelListResponse>(endpoint);
 }
 

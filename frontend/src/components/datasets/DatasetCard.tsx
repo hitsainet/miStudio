@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Database, CheckCircle, Loader, Activity, Trash2, Settings } from 'lucide-react';
+import { Database, CheckCircle, Loader, Activity, Trash2, Settings, X } from 'lucide-react';
 import { Dataset } from '../../types/dataset';
 import { StatusBadge } from '../common/StatusBadge';
 import { ProgressBar } from '../common/ProgressBar';
@@ -15,15 +15,17 @@ interface DatasetCardProps {
   dataset: Dataset;
   onClick?: () => void;
   onDelete?: (id: string) => void;
+  onCancel?: (id: string) => void;
 }
 
-export function DatasetCard({ dataset, onClick, onDelete }: DatasetCardProps) {
+export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCardProps) {
   // Normalize status to string for consistent comparisons
   const statusString = String(dataset.status).toLowerCase();
 
   const isClickable = statusString === 'ready';
   const showProgress = statusString === 'downloading' || statusString === 'processing';
   const isTokenized = dataset.metadata?.tokenization !== undefined;
+  const isActive = statusString === 'downloading' || statusString === 'processing';
 
   // Status icon mapping
   const StatusIcon = React.useMemo(() => {
@@ -50,6 +52,13 @@ export function DatasetCard({ dataset, onClick, onDelete }: DatasetCardProps) {
     e.stopPropagation(); // Prevent card click
     if (window.confirm(`Are you sure you want to delete "${dataset.name}"? This will remove all downloaded files.`)) {
       onDelete?.(dataset.id);
+    }
+  };
+
+  const handleCancel = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    if (window.confirm(`Are you sure you want to cancel this operation? Partial files will be deleted.`)) {
+      onCancel?.(dataset.id);
     }
   };
 
@@ -82,7 +91,16 @@ export function DatasetCard({ dataset, onClick, onDelete }: DatasetCardProps) {
             <div className="flex items-center gap-2 flex-shrink-0">
               <StatusIcon className={`w-5 h-5 text-slate-400 ${iconClassName}`} />
               <StatusBadge status={dataset.status} />
-              {onDelete && (
+              {isActive && onCancel && (
+                <button
+                  onClick={handleCancel}
+                  className="ml-2 p-1.5 hover:bg-red-500/10 rounded transition-colors group"
+                  title="Cancel operation"
+                >
+                  <X className="w-4 h-4 text-slate-500 group-hover:text-red-400 transition-colors" />
+                </button>
+              )}
+              {!isActive && onDelete && (
                 <button
                   onClick={handleDelete}
                   className="ml-2 p-1.5 hover:bg-red-500/10 rounded transition-colors group"

@@ -13,6 +13,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { Dataset, DatasetStatus } from '../types/dataset';
 import { API_BASE_URL } from '../config/api';
+import { cancelDatasetDownload } from '../api/datasets';
 
 // Callback for subscribing to dataset progress (set by WebSocket context)
 let subscribeToDatasetCallback: ((datasetId: string) => void) | null = null;
@@ -31,6 +32,7 @@ interface DatasetsState {
   fetchDatasets: () => Promise<void>;
   downloadDataset: (repoId: string, accessToken?: string, split?: string, config?: string) => Promise<void>;
   deleteDataset: (id: string) => Promise<void>;
+  cancelDownload: (id: string) => Promise<void>;
   updateDatasetProgress: (id: string, progress: number) => void;
   updateDatasetStatus: (id: string, status: DatasetStatus, errorMessage?: string) => void;
   setError: (error: string | null) => void;
@@ -182,6 +184,37 @@ export const useDatasetsStore = create<DatasetsState>()(
           }));
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to delete dataset';
+          set({ error: errorMessage, loading: false });
+          throw error;
+        }
+      },
+
+      // Cancel dataset download or tokenization
+      cancelDownload: async (id: string) => {
+        console.log('[DatasetsStore] cancelDownload called for dataset:', id);
+        set({ loading: true, error: null });
+        try {
+          await cancelDatasetDownload(id);
+          console.log('[DatasetsStore] Download/processing cancelled successfully');
+
+          // Update dataset status to error with cancellation message
+          // The backend sets status to ERROR with "Cancelled by user"
+          set((state) => ({
+            datasets: state.datasets.map((d) =>
+              d.id === id
+                ? {
+                    ...d,
+                    status: DatasetStatus.ERROR,
+                    error_message: 'Cancelled by user',
+                    progress: 0,
+                  }
+                : d
+            ),
+            loading: false,
+          }));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to cancel download';
+          console.error('[DatasetsStore] Cancel error:', errorMessage);
           set({ error: errorMessage, loading: false });
           throw error;
         }

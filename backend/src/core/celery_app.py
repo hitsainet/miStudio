@@ -59,6 +59,12 @@ celery_app.conf.update(
             "priority": 7,
         },
 
+        # Model operations: GPU bound, high priority
+        "src.workers.model_tasks.download_and_load_model": {
+            "queue": "high_priority",
+            "priority": 8,
+        },
+
         # Training operations: GPU bound, low concurrency
         "src.workers.training_tasks.*": {
             "queue": "training",
@@ -117,6 +123,7 @@ celery_app.conf.update(
 celery_app.autodiscover_tasks(
     [
         "src.workers.dataset_tasks",
+        "src.workers.model_tasks",
         "src.workers.training_tasks",
         "src.workers.extraction_tasks",
     ],

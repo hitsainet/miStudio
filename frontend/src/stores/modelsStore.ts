@@ -16,6 +16,8 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { Model, ModelStatus, QuantizationFormat } from '../types/model';
 import { API_BASE_URL } from '../config/api';
+import { getModel } from '../api/models';
+import { startPolling } from '../utils/polling';
 
 // Callback for subscribing to model progress (set by WebSocket context)
 let subscribeToModelCallback: ((modelId: string, channel: 'progress' | 'extraction') => void) | null = null;
@@ -116,52 +118,35 @@ export const useModelsStore = create<ModelsState>()(
             loading: false,
           }));
 
-          console.log('[ModelsStore] About to start polling for model:', newModel.id);
-
-          // Start aggressive polling for fast downloads
-          // This catches progress updates even for very quick downloads
-          const startPolling = () => {
-            console.log('[ModelsStore] startPolling() function called');
-            let pollCount = 0;
-            const maxPolls = 100; // Maximum 50 seconds of polling (100 * 500ms)
-
-            const pollInterval = setInterval(async () => {
-              pollCount++;
-
-              try {
-                const pollResponse = await fetch(`${API_BASE_URL}/api/v1/models/${newModel.id}`);
-                if (pollResponse.ok) {
-                  const updatedModel = await pollResponse.json();
-
-                  console.log(`[ModelsStore] Poll ${pollCount}: Model ${newModel.id} status=${updatedModel.status}, progress=${updatedModel.progress}`);
-
-                  // Update the model in the store
-                  set((state) => ({
-                    models: state.models.map((m) =>
-                      m.id === updatedModel.id ? { ...m, ...updatedModel, status: updatedModel.status.toLowerCase() } : m
-                    ),
-                  }));
-
-                  // Stop polling if no longer downloading/loading/quantizing
-                  if (updatedModel.status !== 'downloading' && updatedModel.status !== 'loading' && updatedModel.status !== 'quantizing') {
-                    console.log(`[ModelsStore] Stopping poll for model ${newModel.id} - final status: ${updatedModel.status}`);
-                    clearInterval(pollInterval);
-                  }
-                }
-              } catch (error) {
-                console.error('[ModelsStore] Polling error:', error);
-              }
-
-              // Stop after max polls
-              if (pollCount >= maxPolls) {
-                console.log(`[ModelsStore] Stopping poll for model ${newModel.id} - max polls reached`);
-                clearInterval(pollInterval);
-              }
-            }, 500); // Poll every 500ms for fast updates
-          };
-
-          // Start polling immediately
-          startPolling();
+          // Start polling using shared utility
+          startPolling<Model>({
+            fetchStatus: () => getModel(newModel.id),
+            onUpdate: (updatedModel) => {
+              // Update the model in the store
+              set((state) => ({
+                models: state.models.map((m) =>
+                  m.id === updatedModel.id
+                    ? { ...m, ...updatedModel, status: updatedModel.status.toLowerCase() as any }
+                    : m
+                ),
+              }));
+            },
+            onComplete: (finalModel) => {
+              console.log('[ModelsStore] Model polling complete:', finalModel.id, 'final status:', finalModel.status);
+            },
+            onError: (error) => {
+              console.error('[ModelsStore] Model polling error:', error);
+              set({ error });
+            },
+            isTerminal: (model) => {
+              const status = model.status.toLowerCase();
+              return status !== 'downloading' && status !== 'loading' && status !== 'quantizing';
+            },
+            interval: 500,
+            maxPolls: 100,
+            resourceId: newModel.id,
+            resourceType: 'model',
+          });
 
           return newModel;
         } catch (error) {

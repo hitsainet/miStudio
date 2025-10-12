@@ -4,6 +4,7 @@ Dataset API endpoints.
 This module contains all FastAPI routes for dataset management operations.
 """
 
+import logging
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
@@ -26,6 +27,8 @@ from ....schemas.dataset import (
     TokenInfo,
 )
 from ....services.dataset_service import DatasetService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -183,6 +186,8 @@ async def delete_dataset(
     """
     Delete a dataset.
 
+    This endpoint deletes the database record and queues background file cleanup.
+
     Args:
         dataset_id: Dataset UUID
         db: Database session
@@ -190,13 +195,33 @@ async def delete_dataset(
     Raises:
         HTTPException: If dataset not found
     """
-    deleted = await DatasetService.delete_dataset(db, dataset_id)
+    from ....workers.dataset_tasks import delete_dataset_files
 
-    if not deleted:
+    # Delete dataset record and get file paths
+    deletion_info = await DatasetService.delete_dataset(db, dataset_id)
+
+    if not deletion_info:
         raise HTTPException(
             status_code=404,
             detail=f"Dataset {dataset_id} not found"
         )
+
+    # Queue background file cleanup if there are files to delete
+    raw_path = deletion_info.get("raw_path")
+    tokenized_path = deletion_info.get("tokenized_path")
+
+    if raw_path or tokenized_path:
+        logger.info(
+            f"Queuing file cleanup for dataset {dataset_id} "
+            f"(raw_path={raw_path}, tokenized_path={tokenized_path})"
+        )
+        delete_dataset_files.delay(
+            dataset_id=str(dataset_id),
+            raw_path=raw_path,
+            tokenized_path=tokenized_path
+        )
+    else:
+        logger.info(f"No files to clean up for dataset {dataset_id}")
 
 
 @router.post("/download", response_model=DatasetResponse, status_code=202)

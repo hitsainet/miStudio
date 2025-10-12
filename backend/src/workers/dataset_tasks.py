@@ -671,9 +671,75 @@ def cancel_dataset_download(self, dataset_id: str, task_id: Optional[str] = None
         return {"error": error_msg}
 
 
+@celery_app.task(name="src.workers.dataset_tasks.delete_dataset_files")
+def delete_dataset_files(dataset_id: str, raw_path: Optional[str] = None, tokenized_path: Optional[str] = None):
+    """
+    Delete dataset files from disk after database deletion.
+
+    This task runs in the background to clean up dataset files without
+    blocking the API response.
+
+    Args:
+        dataset_id: Dataset UUID
+        raw_path: Path to raw dataset files
+        tokenized_path: Path to tokenized dataset files
+
+    Returns:
+        dict with deletion status
+    """
+    import logging
+    import os
+    import shutil
+
+    logger = logging.getLogger(__name__)
+    deleted_files = []
+    errors = []
+
+    try:
+        # Delete raw dataset files
+        if raw_path and os.path.exists(raw_path):
+            try:
+                shutil.rmtree(raw_path)
+                deleted_files.append(raw_path)
+                logger.info(f"Deleted raw dataset files: {raw_path}")
+            except Exception as e:
+                error_msg = f"Failed to delete raw dataset files {raw_path}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+        # Delete tokenized dataset files
+        if tokenized_path and os.path.exists(tokenized_path):
+            try:
+                shutil.rmtree(tokenized_path)
+                deleted_files.append(tokenized_path)
+                logger.info(f"Deleted tokenized dataset files: {tokenized_path}")
+            except Exception as e:
+                error_msg = f"Failed to delete tokenized dataset files {tokenized_path}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+        return {
+            "dataset_id": dataset_id,
+            "deleted_files": deleted_files,
+            "errors": errors,
+        }
+
+    except Exception as e:
+        error_msg = f"Failed to delete files for dataset {dataset_id}: {str(e)}"
+        logger.error(error_msg)
+        errors.append(error_msg)
+
+        return {
+            "dataset_id": dataset_id,
+            "deleted_files": deleted_files,
+            "errors": errors,
+        }
+
+
 # Export tasks
 __all__ = [
     "download_dataset_task",
     "tokenize_dataset_task",
     "cancel_dataset_download",
+    "delete_dataset_files",
 ]

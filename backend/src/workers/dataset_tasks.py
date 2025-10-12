@@ -466,8 +466,10 @@ def tokenize_dataset_task(
                 dataset_obj.num_tokens = stats["num_tokens"]
                 dataset_obj.avg_seq_length = stats["avg_seq_length"]
                 dataset_obj.vocab_size = stats["vocab_size"]
-                # Store detailed metadata in JSONB field
+                # Merge tokenization metadata with existing metadata (don't overwrite!)
+                existing_metadata = dataset_obj.metadata or {}
                 dataset_obj.metadata = {
+                    **existing_metadata,  # Preserve existing metadata (split, config, etc.)
                     "schema": {
                         "text_columns": schema_info["text_columns"],
                         "column_info": schema_info["column_info"],

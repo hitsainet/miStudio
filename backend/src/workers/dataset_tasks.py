@@ -467,8 +467,8 @@ def tokenize_dataset_task(
                 dataset_obj.avg_seq_length = stats["avg_seq_length"]
                 dataset_obj.vocab_size = stats["vocab_size"]
                 # Merge tokenization metadata with existing metadata (don't overwrite!)
-                existing_metadata = dataset_obj.metadata or {}
-                dataset_obj.metadata = {
+                existing_metadata = dataset_obj.extra_metadata or {}
+                dataset_obj.extra_metadata = {
                     **existing_metadata,  # Preserve existing metadata (split, config, etc.)
                     "schema": {
                         "text_columns": schema_info["text_columns"],

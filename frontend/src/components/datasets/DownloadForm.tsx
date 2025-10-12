@@ -76,7 +76,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
             type="text"
             value={hfRepo}
             onChange={(e) => setHfRepo(e.target.value)}
-            placeholder="username/dataset-name"
+            placeholder="publisher/dataset-name"
             className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
             disabled={isSubmitting}
             required

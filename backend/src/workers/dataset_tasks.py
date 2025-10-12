@@ -462,6 +462,11 @@ def tokenize_dataset_task(
                 dataset_obj.status = DatasetStatus.READY
                 dataset_obj.progress = 100.0
                 dataset_obj.tokenized_path = str(tokenized_path)
+                # Update top-level statistics columns for easy querying
+                dataset_obj.num_tokens = stats["num_tokens"]
+                dataset_obj.avg_seq_length = stats["avg_seq_length"]
+                dataset_obj.vocab_size = stats["vocab_size"]
+                # Store detailed metadata in JSONB field
                 dataset_obj.metadata = {
                     "schema": {
                         "text_columns": schema_info["text_columns"],

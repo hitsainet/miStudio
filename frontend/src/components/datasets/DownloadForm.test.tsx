@@ -13,10 +13,10 @@ import { DownloadForm } from './DownloadForm';
 vi.mock('../../utils/validators', () => ({
   validateHfRepoId: vi.fn((repoId: string) => {
     if (!repoId) return 'Repository ID is required';
-    if (!repoId.includes('/')) return 'Repository ID must be in format: username/dataset-name';
+    if (!repoId.includes('/')) return 'Repository ID must be in format: publisher/dataset-name';
     const parts = repoId.split('/');
-    if (parts.length !== 2) return 'Repository ID must be in format: username/dataset-name';
-    if (!parts[0] || !parts[1]) return 'Repository ID must be in format: username/dataset-name';
+    if (parts.length !== 2) return 'Repository ID must be in format: publisher/dataset-name';
+    if (!parts[0] || !parts[1]) return 'Repository ID must be in format: publisher/dataset-name';
     return true;
   }),
 }));

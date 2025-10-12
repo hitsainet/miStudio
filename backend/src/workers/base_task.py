@@ -81,8 +81,8 @@ class DatabaseTask(Task):
             extra={
                 "task_id": task_id,
                 "task_name": self.name,
-                "args": args,
-                "kwargs": kwargs,
+                "task_args": args,
+                "task_kwargs": kwargs,
                 "exception": str(exc),
             },
             exc_info=einfo,
@@ -108,8 +108,8 @@ class DatabaseTask(Task):
             extra={
                 "task_id": task_id,
                 "task_name": self.name,
-                "args": args,
-                "kwargs": kwargs,
+                "task_args": args,
+                "task_kwargs": kwargs,
             },
         )
         super().on_success(retval, task_id, args, kwargs)
@@ -134,8 +134,8 @@ class DatabaseTask(Task):
             extra={
                 "task_id": task_id,
                 "task_name": self.name,
-                "args": args,
-                "kwargs": kwargs,
+                "task_args": args,
+                "task_kwargs": kwargs,
                 "exception": str(exc),
             },
         )

@@ -117,6 +117,7 @@ class TokenizationService:
         return_attention_mask: bool = True,
         batch_size: int = 1000,
         progress_callback: Optional[Callable[[float, str], None]] = None,
+        num_proc: Optional[int] = None,
     ) -> HFDataset:
         """
         Tokenize a dataset using the provided tokenizer.
@@ -134,6 +135,7 @@ class TokenizationService:
             return_attention_mask: Return attention mask
             batch_size: Batch size for tokenization
             progress_callback: Optional callback function(progress_pct, message) for progress updates
+            num_proc: Number of processes for parallel processing (None = auto, 1 = no multiprocessing)
 
         Returns:
             Tokenized dataset with 'input_ids', 'attention_mask', etc.
@@ -198,10 +200,12 @@ class TokenizationService:
         # Determine which columns to remove (keep 'split' if it exists)
         columns_to_remove = [col for col in dataset.column_names if col != "split"]
 
-        # Tokenize the dataset with multiprocessing for faster CPU utilization
-        # Use num_proc for parallel processing across CPU cores
-        import os
-        num_proc = max(1, os.cpu_count() // 2)  # Use half of available CPU cores
+        # Tokenize the dataset with optional multiprocessing for faster CPU utilization
+        # If num_proc is None, auto-detect (use half of available CPU cores)
+        # If num_proc is 1, disable multiprocessing (useful for tests to avoid pickling issues)
+        if num_proc is None:
+            import os
+            num_proc = max(1, os.cpu_count() // 2)  # Use half of available CPU cores
 
         tokenized_dataset = dataset.map(
             tokenize_function,
@@ -209,7 +213,7 @@ class TokenizationService:
             batch_size=batch_size,
             with_indices=True,  # Pass indices to track progress
             remove_columns=columns_to_remove,  # Remove original columns except 'split'
-            num_proc=num_proc,  # Enable multiprocessing
+            num_proc=num_proc,  # Enable multiprocessing (or disable with num_proc=1)
             desc="Tokenizing dataset",
         )
 

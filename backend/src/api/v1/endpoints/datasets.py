@@ -541,7 +541,13 @@ async def tokenize_preview(
 
     except Exception as e:
         # Check if it's a tokenizer loading error
-        if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+        error_msg = str(e).lower()
+        if any(phrase in error_msg for phrase in [
+            "not found",
+            "does not exist",
+            "not a valid model identifier",
+            "is not a local folder"
+        ]):
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid tokenizer name: {request.tokenizer_name}"

@@ -140,8 +140,9 @@ class TestTokenizePreview:
     @pytest.mark.asyncio
     async def test_tokenize_preview_truncation_strategies(self, client: AsyncClient):
         """Test different truncation strategies with long text."""
-        # Create a long text that exceeds max_length
-        long_text = " ".join(["word"] * 1000)
+        # Create a long text that exceeds max_length (but stays under 1000 char limit)
+        # Using 180 words (~900 chars) to test truncation to 50 tokens
+        long_text = " ".join(["word"] * 180)
 
         # Test longest_first truncation (default)
         response = await client.post(

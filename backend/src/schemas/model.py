@@ -31,16 +31,24 @@ class ModelUpdate(BaseModel):
     """Schema for updating an existing model."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    status: Optional[str] = Field(None, pattern="^(downloading|loading|ready|error)$")
+    status: Optional[str] = Field(None, pattern="^(downloading|loading|quantizing|ready|error)$")
     progress: Optional[float] = Field(None, ge=0, le=100)
     error_message: Optional[str] = None
     file_path: Optional[str] = Field(None, max_length=512)
+    quantized_path: Optional[str] = Field(None, max_length=512)
+    architecture: Optional[str] = Field(None, max_length=100)
     params_count: Optional[int] = Field(None, ge=0)
-    memory_req_bytes: Optional[int] = Field(None, ge=0)
+    architecture_config: Optional[Dict[str, Any]] = None
+    memory_required_bytes: Optional[int] = Field(None, ge=0, alias="memory_req_bytes")
+    disk_size_bytes: Optional[int] = Field(None, ge=0)
     num_layers: Optional[int] = Field(None, ge=0)
     hidden_dim: Optional[int] = Field(None, ge=0)
     num_heads: Optional[int] = Field(None, ge=0)
     metadata: Optional[Dict[str, Any]] = None
+
+    model_config = {
+        "populate_by_name": True,  # Allow using either field name or alias
+    }
 
 
 class ModelResponse(ModelBase):

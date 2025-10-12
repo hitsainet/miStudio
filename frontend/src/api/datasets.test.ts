@@ -11,6 +11,7 @@ import {
   getDataset,
   downloadDataset,
   deleteDataset,
+  cancelDatasetDownload,
   getDatasetSamples,
   getDatasetStatistics,
   tokenizeDataset,
@@ -357,6 +358,73 @@ describe('datasets API client', () => {
 
       await expect(deleteDataset('protected-123')).rejects.toThrow(
         'Dataset has dependencies'
+      );
+    });
+  });
+
+  describe('cancelDatasetDownload', () => {
+    it('should cancel dataset download or tokenization', async () => {
+      const mockResponse = {
+        dataset_id: 'cancel-123',
+        status: 'cancelled',
+        message: 'Download/processing cancelled successfully',
+      };
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const result = await cancelDatasetDownload('cancel-123');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/datasets/cancel-123/cancel'),
+        expect.objectContaining({
+          method: 'DELETE',
+        })
+      );
+      expect(result).toEqual(mockResponse);
+      expect(result.status).toBe('cancelled');
+      expect(result.message).toContain('cancelled successfully');
+    });
+
+    it('should handle cancellation of non-cancellable dataset', async () => {
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          detail: 'Dataset cannot be cancelled (status: ready)',
+        }),
+      });
+
+      await expect(cancelDatasetDownload('ready-dataset-123')).rejects.toThrow(
+        'Dataset cannot be cancelled'
+      );
+    });
+
+    it('should handle cancellation of non-existent dataset', async () => {
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ detail: 'Dataset not found' }),
+      });
+
+      await expect(
+        cancelDatasetDownload('nonexistent-123')
+      ).rejects.toThrow('Dataset not found');
+    });
+
+    it('should handle server errors during cancellation', async () => {
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({
+          detail: 'Failed to cancel download/processing',
+        }),
+      });
+
+      await expect(cancelDatasetDownload('error-123')).rejects.toThrow(
+        'Failed to cancel'
       );
     });
   });

@@ -131,7 +131,7 @@ class ModelService:
             db: Database session
             skip: Number of records to skip
             limit: Maximum number of records to return
-            search: Search query for name
+            search: Search query for name or repo_id
             architecture: Filter by architecture type
             quantization: Filter by quantization format
             status: Filter by status
@@ -146,7 +146,10 @@ class ModelService:
 
         # Apply filters
         if search:
-            search_filter = Model.name.ilike(f"%{search}%")
+            search_filter = or_(
+                Model.name.ilike(f"%{search}%"),
+                Model.repo_id.ilike(f"%{search}%")
+            )
             query = query.where(search_filter)
 
         if architecture:

@@ -5,28 +5,30 @@
  * - Model name, parameters, quantization, and memory info
  * - Real-time progress bars for download/quantization
  * - Status indicators (ready, downloading, quantizing, error)
- * - Action buttons (extract activations, delete)
+ * - Action buttons (extract activations, view history, delete)
  * - Click to view architecture details
  */
 
-import { Cpu, CheckCircle, Loader, Activity, AlertCircle, Trash2, X } from 'lucide-react';
+import { Cpu, CheckCircle, Loader, Activity, AlertCircle, Trash2, X, History } from 'lucide-react';
 import { Model, ModelStatus } from '../../types/model';
 
 interface ModelCardProps {
   model: Model;
   onClick: () => void;
   onExtract: () => void;
+  onViewExtractions?: () => void;
   onDelete: (id: string) => void;
   onCancel: (id: string) => void;
 }
 
-export function ModelCard({ model, onClick, onExtract, onDelete, onCancel }: ModelCardProps) {
+export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDelete, onCancel }: ModelCardProps) {
   const isActive = model.status === ModelStatus.DOWNLOADING ||
                    model.status === ModelStatus.LOADING ||
                    model.status === ModelStatus.QUANTIZING;
 
   const isReady = model.status === ModelStatus.READY;
   const isError = model.status === ModelStatus.ERROR;
+  const isExtracting = model.extraction_status && model.extraction_status !== 'complete' && model.extraction_status !== 'error';
 
   const formatParams = (count: number): string => {
     if (count >= 1_000_000_000) {
@@ -152,13 +154,28 @@ export function ModelCard({ model, onClick, onExtract, onDelete, onCancel }: Mod
         {/* Actions & Status */}
         <div className="flex items-center gap-3 flex-shrink-0">
           {isReady && (
-            <button
-              type="button"
-              onClick={handleExtract}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors text-white"
-            >
-              Extract Activations
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleExtract}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors text-white"
+              >
+                Extract Activations
+              </button>
+              {onViewExtractions && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewExtractions();
+                  }}
+                  className="p-2 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                  title="View extraction history"
+                >
+                  <History className="w-5 h-5" />
+                </button>
+              )}
+            </>
           )}
 
           {isActive && (
@@ -210,6 +227,46 @@ export function ModelCard({ model, onClick, onExtract, onDelete, onCancel }: Mod
             ) : (
               <div className="h-full bg-gradient-to-r from-purple-500 to-purple-400 animate-pulse" />
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Extraction Progress Bar */}
+      {isExtracting && model.extraction_progress !== undefined && (
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-400">
+              {model.extraction_status === 'starting' && 'Starting Extraction'}
+              {model.extraction_status === 'loading' && 'Loading Model'}
+              {model.extraction_status === 'extracting' && 'Extracting Activations'}
+              {model.extraction_status === 'saving' && 'Saving Results'}
+            </span>
+            <span className="text-emerald-400 font-medium font-mono">
+              {model.extraction_progress > 0 ? `${model.extraction_progress.toFixed(1)}%` : 'Starting...'}
+            </span>
+          </div>
+          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+            {model.extraction_progress > 0 ? (
+              <div
+                className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                style={{ width: `${model.extraction_progress}%` }}
+              />
+            ) : (
+              <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 animate-pulse" />
+            )}
+          </div>
+          {model.extraction_message && (
+            <p className="text-xs text-slate-500">{model.extraction_message}</p>
+          )}
+        </div>
+      )}
+
+      {/* Extraction Complete Message */}
+      {model.extraction_status === 'complete' && (
+        <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm">
+          <div className="flex items-start gap-2">
+            <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>Extraction completed: {model.extraction_message || 'Activations saved successfully'}</span>
           </div>
         </div>
       )}

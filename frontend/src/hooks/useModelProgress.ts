@@ -87,7 +87,7 @@ export function useModelProgress(modelId?: string, channel: 'progress' | 'extrac
 export function useAllModelsProgress() {
   const { models } = useModelsStore();
   const { subscribe, unsubscribe } = useWebSocket();
-  const { updateModelProgress, updateModelStatus, fetchModels } = useModelsStore();
+  const { updateModelProgress, updateModelStatus, updateExtractionProgress, fetchModels } = useModelsStore();
 
   useEffect(() => {
     // Subscribe to progress updates for all active models
@@ -97,6 +97,9 @@ export function useAllModelsProgress() {
         m.status === ModelStatus.LOADING ||
         m.status === ModelStatus.QUANTIZING
     );
+
+    // Subscribe to extraction updates for all ready models
+    const readyModels = models.filter((m) => m.status === ModelStatus.READY);
 
     // Handler for 'progress' events
     const handleProgress = (data: ModelProgressEvent) => {
@@ -143,17 +146,40 @@ export function useAllModelsProgress() {
       }
     };
 
+    // Handler for extraction progress events
+    const handleExtractionProgress = (event: any) => {
+      console.log('[useAllModelsProgress] Extraction progress:', event);
+      const data = event.data || event;
+
+      if (data.model_id && data.extraction_id && data.progress !== undefined && data.status && data.message) {
+        updateExtractionProgress(
+          data.model_id,
+          data.extraction_id,
+          data.progress,
+          data.status,
+          data.message
+        );
+      }
+    };
+
     // Subscribe to the event types (these are global, but only room members receive them)
     subscribe('progress', handleProgress);
     subscribe('completed', handleCompleted);
     subscribe('error', handleError);
 
-    // Subscribe to each active model's channel (joins the rooms)
+    // Subscribe to each active model's progress channel (joins the rooms)
     activeModels.forEach((model) => {
       const progressChannel = `models/${model.id}/progress`;
       subscribe(progressChannel, () => {
-        console.log(`[useAllModelsProgress] Joined channel for model: ${model.id}`);
+        console.log(`[useAllModelsProgress] Joined progress channel for model: ${model.id}`);
       });
+    });
+
+    // Subscribe to extraction channels for all ready models
+    readyModels.forEach((model) => {
+      const extractionChannel = `models/${model.id}/extraction`;
+      subscribe(extractionChannel, handleExtractionProgress);
+      console.log(`[useAllModelsProgress] Subscribed to extraction channel for model: ${model.id}`);
     });
 
     return () => {
@@ -162,13 +188,19 @@ export function useAllModelsProgress() {
       unsubscribe('completed', handleCompleted);
       unsubscribe('error', handleError);
 
-      // Leave all rooms
+      // Leave all progress rooms
       activeModels.forEach((model) => {
         const progressChannel = `models/${model.id}/progress`;
         unsubscribe(progressChannel);
       });
+
+      // Leave all extraction rooms
+      readyModels.forEach((model) => {
+        const extractionChannel = `models/${model.id}/extraction`;
+        unsubscribe(extractionChannel, handleExtractionProgress);
+      });
     };
-  }, [models, subscribe, unsubscribe, updateModelProgress, updateModelStatus, fetchModels]);
+  }, [models, subscribe, unsubscribe, updateModelProgress, updateModelStatus, updateExtractionProgress, fetchModels]);
 }
 
 /**
@@ -176,33 +208,27 @@ export function useAllModelsProgress() {
  */
 export function useModelExtractionProgress(modelId?: string) {
   const { subscribe, unsubscribe } = useWebSocket();
+  const { updateExtractionProgress } = useModelsStore();
 
   useEffect(() => {
     if (!modelId) return;
 
     const extractionChannel = `models/${modelId}/extraction`;
 
-    const handleExtractionUpdate = (event: ModelProgressEvent) => {
+    const handleExtractionUpdate = (event: any) => {
       console.log('[useModelExtractionProgress] Extraction update:', event);
 
-      switch (event.type) {
-        case 'extraction_progress':
-          console.log(
-            `[useModelExtractionProgress] Progress: ${event.progress}%, ` +
-            `Samples: ${event.samples_processed}, ETA: ${event.eta_seconds}s`
-          );
-          break;
+      // Backend sends { type: 'extraction_progress', model_id, extraction_id, progress, status, message }
+      const data = event.data || event;
 
-        case 'extraction_completed':
-          console.log(
-            `[useModelExtractionProgress] Completed: ${event.extraction_id}, ` +
-            `Output: ${event.output_path}`
-          );
-          break;
-
-        case 'error':
-          console.error(`[useModelExtractionProgress] Error: ${event.error}`);
-          break;
+      if (data.model_id && data.extraction_id && data.progress !== undefined && data.status && data.message) {
+        updateExtractionProgress(
+          data.model_id,
+          data.extraction_id,
+          data.progress,
+          data.status,
+          data.message
+        );
       }
     };
 
@@ -211,5 +237,5 @@ export function useModelExtractionProgress(modelId?: string) {
     return () => {
       unsubscribe(extractionChannel, handleExtractionUpdate);
     };
-  }, [modelId, subscribe, unsubscribe]);
+  }, [modelId, subscribe, unsubscribe, updateExtractionProgress]);
 }

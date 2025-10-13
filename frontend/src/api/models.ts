@@ -127,3 +127,20 @@ export async function getTaskStatus(taskId: string): Promise<{
     error?: string;
   }>(`/models/tasks/${taskId}`);
 }
+
+/**
+ * Get extraction history for a model
+ */
+export async function getModelExtractions(modelId: string): Promise<{
+  model_id: string;
+  model_name: string;
+  extractions: any[];
+  count: number;
+}> {
+  return fetchAPI<{
+    model_id: string;
+    model_name: string;
+    extractions: any[];
+    count: number;
+  }>(`/models/${modelId}/extractions`);
+}

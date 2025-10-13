@@ -409,6 +409,54 @@ async def cancel_model_download(
         )
 
 
+@router.get("/{model_id}/extractions")
+async def list_model_extractions(
+    model_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List all activation extractions for a model.
+
+    This endpoint returns all completed extractions with their metadata and statistics.
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        db: Database session
+
+    Returns:
+        List of extraction records with statistics
+
+    Raises:
+        HTTPException: If model not found
+    """
+    from ....services.activation_service import ActivationService
+
+    # Verify model exists
+    model = await ModelService.get_model(db, model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    # Get all extractions
+    activation_service = ActivationService()
+    extractions = activation_service.list_extractions()
+
+    # Filter extractions for this model
+    model_extractions = [
+        ext for ext in extractions
+        if ext.get("model_id") == model_id
+    ]
+
+    return {
+        "model_id": model_id,
+        "model_name": model.name,
+        "extractions": model_extractions,
+        "count": len(model_extractions)
+    }
+
+
 @router.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
     """

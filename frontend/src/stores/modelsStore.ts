@@ -40,6 +40,7 @@ interface ModelsState {
   extractActivations: (modelId: string, datasetId: string, layerIndices: number[], hookTypes: string[], maxSamples: number, batchSize?: number) => Promise<void>;
   updateModelProgress: (id: string, progress: number) => void;
   updateModelStatus: (id: string, status: ModelStatus, errorMessage?: string) => void;
+  updateExtractionProgress: (modelId: string, extractionId: string, progress: number, status: string, message: string) => void;
   setError: (error: string | null) => void;
   clearError: () => void;
 }
@@ -276,6 +277,24 @@ export const useModelsStore = create<ModelsState>()(
                   status,
                   error_message: errorMessage,
                   progress: status === ModelStatus.READY ? 100 : model.progress
+                }
+              : model
+          ),
+        }));
+      },
+
+      // Update extraction progress (called by WebSocket)
+      updateExtractionProgress: (modelId: string, extractionId: string, progress: number, status: string, message: string) => {
+        console.log('[ModelsStore] updateExtractionProgress:', {modelId, extractionId, progress, status, message});
+        set((state) => ({
+          models: state.models.map((model) =>
+            model.id === modelId
+              ? {
+                  ...model,
+                  extraction_id: extractionId,
+                  extraction_progress: progress,
+                  extraction_status: status as any,
+                  extraction_message: message,
                 }
               : model
           ),

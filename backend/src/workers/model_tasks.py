@@ -532,7 +532,9 @@ def extract_activations(
             f"dataset {dataset_id}, layers {layer_indices}, hooks {hook_types}"
         )
 
-        # Get model from database
+        # Get model and dataset from database
+        from ..models.dataset import Dataset as DatasetModel
+
         with self.get_db() as db:
             model = db.query(Model).filter_by(id=model_id).first()
             if not model:
@@ -548,9 +550,29 @@ def extract_activations(
             model_architecture = model.architecture
             model_quantization = model.quantization
 
-        # Get dataset path (assuming we have a Dataset model similar to Model)
-        # For now, we'll construct the path from dataset_id
-        dataset_path = str(settings.data_dir / "datasets" / dataset_id / "tokenized")
+            # Get dataset and tokenized path
+            dataset = db.query(DatasetModel).filter_by(id=dataset_id).first()
+            if not dataset:
+                raise ActivationExtractionError(f"Dataset {dataset_id} not found in database")
+
+            # Import DatasetStatus enum
+            from ..models.dataset import DatasetStatus
+
+            if dataset.status != DatasetStatus.READY:
+                raise ActivationExtractionError(
+                    f"Dataset {dataset_id} is not ready (status: {dataset.status.value})"
+                )
+
+            if not dataset.tokenized_path:
+                raise ActivationExtractionError(f"Dataset {dataset_id} has no tokenized path")
+
+            # Get tokenized path - convert relative to absolute if needed
+            if Path(dataset.tokenized_path).is_absolute():
+                dataset_path = dataset.tokenized_path
+            else:
+                # If relative, it's relative to project root (parent of backend/)
+                backend_dir = Path(__file__).resolve().parent.parent.parent
+                dataset_path = str(backend_dir / dataset.tokenized_path)
 
         if not Path(dataset_path).exists():
             raise ActivationExtractionError(f"Dataset path not found: {dataset_path}")
@@ -561,7 +583,7 @@ def extract_activations(
             extraction_id = f"ext_{model_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         # Send initial progress
-        send_extraction_progress(
+        emit_extraction_progress(
             model_id=model_id,
             extraction_id=extraction_id,
             progress=0.0,
@@ -577,7 +599,7 @@ def extract_activations(
 
         try:
             # Update progress: loading model
-            send_extraction_progress(
+            emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id,
                 progress=10.0,
@@ -600,7 +622,7 @@ def extract_activations(
             )
 
             # Update progress: extraction complete
-            send_extraction_progress(
+            emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id,
                 progress=90.0,
@@ -614,7 +636,7 @@ def extract_activations(
             )
 
             # Send final progress
-            send_extraction_progress(
+            emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id,
                 progress=100.0,
@@ -632,7 +654,7 @@ def extract_activations(
                 new_batch_size = max(1, batch_size // 2)
                 logger.info(f"Retrying with batch_size={new_batch_size} (was {batch_size})")
 
-                send_extraction_progress(
+                emit_extraction_progress(
                     model_id=model_id,
                     extraction_id=extraction_id,
                     progress=0.0,
@@ -655,7 +677,7 @@ def extract_activations(
                 )
 
             # If already retried or batch_size is 1, fail
-            send_extraction_progress(
+            emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id,
                 progress=0.0,
@@ -667,7 +689,7 @@ def extract_activations(
         except ActivationExtractionError as e:
             logger.error(f"Extraction failed for {extraction_id}: {e}")
 
-            send_extraction_progress(
+            emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id,
                 progress=0.0,
@@ -681,7 +703,7 @@ def extract_activations(
 
         # Send error update
         if extraction_id:
-            send_extraction_progress(
+            emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id or "unknown",
                 progress=0.0,

@@ -167,26 +167,52 @@ class ActivationService:
         quantization: QuantizationFormat
     ) -> tuple[torch.nn.Module, Any]:
         """
-        Load model from disk.
+        Load model from disk, handling HuggingFace cache structure.
 
         Args:
-            model_path: Path to model files
+            model_path: Path to model files (may contain HF cache structure)
             quantization: Quantization format
 
         Returns:
             Tuple of (model, tokenizer)
         """
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        import glob
+
+        model_path_obj = Path(model_path)
+
+        # Check if model_path uses HuggingFace cache structure
+        # Look for: model_path/models--{org}--{model}/snapshots/{hash}/
+        models_dirs = list(model_path_obj.glob("models--*"))
+
+        if models_dirs:
+            # HuggingFace cache structure detected
+            logger.info(f"Detected HuggingFace cache structure at {model_path}")
+            models_dir = models_dirs[0]  # Should only be one
+
+            # Find the snapshot directory (there should be exactly one)
+            snapshot_dirs = list((models_dir / "snapshots").glob("*"))
+            if not snapshot_dirs:
+                raise ActivationExtractionError(
+                    f"No snapshots found in HuggingFace cache at {models_dir}/snapshots"
+                )
+
+            actual_model_path = str(snapshot_dirs[0])
+            logger.info(f"Using snapshot path: {actual_model_path}")
+        else:
+            # Direct model files (flat structure)
+            actual_model_path = model_path
+            logger.info(f"Using direct model path: {actual_model_path}")
 
         # Load model
         model = AutoModelForCausalLM.from_pretrained(
-            model_path,
+            actual_model_path,
             device_map="auto",
             torch_dtype=torch.float16 if quantization == QuantizationFormat.FP16 else None,
         )
 
         # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(actual_model_path)
 
         return model, tokenizer
 
@@ -239,17 +265,20 @@ class ActivationService:
             # Register hooks
             hook_manager.register_hooks(layer_indices, hook_types, architecture)
 
-            # Process dataset in batches
-            with torch.no_grad():
-                for i in range(0, len(dataset), batch_size):
-                    batch_end = min(i + batch_size, len(dataset))
-                    batch = dataset[i:batch_end]
+            # Get model's vocabulary size for validation
+            vocab_size = model.config.vocab_size
+            logger.info(f"Model vocabulary size: {vocab_size}")
 
-                    # Get input_ids from batch
-                    if isinstance(batch, dict):
-                        input_ids = batch.get("input_ids")
+            # Process dataset one sample at a time to avoid padding issues
+            with torch.no_grad():
+                for i in range(len(dataset)):
+                    sample = dataset[i]
+
+                    # Get input_ids from sample
+                    if isinstance(sample, dict):
+                        input_ids = sample.get("input_ids")
                     else:
-                        input_ids = [item["input_ids"] for item in batch]
+                        input_ids = sample
 
                     # Convert to tensor and move to device
                     if not isinstance(input_ids, torch.Tensor):
@@ -258,13 +287,32 @@ class ActivationService:
                     if input_ids.dim() == 1:
                         input_ids = input_ids.unsqueeze(0)
 
+                    # Validate token IDs are within vocabulary range BEFORE moving to device
+                    # Clamp any out-of-range tokens to the last valid token ID
+                    max_token = input_ids.max().item()
+                    if max_token >= vocab_size:
+                        logger.warning(
+                            f"Sample {i} contains token ID {max_token} which exceeds vocab size {vocab_size}. "
+                            f"Clamping to valid range [0, {vocab_size - 1}]."
+                        )
+                        input_ids = torch.clamp(input_ids, 0, vocab_size - 1)
+
+                    # Also check for negative indices
+                    min_token = input_ids.min().item()
+                    if min_token < 0:
+                        logger.warning(
+                            f"Sample {i} contains negative token ID {min_token}. "
+                            f"Clamping to valid range [0, {vocab_size - 1}]."
+                        )
+                        input_ids = torch.clamp(input_ids, 0, vocab_size - 1)
+
                     input_ids = input_ids.to(model.device)
 
                     # Run forward pass (hooks will capture activations)
                     _ = model(input_ids)
 
-                    if (i // batch_size + 1) % 10 == 0:
-                        logger.info(f"Processed {batch_end}/{len(dataset)} samples")
+                    if (i + 1) % 10 == 0:
+                        logger.info(f"Processed {i + 1}/{len(dataset)} samples")
 
             # Get activations as numpy arrays
             activations = hook_manager.get_activations_as_numpy()

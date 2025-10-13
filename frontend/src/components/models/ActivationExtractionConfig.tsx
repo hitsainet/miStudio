@@ -11,9 +11,12 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Play } from 'lucide-react';
+import { X, Play, Star } from 'lucide-react';
 import { Model, ActivationExtractionConfig as ExtractionConfig } from '../../types/model';
 import { useDatasetsStore } from '../../stores/datasetsStore';
+import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
+import { useModelsStore } from '../../stores/modelsStore';
+import { useModelExtractionProgress } from '../../hooks/useModelProgress';
 
 interface ActivationExtractionConfigProps {
   model: Model;
@@ -27,7 +30,10 @@ export function ActivationExtractionConfig({
   onExtract
 }: ActivationExtractionConfigProps) {
   const { datasets, fetchDatasets } = useDatasetsStore();
+  const { templates, favorites, fetchTemplates, fetchFavorites } = useExtractionTemplatesStore();
+  const { models } = useModelsStore();
 
+  const [selectedTemplate, setSelectedTemplate] = useState('');
   const [selectedDataset, setSelectedDataset] = useState('');
   const [selectedLayers, setSelectedLayers] = useState<number[]>([0, 5, 11]);
   const [hookTypes, setHookTypes] = useState<('residual' | 'mlp' | 'attention')[]>(['residual']);
@@ -36,6 +42,13 @@ export function ActivationExtractionConfig({
   const [topKExamples, setTopKExamples] = useState(10);
   const [extracting, setExtracting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [extractionStarted, setExtractionStarted] = useState(false);
+
+  // Get the latest model data from store
+  const latestModel = models.find(m => m.id === model.id) || model;
+
+  // Subscribe to extraction progress updates for this model
+  useModelExtractionProgress(extractionStarted ? model.id : undefined);
 
   // Determine number of layers from model architecture
   const numLayers = model.architecture_config?.num_layers ||
@@ -43,10 +56,12 @@ export function ActivationExtractionConfig({
                    12;
   const layers = Array.from({ length: numLayers }, (_, i) => i);
 
-  // Fetch datasets on mount
+  // Fetch datasets and templates on mount
   useEffect(() => {
     fetchDatasets();
-  }, [fetchDatasets]);
+    fetchTemplates();
+    fetchFavorites();
+  }, [fetchDatasets, fetchTemplates, fetchFavorites]);
 
   // Set first dataset as default
   useEffect(() => {
@@ -54,6 +69,39 @@ export function ActivationExtractionConfig({
       setSelectedDataset(datasets[0].id);
     }
   }, [datasets, selectedDataset]);
+
+  // Monitor extraction progress from store and display errors
+  useEffect(() => {
+    if (extractionStarted && latestModel.extraction_status === 'error') {
+      setValidationError(latestModel.extraction_message || 'Extraction failed');
+      setExtracting(false);
+      setExtractionStarted(false);
+    }
+  }, [extractionStarted, latestModel.extraction_status, latestModel.extraction_message]);
+
+  // Load template configuration when selected
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplate(templateId);
+
+    if (!templateId) {
+      // Reset to defaults if "None" is selected
+      setSelectedLayers([0, 5, 11]);
+      setHookTypes(['residual']);
+      setBatchSize(32);
+      setMaxSamples(1000);
+      setTopKExamples(10);
+      return;
+    }
+
+    const template = templates.find(t => t.id === templateId);
+    if (template) {
+      setSelectedLayers([...template.layer_indices]);
+      setHookTypes([...template.hook_types] as any);
+      setBatchSize(template.batch_size);
+      setMaxSamples(template.max_samples);
+      setTopKExamples(template.top_k_examples);
+    }
+  };
 
   const toggleLayer = (layer: number) => {
     if (selectedLayers.includes(layer)) {
@@ -115,6 +163,7 @@ export function ActivationExtractionConfig({
     }
 
     setExtracting(true);
+    setExtractionStarted(true);
     try {
       const config: ExtractionConfig = {
         dataset_id: selectedDataset,
@@ -127,14 +176,15 @@ export function ActivationExtractionConfig({
 
       await onExtract(model.id, config);
 
-      // Don't close immediately - let the user see the extraction started
-      setTimeout(() => {
-        onClose();
-      }, 1000);
+      // Keep modal open so user can see progress or errors
+      // WebSocket will update the model state, which will trigger error display if needed
+      // User can manually close when ready
+      setExtracting(false);
     } catch (error) {
       console.error('[ActivationExtractionConfig] Extraction failed:', error);
       setValidationError(error instanceof Error ? error.message : 'Extraction failed');
       setExtracting(false);
+      setExtractionStarted(false);
     }
   };
 
@@ -164,6 +214,47 @@ export function ActivationExtractionConfig({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Template Selection */}
+          {templates.length > 0 && (
+            <div>
+              <label htmlFor="extraction-template" className="block text-sm font-medium text-slate-300 mb-2">
+                Load Template (Optional)
+              </label>
+              <select
+                id="extraction-template"
+                value={selectedTemplate}
+                onChange={(e) => handleTemplateSelect(e.target.value)}
+                disabled={extracting}
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <option value="">None (Manual Configuration)</option>
+                {favorites.length > 0 && (
+                  <optgroup label="⭐ Favorites">
+                    {favorites.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {templates.length > 0 && (
+                  <optgroup label="All Templates">
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              {selectedTemplate && (
+                <p className="text-xs text-slate-500 mt-2">
+                  Template loaded. You can still modify settings below.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Dataset Selection */}
           <div>
             <label htmlFor="extraction-dataset" className="block text-sm font-medium text-slate-300 mb-2">

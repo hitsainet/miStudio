@@ -229,6 +229,14 @@ export interface Model {
   created_at: string;
   /** Record last update timestamp */
   updated_at: string;
+  /** Current extraction ID (if extraction is running) */
+  extraction_id?: string;
+  /** Extraction progress (0-100) */
+  extraction_progress?: number;
+  /** Extraction status */
+  extraction_status?: 'starting' | 'loading' | 'extracting' | 'saving' | 'complete' | 'error';
+  /** Extraction message */
+  extraction_message?: string;
 }
 
 /**

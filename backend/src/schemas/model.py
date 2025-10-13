@@ -104,8 +104,8 @@ class ActivationExtractionRequest(BaseModel):
     """Schema for activation extraction request."""
 
     dataset_id: str = Field(..., min_length=1, description="Dataset ID (UUID format)")
-    layer_indices: List[int] = Field(..., min_items=1, description="List of layer indices to extract from (e.g., [0, 5, 11])")
-    hook_types: List[str] = Field(..., min_items=1, description="List of hook types (residual, mlp, attention)")
+    layer_indices: List[int] = Field(..., min_length=1, description="List of layer indices to extract from (e.g., [0, 5, 11])")
+    hook_types: List[str] = Field(..., min_length=1, description="List of hook types (residual, mlp, attention)")
     max_samples: int = Field(..., ge=1, le=100000, description="Maximum number of samples to process")
     batch_size: Optional[int] = Field(8, ge=1, le=256, description="Batch size for processing")
     top_k_examples: Optional[int] = Field(10, ge=1, le=100, description="Number of top activating examples to save")

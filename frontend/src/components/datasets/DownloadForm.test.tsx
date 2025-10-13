@@ -41,7 +41,7 @@ describe('DownloadForm', () => {
       const input = screen.getByLabelText('Repository ID');
       expect(input).toBeInTheDocument();
       expect(input).toHaveAttribute('type', 'text');
-      expect(input).toHaveAttribute('placeholder', 'username/dataset-name');
+      expect(input).toHaveAttribute('placeholder', 'publisher/dataset-name');
       expect(input).toBeRequired();
     });
 
@@ -172,7 +172,7 @@ describe('DownloadForm', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText(/must be in format: username\/dataset-name/i)).toBeInTheDocument();
+        expect(screen.getByText(/must be in format: publisher\/dataset-name/i)).toBeInTheDocument();
       });
 
       expect(mockOnDownload).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe('DownloadForm', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText(/must be in format: username\/dataset-name/i)).toBeInTheDocument();
+        expect(screen.getByText(/must be in format: publisher\/dataset-name/i)).toBeInTheDocument();
       });
 
       expect(mockOnDownload).not.toHaveBeenCalled();
@@ -204,7 +204,7 @@ describe('DownloadForm', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText(/must be in format: username\/dataset-name/i)).toBeInTheDocument();
+        expect(screen.getByText(/must be in format: publisher\/dataset-name/i)).toBeInTheDocument();
       });
 
       expect(mockOnDownload).not.toHaveBeenCalled();

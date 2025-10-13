@@ -485,8 +485,8 @@ describe('DatasetDetailModal', () => {
       const statisticsTab = screen.getByRole('button', { name: /Statistics/i });
       fireEvent.click(statisticsTab);
 
-      expect(screen.getByText(/Tokenization Configuration/i)).toBeInTheDocument();
       expect(screen.getByText(/Token Statistics/i)).toBeInTheDocument();
+      expect(screen.getByText(/Sequence Length Distribution/i)).toBeInTheDocument();
     });
   });
 

@@ -19,6 +19,7 @@ describe('ModelCard', () => {
   const mockOnClick = vi.fn();
   const mockOnExtract = vi.fn();
   const mockOnDelete = vi.fn();
+  const mockOnCancel = vi.fn();
 
   const baseModel: Model = {
     id: 'm_test123',
@@ -37,6 +38,7 @@ describe('ModelCard', () => {
     mockOnClick.mockClear();
     mockOnExtract.mockClear();
     mockOnDelete.mockClear();
+    mockOnCancel.mockClear();
   });
 
   describe('Model Information Display', () => {
@@ -47,6 +49,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -60,6 +63,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -73,6 +77,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -91,6 +96,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -104,6 +110,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -119,6 +126,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -140,6 +148,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -161,6 +170,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -182,6 +192,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -205,6 +216,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -225,6 +237,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -245,6 +258,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -259,6 +273,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -274,6 +289,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -292,6 +308,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -305,6 +322,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -325,6 +343,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -340,6 +359,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -356,6 +376,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -376,6 +397,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -397,6 +419,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -423,6 +446,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -436,6 +460,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -458,6 +483,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -476,6 +502,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -496,6 +523,7 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
@@ -514,10 +542,169 @@ describe('ModelCard', () => {
           onClick={mockOnClick}
           onExtract={mockOnExtract}
           onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
         />
       );
 
       expect(screen.getByText(/500 MB memory/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Cancel Button', () => {
+    it('should show Cancel button for downloading models', () => {
+      const downloadingModel = {
+        ...baseModel,
+        status: ModelStatus.DOWNLOADING,
+        progress: 45,
+      };
+
+      render(
+        <ModelCard
+          model={downloadingModel}
+          onClick={mockOnClick}
+          onExtract={mockOnExtract}
+          onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const cancelButton = screen.getByTitle('Cancel download');
+      expect(cancelButton).toBeInTheDocument();
+    });
+
+    it('should show Cancel button for loading models', () => {
+      const loadingModel = {
+        ...baseModel,
+        status: ModelStatus.LOADING,
+        progress: 70,
+      };
+
+      render(
+        <ModelCard
+          model={loadingModel}
+          onClick={mockOnClick}
+          onExtract={mockOnExtract}
+          onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const cancelButton = screen.getByTitle('Cancel download');
+      expect(cancelButton).toBeInTheDocument();
+    });
+
+    it('should show Cancel button for quantizing models', () => {
+      const quantizingModel = {
+        ...baseModel,
+        status: ModelStatus.QUANTIZING,
+        progress: 85,
+      };
+
+      render(
+        <ModelCard
+          model={quantizingModel}
+          onClick={mockOnClick}
+          onExtract={mockOnExtract}
+          onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const cancelButton = screen.getByTitle('Cancel download');
+      expect(cancelButton).toBeInTheDocument();
+    });
+
+    it('should not show Cancel button for ready models', () => {
+      render(
+        <ModelCard
+          model={baseModel}
+          onClick={mockOnClick}
+          onExtract={mockOnExtract}
+          onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      expect(screen.queryByTitle('Cancel download')).not.toBeInTheDocument();
+    });
+
+    it('should not show Cancel button for error models', () => {
+      const errorModel = {
+        ...baseModel,
+        status: ModelStatus.ERROR,
+        error_message: 'Failed',
+      };
+
+      render(
+        <ModelCard
+          model={errorModel}
+          onClick={mockOnClick}
+          onExtract={mockOnExtract}
+          onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      expect(screen.queryByTitle('Cancel download')).not.toBeInTheDocument();
+    });
+
+    it('should show confirmation and call onCancel when Cancel button is clicked', () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      const downloadingModel = {
+        ...baseModel,
+        id: 'm_cancel123',
+        status: ModelStatus.DOWNLOADING,
+        progress: 50,
+      };
+
+      render(
+        <ModelCard
+          model={downloadingModel}
+          onClick={mockOnClick}
+          onExtract={mockOnExtract}
+          onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const cancelButton = screen.getByTitle('Cancel download');
+      fireEvent.click(cancelButton);
+
+      expect(confirmSpy).toHaveBeenCalledWith(
+        'Are you sure you want to cancel this download? Partial files will be deleted.'
+      );
+      expect(mockOnCancel).toHaveBeenCalledWith('m_cancel123');
+      expect(mockOnClick).not.toHaveBeenCalled(); // Should not trigger model click
+
+      confirmSpy.mockRestore();
+    });
+
+    it('should not call onCancel if confirmation is cancelled', () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+      const downloadingModel = {
+        ...baseModel,
+        status: ModelStatus.DOWNLOADING,
+        progress: 50,
+      };
+
+      render(
+        <ModelCard
+          model={downloadingModel}
+          onClick={mockOnClick}
+          onExtract={mockOnExtract}
+          onDelete={mockOnDelete}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      const cancelButton = screen.getByTitle('Cancel download');
+      fireEvent.click(cancelButton);
+
+      expect(mockOnCancel).not.toHaveBeenCalled();
+
+      confirmSpy.mockRestore();
     });
   });
 });

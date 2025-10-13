@@ -11,6 +11,7 @@ import {
   getModel,
   downloadModel,
   deleteModel,
+  cancelModelDownload,
   getModelArchitecture,
   extractActivations,
   updateModel,
@@ -266,6 +267,54 @@ describe('models API client', () => {
       });
 
       await expect(deleteModel('m_inuse')).rejects.toThrow('Cannot delete model in use');
+    });
+  });
+
+  describe('cancelModelDownload', () => {
+    it('should cancel model download successfully', async () => {
+      const mockResponse = {
+        status: 'cancelled',
+        message: 'Download cancelled successfully',
+      };
+
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const result = await cancelModelDownload('m_cancel');
+
+      expect(result).toEqual(mockResponse);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:8000/api/v1/models/m_cancel/cancel',
+        expect.objectContaining({
+          method: 'DELETE',
+        })
+      );
+    });
+
+    it('should throw error if model cannot be cancelled', async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          detail: "Model 'm_ready' cannot be cancelled (status: ready)",
+        }),
+      });
+
+      await expect(cancelModelDownload('m_ready')).rejects.toThrow(
+        "Model 'm_ready' cannot be cancelled (status: ready)"
+      );
+    });
+
+    it('should throw error if model not found', async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ detail: 'Model not found' }),
+      });
+
+      await expect(cancelModelDownload('m_nonexistent')).rejects.toThrow('Model not found');
     });
   });
 

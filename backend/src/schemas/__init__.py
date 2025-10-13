@@ -12,6 +12,15 @@ from .dataset import (
     DatasetListResponse,
     DatasetDownloadRequest,
 )
+from .extraction_template import (
+    ExtractionTemplateBase,
+    ExtractionTemplateCreate,
+    ExtractionTemplateUpdate,
+    ExtractionTemplateResponse,
+    ExtractionTemplateListResponse,
+    ExtractionTemplateExport,
+    ExtractionTemplateImport,
+)
 
 __all__ = [
     "DatasetBase",
@@ -20,4 +29,11 @@ __all__ = [
     "DatasetResponse",
     "DatasetListResponse",
     "DatasetDownloadRequest",
+    "ExtractionTemplateBase",
+    "ExtractionTemplateCreate",
+    "ExtractionTemplateUpdate",
+    "ExtractionTemplateResponse",
+    "ExtractionTemplateListResponse",
+    "ExtractionTemplateExport",
+    "ExtractionTemplateImport",
 ]

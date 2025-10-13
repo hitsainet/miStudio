@@ -132,6 +132,7 @@ describe('modelsStore', () => {
           body: JSON.stringify({
             repo_id: 'gpt2',
             quantization: 'Q8',
+            trust_remote_code: false,
           }),
         })
       );
@@ -165,6 +166,7 @@ describe('modelsStore', () => {
           body: JSON.stringify({
             repo_id: 'org/gated-model',
             quantization: 'Q4',
+            trust_remote_code: false,
             access_token: 'test_token_123',
           }),
         })
@@ -252,6 +254,109 @@ describe('modelsStore', () => {
       const state = useModelsStore.getState();
       expect(state.models).toHaveLength(1); // Model still present
       expect(state.error).toBe('Failed to delete model');
+    });
+  });
+
+  describe('cancelDownload', () => {
+    it('should cancel download successfully', async () => {
+      // Setup initial state with a downloading model
+      useModelsStore.setState({
+        models: [
+          {
+            id: 'm_cancel_me',
+            name: 'ModelToCancel',
+            repo_id: 'org/model-to-cancel',
+            architecture: 'llama',
+            params_count: 1100000000,
+            quantization: QuantizationFormat.Q4,
+            status: ModelStatus.DOWNLOADING,
+            progress: 45,
+            created_at: '2025-10-13T00:00:00Z',
+            updated_at: '2025-10-13T00:00:00Z',
+          },
+        ],
+      });
+
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'cancelled',
+          message: 'Download cancelled successfully',
+        }),
+      });
+
+      const { cancelDownload } = useModelsStore.getState();
+      await cancelDownload('m_cancel_me');
+
+      const state = useModelsStore.getState();
+      expect(state.models).toHaveLength(0); // Model removed from store
+      expect(state.loading).toBe(false);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:8000/api/v1/models/m_cancel_me/cancel',
+        { method: 'DELETE' }
+      );
+    });
+
+    it('should handle cancel error for non-cancellable model', async () => {
+      useModelsStore.setState({
+        models: [
+          {
+            id: 'm_ready_model',
+            name: 'ReadyModel',
+            architecture: 'gpt2',
+            params_count: 124000000,
+            quantization: QuantizationFormat.Q8,
+            status: ModelStatus.READY,
+            progress: 100,
+            created_at: '2025-10-13T00:00:00Z',
+            updated_at: '2025-10-13T00:00:00Z',
+          },
+        ],
+      });
+
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          detail: "Model 'm_ready_model' cannot be cancelled (status: ready)",
+        }),
+      });
+
+      const { cancelDownload } = useModelsStore.getState();
+      await expect(cancelDownload('m_ready_model')).rejects.toThrow(
+        "Model 'm_ready_model' cannot be cancelled (status: ready)"
+      );
+
+      const state = useModelsStore.getState();
+      expect(state.models).toHaveLength(1); // Model still present
+      expect(state.error).toBe("Model 'm_ready_model' cannot be cancelled (status: ready)");
+    });
+
+    it('should handle network error during cancel', async () => {
+      useModelsStore.setState({
+        models: [
+          {
+            id: 'm_network_fail',
+            name: 'NetworkFailModel',
+            architecture: 'llama',
+            params_count: 7000000000,
+            quantization: QuantizationFormat.Q4,
+            status: ModelStatus.LOADING,
+            progress: 75,
+            created_at: '2025-10-13T00:00:00Z',
+            updated_at: '2025-10-13T00:00:00Z',
+          },
+        ],
+      });
+
+      global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'));
+
+      const { cancelDownload } = useModelsStore.getState();
+      await expect(cancelDownload('m_network_fail')).rejects.toThrow('Network error');
+
+      const state = useModelsStore.getState();
+      expect(state.models).toHaveLength(1); // Model still present on error
+      expect(state.error).toBe('Network error');
     });
   });
 

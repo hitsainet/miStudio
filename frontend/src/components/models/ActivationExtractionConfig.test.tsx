@@ -683,13 +683,16 @@ describe('ActivationExtractionConfig', () => {
         expect(screen.getByText('Starting Extraction...')).toBeInTheDocument();
       });
 
-      // Wait for completion
+      // Wait for extraction to complete
       await waitFor(() => {
-        expect(mockOnClose).toHaveBeenCalled();
+        expect(mockOnExtract).toHaveBeenCalled();
       }, { timeout: 2000 });
+
+      // Modal should remain open (not call onClose)
+      expect(mockOnClose).not.toHaveBeenCalled();
     });
 
-    it('should close modal after successful extraction', async () => {
+    it('should not close modal after successful extraction', async () => {
       mockOnExtract.mockResolvedValue(undefined);
 
       render(
@@ -703,9 +706,13 @@ describe('ActivationExtractionConfig', () => {
       const extractButton = screen.getByText('Start Extraction');
       fireEvent.click(extractButton);
 
+      // Wait for extraction to complete
       await waitFor(() => {
-        expect(mockOnClose).toHaveBeenCalled();
+        expect(mockOnExtract).toHaveBeenCalled();
       }, { timeout: 2000 });
+
+      // Modal should remain open so user can see progress
+      expect(mockOnClose).not.toHaveBeenCalled();
     });
 
     it('should show error message on extraction failure', async () => {
@@ -778,11 +785,18 @@ describe('ActivationExtractionConfig', () => {
       const extractButton = screen.getByText('Start Extraction');
       fireEvent.click(extractButton);
 
+      // Close button should be disabled during extraction
       const closeButton = screen.getByLabelText('Close');
       expect(closeButton).toBeDisabled();
 
+      // Wait for extraction to complete
       await waitFor(() => {
-        expect(mockOnClose).toHaveBeenCalled();
+        expect(mockOnExtract).toHaveBeenCalled();
+      });
+
+      // After extraction completes, close button should be enabled again
+      await waitFor(() => {
+        expect(closeButton).not.toBeDisabled();
       });
     });
   });

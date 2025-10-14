@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Play, Star } from 'lucide-react';
+import { X, Play, Star, Save } from 'lucide-react';
 import { Model, ActivationExtractionConfig as ExtractionConfig } from '../../types/model';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
@@ -30,7 +30,7 @@ export function ActivationExtractionConfig({
   onExtract
 }: ActivationExtractionConfigProps) {
   const { datasets, fetchDatasets } = useDatasetsStore();
-  const { templates, favorites, fetchTemplates, fetchFavorites } = useExtractionTemplatesStore();
+  const { templates, favorites, fetchTemplates, fetchFavorites, createTemplate } = useExtractionTemplatesStore();
   const { models } = useModelsStore();
 
   const [selectedTemplate, setSelectedTemplate] = useState('');
@@ -43,6 +43,10 @@ export function ActivationExtractionConfig({
   const [extracting, setExtracting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [extractionStarted, setExtractionStarted] = useState(false);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateDescription, setTemplateDescription] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   // Get the latest model data from store
   const latestModel = models.find(m => m.id === model.id) || model;
@@ -155,6 +159,68 @@ export function ActivationExtractionConfig({
 
     setValidationError(null);
     return true;
+  };
+
+  // Generate a smart default template name based on configuration
+  const generateTemplateName = (): string => {
+    // Format layers as ranges or individual values
+    const layerStr = selectedLayers.length <= 3
+      ? selectedLayers.join(',')
+      : `${selectedLayers[0]}-${selectedLayers[selectedLayers.length - 1]}`;
+
+    // Format hook types
+    const hookStr = hookTypes.join(',');
+
+    // Get model name (truncate if too long)
+    const modelName = model.name.length > 30 ? model.name.substring(0, 30) + '...' : model.name;
+
+    return `${modelName} - L${layerStr} - ${hookStr}`;
+  };
+
+  // Open save template dialog with generated name
+  const handleOpenSaveTemplate = () => {
+    setTemplateName(generateTemplateName());
+    setTemplateDescription(`Extraction config for ${model.name} with ${selectedLayers.length} layers and ${hookTypes.length} hook types`);
+    setShowSaveTemplate(true);
+  };
+
+  // Save the current configuration as a template
+  const handleSaveTemplate = async () => {
+    if (!templateName.trim()) {
+      setValidationError('Template name is required');
+      return;
+    }
+
+    setSavingTemplate(true);
+    try {
+      await createTemplate({
+        name: templateName,
+        description: templateDescription || undefined,
+        layer_indices: selectedLayers,
+        hook_types: hookTypes,
+        max_samples: maxSamples,
+        batch_size: batchSize,
+        top_k_examples: topKExamples,
+        is_favorite: false,
+      });
+
+      // Refresh templates list
+      await fetchTemplates();
+      await fetchFavorites();
+
+      // Close dialog
+      setShowSaveTemplate(false);
+      setTemplateName('');
+      setTemplateDescription('');
+      setSavingTemplate(false);
+
+      // Show success (could add a toast notification here)
+      console.log('[ActivationExtractionConfig] Template saved successfully');
+    } catch (error) {
+      console.error('[ActivationExtractionConfig] Failed to save template:', error);
+      setValidationError(error instanceof Error ? error.message : 'Failed to save template');
+      setSavingTemplate(false);
+    }
   };
 
   const handleExtract = async () => {
@@ -418,27 +484,142 @@ export function ActivationExtractionConfig({
             </div>
           )}
 
-          {/* Extract Button */}
-          <button
-            type="button"
-            onClick={handleExtract}
-            disabled={extracting || readyDatasets.length === 0 || selectedLayers.length === 0 || hookTypes.length === 0}
-            className="w-full px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
-          >
-            {extracting ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                Starting Extraction...
-              </>
-            ) : (
-              <>
-                <Play className="w-5 h-5" />
-                Start Extraction
-              </>
-            )}
-          </button>
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Save as Template Button */}
+            <button
+              type="button"
+              onClick={handleOpenSaveTemplate}
+              disabled={extracting || selectedLayers.length === 0 || hookTypes.length === 0}
+              className="px-6 py-3 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
+            >
+              <Save className="w-5 h-5" />
+              Save as Template
+            </button>
+
+            {/* Extract Button */}
+            <button
+              type="button"
+              onClick={handleExtract}
+              disabled={extracting || readyDatasets.length === 0 || selectedLayers.length === 0 || hookTypes.length === 0}
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
+            >
+              {extracting ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                  Starting Extraction...
+                </>
+              ) : (
+                <>
+                  <Play className="w-5 h-5" />
+                  Start Extraction
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Save Template Dialog */}
+      {showSaveTemplate && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg max-w-md w-full">
+            {/* Dialog Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-800">
+              <div>
+                <h3 className="text-xl font-semibold text-emerald-400">Save as Template</h3>
+                <p className="text-sm text-slate-400 mt-1">Save current configuration for reuse</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSaveTemplate(false)}
+                disabled={savingTemplate}
+                className="text-slate-400 hover:text-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Dialog Content */}
+            <div className="p-6 space-y-4">
+              {/* Template Name */}
+              <div>
+                <label htmlFor="template-name" className="block text-sm font-medium text-slate-300 mb-2">
+                  Template Name *
+                </label>
+                <input
+                  id="template-name"
+                  type="text"
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  disabled={savingTemplate}
+                  placeholder="e.g., GPT-2 Small - L0,5,11 - residual,mlp"
+                  className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                />
+              </div>
+
+              {/* Template Description */}
+              <div>
+                <label htmlFor="template-description" className="block text-sm font-medium text-slate-300 mb-2">
+                  Description (Optional)
+                </label>
+                <textarea
+                  id="template-description"
+                  value={templateDescription}
+                  onChange={(e) => setTemplateDescription(e.target.value)}
+                  disabled={savingTemplate}
+                  rows={3}
+                  placeholder="Describe what this template is for..."
+                  className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors resize-none"
+                />
+              </div>
+
+              {/* Configuration Summary */}
+              <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300">
+                <div className="font-medium mb-2">Template Configuration:</div>
+                <ul className="space-y-1 text-slate-400">
+                  <li>• Layers: {selectedLayers.join(', ')}</li>
+                  <li>• Hook Types: {hookTypes.join(', ')}</li>
+                  <li>• Batch Size: {batchSize}</li>
+                  <li>• Max Samples: {maxSamples.toLocaleString()}</li>
+                  <li>• Top K Examples: {topKExamples}</li>
+                </ul>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSaveTemplate(false)}
+                  disabled={savingTemplate}
+                  className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-slate-100 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  disabled={savingTemplate || !templateName.trim()}
+                  className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg transition-colors text-white font-medium flex items-center justify-center gap-2"
+                >
+                  {savingTemplate ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Template
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

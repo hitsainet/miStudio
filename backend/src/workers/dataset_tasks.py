@@ -415,6 +415,7 @@ def tokenize_dataset_task(
             return_attention_mask=return_attention_mask,
             batch_size=1000,
             progress_callback=tokenization_progress,
+            num_proc=1,  # Force single-process mode for progress tracking
         )
 
         # Emit progress: 80%

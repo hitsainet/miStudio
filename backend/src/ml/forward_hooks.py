@@ -148,7 +148,7 @@ class HookManager:
         elif architecture in ["phi", "phi3", "phi3_v"]:
             if hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
                 return self.model.model.layers
-        elif architecture == "qwen":
+        elif architecture in ["qwen", "qwen3"]:
             if hasattr(self.model, "transformer") and hasattr(self.model.transformer, "h"):
                 return self.model.transformer.h
         elif architecture == "falcon":

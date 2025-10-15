@@ -11,7 +11,7 @@ import { useModelsStore } from '../stores/modelsStore';
 import { ModelStatus } from '../types/model';
 
 interface ModelProgressEvent {
-  type: 'progress' | 'completed' | 'error' | 'extraction_progress' | 'extraction_completed';
+  type: 'progress' | 'completed' | 'error' | 'extraction_progress' | 'extraction_completed' | 'extraction_failed';
   model_id: string;
   progress?: number;
   status?: ModelStatus | string;
@@ -22,6 +22,12 @@ interface ModelProgressEvent {
   extraction_id?: string;
   output_path?: string;
   statistics?: Record<string, any>;
+  // Failure-specific fields
+  error_type?: string;
+  error_message?: string;
+  suggested_retry_params?: Record<string, any>;
+  retry_available?: boolean;
+  cancel_available?: boolean;
 }
 
 /**
@@ -83,13 +89,25 @@ export function useModelProgress(modelId?: string, channel: 'progress' | 'extrac
 
 /**
  * Hook to monitor progress for all downloading/loading/quantizing models
+ *
+ * This hook also checks for active extractions on mount to restore state after page refresh.
  */
 export function useAllModelsProgress() {
   const { models } = useModelsStore();
   const { subscribe, unsubscribe } = useWebSocket();
-  const { updateModelProgress, updateModelStatus, updateExtractionProgress, fetchModels } = useModelsStore();
+  const { updateModelProgress, updateModelStatus, updateExtractionProgress, clearExtractionProgress, updateExtractionFailure, fetchModels, checkActiveExtraction } = useModelsStore();
 
   useEffect(() => {
+    // On mount, check all ready models for active extractions
+    const readyModels = models.filter((m) => m.status === ModelStatus.READY);
+
+    readyModels.forEach(async (model) => {
+      const hasActiveExtraction = await checkActiveExtraction(model.id);
+      if (hasActiveExtraction) {
+        console.log('[useAllModelsProgress] Restored active extraction for model:', model.id);
+      }
+    });
+
     // Subscribe to progress updates for all active models
     const activeModels = models.filter(
       (m) =>
@@ -97,9 +115,6 @@ export function useAllModelsProgress() {
         m.status === ModelStatus.LOADING ||
         m.status === ModelStatus.QUANTIZING
     );
-
-    // Subscribe to extraction updates for all ready models
-    const readyModels = models.filter((m) => m.status === ModelStatus.READY);
 
     // Handler for 'progress' events
     const handleProgress = (data: ModelProgressEvent) => {
@@ -159,6 +174,28 @@ export function useAllModelsProgress() {
           data.status,
           data.message
         );
+
+        // Clear extraction state if completed, failed, or cancelled
+        if (data.status === 'complete' || data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+          console.log('[useAllModelsProgress] Extraction finished, clearing state:', data.status);
+          clearExtractionProgress(data.model_id);
+        }
+      }
+    };
+
+    // Handler for extraction failed events (dedicated failure with retry options)
+    const handleExtractionFailed = (event: any) => {
+      console.log('[useAllModelsProgress] Extraction failed:', event);
+      const data = event.data || event;
+
+      if (data.model_id && data.extraction_id && data.error_message) {
+        updateExtractionFailure(
+          data.model_id,
+          data.extraction_id,
+          data.error_type || 'UNKNOWN',
+          data.error_message,
+          data.suggested_retry_params
+        );
       }
     };
 
@@ -182,11 +219,15 @@ export function useAllModelsProgress() {
       console.log(`[useAllModelsProgress] Subscribed to extraction channel for model: ${model.id}`);
     });
 
+    // Subscribe to 'failed' event for extraction failures
+    subscribe('failed', handleExtractionFailed);
+
     return () => {
       // Unsubscribe from event handlers
       unsubscribe('progress', handleProgress);
       unsubscribe('completed', handleCompleted);
       unsubscribe('error', handleError);
+      unsubscribe('failed', handleExtractionFailed);
 
       // Leave all progress rooms
       activeModels.forEach((model) => {
@@ -200,18 +241,37 @@ export function useAllModelsProgress() {
         unsubscribe(extractionChannel, handleExtractionProgress);
       });
     };
-  }, [models, subscribe, unsubscribe, updateModelProgress, updateModelStatus, updateExtractionProgress, fetchModels]);
+  }, [models, subscribe, unsubscribe, updateModelProgress, updateModelStatus, updateExtractionProgress, updateExtractionFailure, fetchModels, checkActiveExtraction]);
 }
 
 /**
  * Hook for monitoring activation extraction progress for a specific model
+ *
+ * This hook:
+ * 1. On mount, checks for any active extraction (restores state after page refresh)
+ * 2. Subscribes to WebSocket for real-time updates
+ * 3. Handles extraction completion by clearing active extraction state
  */
 export function useModelExtractionProgress(modelId?: string) {
   const { subscribe, unsubscribe } = useWebSocket();
-  const { updateExtractionProgress } = useModelsStore();
+  const { updateExtractionProgress, clearExtractionProgress, checkActiveExtraction } = useModelsStore();
 
   useEffect(() => {
     if (!modelId) return;
+
+    // On mount, check for active extraction to restore state
+    const initializeExtraction = async () => {
+      console.log('[useModelExtractionProgress] Checking for active extraction on mount for model:', modelId);
+      const hasActiveExtraction = await checkActiveExtraction(modelId);
+
+      if (hasActiveExtraction) {
+        console.log('[useModelExtractionProgress] Active extraction found and restored');
+      } else {
+        console.log('[useModelExtractionProgress] No active extraction found');
+      }
+    };
+
+    initializeExtraction();
 
     const extractionChannel = `models/${modelId}/extraction`;
 
@@ -230,6 +290,14 @@ export function useModelExtractionProgress(modelId?: string) {
           data.message
         );
       }
+
+      // If extraction is completed or failed, clear active extraction state
+      // Backend emits status="complete" or status="completed" on success
+      // This clears the progress bar and marks model as having no active extraction
+      if (data.status === 'complete' || data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+        console.log('[useModelExtractionProgress] Extraction finished, clearing state:', data.status);
+        clearExtractionProgress(data.model_id);
+      }
     };
 
     subscribe(extractionChannel, handleExtractionUpdate);
@@ -237,5 +305,5 @@ export function useModelExtractionProgress(modelId?: string) {
     return () => {
       unsubscribe(extractionChannel, handleExtractionUpdate);
     };
-  }, [modelId, subscribe, unsubscribe, updateExtractionProgress]);
+  }, [modelId, subscribe, unsubscribe, updateExtractionProgress, checkActiveExtraction]);
 }

@@ -148,9 +148,19 @@ class HookManager:
         elif architecture in ["phi", "phi3", "phi3_v"]:
             if hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
                 return self.model.model.layers
-        elif architecture in ["qwen", "qwen3"]:
-            if hasattr(self.model, "transformer") and hasattr(self.model.transformer, "h"):
+        elif architecture in ["qwen", "qwen2", "qwen3"]:
+            # Qwen models can have layers at transformer.h (Qwen/Qwen2) or model.layers (Qwen3)
+            # Try both paths to handle different model variants and quantization wrappers
+            if hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
+                return self.model.model.layers
+            elif hasattr(self.model, "transformer") and hasattr(self.model.transformer, "h"):
                 return self.model.transformer.h
+            # Log available attributes for debugging
+            logger.warning(f"Qwen model structure - model attrs: {dir(self.model)[:10]}")
+            if hasattr(self.model, "model"):
+                logger.warning(f"Qwen model structure - model.model attrs: {dir(self.model.model)[:10]}")
+            if hasattr(self.model, "transformer"):
+                logger.warning(f"Qwen model structure - model.transformer attrs: {dir(self.model.transformer)[:10]}")
         elif architecture == "falcon":
             if hasattr(self.model, "transformer") and hasattr(self.model.transformer, "h"):
                 return self.model.transformer.h

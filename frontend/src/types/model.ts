@@ -234,9 +234,13 @@ export interface Model {
   /** Extraction progress (0-100) */
   extraction_progress?: number;
   /** Extraction status */
-  extraction_status?: 'starting' | 'loading' | 'extracting' | 'saving' | 'complete' | 'error';
+  extraction_status?: 'starting' | 'loading' | 'extracting' | 'saving' | 'complete' | 'failed' | 'error';
   /** Extraction message */
   extraction_message?: string;
+  /** Extraction error type (OOM, VALIDATION, TIMEOUT, EXTRACTION, UNKNOWN) */
+  extraction_error_type?: string;
+  /** Suggested retry parameters for failed extraction */
+  extraction_suggested_retry_params?: Record<string, any>;
 }
 
 /**

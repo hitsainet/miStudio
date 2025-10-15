@@ -9,8 +9,9 @@
  */
 
 import { useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, Eye } from 'lucide-react';
 import { QuantizationFormat } from '../../types/model';
+import { ModelPreviewModal } from './ModelPreviewModal';
 
 interface ModelDownloadFormProps {
   onDownload: (repoId: string, quantization: string, accessToken?: string, trustRemoteCode?: boolean) => Promise<void>;
@@ -23,6 +24,7 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
   const [trustRemoteCode, setTrustRemoteCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const validateRepoId = (repoId: string): boolean => {
     if (!repoId.trim()) {
@@ -39,6 +41,44 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
 
     setValidationError(null);
     return true;
+  };
+
+  const handlePreview = () => {
+    if (!validateRepoId(hfModelRepo)) {
+      return;
+    }
+    setShowPreview(true);
+  };
+
+  const handlePreviewDownload = async (selectedQuantization: string, previewTrustRemoteCode: boolean) => {
+    // Update quantization and trustRemoteCode from preview selection
+    setQuantization(selectedQuantization);
+    setTrustRemoteCode(previewTrustRemoteCode);
+    // Trigger download with selected quantization and trustRemoteCode
+    setIsSubmitting(true);
+    try {
+      await onDownload(
+        hfModelRepo.trim(),
+        selectedQuantization,
+        accessToken.trim() || undefined,
+        previewTrustRemoteCode
+      );
+      setValidationError(null);
+    } catch (error) {
+      console.error('[ModelDownloadForm] Download failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Download failed';
+
+      // Detect specific error types and provide helpful messages
+      if (errorMessage.includes('trust_remote_code') || errorMessage.includes('trust remote code')) {
+        setValidationError('This model requires executing custom code. Please enable "Trust Remote Code" below and try again.');
+      } else if (errorMessage.includes('Unsupported architecture')) {
+        setValidationError(`${errorMessage}\n\nThis model architecture is not yet supported. Please check the supported architectures list or try a different model.`);
+      } else {
+        setValidationError(errorMessage);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -58,7 +98,16 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
       setValidationError(null);
     } catch (error) {
       console.error('[ModelDownloadForm] Download failed:', error);
-      setValidationError(error instanceof Error ? error.message : 'Download failed');
+      const errorMessage = error instanceof Error ? error.message : 'Download failed';
+
+      // Detect specific error types and provide helpful messages
+      if (errorMessage.includes('trust_remote_code') || errorMessage.includes('trust remote code')) {
+        setValidationError('This model requires executing custom code. Please enable "Trust Remote Code" below and try again.');
+      } else if (errorMessage.includes('Unsupported architecture')) {
+        setValidationError(`${errorMessage}\n\nThis model architecture is not yet supported. Please check the supported architectures list or try a different model.`);
+      } else {
+        setValidationError(errorMessage);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -75,10 +124,11 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
       <div className="grid grid-cols-2 gap-4">
         {/* HuggingFace Repository Input */}
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
+          <label htmlFor="model-repo" className="block text-sm font-medium text-slate-300 mb-2">
             HuggingFace Model Repository
           </label>
           <input
+            id="model-repo"
             type="text"
             placeholder="e.g., TinyLlama/TinyLlama-1.1B"
             value={hfModelRepo}
@@ -115,10 +165,11 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
 
       {/* Access Token Input */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label htmlFor="access-token" className="block text-sm font-medium text-slate-300 mb-2">
           Access Token <span className="text-slate-500">(optional, for gated models)</span>
         </label>
         <input
+          id="access-token"
           type="password"
           placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
           value={accessToken}
@@ -160,25 +211,45 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
         </div>
       )}
 
-      {/* Download Button */}
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={!hfModelRepo || isSubmitting}
-        className="w-full px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
-      >
-        {isSubmitting ? (
-          <>
-            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-            Initiating Download...
-          </>
-        ) : (
-          <>
-            <Download className="w-5 h-5" />
-            Download Model from HuggingFace
-          </>
-        )}
-      </button>
+      {/* Action Buttons */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={handlePreview}
+          disabled={!hfModelRepo || isSubmitting}
+          className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
+        >
+          <Eye className="w-5 h-5" />
+          Preview
+        </button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!hfModelRepo || isSubmitting}
+          className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
+        >
+          {isSubmitting ? (
+            <>
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+              Downloading...
+            </>
+          ) : (
+            <>
+              <Download className="w-5 h-5" />
+              Download
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Model Preview Modal */}
+      {showPreview && (
+        <ModelPreviewModal
+          repoId={hfModelRepo}
+          onClose={() => setShowPreview(false)}
+          onDownload={handlePreviewDownload}
+        />
+      )}
     </div>
   );
 }

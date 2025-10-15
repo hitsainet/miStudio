@@ -20,8 +20,13 @@ from ....schemas.model import (
     ModelListResponse,
     ModelDownloadRequest,
     ActivationExtractionRequest,
+    ExtractionCancelResponse,
+    ExtractionRetryRequest,
+    ExtractionRetryResponse,
 )
 from ....services.model_service import ModelService
+from ....services.extraction_db_service import ExtractionDatabaseService
+from ....core.database import get_sync_db
 from ....workers.model_tasks import download_and_load_model, extract_activations, delete_model_files
 from ....core.celery_app import celery_app
 
@@ -318,6 +323,10 @@ async def extract_model_activations(
         )
 
     try:
+        # Generate extraction ID (same format as in extract_activations task)
+        import datetime
+        extraction_id = f"ext_{model_id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
         # Queue extraction job with Celery
         task = extract_activations.delay(
             model_id=model_id,
@@ -328,10 +337,21 @@ async def extract_model_activations(
             batch_size=request.batch_size or 8,
         )
 
+        # Emit immediate progress update to show job has started
+        from ....workers.websocket_emitter import emit_extraction_progress
+        emit_extraction_progress(
+            model_id=model_id,
+            extraction_id=extraction_id,
+            progress=0,
+            status="starting",
+            message="Extraction job queued, waiting for worker..."
+        )
+
         return {
             "job_id": task.id,
             "model_id": model_id,
             "dataset_id": request.dataset_id,
+            "extraction_id": extraction_id,
             "status": "queued",
             "message": "Activation extraction job queued successfully"
         }
@@ -409,6 +429,66 @@ async def cancel_model_download(
         )
 
 
+@router.get("/{model_id}/extractions/active")
+async def get_active_extraction(
+    model_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the currently active extraction for a model.
+
+    This endpoint returns the active extraction (if any) with its current progress,
+    allowing the frontend to restore extraction state after page refresh.
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        db: Database session
+
+    Returns:
+        Active extraction details with progress, or 404 if no active extraction
+
+    Raises:
+        HTTPException: If model not found or no active extraction
+    """
+    # Verify model exists
+    model = await ModelService.get_model(db, model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    # Query database for active extraction
+    with get_sync_db() as sync_db:
+        active_extraction = ExtractionDatabaseService.get_active_extraction_for_model(
+            sync_db, model_id
+        )
+
+    if not active_extraction:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No active extraction found for model '{model_id}'"
+        )
+
+    # Return extraction details
+    return {
+        "extraction_id": active_extraction.id,
+        "model_id": active_extraction.model_id,
+        "dataset_id": active_extraction.dataset_id,
+        "celery_task_id": active_extraction.celery_task_id,
+        "status": active_extraction.status.value,
+        "progress": active_extraction.progress,
+        "samples_processed": active_extraction.samples_processed,
+        "max_samples": active_extraction.max_samples,
+        "layer_indices": active_extraction.layer_indices,
+        "hook_types": active_extraction.hook_types,
+        "batch_size": active_extraction.batch_size,
+        "created_at": active_extraction.created_at.isoformat(),
+        "updated_at": active_extraction.updated_at.isoformat(),
+        "error_message": active_extraction.error_message
+    }
+
+
 @router.get("/{model_id}/extractions")
 async def list_model_extractions(
     model_id: str,
@@ -417,7 +497,8 @@ async def list_model_extractions(
     """
     List all activation extractions for a model.
 
-    This endpoint returns all completed extractions with their metadata and statistics.
+    This endpoint returns all extractions (completed and in-progress) with their
+    metadata and statistics, combining database records with filesystem data.
 
     Args:
         model_id: Model ID (string format: m_{uuid})
@@ -439,22 +520,290 @@ async def list_model_extractions(
             detail=f"Model '{model_id}' not found"
         )
 
-    # Get all extractions
-    activation_service = ActivationService()
-    extractions = activation_service.list_extractions()
+    # Get database records for all extractions (including in-progress)
+    with get_sync_db() as sync_db:
+        db_extractions = ExtractionDatabaseService.list_extractions_for_model(
+            sync_db, model_id, limit=50
+        )
 
-    # Filter extractions for this model
-    model_extractions = [
-        ext for ext in extractions
+    # Get filesystem-based extractions (completed extractions with metadata.json)
+    activation_service = ActivationService()
+    fs_extractions = activation_service.list_extractions()
+
+    # Filter filesystem extractions for this model
+    fs_extractions = [
+        ext for ext in fs_extractions
         if ext.get("model_id") == model_id
     ]
+
+    # Create a merged list:
+    # - Database records provide authoritative status and progress
+    # - Filesystem records provide full statistics and metadata
+    extraction_map = {}
+
+    # First, add all database records
+    for db_ext in db_extractions:
+        extraction_map[db_ext.id] = {
+            "extraction_id": db_ext.id,
+            "status": db_ext.status.value,
+            "progress": db_ext.progress,
+            "samples_processed": db_ext.samples_processed,
+            "max_samples": db_ext.max_samples,
+            "layer_indices": db_ext.layer_indices,
+            "hook_types": db_ext.hook_types,
+            "created_at": db_ext.created_at.isoformat(),
+            "completed_at": db_ext.completed_at.isoformat() if db_ext.completed_at else None,
+            "error_message": db_ext.error_message,
+            "statistics": db_ext.statistics if db_ext.statistics else {},
+            "saved_files": db_ext.saved_files if db_ext.saved_files else []
+        }
+
+    # Then, merge in filesystem data (for completed extractions)
+    for fs_ext in fs_extractions:
+        ext_id = fs_ext.get("extraction_id")
+        if ext_id in extraction_map:
+            # Update with full statistics and metadata from filesystem
+            extraction_map[ext_id].update({
+                "num_samples_processed": fs_ext.get("num_samples_processed"),
+                "statistics": fs_ext.get("statistics", {}),
+                "saved_files": fs_ext.get("saved_files", []),
+                "dataset_path": fs_ext.get("dataset_path"),
+                "architecture": fs_ext.get("architecture"),
+                "quantization": fs_ext.get("quantization")
+            })
+        else:
+            # Filesystem-only extraction (old extraction without database record)
+            extraction_map[ext_id] = {
+                "extraction_id": ext_id,
+                "status": "completed",  # Must be completed if metadata.json exists
+                "progress": 100.0,
+                "created_at": fs_ext.get("created_at"),
+                "num_samples_processed": fs_ext.get("num_samples_processed"),
+                "layer_indices": fs_ext.get("layer_indices", []),
+                "hook_types": fs_ext.get("hook_types", []),
+                "max_samples": fs_ext.get("max_samples"),
+                "statistics": fs_ext.get("statistics", {}),
+                "saved_files": fs_ext.get("saved_files", []),
+                "dataset_path": fs_ext.get("dataset_path"),
+                "architecture": fs_ext.get("architecture"),
+                "quantization": fs_ext.get("quantization")
+            }
+
+    # Convert to list and sort by created_at descending (newest first)
+    extractions = list(extraction_map.values())
+    extractions.sort(
+        key=lambda x: x.get("created_at", ""),
+        reverse=True
+    )
 
     return {
         "model_id": model_id,
         "model_name": model.name,
-        "extractions": model_extractions,
-        "count": len(model_extractions)
+        "extractions": extractions,
+        "count": len(extractions)
     }
+
+
+@router.post("/{model_id}/extractions/{extraction_id}/cancel", response_model=ExtractionCancelResponse)
+async def cancel_extraction(
+    model_id: str,
+    extraction_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an in-progress activation extraction.
+
+    This endpoint cancels the extraction Celery task, updates the database
+    record to CANCELLED status, and emits a WebSocket event.
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        extraction_id: Extraction ID (string format: ext_m_{uuid}_{timestamp})
+        db: Database session
+
+    Returns:
+        Cancellation confirmation with extraction_id and status
+
+    Raises:
+        HTTPException: If model or extraction not found, or extraction not cancellable
+    """
+    # Verify model exists
+    model = await ModelService.get_model(db, model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    # Get extraction from database
+    with get_sync_db() as sync_db:
+        from ....models.extraction import ActivationExtraction
+        extraction = sync_db.query(ActivationExtraction).filter(
+            ActivationExtraction.id == extraction_id,
+            ActivationExtraction.model_id == model_id
+        ).first()
+
+        if not extraction:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Extraction '{extraction_id}' not found for model '{model_id}'"
+            )
+
+        # Check if extraction is in a cancellable state
+        from ....models.extraction import ExtractionStatus
+        if extraction.status not in [
+            ExtractionStatus.QUEUED,
+            ExtractionStatus.LOADING,
+            ExtractionStatus.EXTRACTING,
+            ExtractionStatus.SAVING
+        ]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Extraction '{extraction_id}' cannot be cancelled (status: {extraction.status.value})"
+            )
+
+        # Revoke Celery task if task_id is available
+        if extraction.celery_task_id:
+            try:
+                celery_app.control.revoke(
+                    extraction.celery_task_id,
+                    terminate=True,
+                    signal='SIGTERM'
+                )
+                logger.info(f"Revoked Celery task {extraction.celery_task_id} for extraction {extraction_id}")
+            except Exception as e:
+                logger.error(f"Failed to revoke Celery task: {e}")
+                # Continue anyway - will update database status
+
+        # Update database to CANCELLED
+        extraction.status = ExtractionStatus.CANCELLED
+        extraction.error_message = "Extraction cancelled by user"
+        sync_db.commit()
+
+        logger.info(f"Cancelled extraction {extraction_id} for model {model_id}")
+
+    # Emit WebSocket event
+    try:
+        from ....workers.websocket_emitter import emit_extraction_progress
+        emit_extraction_progress(
+            model_id=model_id,
+            extraction_id=extraction_id,
+            progress=extraction.progress,
+            status="cancelled",
+            message="Extraction cancelled by user"
+        )
+    except Exception as e:
+        logger.error(f"Failed to emit cancellation event: {e}")
+        # Don't fail the request - cancellation was successful
+
+    return ExtractionCancelResponse(
+        extraction_id=extraction_id,
+        status="cancelled",
+        message="Extraction cancelled successfully"
+    )
+
+
+@router.post("/{model_id}/extractions/{extraction_id}/retry", response_model=ExtractionRetryResponse)
+async def retry_extraction(
+    model_id: str,
+    extraction_id: str,
+    request: ExtractionRetryRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retry a failed or cancelled extraction with optional parameter overrides.
+
+    This endpoint creates a new extraction job based on the parameters of an
+    existing extraction, with optional overrides for batch_size and max_samples.
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        extraction_id: Original extraction ID (string format: ext_m_{uuid}_{timestamp})
+        request: Optional parameter overrides (batch_size, max_samples)
+        db: Database session
+
+    Returns:
+        Retry confirmation with new extraction_id and job_id
+
+    Raises:
+        HTTPException: If model or extraction not found, or model not ready
+    """
+    # Verify model exists and is ready
+    model = await ModelService.get_model(db, model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    if model.status != ModelStatus.READY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model_id}' is not ready (status: {model.status.value})"
+        )
+
+    # Get original extraction from database
+    with get_sync_db() as sync_db:
+        from ....models.extraction import ActivationExtraction
+        original_extraction = sync_db.query(ActivationExtraction).filter(
+            ActivationExtraction.id == extraction_id,
+            ActivationExtraction.model_id == model_id
+        ).first()
+
+        if not original_extraction:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Extraction '{extraction_id}' not found for model '{model_id}'"
+            )
+
+    # Copy parameters from original extraction, applying overrides
+    batch_size = request.batch_size if request.batch_size is not None else original_extraction.batch_size
+    max_samples = request.max_samples if request.max_samples is not None else original_extraction.max_samples
+
+    try:
+        # Generate new extraction ID
+        import datetime
+        new_extraction_id = f"ext_{model_id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        # Queue new extraction job with Celery
+        task = extract_activations.delay(
+            model_id=model_id,
+            dataset_id=original_extraction.dataset_id,
+            layer_indices=original_extraction.layer_indices,
+            hook_types=original_extraction.hook_types,
+            max_samples=max_samples,
+            batch_size=batch_size,
+        )
+
+        logger.info(
+            f"Queued retry extraction {new_extraction_id} for model {model_id} "
+            f"(original: {extraction_id}, batch_size: {batch_size}, max_samples: {max_samples})"
+        )
+
+        # Emit immediate progress update to show job has started
+        from ....workers.websocket_emitter import emit_extraction_progress
+        emit_extraction_progress(
+            model_id=model_id,
+            extraction_id=new_extraction_id,
+            progress=0,
+            status="starting",
+            message=f"Retry extraction queued (retry of {extraction_id})"
+        )
+
+        return ExtractionRetryResponse(
+            original_extraction_id=extraction_id,
+            new_extraction_id=new_extraction_id,
+            job_id=task.id,
+            status="queued",
+            message="Extraction retry queued successfully"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to queue retry extraction: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to queue extraction retry: {str(e)}"
+        )
 
 
 @router.get("/tasks/{task_id}")

@@ -16,7 +16,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { Model, ModelStatus, QuantizationFormat } from '../types/model';
 import { API_BASE_URL } from '../config/api';
-import { getModel } from '../api/models';
+import { getModel, cancelExtraction, retryExtraction } from '../api/models';
 import { startPolling } from '../utils/polling';
 
 // Callback for subscribing to model progress (set by WebSocket context)
@@ -38,9 +38,15 @@ interface ModelsState {
   deleteModel: (id: string) => Promise<void>;
   cancelDownload: (id: string) => Promise<void>;
   extractActivations: (modelId: string, datasetId: string, layerIndices: number[], hookTypes: string[], maxSamples: number, batchSize?: number) => Promise<void>;
+  checkActiveExtraction: (modelId: string) => Promise<boolean>;
+  getExtractionHistory: (modelId: string) => Promise<any[]>;
+  cancelExtractionAction: (modelId: string, extractionId: string) => Promise<void>;
+  retryExtractionAction: (modelId: string, extractionId: string, retryParams?: {batch_size?: number; max_samples?: number}) => Promise<void>;
   updateModelProgress: (id: string, progress: number) => void;
   updateModelStatus: (id: string, status: ModelStatus, errorMessage?: string) => void;
   updateExtractionProgress: (modelId: string, extractionId: string, progress: number, status: string, message: string) => void;
+  clearExtractionProgress: (modelId: string) => void;
+  updateExtractionFailure: (modelId: string, extractionId: string, errorType: string, errorMessage: string, suggestedRetryParams?: Record<string, any>) => void;
   setError: (error: string | null) => void;
   clearError: () => void;
 }
@@ -144,7 +150,7 @@ export const useModelsStore = create<ModelsState>()(
               return status !== 'downloading' && status !== 'loading' && status !== 'quantizing';
             },
             interval: 500,
-            maxPolls: 100,
+            maxPolls: 360, // 3 minutes timeout for model downloads
             resourceId: newModel.id,
             resourceType: 'model',
           });
@@ -256,6 +262,141 @@ export const useModelsStore = create<ModelsState>()(
         }
       },
 
+      // Check for active extraction on a model
+      checkActiveExtraction: async (modelId: string): Promise<boolean> => {
+        console.log('[ModelsStore] checkActiveExtraction called for model:', modelId);
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/models/${modelId}/extractions/active`);
+
+          if (response.status === 404) {
+            // No active extraction found
+            console.log('[ModelsStore] No active extraction found for model:', modelId);
+            return false;
+          }
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const activeExtraction = await response.json();
+          console.log('[ModelsStore] Active extraction found:', activeExtraction);
+
+          // Update model state with extraction progress
+          set((state) => ({
+            models: state.models.map((model) =>
+              model.id === modelId
+                ? {
+                    ...model,
+                    extraction_id: activeExtraction.extraction_id,
+                    extraction_progress: activeExtraction.progress,
+                    extraction_status: activeExtraction.status,
+                    extraction_message: `${activeExtraction.status} (${activeExtraction.samples_processed}/${activeExtraction.max_samples} samples)`,
+                  }
+                : model
+            ),
+          }));
+
+          // Subscribe to WebSocket for real-time updates
+          if (subscribeToModelCallback) {
+            console.log('[ModelsStore] Subscribing to extraction progress for model:', modelId);
+            subscribeToModelCallback(modelId, 'extraction');
+          }
+
+          return true;
+        } catch (error) {
+          console.error('[ModelsStore] Error checking active extraction:', error);
+          return false;
+        }
+      },
+
+      // Get extraction history for a model
+      getExtractionHistory: async (modelId: string): Promise<any[]> => {
+        console.log('[ModelsStore] getExtractionHistory called for model:', modelId);
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/models/${modelId}/extractions`);
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const result = await response.json();
+          console.log('[ModelsStore] Extraction history fetched:', result.count, 'extractions');
+
+          return result.extractions || [];
+        } catch (error) {
+          console.error('[ModelsStore] Error fetching extraction history:', error);
+          return [];
+        }
+      },
+
+      // Cancel an in-progress extraction
+      cancelExtractionAction: async (modelId: string, extractionId: string) => {
+        console.log('[ModelsStore] cancelExtractionAction called:', {modelId, extractionId});
+        set({ loading: true, error: null });
+        try {
+          const result = await cancelExtraction(modelId, extractionId);
+          console.log('[ModelsStore] Extraction cancelled successfully:', result);
+
+          // Clear extraction state immediately
+          set((state) => ({
+            models: state.models.map((model) =>
+              model.id === modelId
+                ? {
+                    ...model,
+                    extraction_id: undefined,
+                    extraction_progress: undefined,
+                    extraction_status: undefined,
+                    extraction_message: undefined,
+                  }
+                : model
+            ),
+            loading: false,
+          }));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to cancel extraction';
+          set({ error: errorMessage, loading: false });
+          throw error;
+        }
+      },
+
+      // Retry a failed extraction with optional parameter overrides
+      retryExtractionAction: async (modelId: string, extractionId: string, retryParams?: {batch_size?: number; max_samples?: number}) => {
+        console.log('[ModelsStore] retryExtractionAction called:', {modelId, extractionId, retryParams});
+        set({ loading: true, error: null });
+        try {
+          const result = await retryExtraction(modelId, extractionId, retryParams);
+          console.log('[ModelsStore] Extraction retry initiated:', result);
+
+          // Clear failure state and reset to queued
+          set((state) => ({
+            models: state.models.map((model) =>
+              model.id === modelId
+                ? {
+                    ...model,
+                    extraction_id: result.new_extraction_id,
+                    extraction_progress: 0,
+                    extraction_status: 'starting' as any,
+                    extraction_message: 'Retry extraction queued',
+                    extraction_error_type: undefined,
+                    extraction_suggested_retry_params: undefined,
+                  }
+                : model
+            ),
+            loading: false,
+          }));
+
+          // Subscribe to new extraction progress
+          if (subscribeToModelCallback) {
+            console.log('[ModelsStore] Subscribing to retry extraction progress:', modelId);
+            subscribeToModelCallback(modelId, 'extraction');
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to retry extraction';
+          set({ error: errorMessage, loading: false });
+          throw error;
+        }
+      },
+
       // Update model progress (called by WebSocket)
       updateModelProgress: (id: string, progress: number) => {
         set((state) => ({
@@ -295,6 +436,44 @@ export const useModelsStore = create<ModelsState>()(
                   extraction_progress: progress,
                   extraction_status: status as any,
                   extraction_message: message,
+                }
+              : model
+          ),
+        }));
+      },
+
+      // Clear extraction progress (called when extraction completes or fails)
+      clearExtractionProgress: (modelId: string) => {
+        console.log('[ModelsStore] clearExtractionProgress:', modelId);
+        set((state) => ({
+          models: state.models.map((model) =>
+            model.id === modelId
+              ? {
+                  ...model,
+                  extraction_id: undefined,
+                  extraction_progress: undefined,
+                  extraction_status: undefined,
+                  extraction_message: undefined,
+                }
+              : model
+          ),
+        }));
+      },
+
+      // Update extraction failure (called when extraction fails with error details)
+      updateExtractionFailure: (modelId: string, extractionId: string, errorType: string, errorMessage: string, suggestedRetryParams?: Record<string, any>) => {
+        console.log('[ModelsStore] updateExtractionFailure:', {modelId, extractionId, errorType, errorMessage, suggestedRetryParams});
+        set((state) => ({
+          models: state.models.map((model) =>
+            model.id === modelId
+              ? {
+                  ...model,
+                  extraction_id: extractionId,
+                  extraction_progress: undefined,
+                  extraction_status: 'failed' as any,
+                  extraction_message: errorMessage,
+                  extraction_error_type: errorType,
+                  extraction_suggested_retry_params: suggestedRetryParams,
                 }
               : model
           ),

@@ -34,6 +34,7 @@ SUPPORTED_ARCHITECTURES = {
     "mistral",
     "mixtral",
     "qwen",
+    "qwen3",  # Qwen3 models (added to transformers 2025-03-31)
     "falcon",
 }
 
@@ -58,6 +59,7 @@ def validate_architecture(architecture: str) -> None:
     Raises:
         ValueError: If architecture is not supported
     """
+    # Normalize to lowercase for case-insensitive comparison
     if architecture.lower() not in SUPPORTED_ARCHITECTURES:
         raise ValueError(
             f"Unsupported architecture: {architecture}. "

@@ -228,10 +228,60 @@ def emit_extraction_progress(
     return emit_progress(channel, "progress", data)
 
 
+def emit_extraction_failed(
+    model_id: str,
+    extraction_id: str,
+    error_message: str,
+    error_type: str = "UNKNOWN",
+    suggested_retry_params: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    Emit dedicated failure event for activation extraction.
+
+    This function emits a specialized failure event with error classification
+    and suggested retry parameters, allowing the frontend to provide actionable
+    recovery options to the user.
+
+    Args:
+        model_id: Model ID being extracted from
+        extraction_id: Unique extraction operation ID
+        error_message: Human-readable error message
+        error_type: Error classification (OOM, VALIDATION, TIMEOUT, UNKNOWN)
+        suggested_retry_params: Optional dict with suggested retry parameters
+                               (e.g., {"batch_size": 4} for OOM errors)
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Examples:
+        >>> emit_extraction_failed(
+        ...     model_id="m_xyz-789",
+        ...     extraction_id="ext_20250115_031430",
+        ...     error_message="CUDA out of memory. Tried to allocate 2.00 GiB",
+        ...     error_type="OOM",
+        ...     suggested_retry_params={"batch_size": 4}
+        ... )
+        True
+    """
+    channel = f"models/{model_id}/extraction"
+    data = {
+        "type": "extraction_failed",
+        "model_id": model_id,
+        "extraction_id": extraction_id,
+        "error_type": error_type,
+        "error_message": error_message,
+        "suggested_retry_params": suggested_retry_params or {},
+        "retry_available": True,
+        "cancel_available": True,
+    }
+    return emit_progress(channel, "failed", data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
     "emit_dataset_progress",
     "emit_model_progress",
     "emit_extraction_progress",
+    "emit_extraction_failed",
 ]

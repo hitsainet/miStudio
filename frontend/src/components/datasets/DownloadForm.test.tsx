@@ -76,7 +76,7 @@ describe('DownloadForm', () => {
     it('should render submit button', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
       expect(button).toBeInTheDocument();
       expect(button).toHaveAttribute('type', 'submit');
     });
@@ -130,7 +130,7 @@ describe('DownloadForm', () => {
     it('should disable submit button when repository ID is empty', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
       expect(button).toBeDisabled();
     });
 
@@ -140,7 +140,7 @@ describe('DownloadForm', () => {
       const input = screen.getByLabelText('Repository ID');
       fireEvent.change(input, { target: { value: 'test/dataset' } });
 
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
       expect(button).not.toBeDisabled();
     });
   });
@@ -150,7 +150,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       // Try to submit with empty repo
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       // Button should be disabled, but we can still test validation logic
       // by filling and clearing the input
@@ -165,7 +165,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       // Enter invalid format (no slash)
       fireEvent.change(input, { target: { value: 'invalid-repo' } });
@@ -182,7 +182,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: '/dataset' } });
       fireEvent.click(button);
@@ -198,7 +198,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: 'username/' } });
       fireEvent.click(button);
@@ -214,7 +214,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       // Trigger validation error
       fireEvent.change(input, { target: { value: 'invalid' } });
@@ -241,7 +241,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: 'test/dataset' } });
       fireEvent.click(button);
@@ -257,7 +257,7 @@ describe('DownloadForm', () => {
 
       const repoInput = screen.getByLabelText('Repository ID');
       const tokenInput = screen.getByLabelText('Access Token (optional)');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(repoInput, { target: { value: 'test/dataset' } });
       fireEvent.change(tokenInput, { target: { value: 'hf_token123' } });
@@ -276,7 +276,7 @@ describe('DownloadForm', () => {
       const tokenInput = screen.getByLabelText('Access Token (optional)');
       const splitInput = screen.getByLabelText('Split (optional)');
       const configInput = screen.getByLabelText('Config (optional)');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(repoInput, { target: { value: 'test/dataset' } });
       fireEvent.change(tokenInput, { target: { value: 'hf_token123' } });
@@ -295,7 +295,7 @@ describe('DownloadForm', () => {
 
       const repoInput = screen.getByLabelText('Repository ID');
       const tokenInput = screen.getByLabelText('Access Token (optional)');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       // Set token then clear it
       fireEvent.change(repoInput, { target: { value: 'test/dataset' } });
@@ -318,7 +318,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: 'test/dataset' } });
       fireEvent.click(button);
@@ -332,7 +332,7 @@ describe('DownloadForm', () => {
       resolveDownload!();
 
       await waitFor(() => {
-        expect(screen.getByText('Download Dataset')).toBeInTheDocument();
+        expect(button).toHaveTextContent(/^Download$/i);
       });
 
       // After successful submission, form resets so button is disabled (no repo ID)
@@ -352,7 +352,7 @@ describe('DownloadForm', () => {
       const tokenInput = screen.getByLabelText('Access Token (optional)');
       const splitInput = screen.getByLabelText('Split (optional)');
       const configInput = screen.getByLabelText('Config (optional)');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(repoInput, { target: { value: 'test/dataset' } });
       fireEvent.click(button);
@@ -384,7 +384,7 @@ describe('DownloadForm', () => {
       const tokenInput = screen.getByLabelText('Access Token (optional)') as HTMLInputElement;
       const splitInput = screen.getByLabelText('Split (optional)') as HTMLInputElement;
       const configInput = screen.getByLabelText('Config (optional)') as HTMLInputElement;
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(repoInput, { target: { value: 'test/dataset' } });
       fireEvent.change(tokenInput, { target: { value: 'hf_token123' } });
@@ -409,7 +409,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: 'test/dataset' } });
       fireEvent.click(button);
@@ -425,7 +425,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: 'test/dataset' } });
       fireEvent.click(button);
@@ -442,7 +442,7 @@ describe('DownloadForm', () => {
 
       const repoInput = screen.getByLabelText('Repository ID') as HTMLInputElement;
       const tokenInput = screen.getByLabelText('Access Token (optional)') as HTMLInputElement;
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(repoInput, { target: { value: 'test/dataset' } });
       fireEvent.change(tokenInput, { target: { value: 'hf_token123' } });
@@ -465,7 +465,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       // First submission fails
       fireEvent.change(input, { target: { value: 'test/dataset' } });
@@ -490,7 +490,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: 'test/dataset' } });
       fireEvent.click(button);
@@ -532,7 +532,7 @@ describe('DownloadForm', () => {
     it('should have proper button with icon', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
       expect(button).toBeInTheDocument();
 
       // Check for Download icon (lucide-react renders as svg)
@@ -555,7 +555,7 @@ describe('DownloadForm', () => {
       render(<DownloadForm onDownload={mockOnDownload} />);
 
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       // Submit twice rapidly
       fireEvent.change(input, { target: { value: 'test/dataset1' } });
@@ -582,7 +582,7 @@ describe('DownloadForm', () => {
 
       const longRepoId = 'very-long-username/very-long-dataset-name-with-many-characters';
       const input = screen.getByLabelText('Repository ID');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(input, { target: { value: longRepoId } });
       fireEvent.click(button);
@@ -599,7 +599,7 @@ describe('DownloadForm', () => {
       const repoInput = screen.getByLabelText('Repository ID');
       const splitInput = screen.getByLabelText('Split (optional)');
       const configInput = screen.getByLabelText('Config (optional)');
-      const button = screen.getByRole('button', { name: /download dataset/i });
+      const button = screen.getByRole('button', { name: /download/i });
 
       fireEvent.change(repoInput, { target: { value: 'user-name/dataset_name-123' } });
       fireEvent.change(splitInput, { target: { value: 'train[0:1000]' } });

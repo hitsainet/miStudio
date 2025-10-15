@@ -23,10 +23,51 @@ from ..ml.model_loader import (
 from ..models.model import Model, ModelStatus, QuantizationFormat
 from ..services.model_service import ModelService
 from ..services.activation_service import ActivationService, ActivationExtractionError
+from ..services.extraction_db_service import ExtractionDatabaseService
+from ..models.activation_extraction import ExtractionStatus
 from .base_task import DatabaseTask
-from .websocket_emitter import emit_model_progress, emit_extraction_progress
+from .websocket_emitter import emit_model_progress, emit_extraction_progress, emit_extraction_failed
 
 logger = logging.getLogger(__name__)
+
+
+def classify_extraction_error(error: Exception, batch_size: int) -> tuple[str, dict]:
+    """
+    Classify extraction error and suggest retry parameters.
+
+    Args:
+        error: The exception that occurred
+        batch_size: Current batch size
+
+    Returns:
+        Tuple of (error_type, suggested_retry_params)
+    """
+    error_str = str(error).lower()
+    error_type = "UNKNOWN"
+    suggested_params = {}
+
+    # Check for OOM errors
+    if isinstance(error, OutOfMemoryError) or "out of memory" in error_str or "cuda oom" in error_str:
+        error_type = "OOM"
+        # Suggest half the batch size, minimum 1
+        suggested_batch_size = max(1, batch_size // 2)
+        suggested_params = {"batch_size": suggested_batch_size}
+
+    # Check for validation errors
+    elif isinstance(error, ActivationExtractionError):
+        if "not found" in error_str or "not ready" in error_str:
+            error_type = "VALIDATION"
+        else:
+            error_type = "EXTRACTION"
+
+    # Check for timeout errors
+    elif "timeout" in error_str or "timed out" in error_str:
+        error_type = "TIMEOUT"
+        # Suggest smaller batch size for timeout
+        suggested_batch_size = max(1, batch_size // 2)
+        suggested_params = {"batch_size": suggested_batch_size}
+
+    return error_type, suggested_params
 
 
 def get_directory_size(path: Path) -> int:
@@ -582,6 +623,25 @@ def extract_activations(
             from datetime import datetime
             extraction_id = f"ext_{model_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+        # Create database record for extraction tracking
+        try:
+            with self.get_db() as db:
+                ExtractionDatabaseService.create_extraction(
+                    db=db,
+                    extraction_id=extraction_id,
+                    model_id=model_id,
+                    dataset_id=dataset_id,
+                    layer_indices=layer_indices,
+                    hook_types=hook_types,
+                    max_samples=max_samples,
+                    batch_size=batch_size,
+                    celery_task_id=self.request.id,
+                )
+                logger.info(f"Created database record for extraction {extraction_id}")
+        except Exception as db_e:
+            # Don't fail extraction if database tracking fails
+            logger.warning(f"Failed to create extraction database record: {db_e}")
+
         # Send initial progress
         emit_extraction_progress(
             model_id=model_id,
@@ -599,6 +659,18 @@ def extract_activations(
 
         try:
             # Update progress: loading model
+            try:
+                with self.get_db() as db:
+                    ExtractionDatabaseService.update_progress(
+                        db=db,
+                        extraction_id=extraction_id,
+                        progress=10.0,
+                        status=ExtractionStatus.LOADING,
+                        samples_processed=0,
+                    )
+            except Exception as db_e:
+                logger.warning(f"Failed to update extraction progress in database: {db_e}")
+
             emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id,
@@ -607,7 +679,35 @@ def extract_activations(
                 message="Loading model and dataset"
             )
 
-            # Run extraction
+            # Define progress callback to update database and WebSocket
+            def on_extraction_progress(samples_processed: int, total_samples: int):
+                """Update database and emit WebSocket progress during extraction."""
+                # Calculate progress (10% for loading, 10-90% for extraction, 90-100% for saving)
+                extraction_progress = 10.0 + (samples_processed / total_samples) * 80.0
+
+                # Update database
+                try:
+                    with self.get_db() as db:
+                        ExtractionDatabaseService.update_progress(
+                            db=db,
+                            extraction_id=extraction_id,
+                            progress=extraction_progress,
+                            status=ExtractionStatus.EXTRACTING,
+                            samples_processed=samples_processed,
+                        )
+                except Exception as db_e:
+                    logger.warning(f"Failed to update extraction progress in database: {db_e}")
+
+                # Emit WebSocket update
+                emit_extraction_progress(
+                    model_id=model_id,
+                    extraction_id=extraction_id,
+                    progress=extraction_progress,
+                    status="extracting",
+                    message=f"Processing samples: {samples_processed}/{total_samples}"
+                )
+
+            # Run extraction with progress callback
             result = activation_service.extract_activations(
                 model_id=model_id,
                 model_path=model_file_path,
@@ -619,9 +719,22 @@ def extract_activations(
                 max_samples=max_samples,
                 batch_size=batch_size,
                 extraction_id=extraction_id,
+                progress_callback=on_extraction_progress,
             )
 
-            # Update progress: extraction complete
+            # Update progress: saving
+            try:
+                with self.get_db() as db:
+                    ExtractionDatabaseService.update_progress(
+                        db=db,
+                        extraction_id=extraction_id,
+                        progress=90.0,
+                        status=ExtractionStatus.SAVING,
+                        samples_processed=result['num_samples'],
+                    )
+            except Exception as db_e:
+                logger.warning(f"Failed to update extraction progress in database: {db_e}")
+
             emit_extraction_progress(
                 model_id=model_id,
                 extraction_id=extraction_id,
@@ -634,6 +747,18 @@ def extract_activations(
                 f"Extraction {extraction_id} complete: "
                 f"{result['num_samples']} samples, {len(result['saved_files'])} files"
             )
+
+            # Mark extraction as completed in database
+            try:
+                with self.get_db() as db:
+                    ExtractionDatabaseService.mark_completed(
+                        db=db,
+                        extraction_id=extraction_id,
+                        statistics=result['statistics'],
+                        saved_files=result['saved_files'],
+                    )
+            except Exception as db_e:
+                logger.warning(f"Failed to mark extraction as completed in database: {db_e}")
 
             # Send final progress
             emit_extraction_progress(
@@ -677,38 +802,74 @@ def extract_activations(
                 )
 
             # If already retried or batch_size is 1, fail
-            emit_extraction_progress(
+            try:
+                with self.get_db() as db:
+                    ExtractionDatabaseService.mark_failed(
+                        db=db,
+                        extraction_id=extraction_id,
+                        error_message=f"Out of memory: {str(e)}"
+                    )
+            except Exception as db_e:
+                logger.warning(f"Failed to mark extraction as failed in database: {db_e}")
+
+            # Classify error and emit dedicated failure event
+            error_type, suggested_params = classify_extraction_error(e, batch_size)
+            emit_extraction_failed(
                 model_id=model_id,
                 extraction_id=extraction_id,
-                progress=0.0,
-                status="error",
-                message=f"Out of memory: {str(e)}"
+                error_message=f"Out of memory: {str(e)}",
+                error_type=error_type,
+                suggested_retry_params=suggested_params
             )
             raise
 
         except ActivationExtractionError as e:
             logger.error(f"Extraction failed for {extraction_id}: {e}")
 
-            emit_extraction_progress(
+            try:
+                with self.get_db() as db:
+                    ExtractionDatabaseService.mark_failed(
+                        db=db,
+                        extraction_id=extraction_id,
+                        error_message=str(e)
+                    )
+            except Exception as db_e:
+                logger.warning(f"Failed to mark extraction as failed in database: {db_e}")
+
+            # Classify error and emit dedicated failure event
+            error_type, suggested_params = classify_extraction_error(e, batch_size)
+            emit_extraction_failed(
                 model_id=model_id,
                 extraction_id=extraction_id,
-                progress=0.0,
-                status="error",
-                message=f"Extraction failed: {str(e)}"
+                error_message=f"Extraction failed: {str(e)}",
+                error_type=error_type,
+                suggested_retry_params=suggested_params
             )
             raise
 
     except Exception as exc:
         logger.exception(f"Task failed for extraction {extraction_id}: {exc}")
 
-        # Send error update
+        # Mark extraction as failed in database
         if extraction_id:
-            emit_extraction_progress(
+            try:
+                with self.get_db() as db:
+                    ExtractionDatabaseService.mark_failed(
+                        db=db,
+                        extraction_id=extraction_id,
+                        error_message=str(exc)
+                    )
+            except Exception as db_e:
+                logger.warning(f"Failed to mark extraction as failed in database: {db_e}")
+
+            # Classify error and emit dedicated failure event
+            error_type, suggested_params = classify_extraction_error(exc, batch_size)
+            emit_extraction_failed(
                 model_id=model_id,
                 extraction_id=extraction_id or "unknown",
-                progress=0.0,
-                status="error",
-                message=f"Error: {str(exc)}"
+                error_message=f"Error: {str(exc)}",
+                error_type=error_type,
+                suggested_retry_params=suggested_params
             )
 
         # Retry if not at max retries

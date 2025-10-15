@@ -144,3 +144,52 @@ export async function getModelExtractions(modelId: string): Promise<{
     count: number;
   }>(`/models/${modelId}/extractions`);
 }
+
+/**
+ * Cancel an in-progress extraction
+ */
+export async function cancelExtraction(
+  modelId: string,
+  extractionId: string
+): Promise<{
+  extraction_id: string;
+  status: string;
+  message: string;
+}> {
+  return fetchAPI<{
+    extraction_id: string;
+    status: string;
+    message: string;
+  }>(`/models/${modelId}/extractions/${extractionId}/cancel`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Retry a failed extraction with optional parameter overrides
+ */
+export async function retryExtraction(
+  modelId: string,
+  extractionId: string,
+  retryParams?: {
+    batch_size?: number;
+    max_samples?: number;
+  }
+): Promise<{
+  original_extraction_id: string;
+  new_extraction_id: string;
+  job_id: string;
+  status: string;
+  message: string;
+}> {
+  return fetchAPI<{
+    original_extraction_id: string;
+    new_extraction_id: string;
+    job_id: string;
+    status: string;
+    message: string;
+  }>(`/models/${modelId}/extractions/${extractionId}/retry`, {
+    method: 'POST',
+    body: JSON.stringify(retryParams || {}),
+  });
+}

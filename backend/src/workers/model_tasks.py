@@ -618,29 +618,47 @@ def extract_activations(
         if not Path(dataset_path).exists():
             raise ActivationExtractionError(f"Dataset path not found: {dataset_path}")
 
-        # Generate extraction ID if not provided
+        # Generate extraction ID if not provided (first attempt only)
         if extraction_id is None:
             from datetime import datetime
             extraction_id = f"ext_{model_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            logger.info(f"Generated new extraction_id: {extraction_id}")
+        else:
+            logger.info(f"Reusing existing extraction_id: {extraction_id} (retry attempt {self.request.retries})")
 
-        # Create database record for extraction tracking
+        # Create or update database record for extraction tracking
         try:
             with self.get_db() as db:
-                ExtractionDatabaseService.create_extraction(
-                    db=db,
-                    extraction_id=extraction_id,
-                    model_id=model_id,
-                    dataset_id=dataset_id,
-                    layer_indices=layer_indices,
-                    hook_types=hook_types,
-                    max_samples=max_samples,
-                    batch_size=batch_size,
-                    celery_task_id=self.request.id,
-                )
-                logger.info(f"Created database record for extraction {extraction_id}")
+                # Check if extraction already exists (from previous retry)
+                from ..models.activation_extraction import ActivationExtraction
+                existing = db.query(ActivationExtraction).filter_by(id=extraction_id).first()
+
+                if existing:
+                    # Update existing record with retry attempt
+                    logger.info(f"Found existing extraction record {extraction_id}, updating for retry")
+                    existing.status = ExtractionStatus.QUEUED
+                    existing.progress = 0.0
+                    existing.samples_processed = 0
+                    existing.retry_count = self.request.retries
+                    existing.celery_task_id = self.request.id
+                    db.commit()
+                else:
+                    # Create new record (first attempt)
+                    ExtractionDatabaseService.create_extraction(
+                        db=db,
+                        extraction_id=extraction_id,
+                        model_id=model_id,
+                        dataset_id=dataset_id,
+                        layer_indices=layer_indices,
+                        hook_types=hook_types,
+                        max_samples=max_samples,
+                        batch_size=batch_size,
+                        celery_task_id=self.request.id,
+                    )
+                    logger.info(f"Created database record for extraction {extraction_id}")
         except Exception as db_e:
             # Don't fail extraction if database tracking fails
-            logger.warning(f"Failed to create extraction database record: {db_e}")
+            logger.warning(f"Failed to create/update extraction database record: {db_e}")
 
         # Send initial progress
         emit_extraction_progress(
@@ -748,7 +766,8 @@ def extract_activations(
                 f"{result['num_samples']} samples, {len(result['saved_files'])} files"
             )
 
-            # Mark extraction as completed in database
+            # Mark extraction as completed in database (critical step - wrap in robust try-catch)
+            completion_success = False
             try:
                 with self.get_db() as db:
                     ExtractionDatabaseService.mark_completed(
@@ -757,17 +776,34 @@ def extract_activations(
                         statistics=result['statistics'],
                         saved_files=result['saved_files'],
                     )
+                    completion_success = True
+                    logger.info(f"Successfully marked extraction {extraction_id} as COMPLETED in database")
             except Exception as db_e:
-                logger.warning(f"Failed to mark extraction as completed in database: {db_e}")
+                logger.error(
+                    f"CRITICAL: Failed to mark extraction {extraction_id} as completed in database: {db_e}",
+                    exc_info=True
+                )
+                # Try to emit failure event if completion fails
+                emit_extraction_failed(
+                    model_id=model_id,
+                    extraction_id=extraction_id,
+                    error_message=f"Failed to save completion status: {str(db_e)}",
+                    error_type="DATABASE",
+                    suggested_retry_params={}
+                )
+                # Re-raise to trigger retry - this is a critical failure
+                raise ActivationExtractionError(f"Failed to save extraction completion to database: {db_e}")
 
-            # Send final progress
-            emit_extraction_progress(
-                model_id=model_id,
-                extraction_id=extraction_id,
-                progress=100.0,
-                status="complete",
-                message=f"Extraction complete: {result['num_samples']} samples processed"
-            )
+            # Send final progress only if completion succeeded
+            if completion_success:
+                emit_extraction_progress(
+                    model_id=model_id,
+                    extraction_id=extraction_id,
+                    progress=100.0,
+                    status="complete",
+                    message=f"Extraction complete: {result['num_samples']} samples processed"
+                )
+                logger.info(f"Extraction {extraction_id} fully completed and saved")
 
             return result
 
@@ -874,8 +910,20 @@ def extract_activations(
 
         # Retry if not at max retries
         if self.request.retries < self.max_retries:
-            logger.info(f"Retrying extraction (attempt {self.request.retries + 1})")
-            raise self.retry(exc=exc)
+            logger.info(f"Retrying extraction (attempt {self.request.retries + 1}) with extraction_id={extraction_id}")
+            # Pass extraction_id in kwargs to preserve it across retries
+            raise self.retry(
+                exc=exc,
+                kwargs={
+                    "model_id": model_id,
+                    "dataset_id": dataset_id,
+                    "layer_indices": layer_indices,
+                    "hook_types": hook_types,
+                    "max_samples": max_samples,
+                    "batch_size": batch_size,
+                    "extraction_id": extraction_id,  # Preserve extraction_id
+                }
+            )
 
         raise
 

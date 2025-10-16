@@ -15,7 +15,7 @@
 
 # Default to all queues if no argument provided
 QUEUES="${1:-high_priority,datasets,processing,training,extraction,low_priority}"
-CONCURRENCY="${2:-8}"
+CONCURRENCY="${2:-1}"  # Reduced to 1 for GPU memory safety
 
 # Navigate to backend directory
 cd "$(dirname "$0")"

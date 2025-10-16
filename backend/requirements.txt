@@ -101,6 +101,7 @@ poetry-core==2.2.1
 prompt_toolkit==3.0.52
 propcache==0.4.0
 psutil==7.1.0
+pynvml>=11.5.0
 psycopg2-binary==2.9.10
 ptyprocess==0.7.0
 pure_eval==0.2.3

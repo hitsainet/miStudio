@@ -50,9 +50,10 @@ export function SystemMonitor() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-slate-950">
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Activity className="w-8 h-8 text-emerald-400" />
           <div>
@@ -302,6 +303,7 @@ export function SystemMonitor() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

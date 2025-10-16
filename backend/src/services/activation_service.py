@@ -45,6 +45,54 @@ class ActivationService:
         self.activations_dir = settings.data_dir / "activations"
         self.activations_dir.mkdir(parents=True, exist_ok=True)
 
+    def _log_gpu_memory(self, stage: str) -> None:
+        """
+        Log current GPU memory usage.
+
+        Args:
+            stage: Description of the current stage (e.g., "before_load", "after_extraction")
+        """
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated(0) / (1024 ** 3)  # GB
+            reserved = torch.cuda.memory_reserved(0) / (1024 ** 3)    # GB
+            logger.info(f"[GPU Memory - {stage}] Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
+
+    def _cleanup_model(self, model: torch.nn.Module) -> None:
+        """
+        Explicitly clean up model from GPU memory.
+
+        This ensures GPU memory is freed immediately rather than waiting
+        for Python's garbage collector. Critical for sequential extraction jobs.
+
+        Args:
+            model: PyTorch model to clean up
+        """
+        try:
+            # Log memory before cleanup
+            self._log_gpu_memory("before_cleanup")
+
+            # Move model to CPU to free GPU memory
+            model.cpu()
+
+            # Delete model reference
+            del model
+
+            # Force garbage collection
+            import gc
+            gc.collect()
+
+            # Empty CUDA cache to release memory back to GPU
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # Log memory after cleanup
+            self._log_gpu_memory("after_cleanup")
+
+            logger.info("Model cleaned up from GPU memory")
+
+        except Exception as e:
+            logger.warning(f"Error during model cleanup: {e}")
+
     def extract_activations(
         self,
         model_id: str,
@@ -94,11 +142,18 @@ class ActivationService:
         output_dir = self.activations_dir / extraction_id
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        model = None  # Initialize to None for cleanup in finally block
         try:
+            # Log GPU memory before loading model
+            self._log_gpu_memory("before_load")
+
             # Load model
             logger.info(f"Loading model from {model_path}")
             model, tokenizer = self._load_model(model_path, quantization)
             model.eval()  # Set to evaluation mode
+
+            # Log GPU memory after loading model
+            self._log_gpu_memory("after_load")
 
             # Load dataset
             logger.info(f"Loading dataset from {dataset_path}")
@@ -126,6 +181,9 @@ class ActivationService:
                 dataset_path=dataset_path,
                 created_at=created_at_timestamp,
             )
+
+            # Log GPU memory after extraction
+            self._log_gpu_memory("after_extraction")
 
             # Save activations to disk
             logger.info(f"Saving activations to {output_dir}")
@@ -172,6 +230,14 @@ class ActivationService:
         except Exception as e:
             logger.exception(f"Activation extraction failed: {e}")
             raise ActivationExtractionError(f"Extraction failed: {str(e)}") from e
+
+        finally:
+            # CRITICAL: Always clean up GPU memory, even if extraction failed
+            if model is not None:
+                logger.info(f"Cleaning up model for extraction {extraction_id}")
+                self._cleanup_model(model)
+            else:
+                logger.info(f"No model to clean up for extraction {extraction_id}")
 
     def _load_model(
         self,

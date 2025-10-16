@@ -573,6 +573,28 @@ def extract_activations(
             f"dataset {dataset_id}, layers {layer_indices}, hooks {hook_types}"
         )
 
+        # Pre-task GPU memory check - ensure clean state before loading model
+        import torch
+        if torch.cuda.is_available():
+            allocated_before = torch.cuda.memory_allocated(0) / (1024 ** 3)  # GB
+            reserved_before = torch.cuda.memory_reserved(0) / (1024 ** 3)    # GB
+            logger.info(
+                f"[Pre-extraction {self.request.id}] GPU memory before cleanup: "
+                f"Allocated={allocated_before:.2f} GB, Reserved={reserved_before:.2f} GB"
+            )
+
+            # Force cleanup in case previous task didn't complete cleanup
+            torch.cuda.empty_cache()
+            import gc
+            gc.collect()
+
+            allocated_after = torch.cuda.memory_allocated(0) / (1024 ** 3)
+            reserved_after = torch.cuda.memory_reserved(0) / (1024 ** 3)
+            logger.info(
+                f"[Pre-extraction {self.request.id}] GPU memory after cleanup: "
+                f"Allocated={allocated_after:.2f} GB, Reserved={reserved_after:.2f} GB"
+            )
+
         # Get model and dataset from database
         from ..models.dataset import Dataset as DatasetModel
 
@@ -926,6 +948,22 @@ def extract_activations(
             )
 
         raise
+
+    finally:
+        # CRITICAL: Ensure GPU cache is cleared even if service cleanup didn't work
+        # This is a safety net for sequential extraction jobs
+        import torch
+        if torch.cuda.is_available():
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            allocated_final = torch.cuda.memory_allocated(0) / (1024 ** 3)
+            reserved_final = torch.cuda.memory_reserved(0) / (1024 ** 3)
+            logger.info(
+                f"[Post-extraction {self.request.id}] GPU memory after task cleanup: "
+                f"Allocated={allocated_final:.2f} GB, Reserved={reserved_final:.2f} GB"
+            )
 
 
 @celery_app.task(

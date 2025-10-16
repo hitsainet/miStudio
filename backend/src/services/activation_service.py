@@ -501,10 +501,17 @@ class ActivationService:
                             batch_input_ids.append(input_ids)
 
                     # Validate and clamp token IDs BEFORE padding
+                    # CRITICAL: Also truncate to prevent GPU OOM from very long sequences
+                    MAX_SEQ_LENGTH = 512  # Maximum sequence length to prevent GPU OOM
                     cleaned_batch_input_ids = []
                     for idx, input_ids in enumerate(batch_input_ids):
                         # Convert to tensor for validation
                         ids_tensor = torch.tensor(input_ids)
+
+                        # Truncate if too long
+                        if len(ids_tensor) > MAX_SEQ_LENGTH:
+                            ids_tensor = ids_tensor[:MAX_SEQ_LENGTH]
+                            logger.debug(f"Sample {batch_start + idx} truncated from {len(input_ids)} to {MAX_SEQ_LENGTH} tokens")
 
                         # Clamp to valid vocabulary range
                         max_token = ids_tensor.max().item()
@@ -525,7 +532,7 @@ class ActivationService:
 
                         cleaned_batch_input_ids.append(ids_tensor.tolist())
 
-                    # Find max length in this batch
+                    # Find max length in this batch (will be at most MAX_SEQ_LENGTH)
                     max_length = max(len(ids) for ids in cleaned_batch_input_ids)
 
                     # Pad sequences to max_length and create attention masks

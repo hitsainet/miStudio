@@ -2,18 +2,19 @@ import { useEffect, useState } from 'react';
 import { DatasetsPanel } from './components/panels/DatasetsPanel';
 import { ModelsPanel } from './components/panels/ModelsPanel';
 import { ExtractionTemplatesPanel } from './components/panels/ExtractionTemplatesPanel';
+import { SystemMonitor } from './components/SystemMonitor/SystemMonitor';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
 import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
 
-type ActivePanel = 'datasets' | 'models' | 'templates';
+type ActivePanel = 'datasets' | 'models' | 'templates' | 'system';
 
 function AppContent() {
   const ws = useWebSocketContext();
   // Restore active panel from localStorage, default to 'datasets'
   const [activePanel, setActivePanel] = useState<ActivePanel>(() => {
     const saved = localStorage.getItem('activePanel');
-    return (saved === 'models' || saved === 'datasets' || saved === 'templates') ? saved : 'datasets';
+    return (saved === 'models' || saved === 'datasets' || saved === 'templates' || saved === 'system') ? saved : 'datasets';
   });
 
   // Set up global dataset progress tracking
@@ -84,6 +85,19 @@ function AppContent() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
               )}
             </button>
+            <button
+              onClick={() => setActivePanel('system')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'system'
+                  ? 'text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              System Monitor
+              {activePanel === 'system' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+              )}
+            </button>
           </div>
         </div>
       </nav>
@@ -92,6 +106,7 @@ function AppContent() {
         {activePanel === 'datasets' && <DatasetsPanel />}
         {activePanel === 'models' && <ModelsPanel />}
         {activePanel === 'templates' && <ExtractionTemplatesPanel />}
+        {activePanel === 'system' && <SystemMonitor />}
       </main>
     </div>
   );

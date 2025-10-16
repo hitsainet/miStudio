@@ -387,6 +387,9 @@ class ActivationService:
 
             samples_processed = 0
 
+            # Track accumulated activation file paths for each layer
+            accumulated_files = {}  # layer_name -> list of temp file paths
+
             # Process dataset in batches
             with torch.no_grad():
                 for batch_start in range(0, len(dataset), batch_size):
@@ -482,6 +485,32 @@ class ActivationService:
                     # Run forward pass (hooks will capture activations)
                     _ = model(input_ids_tensor, attention_mask=attention_mask_tensor)
 
+                    # CRITICAL FIX: Save batch activations to disk immediately to prevent memory accumulation
+                    # Get current batch activations and save incrementally
+                    batch_activations = hook_manager.get_activations_as_numpy()
+
+                    # Save each layer's batch to a temporary file
+                    for layer_name, activation_array in batch_activations.items():
+                        # Initialize list for this layer if first batch
+                        if layer_name not in accumulated_files:
+                            accumulated_files[layer_name] = []
+
+                        # Save batch activation to temporary file
+                        import tempfile
+                        temp_file = tempfile.NamedTemporaryFile(
+                            dir=output_dir,
+                            delete=False,
+                            suffix=f'_{layer_name}_batch{len(accumulated_files[layer_name])}.npy'
+                        )
+                        np.save(temp_file.name, activation_array)
+                        temp_file.close()
+
+                        accumulated_files[layer_name].append(temp_file.name)
+                        logger.debug(f"Saved batch activation for {layer_name}: {activation_array.shape}")
+
+                    # Clear activations from hook manager to free memory
+                    hook_manager.clear_activations()
+
                     samples_processed = batch_end
 
                     # Log progress every 10 samples or every batch (whichever is more frequent)
@@ -516,8 +545,27 @@ class ActivationService:
                         except Exception as e:
                             logger.warning(f"Failed to write incremental metadata: {e}")
 
-            # Get activations as numpy arrays
-            activations = hook_manager.get_activations_as_numpy()
+            # Concatenate all batch files for each layer to create final activations
+            logger.info("Concatenating batch activations into final arrays")
+            activations = {}
+            for layer_name, temp_files in accumulated_files.items():
+                # Load all batch files for this layer
+                batch_arrays = []
+                for temp_file_path in temp_files:
+                    batch_array = np.load(temp_file_path)
+                    batch_arrays.append(batch_array)
+
+                # Concatenate along batch dimension
+                if batch_arrays:
+                    activations[layer_name] = np.concatenate(batch_arrays, axis=0)
+                    logger.info(f"Concatenated {len(batch_arrays)} batches for {layer_name}: final shape={activations[layer_name].shape}")
+
+                # Clean up temporary files
+                for temp_file_path in temp_files:
+                    try:
+                        Path(temp_file_path).unlink()
+                    except Exception as e:
+                        logger.warning(f"Failed to delete temp file {temp_file_path}: {e}")
 
         logger.info(f"Extracted activations for {len(activations)} layers")
         return activations

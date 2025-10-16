@@ -42,8 +42,11 @@ echo "======================================"
 echo ""
 
 # Start Celery worker with explicit queue configuration
+# IMPORTANT: --max-tasks-per-child=1 ensures worker processes exit after each task
+# This is CRITICAL for GPU memory cleanup - prevents memory leaks in fork pool
 celery -A src.core.celery_app worker \
     -Q "$QUEUES" \
     -c "$CONCURRENCY" \
     --loglevel=info \
-    --hostname="worker@%h"
+    --hostname="worker@%h" \
+    --max-tasks-per-child=1

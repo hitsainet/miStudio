@@ -332,6 +332,8 @@ class ModelService:
         """
         Delete a model and return file paths for cleanup.
 
+        This will cascade delete all related activation extractions.
+
         Args:
             db: Database session
             model_id: Model ID
@@ -342,7 +344,8 @@ class ModelService:
                 "deleted": True,
                 "model_id": str,
                 "file_path": Optional[str],
-                "quantized_path": Optional[str]
+                "quantized_path": Optional[str],
+                "deleted_extractions": int
             }
         """
         db_model = await ModelService.get_model(db, model_id)
@@ -353,6 +356,21 @@ class ModelService:
         file_path = db_model.file_path
         quantized_path = db_model.quantized_path
 
+        # Delete related activation extractions first (cascade delete)
+        from ..models.activation_extraction import ActivationExtraction
+        deletion_result = await db.execute(
+            select(ActivationExtraction).where(ActivationExtraction.model_id == model_id)
+        )
+        related_extractions = deletion_result.scalars().all()
+        extraction_count = len(related_extractions)
+
+        for extraction in related_extractions:
+            await db.delete(extraction)
+
+        if extraction_count > 0:
+            logger.info(f"Deleted {extraction_count} activation extraction(s) for model {model_id}")
+
+        # Now delete the model
         await db.delete(db_model)
         await db.commit()
 
@@ -363,6 +381,7 @@ class ModelService:
             "model_id": model_id,
             "file_path": file_path,
             "quantized_path": quantized_path,
+            "deleted_extractions": extraction_count,
         }
 
     @staticmethod

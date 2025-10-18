@@ -20,16 +20,23 @@ import { ModelDownloadForm } from '../models/ModelDownloadForm';
 import { ModelCard } from '../models/ModelCard';
 import { ModelArchitectureViewer } from '../models/ModelArchitectureViewer';
 import { ActivationExtractionConfig } from '../models/ActivationExtractionConfig';
-import { ActivationExtractionHistory } from '../models/ActivationExtractionHistory';
+import { ExtractionListModal } from '../models/ExtractionListModal';
+import { ExtractionDetailModal } from '../models/ExtractionDetailModal';
+import { DeleteExtractionsModal } from '../models/DeleteExtractionsModal';
+import { Extraction } from '../models/ExtractionListModal';
 
 export function ModelsPanel() {
   const { models, loading, error, fetchModels, downloadModel, deleteModel, cancelDownload, extractActivations } = useModelsStore();
   const [selectedModel, setSelectedModel] = useState<Model | null>(null);
   const [showArchitectureViewer, setShowArchitectureViewer] = useState(false);
   const [showExtractionConfig, setShowExtractionConfig] = useState(false);
-  const [showExtractionHistory, setShowExtractionHistory] = useState(false);
+  const [showExtractionList, setShowExtractionList] = useState(false);
+  const [showExtractionDetail, setShowExtractionDetail] = useState(false);
+  const [showDeleteExtractions, setShowDeleteExtractions] = useState(false);
   const [extractionModel, setExtractionModel] = useState<Model | null>(null);
   const [historyModel, setHistoryModel] = useState<Model | null>(null);
+  const [deleteExtractionsModel, setDeleteExtractionsModel] = useState<Model | null>(null);
+  const [selectedExtraction, setSelectedExtraction] = useState<Extraction | null>(null);
 
   // Subscribe to WebSocket updates for all active models
   useAllModelsProgress();
@@ -60,7 +67,65 @@ export function ModelsPanel() {
 
   const handleViewExtractions = (model: Model) => {
     setHistoryModel(model);
-    setShowExtractionHistory(true);
+    setShowExtractionList(true);
+  };
+
+  const handleSelectExtraction = (extraction: Extraction) => {
+    setSelectedExtraction(extraction);
+    setShowExtractionList(false);
+    setShowExtractionDetail(true);
+  };
+
+  const handleBackToList = () => {
+    setShowExtractionDetail(false);
+    setShowExtractionList(true);
+  };
+
+  const handleCloseExtractionModals = () => {
+    setShowExtractionList(false);
+    setShowExtractionDetail(false);
+    setHistoryModel(null);
+    setSelectedExtraction(null);
+  };
+
+  const handleDeleteExtractions = (model: Model) => {
+    setDeleteExtractionsModel(model);
+    setShowDeleteExtractions(true);
+  };
+
+  const handleDeleteExtractionsSubmit = async (extractionIds: string[]) => {
+    if (!deleteExtractionsModel) return;
+
+    try {
+      // Import the API function
+      const { deleteExtractions } = await import('../../api/models');
+
+      // Call the API to delete extractions
+      const response = await deleteExtractions(deleteExtractionsModel.id, extractionIds);
+
+      console.log('[ModelsPanel] Deletion response:', response);
+
+      // Show success message with details
+      if (response.failed_count > 0) {
+        alert(
+          `Deleted ${response.deleted_count} extraction(s).\n` +
+          `Failed to delete ${response.failed_count} extraction(s).\n\n` +
+          `${response.message}`
+        );
+      } else {
+        alert(`Successfully deleted ${response.deleted_count} extraction(s)!`);
+      }
+
+      // Refresh models to update the UI
+      await fetchModels();
+
+    } catch (error) {
+      console.error('[ModelsPanel] Failed to delete extractions:', error);
+      alert(
+        'Failed to delete extractions.\n\n' +
+        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -144,6 +209,7 @@ export function ModelsPanel() {
                   onClick={() => handleModelClick(model)}
                   onExtract={() => handleExtractActivations(model)}
                   onViewExtractions={() => handleViewExtractions(model)}
+                  onDeleteExtractions={() => handleDeleteExtractions(model)}
                   onDelete={handleDelete}
                   onCancel={handleCancel}
                 />
@@ -175,14 +241,33 @@ export function ModelsPanel() {
           />
         )}
 
-        {/* Activation Extraction History Modal */}
-        {showExtractionHistory && historyModel && (
-          <ActivationExtractionHistory
+        {/* Extraction List Modal (Step 1) */}
+        {showExtractionList && historyModel && (
+          <ExtractionListModal
             model={historyModel}
+            onClose={handleCloseExtractionModals}
+            onSelectExtraction={handleSelectExtraction}
+          />
+        )}
+
+        {/* Extraction Detail Modal (Step 2) */}
+        {showExtractionDetail && selectedExtraction && (
+          <ExtractionDetailModal
+            extraction={selectedExtraction}
+            onClose={handleCloseExtractionModals}
+            onBack={handleBackToList}
+          />
+        )}
+
+        {/* Delete Extractions Modal */}
+        {showDeleteExtractions && deleteExtractionsModel && (
+          <DeleteExtractionsModal
+            model={deleteExtractionsModel}
             onClose={() => {
-              setShowExtractionHistory(false);
-              setHistoryModel(null);
+              setShowDeleteExtractions(false);
+              setDeleteExtractionsModel(null);
             }}
+            onDelete={handleDeleteExtractionsSubmit}
           />
         )}
       </div>

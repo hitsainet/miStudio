@@ -17,11 +17,12 @@ interface ModelCardProps {
   onClick: () => void;
   onExtract: () => void;
   onViewExtractions?: () => void;
+  onDeleteExtractions?: () => void;
   onDelete: (id: string) => void;
   onCancel: (id: string) => void;
 }
 
-export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDelete, onCancel }: ModelCardProps) {
+export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDeleteExtractions, onDelete, onCancel }: ModelCardProps) {
   const isActive = model.status === ModelStatus.DOWNLOADING ||
                    model.status === ModelStatus.LOADING ||
                    model.status === ModelStatus.QUANTIZING;
@@ -111,8 +112,14 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm(`Are you sure you want to delete ${model.name}?`)) {
-      onDelete(model.id);
+    // If onDeleteExtractions is provided and model is ready, show extraction deletion modal
+    if (isReady && onDeleteExtractions) {
+      onDeleteExtractions();
+    } else {
+      // Otherwise, delete the entire model
+      if (confirm(`Are you sure you want to delete ${model.name}?`)) {
+        onDelete(model.id);
+      }
     }
   };
 

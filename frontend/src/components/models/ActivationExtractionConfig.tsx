@@ -11,12 +11,13 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Play, Star, Save } from 'lucide-react';
+import { X, Play, Star, Save, AlertCircle, Info } from 'lucide-react';
 import { Model, ActivationExtractionConfig as ExtractionConfig } from '../../types/model';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useModelExtractionProgress } from '../../hooks/useModelProgress';
+import { estimateExtractionResources } from '../../api/models';
 
 interface ActivationExtractionConfigProps {
   model: Model;
@@ -47,6 +48,8 @@ export function ActivationExtractionConfig({
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [resourceEstimates, setResourceEstimates] = useState<any>(null);
+  const [loadingEstimates, setLoadingEstimates] = useState(false);
 
   // Get the latest model data from store
   const latestModel = models.find(m => m.id === model.id) || model;
@@ -82,6 +85,41 @@ export function ActivationExtractionConfig({
       setExtractionStarted(false);
     }
   }, [extractionStarted, latestModel.extraction_status, latestModel.extraction_message]);
+
+  // Fetch resource estimates whenever configuration changes
+  useEffect(() => {
+    // Only fetch if we have valid configuration
+    if (!selectedDataset || selectedLayers.length === 0 || hookTypes.length === 0) {
+      setResourceEstimates(null);
+      return;
+    }
+
+    // Debounce the estimate fetch
+    const timeoutId = setTimeout(async () => {
+      setLoadingEstimates(true);
+      try {
+        const config: ExtractionConfig = {
+          dataset_id: selectedDataset,
+          layer_indices: selectedLayers,
+          hook_types: hookTypes,
+          max_samples: maxSamples,
+          batch_size: batchSize,
+          top_k_examples: topKExamples,
+        };
+
+        const result = await estimateExtractionResources(model.id, config);
+        setResourceEstimates(result.estimates);
+      } catch (error) {
+        console.error('[ActivationExtractionConfig] Failed to fetch resource estimates:', error);
+        // Don't show error to user - estimates are optional
+        setResourceEstimates(null);
+      } finally {
+        setLoadingEstimates(false);
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [selectedDataset, selectedLayers, hookTypes, maxSamples, batchSize, topKExamples, model.id]);
 
   // Load template configuration when selected
   const handleTemplateSelect = (templateId: string) => {
@@ -464,23 +502,96 @@ export function ActivationExtractionConfig({
             </div>
           </div>
 
+          {/* Resource Estimates */}
+          {!extracting && selectedLayers.length > 0 && hookTypes.length > 0 && selectedDataset && (
+            <div className="space-y-4">
+              {/* Extraction Summary */}
+              <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300">
+                <div className="font-medium mb-2">Extraction Summary:</div>
+                <ul className="space-y-1 text-slate-400">
+                  <li>• Will extract from {selectedLayers.length} layer(s)</li>
+                  <li>• Using {hookTypes.length} hook type(s): {hookTypes.join(', ')}</li>
+                  <li>• Processing up to {maxSamples.toLocaleString()} samples</li>
+                  <li>• Batch size: {batchSize}</li>
+                </ul>
+              </div>
+
+              {/* Resource Requirements */}
+              {loadingEstimates ? (
+                <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-slate-400 border-t-transparent"></div>
+                    <span className="text-sm">Calculating resource requirements...</span>
+                  </div>
+                </div>
+              ) : resourceEstimates ? (
+                <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg text-sm">
+                  <div className="flex items-center gap-2 font-medium mb-3 text-slate-300">
+                    <Info className="w-4 h-4 text-blue-400" />
+                    <span>Resource Requirements:</span>
+                  </div>
+
+                  <div className="space-y-3 text-slate-400">
+                    {/* GPU Memory */}
+                    <div className="flex justify-between items-center">
+                      <span>GPU Memory:</span>
+                      <span className={`font-medium ${
+                        resourceEstimates.gpu_memory.warning === 'high' ? 'text-red-400' :
+                        resourceEstimates.gpu_memory.warning === 'medium' ? 'text-yellow-400' :
+                        'text-emerald-400'
+                      }`}>
+                        {resourceEstimates.gpu_memory.total_gb.toFixed(2)} GB
+                      </span>
+                    </div>
+
+                    {/* Disk Space */}
+                    <div className="flex justify-between items-center">
+                      <span>Disk Space:</span>
+                      <span className={`font-medium ${
+                        resourceEstimates.disk_space.warning === 'high' ? 'text-red-400' :
+                        resourceEstimates.disk_space.warning === 'medium' ? 'text-yellow-400' :
+                        'text-emerald-400'
+                      }`}>
+                        {resourceEstimates.disk_space.total_gb.toFixed(2)} GB
+                      </span>
+                    </div>
+
+                    {/* Processing Time */}
+                    <div className="flex justify-between items-center">
+                      <span>Estimated Time:</span>
+                      <span className={`font-medium ${
+                        resourceEstimates.processing_time.warning === 'long' ? 'text-yellow-400' :
+                        'text-emerald-400'
+                      }`}>
+                        {resourceEstimates.processing_time.time_str}
+                      </span>
+                    </div>
+
+                    {/* Warnings */}
+                    {resourceEstimates.warnings && resourceEstimates.warnings.length > 0 && (
+                      <div className="pt-2 mt-2 border-t border-slate-700">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                          <div className="space-y-1">
+                            {resourceEstimates.warnings.map((warning: string, idx: number) => (
+                              <div key={idx} className="text-yellow-400 text-xs">
+                                {warning}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+
           {/* Validation Error */}
           {validationError && (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
               {validationError}
-            </div>
-          )}
-
-          {/* Extraction Info */}
-          {!extracting && selectedLayers.length > 0 && hookTypes.length > 0 && (
-            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300">
-              <div className="font-medium mb-2">Extraction Summary:</div>
-              <ul className="space-y-1 text-slate-400">
-                <li>• Will extract from {selectedLayers.length} layer(s)</li>
-                <li>• Using {hookTypes.length} hook type(s): {hookTypes.join(', ')}</li>
-                <li>• Processing up to {maxSamples.toLocaleString()} samples</li>
-                <li>• Batch size: {batchSize}</li>
-              </ul>
             </div>
           )}
 

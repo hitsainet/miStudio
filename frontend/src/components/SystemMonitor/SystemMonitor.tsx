@@ -5,76 +5,154 @@
  * Displays real-time metrics with auto-refresh.
  */
 
-import { useEffect } from 'react';
-import { Activity } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, Settings } from 'lucide-react';
 import { useSystemMonitorStore } from '../../stores/systemMonitorStore';
+import { useHistoricalData } from '../../hooks/useHistoricalData';
+import { TimeRangeSelector } from './TimeRangeSelector';
+import { UtilizationChart } from './UtilizationChart';
+import { MemoryUsageChart } from './MemoryUsageChart';
+import { TemperatureChart } from './TemperatureChart';
+import { GPUSelector } from './GPUSelector';
+import { ViewModeToggle } from './ViewModeToggle';
+import { GPUCard } from './GPUCard';
+import { SettingsModal } from './SettingsModal';
+import { LoadingSkeleton } from './LoadingSkeleton';
+import { ErrorBanner } from './ErrorBanner';
+import { MetricWarning } from './MetricWarning';
 
 export function SystemMonitor() {
   const {
     gpuAvailable,
+    gpuList,
     gpuMetrics,
     gpuInfo,
     gpuProcesses,
     systemMetrics,
     diskUsage,
+    selectedGPU,
+    updateInterval,
+    viewMode,
     loading,
     error,
+    errorType,
     isPolling,
+    isConnected,
+    fetchGPUList,
+    setSelectedGPU,
+    setUpdateInterval,
+    setViewMode,
     startPolling,
     stopPolling,
+    clearError,
+    retryConnection,
   } = useSystemMonitorStore();
 
-  // Start polling on mount, stop on unmount
+  // Settings modal state
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Initialize historical data hook
+  const {
+    data: historicalData,
+    timeRange,
+    setTimeRange,
+    addDataPoint,
+  } = useHistoricalData({ maxDataPoints: 86400 }); // 24h at 1s intervals
+
+  // Fetch GPU list on mount
   useEffect(() => {
-    startPolling(1000); // Poll every 1 second
+    fetchGPUList();
+  }, [fetchGPUList]);
+
+  // Start polling on mount or when updateInterval changes, stop on unmount
+  useEffect(() => {
+    startPolling(updateInterval);
 
     return () => {
       stopPolling();
     };
-  }, [startPolling, stopPolling]);
+  }, [updateInterval, startPolling, stopPolling]);
+
+  // Update historical data when new metrics arrive
+  useEffect(() => {
+    if (gpuMetrics && systemMetrics) {
+      addDataPoint({
+        gpu_utilization: gpuMetrics.utilization.gpu,
+        cpu_utilization: systemMetrics.cpu.percent,
+        gpu_memory_used_gb: gpuMetrics.memory.used_gb,
+        ram_used_gb: systemMetrics.ram.used_gb,
+        gpu_temperature: gpuMetrics.temperature,
+      });
+    }
+  }, [gpuMetrics, systemMetrics, addDataPoint]);
 
   if (loading && !systemMetrics) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-slate-400">Loading system metrics...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-red-400">Error: {error}</div>
-      </div>
-    );
+    return <LoadingSkeleton />;
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-slate-950 animate-in fade-in duration-500">
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Activity className="w-8 h-8 text-emerald-400" />
-          <div>
-            <h1 className="text-2xl font-bold text-slate-100">System Monitor</h1>
-            <p className="text-sm text-slate-400">
-              Real-time GPU and system resource monitoring
-            </p>
+          <div className="flex items-center gap-3">
+            <Activity className="w-8 h-8 text-emerald-400" />
+            <div>
+              <h1 className="text-2xl font-bold text-slate-100">System Monitor</h1>
+              <p className="text-sm text-slate-400">
+                Real-time GPU and system resource monitoring
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            {isPolling && (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                <span>Live</span>
+              </div>
+            )}
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 transition-colors"
+              aria-label="Settings"
+            >
+              <Settings className="w-5 h-5 text-slate-400" />
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {isPolling && (
-            <div className="flex items-center gap-2 text-sm text-emerald-400">
-              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-              <span>Live</span>
+
+        {/* Error Banner */}
+        {error && errorType && (
+          <ErrorBanner
+            type={errorType}
+            message={error}
+            isRetrying={loading}
+            onRetry={retryConnection}
+            onDismiss={!isConnected ? undefined : clearError}
+          />
+        )}
+
+        {/* GPU Controls (only shown if GPU available) */}
+        {gpuAvailable && gpuList && gpuList.gpus.length > 0 && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              {viewMode === 'single' && (
+                <GPUSelector
+                  gpus={gpuList.gpus}
+                  selected={selectedGPU}
+                  onChange={setSelectedGPU}
+                />
+              )}
             </div>
-          )}
-        </div>
-      </div>
+            {gpuList.gpus.length > 1 && (
+              <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+            )}
+          </div>
+        )}
 
       {/* GPU Section */}
       {gpuAvailable && gpuMetrics && gpuInfo ? (
+        viewMode === 'single' ? (
         <div className="space-y-4">
           {/* GPU Header */}
           <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
@@ -98,6 +176,15 @@ export function SystemMonitor() {
               </div>
             </div>
           </div>
+
+          {/* Critical Warnings */}
+          {(gpuMetrics.temperature > 85 || gpuMetrics.memory.used_percent > 95 || gpuMetrics.utilization.gpu > 95) && (
+            <div className="flex flex-wrap gap-3">
+              <MetricWarning type="temperature" value={gpuMetrics.temperature} />
+              <MetricWarning type="memory" value={gpuMetrics.memory.used_percent} />
+              <MetricWarning type="utilization" value={gpuMetrics.utilization.gpu} />
+            </div>
+          )}
 
           {/* GPU Metrics Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -198,7 +285,46 @@ export function SystemMonitor() {
               </div>
             </div>
           )}
+
+          {/* Historical Trends */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-100">Historical Trends</h2>
+              <TimeRangeSelector selected={timeRange} onChange={setTimeRange} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <UtilizationChart data={historicalData} />
+              <MemoryUsageChart data={historicalData} />
+              <TemperatureChart data={historicalData} maxTemp={95} />
+            </div>
+          </div>
         </div>
+        ) : (
+          // Comparison View
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-100">GPU Comparison</h2>
+              {gpuList && gpuList.gpus.length > 4 && (
+                <span className="text-sm text-slate-400">
+                  {gpuList.gpus.length} GPUs detected - Scroll to view all
+                </span>
+              )}
+            </div>
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${
+              gpuList && gpuList.gpus.length > 6 ? 'max-h-[800px] overflow-y-auto pr-2' : ''
+            }`}>
+              {gpuList?.gpus.map((gpu) => (
+                <GPUCard
+                  key={gpu.gpu_id}
+                  gpuId={gpu.gpu_id}
+                  metrics={gpuMetrics}
+                  info={gpuInfo}
+                />
+              ))}
+            </div>
+          </div>
+        )
       ) : (
         <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
           <div className="text-slate-400 text-center">
@@ -304,6 +430,14 @@ export function SystemMonitor() {
         </div>
       )}
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        updateInterval={updateInterval}
+        onUpdateIntervalChange={setUpdateInterval}
+      />
     </div>
   );
 }

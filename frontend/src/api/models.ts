@@ -69,6 +69,53 @@ export async function getModelArchitecture(id: string): Promise<ModelArchitectur
 }
 
 /**
+ * Estimate resource requirements for an extraction job
+ */
+export async function estimateExtractionResources(
+  modelId: string,
+  config: ActivationExtractionConfig
+): Promise<{
+  model_id: string;
+  dataset_id: string;
+  estimates: {
+    gpu_memory: {
+      total_bytes: number;
+      total_mb: number;
+      total_gb: number;
+      breakdown: Record<string, number>;
+      warning: 'normal' | 'medium' | 'high';
+    };
+    disk_space: {
+      total_bytes: number;
+      total_mb: number;
+      total_gb: number;
+      per_layer_mb: number;
+      warning: 'normal' | 'medium' | 'high';
+    };
+    processing_time: {
+      total_seconds: number;
+      time_str: string;
+      estimated_batches: number;
+      seconds_per_batch: number;
+      warning: 'normal' | 'medium' | 'long';
+    };
+    warnings: string[];
+    config_used: {
+      hidden_size: number;
+      num_layers: number;
+      batch_size: number;
+      max_samples: number;
+      sequence_length: number;
+    };
+  };
+}> {
+  return fetchAPI(`/models/${modelId}/estimate-extraction`, {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
+/**
  * Extract activations from a model
  */
 export async function extractActivations(
@@ -191,5 +238,34 @@ export async function retryExtraction(
   }>(`/models/${modelId}/extractions/${extractionId}/retry`, {
     method: 'POST',
     body: JSON.stringify(retryParams || {}),
+  });
+}
+
+/**
+ * Delete multiple extractions for a model
+ */
+export async function deleteExtractions(
+  modelId: string,
+  extractionIds: string[]
+): Promise<{
+  model_id: string;
+  deleted_count: number;
+  failed_count: number;
+  deleted_ids: string[];
+  failed_ids: string[];
+  errors: Record<string, string>;
+  message: string;
+}> {
+  return fetchAPI<{
+    model_id: string;
+    deleted_count: number;
+    failed_count: number;
+    deleted_ids: string[];
+    failed_ids: string[];
+    errors: Record<string, string>;
+    message: string;
+  }>(`/models/${modelId}/extractions`, {
+    method: 'DELETE',
+    body: JSON.stringify({ extraction_ids: extractionIds }),
   });
 }

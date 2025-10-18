@@ -23,6 +23,8 @@ from ....schemas.model import (
     ExtractionCancelResponse,
     ExtractionRetryRequest,
     ExtractionRetryResponse,
+    ExtractionDeleteRequest,
+    ExtractionDeleteResponse,
 )
 from ....services.model_service import ModelService
 from ....services.extraction_db_service import ExtractionDatabaseService
@@ -282,6 +284,90 @@ async def delete_model(
         # Log error but don't fail the deletion
         # (database record is already deleted)
         logger.error(f"Failed to queue file cleanup for model {model_id}: {e}")
+
+
+@router.post("/{model_id}/estimate-extraction", status_code=200)
+async def estimate_extraction_resources(
+    model_id: str,
+    request: ActivationExtractionRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Estimate resource requirements for an activation extraction job.
+
+    This endpoint calculates GPU memory, disk space, and processing time
+    estimates for a proposed extraction configuration without actually
+    starting the extraction.
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        request: Extraction configuration (dataset_id, layers, hook_types, etc.)
+        db: Database session
+
+    Returns:
+        Resource estimates including:
+        - GPU memory required (MB/GB)
+        - Disk space required (MB/GB)
+        - Estimated processing time
+        - Warnings if resources are excessive
+
+    Raises:
+        HTTPException: If model not found or dataset not found
+    """
+    from ....utils.resource_estimation import estimate_extraction_resources
+    from ....services.dataset_service import DatasetService
+
+    # Verify model exists
+    model = await ModelService.get_model(db, model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    # Get dataset info
+    dataset = await DatasetService.get_dataset(db, request.dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset '{request.dataset_id}' not found"
+        )
+
+    # Build model config
+    # NOTE: Always use FP16 for GPU memory estimation because activation_service.py
+    # loads all models as FP16 (torch_dtype=torch.float16) regardless of storage quantization
+    model_config = {
+        "hidden_size": model.architecture_config.get("hidden_size") if model.architecture_config else 768,
+        "num_layers": model.architecture_config.get("num_hidden_layers") or model.architecture_config.get("num_layers") if model.architecture_config else 12,
+        "params_count": model.params_count,
+        "quantization": "FP16"  # Always FP16 - models are loaded with torch_dtype=torch.float16
+    }
+
+    # Build extraction config
+    extraction_config = {
+        "layer_indices": request.layer_indices,
+        "hook_types": request.hook_types,
+        "batch_size": request.batch_size or 8,
+        "max_samples": request.max_samples
+    }
+
+    # Build dataset config
+    dataset_config = {
+        "avg_sequence_length": dataset.avg_seq_length if dataset.avg_seq_length else 512
+    }
+
+    # Calculate estimates
+    estimates = estimate_extraction_resources(
+        model_config=model_config,
+        extraction_config=extraction_config,
+        dataset_config=dataset_config
+    )
+
+    return {
+        "model_id": model_id,
+        "dataset_id": request.dataset_id,
+        "estimates": estimates
+    }
 
 
 @router.post("/{model_id}/extract-activations", status_code=202)
@@ -804,6 +890,104 @@ async def retry_extraction(
             status_code=500,
             detail=f"Failed to queue extraction retry: {str(e)}"
         )
+
+
+@router.delete("/{model_id}/extractions", response_model=ExtractionDeleteResponse)
+async def delete_extractions(
+    model_id: str,
+    request: ExtractionDeleteRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete multiple activation extractions for a model.
+
+    This endpoint deletes extraction records from the database and removes
+    the associated files from the filesystem. It performs batch deletion
+    and reports success/failure for each extraction.
+
+    Args:
+        model_id: Model ID (string format: m_{uuid})
+        request: List of extraction IDs to delete
+        db: Database session
+
+    Returns:
+        Deletion summary with counts of successful and failed deletions
+
+    Raises:
+        HTTPException: If model not found
+    """
+    from ....services.activation_service import ActivationService
+    from ....models.activation_extraction import ActivationExtraction
+
+    # Verify model exists
+    model = await ModelService.get_model(db, model_id)
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    activation_service = ActivationService()
+    deleted_ids = []
+    failed_ids = []
+    errors = {}
+
+    # Process each extraction ID
+    for extraction_id in request.extraction_ids:
+        try:
+            # Delete from database
+            with get_sync_db() as sync_db:
+                extraction = sync_db.query(ActivationExtraction).filter(
+                    ActivationExtraction.id == extraction_id,
+                    ActivationExtraction.model_id == model_id
+                ).first()
+
+                if extraction:
+                    sync_db.delete(extraction)
+                    sync_db.commit()
+                    logger.info(f"Deleted extraction record from database: {extraction_id}")
+
+            # Delete from filesystem
+            try:
+                activation_service.delete_extraction(extraction_id)
+                logger.info(f"Deleted extraction files from filesystem: {extraction_id}")
+            except Exception as fs_error:
+                # Log filesystem deletion error but don't fail the request
+                # (database record is already deleted)
+                logger.warning(f"Failed to delete extraction files for {extraction_id}: {fs_error}")
+
+            deleted_ids.append(extraction_id)
+
+        except Exception as e:
+            logger.error(f"Failed to delete extraction {extraction_id}: {e}")
+            failed_ids.append(extraction_id)
+            errors[extraction_id] = str(e)
+
+    deleted_count = len(deleted_ids)
+    failed_count = len(failed_ids)
+
+    # Generate message
+    if failed_count == 0:
+        message = f"Successfully deleted {deleted_count} extraction(s)"
+    elif deleted_count == 0:
+        message = f"Failed to delete all {failed_count} extraction(s)"
+    else:
+        message = f"Deleted {deleted_count} extraction(s), failed {failed_count}"
+
+    logger.info(
+        f"Batch deletion for model {model_id}: "
+        f"deleted={deleted_count}, failed={failed_count}"
+    )
+
+    return ExtractionDeleteResponse(
+        model_id=model_id,
+        deleted_count=deleted_count,
+        failed_count=failed_count,
+        deleted_ids=deleted_ids,
+        failed_ids=failed_ids,
+        errors=errors,
+        message=message
+    )
 
 
 @router.get("/tasks/{task_id}")

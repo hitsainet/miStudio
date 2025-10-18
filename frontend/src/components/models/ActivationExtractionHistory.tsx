@@ -9,9 +9,10 @@
  */
 
 import { useState, useEffect } from 'react';
-import { FileText, Download, Calendar, Layers, Database, TrendingUp, Activity } from 'lucide-react';
+import { FileText, Download, Calendar, Layers, Database, TrendingUp, Activity, Trash2 } from 'lucide-react';
 import { Model } from '../../types/model';
-import { getModelExtractions } from '../../api/models';
+import { getModelExtractions, deleteExtractions } from '../../api/models';
+import { DeleteExtractionsModal } from './DeleteExtractionsModal';
 
 interface ExtractionStatistics {
   shape: number[];
@@ -51,6 +52,8 @@ export function ActivationExtractionHistory({
   const [extractions, setExtractions] = useState<Extraction[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedExtraction, setSelectedExtraction] = useState<Extraction | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
     fetchExtractions();
@@ -85,25 +88,70 @@ export function ActivationExtractionHistory({
       : `${totalMB.toFixed(2)} MB`;
   };
 
+  const toggleSelection = (extractionId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent expanding the extraction
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(extractionId)) {
+      newSelected.delete(extractionId);
+    } else {
+      newSelected.add(extractionId);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === extractions.length) {
+      setSelectedIds(new Set());
+    } else {
+      const allIds = new Set(extractions.map(e => e.extraction_id));
+      setSelectedIds(allIds);
+    }
+  };
+
+  const handleDelete = async (extractionIds: string[]) => {
+    try {
+      await deleteExtractions(model.id, extractionIds);
+      // Refresh the list after deletion
+      await fetchExtractions();
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('[ActivationExtractionHistory] Failed to delete:', error);
+      throw error;
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
           <div>
-            <h2 className="text-2xl font-semibold text-emerald-400">Activation Extractions</h2>
+            <h2 className="text-2xl font-semibold text-emerald-400">Extraction History</h2>
             <p className="text-sm text-slate-400 mt-1">
               {model.name} - {extractions.length} extraction{extractions.length !== 1 ? 's' : ''}
+              {selectedIds.size > 0 && ` (${selectedIds.size} selected)`}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-300 transition-colors"
-            aria-label="Close"
-          >
-            <span className="text-2xl">×</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {extractions.length > 0 && selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded transition-colors text-white flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Selected ({selectedIds.size})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-300 transition-colors"
+              aria-label="Close"
+            >
+              <span className="text-2xl">×</span>
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -127,33 +175,63 @@ export function ActivationExtractionHistory({
 
           {!loading && extractions.length > 0 && (
             <div className="space-y-4">
+              {/* Select All */}
+              <div className="flex items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === extractions.length && extractions.length > 0}
+                  onChange={toggleSelectAll}
+                  className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900 cursor-pointer"
+                />
+                <span className="text-slate-300 font-medium">
+                  Select All ({extractions.length})
+                </span>
+              </div>
+
               {extractions.map((extraction) => (
                 <div
                   key={extraction.extraction_id}
-                  className="bg-slate-800/50 border border-slate-700 rounded-lg p-6 hover:border-emerald-500/50 transition-colors cursor-pointer"
-                  onClick={() => setSelectedExtraction(extraction === selectedExtraction ? null : extraction)}
+                  className={`bg-slate-800/50 border rounded-lg p-6 transition-colors ${
+                    selectedIds.has(extraction.extraction_id)
+                      ? 'border-emerald-500/50 bg-emerald-900/10'
+                      : 'border-slate-700 hover:border-slate-600'
+                  }`}
                 >
                   {/* Extraction Header */}
                   <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Activity className="w-5 h-5 text-emerald-400" />
-                        <h3 className="text-lg font-semibold text-slate-100">
-                          {extraction.extraction_id}
-                        </h3>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-slate-400">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          <span>{formatDate(extraction.created_at)}</span>
+                    <div className="flex-1 flex items-start gap-3">
+                      {/* Checkbox */}
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(extraction.extraction_id)}
+                        onChange={(e) => toggleSelection(extraction.extraction_id, e)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900 cursor-pointer mt-1"
+                      />
+
+                      <div className="flex-1">
+                        <div
+                          className="flex items-center gap-2 mb-2 cursor-pointer"
+                          onClick={() => setSelectedExtraction(extraction === selectedExtraction ? null : extraction)}
+                        >
+                          <Activity className="w-5 h-5 text-emerald-400" />
+                          <h3 className="text-lg font-semibold text-slate-100">
+                            {extraction.extraction_id}
+                          </h3>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Layers className="w-4 h-4" />
-                          <span>{extraction.layer_indices.length} layers</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Database className="w-4 h-4" />
-                          <span>{extraction.num_samples_processed.toLocaleString()} samples</span>
+                        <div className="flex items-center gap-4 text-sm text-slate-400">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="w-4 h-4" />
+                            <span>{formatDate(extraction.created_at)}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Layers className="w-4 h-4" />
+                            <span>{extraction.layer_indices.length} layers</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Database className="w-4 h-4" />
+                            <span>{extraction.num_samples_processed.toLocaleString()} samples</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -308,7 +386,13 @@ export function ActivationExtractionHistory({
         <div className="border-t border-slate-800 p-4 bg-slate-900/50">
           <div className="flex items-center justify-between text-sm text-slate-400">
             <div>
-              Click an extraction to view detailed statistics
+              {selectedIds.size > 0 ? (
+                <>
+                  <span className="font-medium text-emerald-400">{selectedIds.size}</span> extraction{selectedIds.size !== 1 ? 's' : ''} selected
+                </>
+              ) : (
+                'Click an extraction to view detailed statistics'
+              )}
             </div>
             <button
               onClick={onClose}
@@ -319,6 +403,15 @@ export function ActivationExtractionHistory({
           </div>
         </div>
       </div>
+
+      {/* Delete Modal */}
+      {showDeleteModal && (
+        <DeleteExtractionsModal
+          model={model}
+          onClose={() => setShowDeleteModal(false)}
+          onDelete={handleDelete}
+        />
+      )}
     </div>
   );
 }

@@ -295,3 +295,49 @@ class ExtractionRetryResponse(BaseModel):
             }
         }
     }
+
+
+class ExtractionDeleteRequest(BaseModel):
+    """Schema for batch extraction deletion request."""
+
+    extraction_ids: List[str] = Field(..., min_length=1, description="List of extraction IDs to delete")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "extraction_ids": [
+                    "ext_m_50874ca7_20251015_031430",
+                    "ext_m_50874ca7_20251015_032145"
+                ]
+            }
+        }
+    }
+
+
+class ExtractionDeleteResponse(BaseModel):
+    """Schema for batch extraction deletion response."""
+
+    model_id: str = Field(..., description="Model ID")
+    deleted_count: int = Field(..., description="Number of extractions successfully deleted")
+    failed_count: int = Field(..., description="Number of extractions that failed to delete")
+    deleted_ids: List[str] = Field(..., description="List of successfully deleted extraction IDs")
+    failed_ids: List[str] = Field(default_factory=list, description="List of extraction IDs that failed to delete")
+    errors: Dict[str, str] = Field(default_factory=dict, description="Map of extraction_id to error message for failures")
+    message: str = Field(..., description="Summary message")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "model_id": "m_50874ca7",
+                "deleted_count": 2,
+                "failed_count": 0,
+                "deleted_ids": [
+                    "ext_m_50874ca7_20251015_031430",
+                    "ext_m_50874ca7_20251015_032145"
+                ],
+                "failed_ids": [],
+                "errors": {},
+                "message": "Successfully deleted 2 extraction(s)"
+            }
+        }
+    }

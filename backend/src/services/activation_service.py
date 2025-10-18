@@ -570,15 +570,21 @@ class ActivationService:
 
                         # Save batch activation to temporary file
                         import tempfile
+                        import os
+                        # Create temp file and close it immediately before numpy writes
+                        # This avoids numpy memory-mapping issues with open file handles
                         temp_file = tempfile.NamedTemporaryFile(
                             dir=output_dir,
                             delete=False,
                             suffix=f'_{layer_name}_batch{len(accumulated_files[layer_name])}.npy'
                         )
-                        np.save(temp_file.name, activation_array)
-                        temp_file.close()
+                        temp_file_path = temp_file.name
+                        temp_file.close()  # Close the file handle before numpy writes
 
-                        accumulated_files[layer_name].append(temp_file.name)
+                        # Now numpy can write to the closed file without memory-mapping issues
+                        np.save(temp_file_path, activation_array)
+
+                        accumulated_files[layer_name].append(temp_file_path)
                         logger.debug(f"Saved batch activation for {layer_name}: {activation_array.shape}")
 
                     # Clear activations from hook manager to free memory
@@ -681,7 +687,10 @@ class ActivationService:
         activations: Dict[str, np.ndarray]
     ) -> Dict[str, Dict[str, float]]:
         """
-        Calculate statistics for extracted activations.
+        Calculate statistics for extracted activations using chunked processing.
+
+        For large arrays (>1GB), uses memory-mapped files and chunked computation
+        to avoid loading the entire array into memory.
 
         Args:
             activations: Dictionary of activation arrays
@@ -692,26 +701,79 @@ class ActivationService:
         statistics = {}
 
         for layer_name, activation_array in activations.items():
-            # Calculate statistics
-            mean_magnitude = float(np.abs(activation_array).mean())
-            max_activation = float(np.abs(activation_array).max())
-            min_activation = float(np.abs(activation_array).min())
-            std_activation = float(np.std(activation_array))
+            array_size_gb = activation_array.nbytes / (1024 ** 3)
 
-            # Replace inf/-inf with None for JSON compatibility
-            # PostgreSQL JSONB doesn't support Infinity values
-            if np.isinf(std_activation):
-                std_activation = None
+            # For large arrays (>1GB), use chunked processing to avoid memory issues
+            if array_size_gb > 1.0:
+                logger.info(f"Large array detected ({array_size_gb:.2f} GB), using chunked statistics calculation")
 
-            # Calculate sparsity (percentage of near-zero activations)
-            threshold = 0.01
-            sparsity = float((np.abs(activation_array) < threshold).mean() * 100)
+                # Use chunked processing with smaller memory footprint
+                chunk_size = 100  # Process 100 samples at a time
+                n_samples = activation_array.shape[0]
+
+                # Initialize accumulators
+                sum_abs = 0.0
+                sum_sq = 0.0
+                max_val = float('-inf')
+                min_val = float('inf')
+                count_near_zero = 0
+                total_elements = 0
+
+                # Process in chunks
+                for start_idx in range(0, n_samples, chunk_size):
+                    end_idx = min(start_idx + chunk_size, n_samples)
+                    chunk = activation_array[start_idx:end_idx]
+
+                    # Update statistics
+                    abs_chunk = np.abs(chunk)
+                    sum_abs += float(abs_chunk.sum())
+                    sum_sq += float((chunk ** 2).sum())
+                    max_val = max(max_val, float(abs_chunk.max()))
+                    min_val = min(min_val, float(abs_chunk.min()))
+
+                    # Count near-zero activations
+                    threshold = 0.01
+                    count_near_zero += int((abs_chunk < threshold).sum())
+                    total_elements += chunk.size
+
+                    # Log progress every 1000 samples
+                    if (end_idx % 1000 == 0) or (end_idx == n_samples):
+                        logger.debug(f"Processed {end_idx}/{n_samples} samples for statistics")
+
+                # Calculate final statistics
+                mean_magnitude = sum_abs / total_elements
+                variance = (sum_sq / total_elements) - (mean_magnitude ** 2)
+                std_activation = float(np.sqrt(max(0, variance)))  # Avoid negative due to numerical errors
+                sparsity = (count_near_zero / total_elements) * 100
+
+                # Handle potential inf values
+                if np.isinf(std_activation) or np.isnan(std_activation):
+                    std_activation = None
+                if np.isinf(mean_magnitude) or np.isnan(mean_magnitude):
+                    mean_magnitude = 0.0
+
+                logger.info(f"Statistics calculation complete for {layer_name}")
+
+            else:
+                # Small array, use standard numpy operations
+                mean_magnitude = float(np.abs(activation_array).mean())
+                max_val = float(np.abs(activation_array).max())
+                min_val = float(np.abs(activation_array).min())
+                std_activation = float(np.std(activation_array))
+
+                # Replace inf/-inf with None for JSON compatibility
+                if np.isinf(std_activation) or np.isnan(std_activation):
+                    std_activation = None
+
+                # Calculate sparsity
+                threshold = 0.01
+                sparsity = float((np.abs(activation_array) < threshold).mean() * 100)
 
             statistics[layer_name] = {
                 "shape": list(activation_array.shape),
                 "mean_magnitude": mean_magnitude,
-                "max_activation": max_activation,
-                "min_activation": min_activation,
+                "max_activation": max_val,
+                "min_activation": min_val,
                 "std_activation": std_activation,
                 "sparsity_percent": sparsity,
                 "size_mb": float(activation_array.nbytes / 1024 / 1024),

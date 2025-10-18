@@ -3,6 +3,7 @@ import { DatasetsPanel } from './components/panels/DatasetsPanel';
 import { ModelsPanel } from './components/panels/ModelsPanel';
 import { ExtractionTemplatesPanel } from './components/panels/ExtractionTemplatesPanel';
 import { SystemMonitor } from './components/SystemMonitor/SystemMonitor';
+import { CompactGPUStatus } from './components/SystemMonitor/CompactGPUStatus';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
 import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
@@ -45,7 +46,8 @@ function AppContent() {
       {/* Navigation Tabs */}
       <nav className="border-b border-slate-800 bg-slate-900/30">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="flex gap-1">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex gap-1">
             <button
               onClick={() => setActivePanel('datasets')}
               className={`px-6 py-3 font-medium transition-colors relative ${
@@ -98,6 +100,10 @@ function AppContent() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
               )}
             </button>
+            </div>
+
+            {/* Compact GPU Status - Right aligned */}
+            <CompactGPUStatus />
           </div>
         </div>
       </nav>

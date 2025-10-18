@@ -112,14 +112,9 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // If onDeleteExtractions is provided and model is ready, show extraction deletion modal
-    if (isReady && onDeleteExtractions) {
-      onDeleteExtractions();
-    } else {
-      // Otherwise, delete the entire model
-      if (confirm(`Are you sure you want to delete ${model.name}?`)) {
-        onDelete(model.id);
-      }
+    // Always delete the model when trash can is clicked
+    if (confirm(`Are you sure you want to delete ${model.name}? This will also delete all associated extractions.`)) {
+      onDelete(model.id);
     }
   };
 

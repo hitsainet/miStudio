@@ -277,6 +277,91 @@ def emit_extraction_failed(
     return emit_progress(channel, "failed", data)
 
 
+def emit_training_progress(
+    training_id: str,
+    event: str,
+    data: Dict[str, Any],
+) -> bool:
+    """
+    Emit progress update for a training operation.
+
+    Convenience function that automatically constructs the channel name
+    for training progress updates.
+
+    Args:
+        training_id: Training job ID
+        event: Event type (e.g., "created", "progress", "status_changed", "completed", "failed")
+        data: Event data payload
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Examples:
+        >>> emit_training_progress(
+        ...     training_id="train_abc123",
+        ...     event="progress",
+        ...     data={
+        ...         "training_id": "train_abc123",
+        ...         "current_step": 1000,
+        ...         "total_steps": 100000,
+        ...         "progress": 1.0,
+        ...         "loss": 0.0234,
+        ...         "l0_sparsity": 0.05,
+        ...         "dead_neurons": 42,
+        ...         "learning_rate": 0.0003
+        ...     }
+        ... )
+        True
+    """
+    channel = f"trainings/{training_id}/progress"
+    return emit_progress(channel, event, data)
+
+
+def emit_checkpoint_created(
+    training_id: str,
+    checkpoint_id: str,
+    step: int,
+    loss: float,
+    is_best: bool,
+    storage_path: str,
+) -> bool:
+    """
+    Emit checkpoint creation event.
+
+    Args:
+        training_id: Training job ID
+        checkpoint_id: Checkpoint ID
+        step: Training step at checkpoint
+        loss: Loss at checkpoint
+        is_best: Whether this is the best checkpoint
+        storage_path: Path to checkpoint file
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Examples:
+        >>> emit_checkpoint_created(
+        ...     training_id="train_abc123",
+        ...     checkpoint_id="ckpt_def456",
+        ...     step=5000,
+        ...     loss=0.0198,
+        ...     is_best=True,
+        ...     storage_path="/data/trainings/train_abc123/checkpoints/step_5000.safetensors"
+        ... )
+        True
+    """
+    channel = f"trainings/{training_id}/checkpoints"
+    data = {
+        "training_id": training_id,
+        "checkpoint_id": checkpoint_id,
+        "step": step,
+        "loss": loss,
+        "is_best": is_best,
+        "storage_path": storage_path,
+    }
+    return emit_progress(channel, "checkpoint_created", data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -284,4 +369,6 @@ __all__ = [
     "emit_model_progress",
     "emit_extraction_progress",
     "emit_extraction_failed",
+    "emit_training_progress",
+    "emit_checkpoint_created",
 ]

@@ -8,6 +8,7 @@ SAE training-related business logic and database operations.
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 from datetime import datetime, UTC
+import asyncio
 
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.training import Training, TrainingStatus
 from ..models.training_metric import TrainingMetric
 from ..schemas.training import TrainingCreate, TrainingUpdate
+
+
+def _emit_training_event_sync(training_id: str, event: str, data: Dict[str, Any]):
+    """Helper to emit WebSocket events synchronously from async context."""
+    try:
+        from ..workers.websocket_emitter import emit_training_progress
+        emit_training_progress(training_id, event, data)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to emit WebSocket event: {e}")
 
 
 class TrainingService:
@@ -57,6 +68,19 @@ class TrainingService:
         db.add(db_training)
         await db.commit()
         await db.refresh(db_training)
+
+        # Emit training:created event
+        _emit_training_event_sync(
+            training_id=training_id,
+            event="created",
+            data={
+                "training_id": training_id,
+                "model_id": training_data.model_id,
+                "dataset_id": training_data.dataset_id,
+                "status": TrainingStatus.PENDING.value,
+                "total_steps": hyperparameters_dict['total_steps'],
+            }
+        )
 
         return db_training
 
@@ -246,6 +270,18 @@ class TrainingService:
         await db.commit()
         await db.refresh(db_training)
 
+        # Emit training:status_changed event
+        _emit_training_event_sync(
+            training_id=training_id,
+            event="status_changed",
+            data={
+                "training_id": training_id,
+                "status": TrainingStatus.PAUSED.value,
+                "current_step": db_training.current_step,
+                "progress": db_training.progress,
+            }
+        )
+
         return db_training
 
     @staticmethod
@@ -279,6 +315,18 @@ class TrainingService:
         await db.commit()
         await db.refresh(db_training)
 
+        # Emit training:status_changed event
+        _emit_training_event_sync(
+            training_id=training_id,
+            event="status_changed",
+            data={
+                "training_id": training_id,
+                "status": TrainingStatus.RUNNING.value,
+                "current_step": db_training.current_step,
+                "progress": db_training.progress,
+            }
+        )
+
         return db_training
 
     @staticmethod
@@ -308,6 +356,18 @@ class TrainingService:
 
         await db.commit()
         await db.refresh(db_training)
+
+        # Emit training:status_changed event
+        _emit_training_event_sync(
+            training_id=training_id,
+            event="status_changed",
+            data={
+                "training_id": training_id,
+                "status": TrainingStatus.CANCELLED.value,
+                "current_step": db_training.current_step,
+                "progress": db_training.progress,
+            }
+        )
 
         return db_training
 
@@ -342,6 +402,19 @@ class TrainingService:
         await db.commit()
         await db.refresh(db_training)
 
+        # Emit training:status_changed event
+        _emit_training_event_sync(
+            training_id=training_id,
+            event="failed",
+            data={
+                "training_id": training_id,
+                "status": TrainingStatus.FAILED.value,
+                "error_message": error_message,
+                "current_step": db_training.current_step,
+                "progress": db_training.progress,
+            }
+        )
+
         return db_training
 
     @staticmethod
@@ -369,6 +442,19 @@ class TrainingService:
 
         await db.commit()
         await db.refresh(db_training)
+
+        # Emit training:completed event
+        _emit_training_event_sync(
+            training_id=training_id,
+            event="completed",
+            data={
+                "training_id": training_id,
+                "status": TrainingStatus.COMPLETED.value,
+                "final_loss": db_training.current_loss,
+                "total_steps": db_training.total_steps,
+                "progress": 100.0,
+            }
+        )
 
         return db_training
 

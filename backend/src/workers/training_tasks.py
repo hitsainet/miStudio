@@ -272,6 +272,23 @@ def train_sae_task(
                     learning_rate=current_lr,
                 )
 
+                # Emit training:progress WebSocket event
+                from ..workers.websocket_emitter import emit_training_progress
+                emit_training_progress(
+                    training_id=training_id,
+                    event="progress",
+                    data={
+                        "training_id": training_id,
+                        "current_step": step,
+                        "total_steps": total_steps,
+                        "progress": (step / total_steps) * 100.0,
+                        "loss": loss_value,
+                        "l0_sparsity": l0_sparsity,
+                        "dead_neurons": int(dead_neurons),
+                        "learning_rate": current_lr,
+                    }
+                )
+
                 logger.info(
                     f"Step {step}/{total_steps}: "
                     f"loss={loss_value:.4f}, l0={l0_sparsity:.4f}, "
@@ -311,8 +328,9 @@ def train_sae_task(
                         for ckpt in prev_best:
                             ckpt.is_best = False
 
+                    checkpoint_id = f"ckpt_{uuid4().hex[:8]}"
                     checkpoint = Checkpoint(
-                        id=f"ckpt_{uuid4().hex[:8]}",
+                        id=checkpoint_id,
                         training_id=training_id,
                         step=step,
                         loss=loss_value,
@@ -322,6 +340,17 @@ def train_sae_task(
                     )
                     db.add(checkpoint)
                     db.commit()
+
+                    # Emit checkpoint:created WebSocket event
+                    from ..workers.websocket_emitter import emit_checkpoint_created
+                    emit_checkpoint_created(
+                        training_id=training_id,
+                        checkpoint_id=checkpoint_id,
+                        step=step,
+                        loss=loss_value,
+                        is_best=is_best,
+                        storage_path=checkpoint_path,
+                    )
 
                 logger.info(f"Saved checkpoint at step {step} (best={is_best})")
 

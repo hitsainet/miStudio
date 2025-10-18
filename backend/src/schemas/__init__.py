@@ -21,6 +21,20 @@ from .extraction_template import (
     ExtractionTemplateExport,
     ExtractionTemplateImport,
 )
+from .training import (
+    SAEArchitectureType,
+    TrainingHyperparameters,
+    TrainingCreate,
+    TrainingUpdate,
+    TrainingResponse,
+    TrainingListResponse,
+    TrainingMetricResponse,
+    TrainingMetricsListResponse,
+    CheckpointResponse,
+    CheckpointListResponse,
+    TrainingControlRequest,
+    TrainingControlResponse,
+)
 
 __all__ = [
     "DatasetBase",
@@ -36,4 +50,16 @@ __all__ = [
     "ExtractionTemplateListResponse",
     "ExtractionTemplateExport",
     "ExtractionTemplateImport",
+    "SAEArchitectureType",
+    "TrainingHyperparameters",
+    "TrainingCreate",
+    "TrainingUpdate",
+    "TrainingResponse",
+    "TrainingListResponse",
+    "TrainingMetricResponse",
+    "TrainingMetricsListResponse",
+    "CheckpointResponse",
+    "CheckpointListResponse",
+    "TrainingControlRequest",
+    "TrainingControlResponse",
 ]

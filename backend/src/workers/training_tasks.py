@@ -19,6 +19,7 @@ from ..ml.sparse_autoencoder import create_sae
 from ..models.training import Training, TrainingStatus
 from ..services.training_service import TrainingService
 from ..services.checkpoint_service import CheckpointService
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -184,12 +185,12 @@ def train_sae_task(
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
         # Create checkpoint directory
-        checkpoint_dir = f"/data/trainings/{training_id}/checkpoints"
-        Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+        checkpoint_dir = settings.data_dir / "trainings" / training_id / "checkpoints"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         with self.get_db() as db:
             training = db.query(Training).filter_by(id=training_id).first()
-            training.checkpoint_dir = checkpoint_dir
+            training.checkpoint_dir = str(checkpoint_dir)
             training.status = TrainingStatus.RUNNING.value
             db.commit()
 

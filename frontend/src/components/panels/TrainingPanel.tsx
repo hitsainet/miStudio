@@ -137,26 +137,7 @@ export const TrainingPanel: React.FC = () => {
 
           {/* Basic Configuration */}
           <div className="grid grid-cols-3 gap-4 mb-4">
-            {/* Model Selection */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Model
-              </label>
-              <select
-                value={config.model_id}
-                onChange={(e) => updateConfig({ model_id: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
-              >
-                <option value="">Select model...</option>
-                {readyModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.model_id}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Dataset Selection */}
+            {/* Dataset Selection - First in flow */}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
                 Dataset
@@ -175,7 +156,26 @@ export const TrainingPanel: React.FC = () => {
               </select>
             </div>
 
-            {/* Architecture Type Selection */}
+            {/* Model Selection - Second in flow */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Model
+              </label>
+              <select
+                value={config.model_id}
+                onChange={(e) => updateConfig({ model_id: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+              >
+                <option value="">Select model...</option>
+                {readyModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Architecture Type Selection - Third in flow */}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
                 SAE Architecture

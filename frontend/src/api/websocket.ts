@@ -1,6 +1,8 @@
 import { io, Socket } from 'socket.io-client';
+import { WS_URL, WS_PATH } from '../config/api';
 
-const WEBSOCKET_URL = 'ws://localhost:8001';
+const WEBSOCKET_URL = WS_URL;
+const WEBSOCKET_PATH = WS_PATH;
 const RECONNECTION_DELAY_MS = 1000;
 const RECONNECTION_DELAY_MAX_MS = 30000;
 const RECONNECTION_ATTEMPTS = Infinity;
@@ -15,6 +17,7 @@ export class WebSocketClient {
     }
 
     this.socket = io(WEBSOCKET_URL, {
+      path: WEBSOCKET_PATH,
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: RECONNECTION_DELAY_MS,

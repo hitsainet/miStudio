@@ -43,6 +43,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({ training }) => {
     pauseTraining,
     resumeTraining,
     stopTraining,
+    deleteTraining,
   } = useTrainingsStore();
 
   // UI state
@@ -99,6 +100,20 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({ training }) => {
       await stopTraining(training.id);
     } catch (error) {
       console.error('Failed to stop training:', error);
+    } finally {
+      setIsControlling(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this training job? This action cannot be undone.')) {
+      return;
+    }
+    setIsControlling(true);
+    try {
+      await deleteTraining(training.id);
+    } catch (error) {
+      console.error('Failed to delete training:', error);
     } finally {
       setIsControlling(false);
     }
@@ -469,16 +484,48 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({ training }) => {
             </>
           )}
 
-          {/* Failed/Cancelled Status: Show Retry */}
+          {/* Failed/Cancelled Status: Show Retry and Delete */}
           {(training.status === TrainingStatus.FAILED ||
             training.status === TrainingStatus.CANCELLED) && (
+            <>
+              <button
+                type="button"
+                onClick={() => console.log('Retry training')}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <Play className="w-4 h-4" />
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isControlling}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                {isControlling ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Delete
+              </button>
+            </>
+          )}
+
+          {/* Completed Status: Show Delete */}
+          {training.status === TrainingStatus.COMPLETED && (
             <button
               type="button"
-              onClick={() => console.log('Retry training')}
-              className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              onClick={handleDelete}
+              disabled={isControlling}
+              className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg flex items-center justify-center gap-2 transition-colors"
             >
-              <Play className="w-4 h-4" />
-              Retry
+              {isControlling ? (
+                <Loader className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Delete
             </button>
           )}
         </div>

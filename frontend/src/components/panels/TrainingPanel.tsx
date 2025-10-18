@@ -120,21 +120,15 @@ export const TrainingPanel: React.FC = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-slate-950">
-      {/* Header */}
-      <div className="flex-none border-b border-slate-800 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-100">SAE Training</h2>
-            <p className="text-sm text-slate-400 mt-1">
-              Configure and launch sparse autoencoder training jobs
-            </p>
-          </div>
+    <div className="min-h-screen bg-slate-950">
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-slate-100 mb-2">SAE Training</h1>
+          <p className="text-slate-400">
+            Configure and launch sparse autoencoder training jobs
+          </p>
         </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
         {/* Configuration Section */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-slate-100 mb-4">

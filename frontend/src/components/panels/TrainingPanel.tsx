@@ -1,0 +1,635 @@
+/**
+ * Training Panel Component
+ *
+ * Main panel for SAE Training feature. Allows users to configure and launch
+ * new SAE training jobs, view active training jobs, and monitor progress.
+ *
+ * Mock UI Reference: Lines 1628-1842
+ * TID Reference: Lines 280-357
+ *
+ * Features:
+ * - Training configuration form (model, dataset, encoder type)
+ * - Advanced hyperparameters section (collapsible)
+ * - Training jobs list with real-time progress
+ * - Status filtering (All/Running/Completed/Failed)
+ * - WebSocket integration for live updates
+ */
+
+import React, { useEffect, useState } from 'react';
+import {
+  Play,
+  ChevronDown,
+  ChevronUp,
+  Activity,
+  CheckCircle,
+  XCircle,
+  Loader,
+} from 'lucide-react';
+import { useTrainingsStore } from '../../stores/trainingsStore';
+import { useModelsStore } from '../../stores/modelsStore';
+import { useDatasetsStore } from '../../stores/datasetsStore';
+import { TrainingStatus, SAEArchitectureType } from '../../types/training';
+import type { TrainingCreateRequest } from '../../types/training';
+
+export const TrainingPanel: React.FC = () => {
+  // Store state
+  const {
+    trainings,
+    config,
+    updateConfig,
+    resetConfig,
+    fetchTrainings,
+    createTraining,
+    statusFilter,
+    setStatusFilter,
+    isLoading,
+    error,
+  } = useTrainingsStore();
+
+  const { models, fetchModels } = useModelsStore();
+  const { datasets, fetchDatasets } = useDatasetsStore();
+
+  // UI state
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+
+  // Fetch data on mount
+  useEffect(() => {
+    fetchModels();
+    fetchDatasets();
+    fetchTrainings();
+  }, [fetchModels, fetchDatasets, fetchTrainings]);
+
+  // Filter ready models and datasets
+  const readyModels = models.filter((m) => m.status === 'ready');
+  const readyDatasets = datasets.filter((d) => d.status === 'ready');
+
+  // Validation
+  const isFormValid = config.model_id && config.dataset_id;
+
+  // Handle start training
+  const handleStartTraining = async () => {
+    if (!isFormValid) return;
+
+    setIsStarting(true);
+    try {
+      const request: TrainingCreateRequest = {
+        model_id: config.model_id,
+        dataset_id: config.dataset_id,
+        extraction_id: config.extraction_id,
+        hyperparameters: {
+          hidden_dim: config.hidden_dim,
+          latent_dim: config.latent_dim,
+          architecture_type: config.architecture_type,
+          l1_alpha: config.l1_alpha,
+          target_l0: config.target_l0,
+          learning_rate: config.learning_rate,
+          batch_size: config.batch_size,
+          total_steps: config.total_steps,
+          warmup_steps: config.warmup_steps,
+          weight_decay: config.weight_decay,
+          grad_clip_norm: config.grad_clip_norm,
+          checkpoint_interval: config.checkpoint_interval,
+          log_interval: config.log_interval,
+          dead_neuron_threshold: config.dead_neuron_threshold,
+          resample_dead_neurons: config.resample_dead_neurons,
+        },
+      };
+
+      await createTraining(request);
+      resetConfig();
+      setShowAdvanced(false);
+    } catch (err) {
+      console.error('Failed to start training:', err);
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  // Status filter stats
+  const statusCounts = {
+    all: trainings.length,
+    running: trainings.filter((t) => t.status === TrainingStatus.RUNNING).length,
+    completed: trainings.filter((t) => t.status === TrainingStatus.COMPLETED).length,
+    failed: trainings.filter((t) => t.status === TrainingStatus.FAILED).length,
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-slate-950">
+      {/* Header */}
+      <div className="flex-none border-b border-slate-800 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-100">SAE Training</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              Configure and launch sparse autoencoder training jobs
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        {/* Configuration Section */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-slate-100 mb-4">
+            Training Configuration
+          </h3>
+
+          {/* Basic Configuration */}
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {/* Model Selection */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Model
+              </label>
+              <select
+                value={config.model_id}
+                onChange={(e) => updateConfig({ model_id: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+              >
+                <option value="">Select model...</option>
+                {readyModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.model_id}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dataset Selection */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Dataset
+              </label>
+              <select
+                value={config.dataset_id}
+                onChange={(e) => updateConfig({ dataset_id: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+              >
+                <option value="">Select dataset...</option>
+                {readyDatasets.map((dataset) => (
+                  <option key={dataset.id} value={dataset.id}>
+                    {dataset.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Architecture Type Selection */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                SAE Architecture
+              </label>
+              <select
+                value={config.architecture_type}
+                onChange={(e) =>
+                  updateConfig({ architecture_type: e.target.value as SAEArchitectureType })
+                }
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+              >
+                <option value={SAEArchitectureType.STANDARD}>Standard</option>
+                <option value={SAEArchitectureType.SKIP}>Skip Connection</option>
+                <option value={SAEArchitectureType.TRANSCODER}>Transcoder</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Advanced Configuration Toggle */}
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+          >
+            {showAdvanced ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            Advanced Configuration
+          </button>
+
+          {/* Advanced Hyperparameters */}
+          {showAdvanced && (
+            <div className="mt-4 pt-4 border-t border-slate-700">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Hidden Dimension */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Hidden Dimension
+                  </label>
+                  <input
+                    type="number"
+                    value={config.hidden_dim}
+                    onChange={(e) => updateConfig({ hidden_dim: parseInt(e.target.value) })}
+                    min={64}
+                    max={8192}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Input/output size (e.g., 768 for GPT-2)
+                  </p>
+                </div>
+
+                {/* Latent Dimension */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Latent Dimension
+                  </label>
+                  <input
+                    type="number"
+                    value={config.latent_dim}
+                    onChange={(e) => updateConfig({ latent_dim: parseInt(e.target.value) })}
+                    min={512}
+                    max={65536}
+                    step={512}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    SAE width (typically 8-16x hidden_dim)
+                  </p>
+                </div>
+
+                {/* L1 Alpha */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    L1 Sparsity Coefficient
+                  </label>
+                  <input
+                    type="number"
+                    value={config.l1_alpha}
+                    onChange={(e) => updateConfig({ l1_alpha: parseFloat(e.target.value) })}
+                    min={0.00001}
+                    max={0.1}
+                    step={0.00001}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">L1 penalty weight</p>
+                </div>
+
+                {/* Target L0 */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Target L0 Sparsity
+                  </label>
+                  <input
+                    type="number"
+                    value={config.target_l0 ?? 0.05}
+                    onChange={(e) => updateConfig({ target_l0: parseFloat(e.target.value) })}
+                    min={0.001}
+                    max={1.0}
+                    step={0.001}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Target activation rate (0-1)
+                  </p>
+                </div>
+
+                {/* Learning Rate */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Learning Rate
+                  </label>
+                  <input
+                    type="number"
+                    value={config.learning_rate}
+                    onChange={(e) => updateConfig({ learning_rate: parseFloat(e.target.value) })}
+                    min={0.00001}
+                    max={0.01}
+                    step={0.00001}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Initial learning rate</p>
+                </div>
+
+                {/* Batch Size */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Batch Size
+                  </label>
+                  <input
+                    type="number"
+                    value={config.batch_size}
+                    onChange={(e) => updateConfig({ batch_size: parseInt(e.target.value) })}
+                    min={1}
+                    max={512}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Training batch size</p>
+                </div>
+
+                {/* Total Steps */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Total Steps
+                  </label>
+                  <input
+                    type="number"
+                    value={config.total_steps}
+                    onChange={(e) => updateConfig({ total_steps: parseInt(e.target.value) })}
+                    min={1000}
+                    max={1000000}
+                    step={1000}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Total training steps</p>
+                </div>
+
+                {/* Warmup Steps */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Warmup Steps
+                  </label>
+                  <input
+                    type="number"
+                    value={config.warmup_steps ?? 0}
+                    onChange={(e) => updateConfig({ warmup_steps: parseInt(e.target.value) })}
+                    min={0}
+                    max={100000}
+                    step={100}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Linear warmup steps</p>
+                </div>
+
+                {/* Weight Decay */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Weight Decay
+                  </label>
+                  <input
+                    type="number"
+                    value={config.weight_decay ?? 0.01}
+                    onChange={(e) => updateConfig({ weight_decay: parseFloat(e.target.value) })}
+                    min={0}
+                    max={0.1}
+                    step={0.001}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">L2 regularization</p>
+                </div>
+
+                {/* Gradient Clipping */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Gradient Clipping
+                  </label>
+                  <input
+                    type="number"
+                    value={config.grad_clip_norm ?? 1.0}
+                    onChange={(e) => updateConfig({ grad_clip_norm: parseFloat(e.target.value) })}
+                    min={0}
+                    max={10}
+                    step={0.1}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Max gradient norm</p>
+                </div>
+
+                {/* Checkpoint Interval */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Checkpoint Interval
+                  </label>
+                  <input
+                    type="number"
+                    value={config.checkpoint_interval ?? 1000}
+                    onChange={(e) =>
+                      updateConfig({ checkpoint_interval: parseInt(e.target.value) })
+                    }
+                    min={100}
+                    max={10000}
+                    step={100}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Save checkpoint every N steps</p>
+                </div>
+
+                {/* Log Interval */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Log Interval
+                  </label>
+                  <input
+                    type="number"
+                    value={config.log_interval ?? 100}
+                    onChange={(e) => updateConfig({ log_interval: parseInt(e.target.value) })}
+                    min={10}
+                    max={1000}
+                    step={10}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Log metrics every N steps</p>
+                </div>
+
+                {/* Dead Neuron Threshold */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Dead Neuron Threshold
+                  </label>
+                  <input
+                    type="number"
+                    value={config.dead_neuron_threshold ?? 10000}
+                    onChange={(e) =>
+                      updateConfig({ dead_neuron_threshold: parseInt(e.target.value) })
+                    }
+                    min={1000}
+                    max={100000}
+                    step={1000}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Steps before neuron considered dead
+                  </p>
+                </div>
+
+                {/* Resample Dead Neurons */}
+                <div className="col-span-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.resample_dead_neurons ?? true}
+                      onChange={(e) =>
+                        updateConfig({ resample_dead_neurons: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                    />
+                    <span className="text-sm font-medium text-slate-300">
+                      Resample dead neurons during training
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Start Training Button */}
+          <div className="mt-6 pt-4 border-t border-slate-700">
+            <button
+              onClick={handleStartTraining}
+              disabled={!isFormValid || isStarting}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-md transition-colors"
+            >
+              {isStarting ? (
+                <>
+                  <Loader size={20} className="animate-spin" />
+                  Starting Training...
+                </>
+              ) : (
+                <>
+                  <Play size={20} />
+                  Start Training
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Training Jobs Section */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-slate-100">Training Jobs</h3>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-400">{statusCounts.all} total</span>
+            </div>
+          </div>
+
+          {/* Status Filter Tabs */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                statusFilter === 'all'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              All ({statusCounts.all})
+            </button>
+            <button
+              onClick={() => setStatusFilter(TrainingStatus.RUNNING)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                statusFilter === TrainingStatus.RUNNING
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <Activity size={16} className="animate-pulse" />
+              Running ({statusCounts.running})
+            </button>
+            <button
+              onClick={() => setStatusFilter(TrainingStatus.COMPLETED)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                statusFilter === TrainingStatus.COMPLETED
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <CheckCircle size={16} />
+              Completed ({statusCounts.completed})
+            </button>
+            <button
+              onClick={() => setStatusFilter(TrainingStatus.FAILED)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                statusFilter === TrainingStatus.FAILED
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <XCircle size={16} />
+              Failed ({statusCounts.failed})
+            </button>
+          </div>
+
+          {/* Training Jobs List */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader size={32} className="animate-spin text-emerald-500" />
+            </div>
+          ) : trainings.length === 0 ? (
+            <div className="text-center py-12">
+              <Activity size={48} className="mx-auto text-slate-600 mb-4" />
+              <p className="text-slate-400 mb-2">No training jobs yet</p>
+              <p className="text-sm text-slate-500">
+                Configure a training job above to get started
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {trainings.map((training) => (
+                <div
+                  key={training.id}
+                  className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {training.status === TrainingStatus.RUNNING && (
+                        <Activity size={16} className="text-emerald-400 animate-pulse" />
+                      )}
+                      {training.status === TrainingStatus.COMPLETED && (
+                        <CheckCircle size={16} className="text-emerald-400" />
+                      )}
+                      {training.status === TrainingStatus.FAILED && (
+                        <XCircle size={16} className="text-red-400" />
+                      )}
+                      {training.status === TrainingStatus.INITIALIZING && (
+                        <Loader size={16} className="text-yellow-400 animate-spin" />
+                      )}
+                      <span className="font-medium text-slate-100">{training.model_id}</span>
+                      <span className="text-slate-500">→</span>
+                      <span className="text-slate-300">{training.dataset_id}</span>
+                    </div>
+                    <span className="text-sm text-slate-400">
+                      {training.progress.toFixed(1)}%
+                    </span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
+                      style={{ width: `${training.progress}%` }}
+                    />
+                  </div>
+
+                  {/* Metrics */}
+                  {training.current_loss !== null && (
+                    <div className="grid grid-cols-4 gap-4 mt-3 text-sm">
+                      <div>
+                        <div className="text-slate-500">Loss</div>
+                        <div className="text-emerald-400 font-medium">
+                          {training.current_loss.toFixed(4)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">L0 Sparsity</div>
+                        <div className="text-blue-400 font-medium">
+                          {training.current_l0_sparsity?.toFixed(4) ?? '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">Dead Neurons</div>
+                        <div className="text-red-400 font-medium">
+                          {training.current_dead_neurons ?? '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">Learning Rate</div>
+                        <div className="text-purple-400 font-medium">
+                          {training.current_learning_rate?.toExponential(2) ?? '—'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Error Display */}
+          {error && (
+            <div className="mt-4 p-4 bg-red-900/20 border border-red-900/50 rounded-lg">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

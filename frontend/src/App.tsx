@@ -2,20 +2,21 @@ import { useEffect, useState } from 'react';
 import { DatasetsPanel } from './components/panels/DatasetsPanel';
 import { ModelsPanel } from './components/panels/ModelsPanel';
 import { ExtractionTemplatesPanel } from './components/panels/ExtractionTemplatesPanel';
+import { TrainingPanel } from './components/panels/TrainingPanel';
 import { SystemMonitor } from './components/SystemMonitor/SystemMonitor';
 import { CompactGPUStatus } from './components/SystemMonitor/CompactGPUStatus';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
 import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
 
-type ActivePanel = 'datasets' | 'models' | 'templates' | 'system';
+type ActivePanel = 'datasets' | 'models' | 'training' | 'templates' | 'system';
 
 function AppContent() {
   const ws = useWebSocketContext();
   // Restore active panel from localStorage, default to 'datasets'
   const [activePanel, setActivePanel] = useState<ActivePanel>(() => {
     const saved = localStorage.getItem('activePanel');
-    return (saved === 'models' || saved === 'datasets' || saved === 'templates' || saved === 'system') ? saved : 'datasets';
+    return (saved === 'models' || saved === 'datasets' || saved === 'training' || saved === 'templates' || saved === 'system') ? saved : 'datasets';
   });
 
   // Set up global dataset progress tracking
@@ -75,6 +76,19 @@ function AppContent() {
               )}
             </button>
             <button
+              onClick={() => setActivePanel('training')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'training'
+                  ? 'text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              SAE Training
+              {activePanel === 'training' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+              )}
+            </button>
+            <button
               onClick={() => setActivePanel('templates')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'templates'
@@ -111,6 +125,7 @@ function AppContent() {
       <main>
         {activePanel === 'datasets' && <DatasetsPanel />}
         {activePanel === 'models' && <ModelsPanel />}
+        {activePanel === 'training' && <TrainingPanel />}
         {activePanel === 'templates' && <ExtractionTemplatesPanel />}
         {activePanel === 'system' && <SystemMonitor />}
       </main>

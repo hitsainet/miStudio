@@ -62,6 +62,7 @@ export function DatasetDetailModal({ dataset, onClose, onDatasetUpdate }: Datase
           <button
             onClick={onClose}
             className="flex-shrink-0 ml-4 p-2 hover:bg-slate-800 rounded transition-colors"
+            aria-label="Close"
           >
             <X className="w-6 h-6 text-slate-400" />
           </button>

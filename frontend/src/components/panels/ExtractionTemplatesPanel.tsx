@@ -224,6 +224,7 @@ export function ExtractionTemplatesPanel() {
               <button
                 onClick={() => setNotification(null)}
                 className="p-1 hover:bg-white/10 rounded transition-colors"
+                title="Dismiss notification"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -239,6 +240,7 @@ export function ExtractionTemplatesPanel() {
               <button
                 onClick={clearError}
                 className="p-1 hover:bg-white/10 rounded transition-colors"
+                title="Dismiss error"
               >
                 <X className="w-4 h-4 text-red-400" />
               </button>
@@ -276,6 +278,7 @@ export function ExtractionTemplatesPanel() {
                   ? 'bg-emerald-600 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
+              title="Create new extraction template"
             >
               <Plus className="w-4 h-4 inline mr-1" />
               Create New

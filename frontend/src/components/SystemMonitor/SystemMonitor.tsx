@@ -115,6 +115,7 @@ export function SystemMonitor() {
               onClick={() => setShowSettings(true)}
               className="p-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 transition-colors"
               aria-label="Settings"
+              title="Configure system monitor settings"
             >
               <Settings className="w-5 h-5 text-slate-400" />
             </button>

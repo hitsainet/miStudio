@@ -84,6 +84,58 @@ export class WebSocketClient {
     this.socket.off(channel);
   }
 
+  /**
+   * Subscribe to training progress updates.
+   * Channel: trainings/{training_id}/progress
+   * Events: created, progress, status_changed, completed, failed
+   */
+  subscribeToTrainingProgress(
+    trainingId: string,
+    callback: (data: any) => void
+  ): void {
+    if (!this.socket) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const channel = `trainings/${trainingId}/progress`;
+    this.socket.on(channel, callback);
+  }
+
+  unsubscribeFromTrainingProgress(trainingId: string): void {
+    if (!this.socket) {
+      return;
+    }
+
+    const channel = `trainings/${trainingId}/progress`;
+    this.socket.off(channel);
+  }
+
+  /**
+   * Subscribe to checkpoint creation events.
+   * Channel: trainings/{training_id}/checkpoints
+   * Events: checkpoint_created
+   */
+  subscribeToTrainingCheckpoints(
+    trainingId: string,
+    callback: (data: any) => void
+  ): void {
+    if (!this.socket) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const channel = `trainings/${trainingId}/checkpoints`;
+    this.socket.on(channel, callback);
+  }
+
+  unsubscribeFromTrainingCheckpoints(trainingId: string): void {
+    if (!this.socket) {
+      return;
+    }
+
+    const channel = `trainings/${trainingId}/checkpoints`;
+    this.socket.off(channel);
+  }
+
   getSocket(): Socket | null {
     return this.socket;
   }

@@ -28,8 +28,10 @@ import {
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
+import { useTrainingWebSocket } from '../../hooks/useTrainingWebSocket';
 import { TrainingStatus, SAEArchitectureType } from '../../types/training';
 import type { TrainingCreateRequest } from '../../types/training';
+import { TrainingCard } from '../training/TrainingCard';
 
 export const TrainingPanel: React.FC = () => {
   // Store state
@@ -59,6 +61,9 @@ export const TrainingPanel: React.FC = () => {
     fetchDatasets();
     fetchTrainings();
   }, [fetchModels, fetchDatasets, fetchTrainings]);
+
+  // Subscribe to WebSocket updates for all trainings
+  useTrainingWebSocket(trainings.map((t) => t.id));
 
   // Filter ready models and datasets
   const readyModels = models.filter((m) => m.status === 'ready');
@@ -553,71 +558,7 @@ export const TrainingPanel: React.FC = () => {
           ) : (
             <div className="space-y-4">
               {trainings.map((training) => (
-                <div
-                  key={training.id}
-                  className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      {training.status === TrainingStatus.RUNNING && (
-                        <Activity size={16} className="text-emerald-400 animate-pulse" />
-                      )}
-                      {training.status === TrainingStatus.COMPLETED && (
-                        <CheckCircle size={16} className="text-emerald-400" />
-                      )}
-                      {training.status === TrainingStatus.FAILED && (
-                        <XCircle size={16} className="text-red-400" />
-                      )}
-                      {training.status === TrainingStatus.INITIALIZING && (
-                        <Loader size={16} className="text-yellow-400 animate-spin" />
-                      )}
-                      <span className="font-medium text-slate-100">{training.model_id}</span>
-                      <span className="text-slate-500">→</span>
-                      <span className="text-slate-300">{training.dataset_id}</span>
-                    </div>
-                    <span className="text-sm text-slate-400">
-                      {training.progress.toFixed(1)}%
-                    </span>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
-                      style={{ width: `${training.progress}%` }}
-                    />
-                  </div>
-
-                  {/* Metrics */}
-                  {training.current_loss !== null && (
-                    <div className="grid grid-cols-4 gap-4 mt-3 text-sm">
-                      <div>
-                        <div className="text-slate-500">Loss</div>
-                        <div className="text-emerald-400 font-medium">
-                          {training.current_loss.toFixed(4)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500">L0 Sparsity</div>
-                        <div className="text-blue-400 font-medium">
-                          {training.current_l0_sparsity?.toFixed(4) ?? '—'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500">Dead Neurons</div>
-                        <div className="text-red-400 font-medium">
-                          {training.current_dead_neurons ?? '—'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500">Learning Rate</div>
-                        <div className="text-purple-400 font-medium">
-                          {training.current_learning_rate?.toExponential(2) ?? '—'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <TrainingCard key={training.id} training={training} />
               ))}
             </div>
           )}

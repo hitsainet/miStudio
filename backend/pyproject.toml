@@ -147,6 +147,10 @@ markers = [
     "integration: Integration tests",
     "slow: Slow running tests",
 ]
+filterwarnings = [
+    "ignore::FutureWarning:torch.cuda",
+    "ignore::DeprecationWarning:datasets.utils._dill",
+]
 
 [tool.coverage.run]
 source = ["src"]

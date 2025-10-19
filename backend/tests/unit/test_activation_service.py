@@ -456,7 +456,8 @@ class TestActivationService:
             # Shape should be [num_samples, seq_len, hidden_dim]
             # = [5, 10, 64]
             assert activations.shape == (5, 10, 64)
-            assert activations.dtype == np.float32
+            # System uses FP16 for memory efficiency (Phase 18 optimization)
+            assert activations.dtype == np.float16
 
     def test_different_architectures(self, activation_service, real_dataset_dir):
         """Test extraction works with different model architectures."""

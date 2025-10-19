@@ -45,6 +45,7 @@ class SparseAutoencoder(nn.Module):
         l1_alpha: float = 0.001,
         tied_weights: bool = False,
         init_scale: float = 0.1,
+        ghost_gradient_penalty: float = 0.0,
     ):
         super().__init__()
 
@@ -52,6 +53,7 @@ class SparseAutoencoder(nn.Module):
         self.latent_dim = latent_dim
         self.l1_alpha = l1_alpha
         self.tied_weights = tied_weights
+        self.ghost_gradient_penalty = ghost_gradient_penalty
 
         # Encoder: x → z
         self.encoder = nn.Linear(hidden_dim, latent_dim, bias=True)
@@ -148,8 +150,18 @@ class SparseAutoencoder(nn.Module):
             x_zero = self.decoder_bias.expand_as(x)
             loss_zero = F.mse_loss(x_zero, x, reduction='mean')
 
+            # Ghost gradient penalty (encourages dead neurons to activate)
+            ghost_penalty = torch.tensor(0.0, device=z.device)
+            if self.ghost_gradient_penalty > 0:
+                # Pre-activation values (before ReLU)
+                pre_activation = self.encoder(x)
+                # Dead neurons have pre_activation < 0 (would be zeroed by ReLU)
+                dead_mask = (pre_activation <= 0).float()
+                # Penalty for dead neurons (encourages positive pre-activations)
+                ghost_penalty = (dead_mask * F.relu(-pre_activation)).mean()
+
             # Total loss
-            loss_total = loss_reconstruction + self.l1_alpha * l1_penalty
+            loss_total = loss_reconstruction + self.l1_alpha * l1_penalty + self.ghost_gradient_penalty * ghost_penalty
 
             losses = {
                 'loss': loss_total,
@@ -157,6 +169,7 @@ class SparseAutoencoder(nn.Module):
                 'loss_zero': loss_zero,
                 'l1_penalty': l1_penalty,
                 'l0_sparsity': l0_sparsity,
+                'ghost_penalty': ghost_penalty,
             }
 
         return x_reconstructed, z, losses

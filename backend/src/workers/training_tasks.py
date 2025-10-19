@@ -20,6 +20,7 @@ from ..models.training import Training, TrainingStatus
 from ..services.training_service import TrainingService
 from ..services.checkpoint_service import CheckpointService
 from ..core.config import settings
+from ..utils.resource_estimation import estimate_training_memory, estimate_oom_reduced_batch_size
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,29 @@ def train_sae_task(
         logger.info(f"Hyperparameters: {hp}")
 
     try:
+        # Memory budget validation
+        logger.info("Validating memory budget...")
+        batch_size = hp['batch_size']
+        memory_estimate = estimate_training_memory(
+            hidden_dim=hp['hidden_dim'],
+            latent_dim=hp['latent_dim'],
+            batch_size=batch_size,
+        )
+        logger.info(f"Estimated memory usage: {memory_estimate['total_gb']:.2f} GB")
+
+        if not memory_estimate['fits_in_6gb']:
+            error_msg = (
+                f"Training requires {memory_estimate['total_gb']:.2f} GB but only 6 GB available. "
+                f"Reduce batch_size (current: {batch_size}) or latent_dim."
+            )
+            logger.error(error_msg)
+            with self.get_db() as db:
+                training = db.query(Training).filter_by(id=training_id).first()
+                training.status = TrainingStatus.FAILED.value
+                training.error_message = error_msg
+                db.commit()
+            raise RuntimeError(error_msg)
+
         # Initialize model
         logger.info("Initializing SAE model...")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -165,6 +189,7 @@ def train_sae_task(
             hidden_dim=hp['hidden_dim'],
             latent_dim=hp['latent_dim'],
             l1_alpha=hp['l1_alpha'],
+            ghost_gradient_penalty=hp.get('ghost_gradient_penalty', 0.0),
         ).to(device)
 
         # Initialize optimizer
@@ -202,7 +227,20 @@ def train_sae_task(
         checkpoint_interval = hp.get('checkpoint_interval', 1000)
         log_interval = hp.get('log_interval', 100)
 
-        logger.info(f"Starting training loop: {total_steps} steps")
+        # Gradient accumulation settings
+        effective_batch_size = batch_size
+        grad_accum_steps = 1
+        if batch_size < 64:
+            # Use gradient accumulation to maintain effective batch size of 64
+            grad_accum_steps = max(1, 64 // batch_size)
+            effective_batch_size = batch_size * grad_accum_steps
+            logger.info(f"Using gradient accumulation: {grad_accum_steps} steps for effective batch size {effective_batch_size}")
+
+        # OOM retry tracking
+        oom_retry_count = 0
+        max_oom_retries = 3
+
+        logger.info(f"Starting training loop: {total_steps} steps, batch_size={batch_size}")
 
         # Training loop
         best_loss = float('inf')
@@ -218,26 +256,78 @@ def train_sae_task(
                     logger.info(f"Training cancelled at step {step}")
                     return {"status": "cancelled", "step": step}
 
-            # TODO: Load real data batch
-            # For now, use dummy data for testing
-            x = torch.randn(batch_size, hp['hidden_dim']).to(device)
+            try:
+                # TODO: Load real data batch
+                # For now, use dummy data for testing
+                x = torch.randn(batch_size, hp['hidden_dim']).to(device)
 
-            # Forward pass
-            optimizer.zero_grad()
-            x_reconstructed, z, losses = model(x, return_loss=True)
+                # Forward pass
+                if step % grad_accum_steps == 0:
+                    optimizer.zero_grad()
 
-            # Backward pass
-            loss = losses['loss']
-            loss.backward()
+                x_reconstructed, z, losses = model(x, return_loss=True)
 
-            # Gradient clipping
-            grad_clip_norm = hp.get('grad_clip_norm')
-            if grad_clip_norm:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+                # Backward pass with gradient accumulation
+                loss = losses['loss']
+                if grad_accum_steps > 1:
+                    loss = loss / grad_accum_steps
+                loss.backward()
 
-            # Optimizer step
-            optimizer.step()
-            scheduler.step()
+                # Optimizer step (only every grad_accum_steps)
+                if (step + 1) % grad_accum_steps == 0:
+                    # Gradient clipping
+                    grad_clip_norm = hp.get('grad_clip_norm')
+                    if grad_clip_norm:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+
+                    # Optimizer step
+                    optimizer.step()
+                    scheduler.step()
+
+                # Clear GPU cache after every step
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                # Reset OOM retry count on successful step
+                oom_retry_count = 0
+
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    # OOM error handling
+                    oom_retry_count += 1
+                    logger.warning(f"OOM error at step {step} (retry {oom_retry_count}/{max_oom_retries})")
+
+                    if oom_retry_count >= max_oom_retries:
+                        error_msg = f"Training failed after {max_oom_retries} OOM errors. Batch size too large."
+                        logger.error(error_msg)
+                        with self.get_db() as db:
+                            training = db.query(Training).filter_by(id=training_id).first()
+                            training.status = TrainingStatus.FAILED.value
+                            training.error_message = error_msg
+                            db.commit()
+                        raise RuntimeError(error_msg)
+
+                    # Reduce batch size and retry
+                    old_batch_size = batch_size
+                    batch_size = estimate_oom_reduced_batch_size(batch_size)
+                    logger.info(f"Reducing batch_size from {old_batch_size} to {batch_size}")
+
+                    # Clear GPU memory
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                    # Update hyperparameters
+                    hp['batch_size'] = batch_size
+                    with self.get_db() as db:
+                        training = db.query(Training).filter_by(id=training_id).first()
+                        training.hyperparameters['batch_size'] = batch_size
+                        db.commit()
+
+                    # Skip to next iteration with new batch size
+                    continue
+                else:
+                    # Re-raise other runtime errors
+                    raise
 
             # Get metrics
             loss_value = loss.item()
@@ -252,6 +342,17 @@ def train_sae_task(
 
             # Log metrics periodically
             if step % log_interval == 0:
+                # GPU memory monitoring
+                gpu_memory_mb = None
+                if torch.cuda.is_available():
+                    gpu_memory_allocated = torch.cuda.memory_allocated(device) / (1024 ** 2)  # MB
+                    gpu_memory_reserved = torch.cuda.memory_reserved(device) / (1024 ** 2)  # MB
+                    gpu_memory_mb = gpu_memory_allocated
+                    logger.info(
+                        f"GPU memory: allocated={gpu_memory_allocated:.2f}MB, "
+                        f"reserved={gpu_memory_reserved:.2f}MB"
+                    )
+
                 self.log_metric(
                     training_id=training_id,
                     step=step,
@@ -260,6 +361,7 @@ def train_sae_task(
                     l1_sparsity=l1_penalty,
                     dead_neurons=int(dead_neurons),
                     learning_rate=current_lr,
+                    gpu_memory_used_mb=gpu_memory_mb,
                 )
 
                 # Update progress

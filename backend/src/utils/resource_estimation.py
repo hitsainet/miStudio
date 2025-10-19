@@ -331,3 +331,108 @@ def estimate_extraction_resources(
             "sequence_length": sequence_length
         }
     }
+
+
+def estimate_training_memory(
+    hidden_dim: int,
+    latent_dim: int,
+    batch_size: int,
+    dtype_bytes: int = 4,  # FP32 = 4 bytes
+    safety_factor: float = 1.3,  # 30% safety margin
+) -> Dict[str, Any]:
+    """
+    Estimate GPU memory requirements for SAE training.
+
+    Memory breakdown:
+    1. Model parameters: (hidden_dim * latent_dim * 2) * dtype_bytes
+       - Encoder weights + Decoder weights
+    2. Optimizer state (Adam): 2x model parameters (momentum + variance)
+    3. Activations: batch_size * (hidden_dim + latent_dim) * dtype_bytes
+    4. Gradients: same as model parameters
+    5. PyTorch overhead: ~20% of total
+
+    Args:
+        hidden_dim: Input/output dimension
+        latent_dim: SAE latent dimension (typically 8-32x hidden_dim)
+        batch_size: Training batch size
+        dtype_bytes: Bytes per parameter (FP32=4, FP16=2)
+        safety_factor: Safety multiplier for overhead
+
+    Returns:
+        Dictionary with memory estimates in MB/GB
+    """
+    # Model parameters
+    # Encoder: hidden_dim * latent_dim, Decoder: latent_dim * hidden_dim, Biases: hidden_dim + latent_dim
+    model_params = (hidden_dim * latent_dim) + (latent_dim * hidden_dim) + hidden_dim + latent_dim
+    model_memory_bytes = model_params * dtype_bytes
+
+    # Optimizer state (Adam requires 2x parameters for momentum and variance)
+    optimizer_memory_bytes = model_memory_bytes * 2
+
+    # Activations during forward pass
+    # Input: batch_size * hidden_dim, Latent: batch_size * latent_dim, Output: batch_size * hidden_dim
+    activation_memory_bytes = batch_size * (hidden_dim * 2 + latent_dim) * dtype_bytes
+
+    # Gradients (same size as parameters)
+    gradient_memory_bytes = model_memory_bytes
+
+    # Base memory
+    base_memory_bytes = model_memory_bytes + optimizer_memory_bytes + activation_memory_bytes + gradient_memory_bytes
+
+    # PyTorch overhead
+    overhead_bytes = base_memory_bytes * 0.2
+
+    # Total with safety factor
+    total_bytes = (base_memory_bytes + overhead_bytes) * safety_factor
+
+    # Convert to human-readable units
+    total_mb = total_bytes / (1024 ** 2)
+    total_gb = total_bytes / (1024 ** 3)
+
+    # Breakdown
+    breakdown = {
+        "model_params_mb": model_memory_bytes / (1024 ** 2),
+        "optimizer_state_mb": optimizer_memory_bytes / (1024 ** 2),
+        "activations_mb": activation_memory_bytes / (1024 ** 2),
+        "gradients_mb": gradient_memory_bytes / (1024 ** 2),
+        "overhead_mb": overhead_bytes / (1024 ** 2),
+    }
+
+    # Warning level for Jetson Orin Nano (6GB VRAM)
+    warning = "critical" if total_gb > 6 else "high" if total_gb > 4 else "normal"
+
+    return {
+        "total_bytes": int(total_bytes),
+        "total_mb": round(total_mb, 2),
+        "total_gb": round(total_gb, 2),
+        "breakdown": {k: round(v, 2) for k, v in breakdown.items()},
+        "warning": warning,
+        "fits_in_6gb": total_gb <= 6.0,
+    }
+
+
+def estimate_oom_reduced_batch_size(
+    current_batch_size: int,
+    memory_limit_gb: float = 6.0,
+    current_memory_gb: float = None
+) -> int:
+    """
+    Estimate a safe batch size after OOM error.
+
+    Args:
+        current_batch_size: Current batch size that caused OOM
+        memory_limit_gb: GPU memory limit in GB (default 6GB for Jetson)
+        current_memory_gb: Current memory usage if known
+
+    Returns:
+        Recommended batch size (halved, minimum 1)
+    """
+    # Conservative strategy: halve the batch size
+    new_batch_size = max(1, current_batch_size // 2)
+
+    logger.info(
+        f"OOM detected with batch_size={current_batch_size}. "
+        f"Recommending batch_size={new_batch_size}"
+    )
+
+    return new_batch_size

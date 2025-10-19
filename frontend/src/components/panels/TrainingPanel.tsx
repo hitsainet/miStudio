@@ -30,6 +30,7 @@ import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useTrainingWebSocket } from '../../hooks/useTrainingWebSocket';
+import { useWebSocketContext } from '../../contexts/WebSocketContext';
 import { TrainingStatus, SAEArchitectureType } from '../../types/training';
 import type { TrainingCreateRequest } from '../../types/training';
 import { TrainingCard } from '../training/TrainingCard';
@@ -51,6 +52,9 @@ export const TrainingPanel: React.FC = () => {
 
   const { models, fetchModels } = useModelsStore();
   const { datasets, fetchDatasets } = useDatasetsStore();
+
+  // WebSocket connection status
+  const { isConnected } = useWebSocketContext();
 
   // UI state
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -172,10 +176,21 @@ export const TrainingPanel: React.FC = () => {
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-slate-100 mb-2">SAE Training</h1>
-          <p className="text-slate-400">
-            Configure and launch sparse autoencoder training jobs
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-100 mb-2">SAE Training</h1>
+              <p className="text-slate-400">
+                Configure and launch sparse autoencoder training jobs
+              </p>
+            </div>
+            {/* WebSocket Connection Status */}
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
+              <span className={`text-xs font-medium ${isConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+                {isConnected ? 'Live' : 'Disconnected'}
+              </span>
+            </div>
+          </div>
         </div>
         {/* Configuration Section */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">

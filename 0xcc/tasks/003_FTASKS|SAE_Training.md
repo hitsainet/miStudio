@@ -275,18 +275,18 @@
   - [x] 16.11 Add transition-colors for smooth hover effects (Mock UI line 2098)
   - [ ] 16.12 Write unit tests for control buttons: correct buttons shown per status, API calls triggered
 
-- [ ] 17.0 Phase 17: WebSocket Frontend Integration
-  - [ ] 17.1 Create `frontend/src/hooks/useWebSocket.ts` custom hook for WebSocket connection
-  - [ ] 17.2 Implement `subscribe(channel)` and `unsubscribe(channel)` functions
-  - [ ] 17.3 Add WebSocket connection to trainingsStore: connect on mount, disconnect on unmount
-  - [ ] 17.4 Subscribe to 'training:created' events: add new training to trainings array (TDD lines 717-723)
-  - [ ] 17.5 Subscribe to 'training:status_changed' events: update training status (TDD lines 726-733)
-  - [ ] 17.6 Subscribe to 'training:progress' events: update current_step, progress, metrics (TDD lines 736-748)
-  - [ ] 17.7 Subscribe to 'checkpoint:created' events: add checkpoint to checkpoints array (TDD lines 750-758)
-  - [ ] 17.8 Update TrainingCard to use real-time metrics from WebSocket instead of mock data (TID lines 376-382)
-  - [ ] 17.9 Implement automatic reconnection on WebSocket disconnect with exponential backoff
-  - [ ] 17.10 Add connection status indicator in UI (connected/disconnected badge)
-  - [ ] 17.11 Test WebSocket subscription: verify events received and state updated correctly
+- [x] 17.0 Phase 17: WebSocket Frontend Integration
+  - [x] 17.1 WebSocket infrastructure already exists in `frontend/src/contexts/WebSocketContext.tsx`
+  - [x] 17.2 Subscribe/unsubscribe functions already implemented in WebSocketContext
+  - [x] 17.3 WebSocket connection already integrated via WebSocketProvider in App.tsx
+  - [x] 17.4 Subscribe to 'training:created' events: handled in useTrainingWebSocket hook
+  - [x] 17.5 Subscribe to 'training:status_changed' events: handled in useTrainingWebSocket hook
+  - [x] 17.6 Subscribe to 'training:progress' events: updates current_step, progress, metrics via useTrainingWebSocket
+  - [x] 17.7 Subscribe to 'checkpoint:created' events: handled in useTrainingWebSocket hook
+  - [x] 17.8 TrainingCard already uses real-time metrics from WebSocket (Phase 15 implementation)
+  - [x] 17.9 Automatic reconnection already implemented in WebSocketContext with exponential backoff
+  - [x] 17.10 Add connection status indicator in TrainingPanel header (Live/Disconnected badge with pulse animation)
+  - [ ] 17.11 Test WebSocket subscription: verify events received and state updated correctly (requires backend)
 
 - [ ] 18.0 Phase 18: Memory Optimization and OOM Handling
   - [ ] 18.1 Add dynamic batch size reduction in training loop on OOM error (TDD lines 1028-1033)

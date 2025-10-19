@@ -250,49 +250,50 @@ class DatasetService:
     @staticmethod
     async def delete_dataset(
         db: AsyncSession,
-        dataset_id: UUID,
-        delete_files: bool = True
-    ) -> bool:
+        dataset_id: UUID
+    ) -> Optional[Dict[str, Any]]:
         """
-        Delete a dataset and optionally its files.
+        Delete a dataset from database and return file paths for background cleanup.
+
+        This method:
+        1. Deletes the database record
+        2. Returns file paths for the caller to queue background deletion
 
         Args:
             db: Database session
             dataset_id: Dataset UUID
-            delete_files: If True, delete associated files from disk
 
         Returns:
-            True if deleted, False if not found
+            Dict with deletion status and file paths, or None if not found
+            Format: {
+                "deleted": True,
+                "dataset_id": str,
+                "raw_path": Optional[str],
+                "tokenized_path": Optional[str]
+            }
         """
-        from ..utils.file_utils import delete_directory
-
         result = await db.execute(
             select(Dataset).where(Dataset.id == dataset_id)
         )
         db_dataset = result.scalar_one_or_none()
 
         if not db_dataset:
-            return False
+            return None
 
-        # Delete files from disk if requested
-        if delete_files:
-            if db_dataset.raw_path:
-                try:
-                    delete_directory(db_dataset.raw_path, missing_ok=True)
-                except Exception as e:
-                    print(f"Warning: Failed to delete raw files at {db_dataset.raw_path}: {e}")
-
-            if db_dataset.tokenized_path:
-                try:
-                    delete_directory(db_dataset.tokenized_path, missing_ok=True)
-                except Exception as e:
-                    print(f"Warning: Failed to delete tokenized files at {db_dataset.tokenized_path}: {e}")
+        # Capture file paths before deletion
+        raw_path = db_dataset.raw_path
+        tokenized_path = db_dataset.tokenized_path
 
         # Delete database record
         await db.delete(db_dataset)
         await db.commit()
 
-        return True
+        return {
+            "deleted": True,
+            "dataset_id": str(dataset_id),
+            "raw_path": raw_path,
+            "tokenized_path": tokenized_path,
+        }
 
     @staticmethod
     async def get_dataset_by_repo_id(

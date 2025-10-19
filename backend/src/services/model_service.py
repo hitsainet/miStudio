@@ -131,7 +131,7 @@ class ModelService:
             db: Database session
             skip: Number of records to skip
             limit: Maximum number of records to return
-            search: Search query for name
+            search: Search query for name or repo_id
             architecture: Filter by architecture type
             quantization: Filter by quantization format
             status: Filter by status
@@ -146,7 +146,10 @@ class ModelService:
 
         # Apply filters
         if search:
-            search_filter = Model.name.ilike(f"%{search}%")
+            search_filter = or_(
+                Model.name.ilike(f"%{search}%"),
+                Model.repo_id.ilike(f"%{search}%")
+            )
             query = query.where(search_filter)
 
         if architecture:
@@ -325,27 +328,61 @@ class ModelService:
         return db_model
 
     @staticmethod
-    async def delete_model(db: AsyncSession, model_id: str) -> bool:
+    async def delete_model(db: AsyncSession, model_id: str) -> Optional[dict]:
         """
-        Delete a model.
+        Delete a model and return file paths for cleanup.
+
+        This will cascade delete all related activation extractions.
 
         Args:
             db: Database session
             model_id: Model ID
 
         Returns:
-            True if deleted, False if not found
+            Dict with deletion status and file paths if deleted, None if not found
+            Format: {
+                "deleted": True,
+                "model_id": str,
+                "file_path": Optional[str],
+                "quantized_path": Optional[str],
+                "deleted_extractions": int
+            }
         """
         db_model = await ModelService.get_model(db, model_id)
         if not db_model:
-            return False
+            return None
 
+        # Capture file paths before deletion
+        file_path = db_model.file_path
+        quantized_path = db_model.quantized_path
+
+        # Delete related activation extractions first (cascade delete)
+        from ..models.activation_extraction import ActivationExtraction
+        deletion_result = await db.execute(
+            select(ActivationExtraction).where(ActivationExtraction.model_id == model_id)
+        )
+        related_extractions = deletion_result.scalars().all()
+        extraction_count = len(related_extractions)
+
+        for extraction in related_extractions:
+            await db.delete(extraction)
+
+        if extraction_count > 0:
+            logger.info(f"Deleted {extraction_count} activation extraction(s) for model {model_id}")
+
+        # Now delete the model
         await db.delete(db_model)
         await db.commit()
 
-        logger.info(f"Model {model_id} deleted")
+        logger.info(f"Model {model_id} deleted from database")
 
-        return True
+        return {
+            "deleted": True,
+            "model_id": model_id,
+            "file_path": file_path,
+            "quantized_path": quantized_path,
+            "deleted_extractions": extraction_count,
+        }
 
     @staticmethod
     async def get_model_architecture_info(

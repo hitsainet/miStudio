@@ -649,4 +649,162 @@ describe('datasetsStore', () => {
       setDatasetSubscriptionCallback(null as any);
     });
   });
+
+  describe('cancelDownload', () => {
+    it('should cancel dataset download successfully', async () => {
+      // Set up initial state with a downloading dataset
+      useDatasetsStore.setState({
+        datasets: [
+          {
+            id: 'cancel-me',
+            name: 'downloading-dataset',
+            status: DatasetStatus.DOWNLOADING,
+            progress: 50,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            source: 'huggingface',
+          },
+        ],
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          dataset_id: 'cancel-me',
+          status: 'cancelled',
+          message: 'Download/processing cancelled successfully',
+        }),
+      });
+
+      const { cancelDownload } = useDatasetsStore.getState();
+      await cancelDownload('cancel-me');
+
+      const state = useDatasetsStore.getState();
+      const dataset = state.datasets.find((d) => d.id === 'cancel-me');
+      expect(dataset?.status).toBe(DatasetStatus.ERROR);
+      expect(dataset?.error_message).toBe('Cancelled by user');
+      expect(dataset?.progress).toBe(0);
+      expect(state.loading).toBe(false);
+    });
+
+    it('should cancel dataset processing successfully', async () => {
+      useDatasetsStore.setState({
+        datasets: [
+          {
+            id: 'processing-cancel',
+            name: 'processing-dataset',
+            status: DatasetStatus.PROCESSING,
+            progress: 75,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            source: 'huggingface',
+          },
+        ],
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          dataset_id: 'processing-cancel',
+          status: 'cancelled',
+          message: 'Download/processing cancelled successfully',
+        }),
+      });
+
+      const { cancelDownload } = useDatasetsStore.getState();
+      await cancelDownload('processing-cancel');
+
+      const state = useDatasetsStore.getState();
+      const dataset = state.datasets.find((d) => d.id === 'processing-cancel');
+      expect(dataset?.status).toBe(DatasetStatus.ERROR);
+      expect(dataset?.error_message).toBe('Cancelled by user');
+    });
+
+    it('should handle cancel error', async () => {
+      useDatasetsStore.setState({
+        datasets: [
+          {
+            id: 'cannot-cancel',
+            name: 'protected',
+            status: DatasetStatus.DOWNLOADING,
+            progress: 20,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            source: 'huggingface',
+          },
+        ],
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ detail: 'Dataset is not in a cancellable state' }),
+      });
+
+      const { cancelDownload } = useDatasetsStore.getState();
+
+      await expect(cancelDownload('cannot-cancel')).rejects.toThrow();
+
+      const state = useDatasetsStore.getState();
+      expect(state.error).toBeTruthy();
+      expect(state.loading).toBe(false);
+    });
+
+    it('should use DELETE method with correct endpoint', async () => {
+      useDatasetsStore.setState({
+        datasets: [
+          {
+            id: 'test-cancel-id',
+            name: 'test',
+            status: DatasetStatus.DOWNLOADING,
+            progress: 30,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            source: 'huggingface',
+          },
+        ],
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          dataset_id: 'test-cancel-id',
+          status: 'cancelled',
+          message: 'Download/processing cancelled successfully',
+        }),
+      });
+
+      const { cancelDownload } = useDatasetsStore.getState();
+      await cancelDownload('test-cancel-id');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/test-cancel-id/cancel'),
+        expect.objectContaining({ method: 'DELETE' })
+      );
+    });
+
+    it('should handle network error during cancel', async () => {
+      useDatasetsStore.setState({
+        datasets: [
+          {
+            id: 'network-fail',
+            name: 'test',
+            status: DatasetStatus.DOWNLOADING,
+            progress: 40,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            source: 'huggingface',
+          },
+        ],
+      });
+
+      (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
+
+      const { cancelDownload } = useDatasetsStore.getState();
+
+      await expect(cancelDownload('network-fail')).rejects.toThrow('Network error');
+
+      const state = useDatasetsStore.getState();
+      expect(state.error).toBe('Network error');
+    });
+  });
 });

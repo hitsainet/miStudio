@@ -19,6 +19,7 @@ def mock_tokenizer():
     tokenizer = Mock(spec=PreTrainedTokenizer)
     tokenizer.model_max_length = 1024
     tokenizer.vocab_size = 50257
+    tokenizer.name_or_path = "gpt2"  # Add name_or_path for multiprocessing support
 
     # Mock tokenization behavior
     def mock_batch_encode(
@@ -28,6 +29,8 @@ def mock_tokenizer():
         max_length=512,
         stride=0,
         return_overflowing_tokens=False,
+        add_special_tokens=True,
+        return_attention_mask=True,
         return_length=True,
     ):
         # Simulate tokenization based on text length
@@ -101,6 +104,7 @@ def test_padding_strategy_max_length(mock_tokenizer, sample_dataset):
             truncation=True,
             padding="max_length",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result structure
@@ -135,6 +139,7 @@ def test_padding_strategy_longest(mock_tokenizer, sample_dataset):
             truncation=True,
             padding="longest",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result structure
@@ -168,6 +173,7 @@ def test_padding_strategy_do_not_pad(mock_tokenizer, sample_dataset):
             truncation=True,
             padding="do_not_pad",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result structure
@@ -262,6 +268,7 @@ def test_all_padding_strategies_complete(mock_tokenizer, sample_dataset, padding
             truncation=True,
             padding=padding_strategy,
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result is valid
@@ -290,6 +297,7 @@ def test_padding_with_stride():
     mock_tok = Mock(spec=PreTrainedTokenizer)
     mock_tok.model_max_length = 1024
     mock_tok.vocab_size = 50257
+    mock_tok.name_or_path = "gpt2"  # Add name_or_path for multiprocessing support
 
     def mock_encode_with_stride(texts, **kwargs):
         # Simulate stride creating multiple sequences
@@ -318,6 +326,7 @@ def test_padding_with_stride():
             truncation=True,
             padding="max_length",
             batch_size=1,
+            num_proc=1,  # Disable multiprocessing to avoid pickling issues in tests
         )
 
     # Verify result
@@ -346,6 +355,7 @@ def test_all_truncation_strategies_complete(mock_tokenizer, sample_dataset, trun
             truncation=truncation_strategy,
             padding="max_length",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result is valid
@@ -373,6 +383,7 @@ def test_truncation_strategy_longest_first(mock_tokenizer, sample_dataset):
             truncation=True,  # longest_first is the default (True)
             padding="max_length",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result structure
@@ -405,6 +416,7 @@ def test_truncation_strategy_only_first(mock_tokenizer, sample_dataset):
             truncation="only_first",
             padding="max_length",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result structure
@@ -432,6 +444,7 @@ def test_truncation_strategy_only_second(mock_tokenizer, sample_dataset):
             truncation="only_second",
             padding="max_length",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result structure
@@ -459,6 +472,7 @@ def test_truncation_disabled(mock_tokenizer, sample_dataset):
             truncation=False,  # do_not_truncate
             padding="max_length",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result structure
@@ -486,6 +500,7 @@ def test_truncation_with_padding_combinations():
     mock_tok = Mock(spec=PreTrainedTokenizer)
     mock_tok.model_max_length = 1024
     mock_tok.vocab_size = 50257
+    mock_tok.name_or_path = "gpt2"  # Add name_or_path for multiprocessing support
 
     def mock_encode_with_truncation(texts, **kwargs):
         truncation = kwargs.get("truncation", True)
@@ -534,6 +549,7 @@ def test_truncation_with_padding_combinations():
             truncation=True,
             padding="max_length",
             batch_size=10,
+            num_proc=1,  # Use single-process for tests with mock tokenizers
         )
 
     # Verify result

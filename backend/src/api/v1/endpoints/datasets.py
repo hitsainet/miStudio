@@ -4,6 +4,7 @@ Dataset API endpoints.
 This module contains all FastAPI routes for dataset management operations.
 """
 
+import logging
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
@@ -26,6 +27,8 @@ from ....schemas.dataset import (
     TokenInfo,
 )
 from ....services.dataset_service import DatasetService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -183,6 +186,8 @@ async def delete_dataset(
     """
     Delete a dataset.
 
+    This endpoint deletes the database record and queues background file cleanup.
+
     Args:
         dataset_id: Dataset UUID
         db: Database session
@@ -190,13 +195,33 @@ async def delete_dataset(
     Raises:
         HTTPException: If dataset not found
     """
-    deleted = await DatasetService.delete_dataset(db, dataset_id)
+    from ....workers.dataset_tasks import delete_dataset_files
 
-    if not deleted:
+    # Delete dataset record and get file paths
+    deletion_info = await DatasetService.delete_dataset(db, dataset_id)
+
+    if not deletion_info:
         raise HTTPException(
             status_code=404,
             detail=f"Dataset {dataset_id} not found"
         )
+
+    # Queue background file cleanup if there are files to delete
+    raw_path = deletion_info.get("raw_path")
+    tokenized_path = deletion_info.get("tokenized_path")
+
+    if raw_path or tokenized_path:
+        logger.info(
+            f"Queuing file cleanup for dataset {dataset_id} "
+            f"(raw_path={raw_path}, tokenized_path={tokenized_path})"
+        )
+        delete_dataset_files.delay(
+            dataset_id=str(dataset_id),
+            raw_path=raw_path,
+            tokenized_path=tokenized_path
+        )
+    else:
+        logger.info(f"No files to clean up for dataset {dataset_id}")
 
 
 @router.post("/download", response_model=DatasetResponse, status_code=202)
@@ -327,6 +352,72 @@ async def tokenize_dataset(
     )
 
     return dataset
+
+
+@router.delete("/{dataset_id}/cancel", status_code=200)
+async def cancel_dataset_download(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an in-progress dataset download or tokenization.
+
+    This endpoint cancels the processing task, cleans up partial files,
+    and updates the dataset status to ERROR with "Cancelled by user".
+
+    Args:
+        dataset_id: Dataset UUID
+        db: Database session
+
+    Returns:
+        Cancellation status
+
+    Raises:
+        HTTPException: If dataset not found or not in cancellable state
+    """
+    from ....workers.dataset_tasks import cancel_dataset_download as cancel_task
+
+    # Verify dataset exists
+    dataset = await DatasetService.get_dataset(db, dataset_id)
+
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} not found"
+        )
+
+    # Check if dataset is in a cancellable state
+    if dataset.status not in [DatasetStatus.DOWNLOADING, DatasetStatus.PROCESSING]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset {dataset_id} cannot be cancelled (status: {dataset.status.value})"
+        )
+
+    try:
+        # Call cancel_dataset_download task (runs synchronously for immediate response)
+        # Note: We don't have task_id stored, so we can't revoke the specific task
+        # Instead, the cancel task will clean up files and update database
+        result = cancel_task(dataset_id=str(dataset_id))
+
+        if "error" in result:
+            raise HTTPException(
+                status_code=500,
+                detail=result["error"]
+            )
+
+        return {
+            "dataset_id": str(dataset_id),
+            "status": "cancelled",
+            "message": "Download/processing cancelled successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to cancel download/processing: {str(e)}"
+        )
 
 
 @router.get("/{dataset_id}/samples")
@@ -541,7 +632,13 @@ async def tokenize_preview(
 
     except Exception as e:
         # Check if it's a tokenizer loading error
-        if "not found" in str(e).lower() or "does not exist" in str(e).lower():
+        error_msg = str(e).lower()
+        if any(phrase in error_msg for phrase in [
+            "not found",
+            "does not exist",
+            "not a valid model identifier",
+            "is not a local folder"
+        ]):
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid tokenizer name: {request.tokenizer_name}"

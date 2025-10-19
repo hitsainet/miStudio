@@ -34,6 +34,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   // Track event handlers for persistence
   const eventHandlersRef = useRef<Map<string, Set<(...args: any[]) => void>>>(new Map());
 
+  // Queue for operations requested before socket is ready
+  const pendingSubscriptionsRef = useRef<Set<string>>(new Set());
+  const pendingHandlersRef = useRef<Array<{ event: string; handler: (...args: any[]) => void }>>(new Array());
+
   useEffect(() => {
     console.log('[WebSocket] Initializing connection to', WS_URL);
 
@@ -54,7 +58,32 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       console.log('[WebSocket] Connected with ID:', socket.id);
       setIsConnected(true);
 
-      // Resubscribe to all active channels
+      // Process pending event handlers first
+      if (pendingHandlersRef.current.length > 0) {
+        console.log('[WebSocket] Processing', pendingHandlersRef.current.length, 'pending event handlers');
+        pendingHandlersRef.current.forEach(({ event, handler }) => {
+          if (!eventHandlersRef.current.has(event)) {
+            eventHandlersRef.current.set(event, new Set());
+          }
+          eventHandlersRef.current.get(event)!.add(handler);
+          socket.on(event, handler);
+          console.log('[WebSocket] Added pending listener for event:', event);
+        });
+        pendingHandlersRef.current = [];
+      }
+
+      // Process pending subscriptions
+      if (pendingSubscriptionsRef.current.size > 0) {
+        console.log('[WebSocket] Processing', pendingSubscriptionsRef.current.size, 'pending subscriptions');
+        pendingSubscriptionsRef.current.forEach(channel => {
+          subscriptionsRef.current.add(channel);
+          socket.emit('subscribe', { channel });
+          console.log('[WebSocket] Subscribing to pending channel:', channel);
+        });
+        pendingSubscriptionsRef.current.clear();
+      }
+
+      // Resubscribe to all active channels (for reconnections)
       const subscriptions = Array.from(subscriptionsRef.current);
       if (subscriptions.length > 0) {
         console.log('[WebSocket] Resubscribing to', subscriptions.length, 'channels');
@@ -64,7 +93,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // Re-attach all event handlers
+      // Re-attach all event handlers (for reconnections)
       eventHandlersRef.current.forEach((handlers, event) => {
         handlers.forEach(handler => {
           socket.on(event, handler);
@@ -109,8 +138,9 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   // Subscribe to a channel
   const subscribe = useCallback((channel: string) => {
     const socket = socketRef.current;
-    if (!socket) {
-      console.warn('[WebSocket] Cannot subscribe - socket not initialized');
+    if (!socket || !socket.connected) {
+      console.log('[WebSocket] Socket not ready, queuing subscription to:', channel);
+      pendingSubscriptionsRef.current.add(channel);
       return;
     }
 
@@ -136,8 +166,9 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   // Add event listener with tracking
   const on = useCallback((event: string, handler: (...args: any[]) => void) => {
     const socket = socketRef.current;
-    if (!socket) {
-      console.warn('[WebSocket] Cannot add listener - socket not initialized');
+    if (!socket || !socket.connected) {
+      console.log('[WebSocket] Socket not ready, queuing event listener for:', event);
+      pendingHandlersRef.current.push({ event, handler });
       return;
     }
 

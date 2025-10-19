@@ -1,13 +1,12 @@
 # Project: MechInterp Studio (miStudio)
 
 ## Current Status
-- **Phase:** Implementation - Phase 6: Frontend State Management & UI Components
-- **Last Session:** 2025-10-08 - Completed Phase 3 migrations, all backend tests passing
-- **Next Steps:** Implement Zustand stores, API client, and Dataset Management Panel UI
-- **Active Document:** 0xcc/tasks/001_FTASKS|Dataset_Management.md (Phase 6 ready)
-- **Current Feature:** Dataset Management (Core Feature #1 - P0)
-- **Test Status:** 23/23 backend tests passing, database migrations complete, API server running
-- **Services Status:** Backend (port 8000) ✅, Frontend (port 3000) ✅, PostgreSQL ✅, Redis ✅
+- **Phase:** SAE Training Feature - Implementation Complete
+- **Last Session:** 2025-10-18 - Completed SAE Training frontend implementation and testing
+- **Next Steps:** Continue with Feature Discovery & Browser (Core Feature #4 - P0)
+- **Active Feature:** SAE Training System (Core Feature #3 - P0) ✅ COMPLETE
+- **Test Status:** Backend API working, Celery worker processing training jobs successfully
+- **Services Status:** Backend (port 8000) ✅, Frontend (port 3000) ✅, PostgreSQL ✅, Redis ✅, Celery ✅, Nginx ✅
 
 ## PRIMARY UI/UX REFERENCE
 
@@ -19,6 +18,47 @@ Key aspects (load full file only when needed):
 - Feature completeness and behavior
 
 All implementation MUST match the Mock UI specification exactly.
+
+## Application Startup
+
+### Complete Startup (All Services)
+```bash
+# ONE COMMAND to start everything:
+./start-mistudio.sh
+
+# This starts (in order):
+# 1. Docker services (PostgreSQL, Redis, Nginx)
+# 2. Celery worker
+# 3. Backend (FastAPI on port 8000)
+# 4. Frontend (Vite on port 3000)
+#
+# Access at: http://mistudio.mcslab.io
+```
+
+**IMPORTANT**: Before first run, add domain to /etc/hosts:
+```bash
+sudo bash -c 'echo "127.0.0.1  mistudio.mcslab.io" >> /etc/hosts'
+```
+
+### Stop All Services
+```bash
+./stop-mistudio.sh
+```
+
+### Service Status Check
+```bash
+# Check all services:
+docker ps  # Should show: mistudio-postgres, mistudio-redis, mistudio-nginx
+lsof -i :8000  # Backend should be running
+lsof -i :3000  # Frontend should be running
+pgrep -f celery  # Celery worker should be running
+
+# Access points:
+# - Main app: http://mistudio.mcslab.io
+# - Frontend direct: http://localhost:3000
+# - Backend direct: http://localhost:8000
+# - API docs: http://localhost:8000/docs
+```
 
 ## Quick Resume Commands
 
@@ -393,6 +433,58 @@ After each development session, update:
   - Updated CLAUDE.md with project context
 - **Duration:** ~2 hours
 - **Key Decision:** Mock-embedded-interp-ui.tsx is the authoritative UI/UX specification
+
+### Session 2: 2025-10-18 - SAE Training Feature Implementation & Bug Fixes
+- **Accomplished:**
+  - Fixed critical API configuration bug (same-origin requests through nginx proxy)
+  - Fixed WebSocket configuration to use proper WS_URL and WS_PATH
+  - Fixed hardcoded `/data` path in training worker to use `settings.data_dir`
+  - Fixed Models dropdown showing blank (changed `model.model_id` to `model.name`)
+  - Reordered training configuration fields: Dataset → Model → Architecture (consistent with data flow)
+  - Added delete functionality for completed/failed training jobs with confirmation
+  - Tested backend API endpoints, database schema, training creation, and Celery worker
+  - Successfully ran test training job (100 steps, final loss: 112.93)
+- **Tests Completed:**
+  - ✅ Backend API endpoints accessible
+  - ✅ Database tables exist with correct schemas (trainings, training_metrics, checkpoints)
+  - ✅ Training creation via API (fixed permission denied error)
+  - ✅ Celery worker processes training tasks successfully
+- **Files Modified:**
+  - `frontend/src/config/api.ts` - Changed API_BASE_URL and WS_URL to empty string
+  - `frontend/src/api/websocket.ts` - Added WS_URL and WS_PATH configuration
+  - `backend/src/workers/training_tasks.py` - Fixed hardcoded data path
+  - `frontend/src/components/panels/TrainingPanel.tsx` - Fixed model display and field order
+  - `frontend/src/components/training/TrainingCard.tsx` - Added delete functionality
+- **Duration:** ~4 hours
+- **Key Fixes:** API configuration for nginx proxy, data directory permissions, UI/UX improvements
+
+### Session 3: 2025-10-18/19 - SAE Training UX & System Monitor Improvements
+- **Accomplished:**
+  - **Training Feature Enhancements:**
+    - Fixed retry button functionality (implemented retryTraining store method)
+    - Added bulk delete with checkbox selection for training jobs
+    - Added compact hyperparameters display in training tiles
+    - Implemented detailed hyperparameters modal with organized sections
+    - Changed icon from Info to Sliders for better affordance
+    - Added human-readable model/dataset names (lookup from stores)
+    - Added completion timestamp and calculated training duration
+    - Implemented config persistence after job start for easy iteration
+  - **System Monitor Improvements:**
+    - Fixed time range to 1 hour view only (removed TimeRangeSelector)
+    - Overlaid GPU temperature on utilization chart with dual Y-axis
+    - Combined 3 charts into 2-column grid layout
+    - Ensured always-current data on page visit
+    - Updated chart title to "Utilization & Temperature"
+    - Added proper units to tooltip (% vs °C)
+- **Files Modified:**
+  - `frontend/src/components/training/TrainingCard.tsx`
+  - `frontend/src/components/panels/TrainingPanel.tsx`
+  - `frontend/src/stores/trainingsStore.ts`
+  - `frontend/src/components/SystemMonitor/SystemMonitor.tsx`
+  - `frontend/src/components/SystemMonitor/UtilizationChart.tsx`
+  - `frontend/src/hooks/useHistoricalData.ts`
+- **Duration:** ~3 hours
+- **Key Improvements:** Enhanced UX for training iteration, cleaner System Monitor with efficient layout
 
 *[Add new sessions as they occur]*
 

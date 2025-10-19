@@ -246,19 +246,19 @@
   - [x] 14.14 Show checkpoint button for running, completed, paused, and failed trainings
   - [ ] 14.15 Write unit tests for checkpoint management: save/load/delete actions, auto-save toggle
 
-- [ ] 15.0 Phase 15: Frontend UI - LiveMetrics Component
-  - [ ] 15.1 Create LiveMetrics section in TrainingCard (Mock UI lines 2031-2086)
-  - [ ] 15.2 Add conditional rendering: only show if `showMetrics === true && status === 'training'` (Mock UI line 2031)
-  - [ ] 15.3 Implement Loss Curve chart: bar chart with 20 bars, bg-emerald-500 (Mock UI lines 2033-2047)
-  - [ ] 15.4 Use h-24 height, flex items-end gap-1 for bar chart container (Mock UI line 2035)
-  - [ ] 15.5 Calculate bar heights: decreasing trend for loss (100 - i * 3 - random) (Mock UI line 2037)
-  - [ ] 15.6 Implement L0 Sparsity chart: bar chart with 20 bars, bg-blue-500 (Mock UI lines 2049-2063)
-  - [ ] 15.7 Calculate bar heights: increasing trend for sparsity (30 + i * 2 + random) (Mock UI line 2053)
-  - [ ] 15.8 Implement Training Logs section: bg-slate-950, font-mono text-xs, h-32 overflow-y-auto (Mock UI lines 2065-2084)
-  - [ ] 15.9 Display log entries: timestamp (slate-500), step number, loss, sparsity, dead_neurons, GPU util (Mock UI lines 2071-2082)
-  - [ ] 15.10 Add "Live" badge in logs header: text-emerald-400 text-xs (Mock UI line 2068)
-  - [ ] 15.11 Use WebSocket subscription to update charts in real-time every 10 steps
-  - [ ] 15.12 Keep last 20 metrics points for charts: `metrics.slice(-20)` (TID line 379)
+- [x] 15.0 Phase 15: Frontend UI - LiveMetrics Component
+  - [x] 15.1 Create LiveMetrics section in TrainingCard (Mock UI lines 2031-2086)
+  - [x] 15.2 Add conditional rendering: only show if `showMetrics === true && status === 'training'` (Mock UI line 2031)
+  - [x] 15.3 Implement Loss Curve chart: bar chart with 20 bars, bg-emerald-500 (Mock UI lines 2033-2047)
+  - [x] 15.4 Use h-24 height, flex items-end gap-1 for bar chart container (Mock UI line 2035)
+  - [x] 15.5 Calculate bar heights: auto-scaling based on real metrics data with min/max normalization
+  - [x] 15.6 Implement L0 Sparsity chart: bar chart with 20 bars, bg-blue-500 (Mock UI lines 2049-2063)
+  - [x] 15.7 Calculate bar heights: auto-scaling relative to maximum sparsity value
+  - [x] 15.8 Implement Training Logs section: bg-slate-950, font-mono text-xs, h-32 overflow-y-auto (Mock UI lines 2065-2084)
+  - [x] 15.9 Display log entries: timestamp (slate-500), step number, loss, sparsity, dead_neurons, GPU util (Mock UI lines 2071-2082)
+  - [x] 15.10 Add "Live" badge in logs header: text-emerald-400 text-xs (Mock UI line 2068)
+  - [x] 15.11 Use WebSocket subscription to update charts in real-time via existing useTrainingWebSocket
+  - [x] 15.12 Keep last 20 metrics points for charts: metricsHistory.slice(-20) implementation
   - [ ] 15.13 Write unit tests for live metrics: chart rendering, log entries, WebSocket integration
 
 - [x] 16.0 Phase 16: Frontend UI - Control Buttons

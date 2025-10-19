@@ -26,6 +26,8 @@ import type {
   TrainingListResponse,
   TrainingControlRequest,
   TrainingControlResponse,
+  Checkpoint,
+  CheckpointListResponse,
 } from '../types/training';
 import { SAEArchitectureType } from '../types/training';
 
@@ -110,6 +112,11 @@ interface TrainingStoreActions {
   pauseTraining: (trainingId: string) => Promise<TrainingControlResponse>;
   resumeTraining: (trainingId: string) => Promise<TrainingControlResponse>;
   stopTraining: (trainingId: string) => Promise<TrainingControlResponse>;
+
+  // Checkpoint operations
+  fetchCheckpoints: (trainingId: string) => Promise<Checkpoint[]>;
+  saveCheckpoint: (trainingId: string) => Promise<Checkpoint>;
+  deleteCheckpoint: (trainingId: string, checkpointId: string) => Promise<void>;
 
   // Configuration management
   updateConfig: (updates: Partial<TrainingConfig>) => void;
@@ -471,6 +478,57 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
         error: error.response?.data?.message || 'Failed to stop training',
         isLoading: false,
       });
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch checkpoints for a training job.
+   *
+   * @param trainingId - Training job ID
+   * @returns List of checkpoints
+   */
+  fetchCheckpoints: async (trainingId: string) => {
+    try {
+      const response = await axios.get<CheckpointListResponse>(
+        `${API_BASE_URL}/${trainingId}/checkpoints`
+      );
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to fetch checkpoints:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Save a checkpoint for a training job.
+   *
+   * @param trainingId - Training job ID
+   * @returns Created checkpoint
+   */
+  saveCheckpoint: async (trainingId: string) => {
+    try {
+      const response = await axios.post<Checkpoint>(
+        `${API_BASE_URL}/${trainingId}/checkpoints`
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to save checkpoint:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Delete a checkpoint.
+   *
+   * @param trainingId - Training job ID
+   * @param checkpointId - Checkpoint ID
+   */
+  deleteCheckpoint: async (trainingId: string, checkpointId: string) => {
+    try {
+      await axios.delete(`${API_BASE_URL}/${trainingId}/checkpoints/${checkpointId}`);
+    } catch (error: any) {
+      console.error('Failed to delete checkpoint:', error);
       throw error;
     }
   },

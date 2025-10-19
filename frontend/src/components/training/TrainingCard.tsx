@@ -18,7 +18,7 @@
  * - Responsive layout with exact Mock UI styling
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Activity,
   CheckCircle,
@@ -58,6 +58,9 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     resumeTraining,
     stopTraining,
     retryTraining,
+    fetchCheckpoints,
+    saveCheckpoint,
+    deleteCheckpoint,
   } = useTrainingsStore();
 
   // UI state
@@ -67,6 +70,8 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   const [autoSave, setAutoSave] = useState(false);
   const [autoSaveInterval, setAutoSaveInterval] = useState(1000);
   const [isControlling, setIsControlling] = useState(false);
+  const [isSavingCheckpoint, setIsSavingCheckpoint] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<any[]>([]);
 
   // Calculate current metrics
   const hasMetrics = training.progress > 10;
@@ -77,9 +82,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
   // Mock GPU util (would come from backend in production)
   const gpuUtil = training.status === TrainingStatus.RUNNING ? 75 + Math.random() * 15 : 0;
-
-  // Mock checkpoints (would come from API in production)
-  const trainingCheckpoints: any[] = [];
 
   // Look up human-readable names
   const modelName = models.find((m) => m.id === training.model_id)?.name || training.model_id;
@@ -154,6 +156,40 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       console.error('Failed to retry training:', error);
     } finally {
       setIsControlling(false);
+    }
+  };
+
+  // Fetch checkpoints on mount to show correct count
+  useEffect(() => {
+    fetchCheckpoints(training.id)
+      .then(setCheckpoints)
+      .catch((error) => console.error('Failed to load checkpoints:', error));
+  }, [training.id]);
+
+  // Handle save checkpoint
+  const handleSaveCheckpoint = async () => {
+    setIsSavingCheckpoint(true);
+    try {
+      const newCheckpoint = await saveCheckpoint(training.id);
+      setCheckpoints((prev) => [newCheckpoint, ...prev]);
+    } catch (error) {
+      console.error('Failed to save checkpoint:', error);
+    } finally {
+      setIsSavingCheckpoint(false);
+    }
+  };
+
+  // Handle delete checkpoint
+  const handleDeleteCheckpoint = async (checkpointId: string) => {
+    if (!confirm('Are you sure you want to delete this checkpoint?')) {
+      return;
+    }
+
+    try {
+      await deleteCheckpoint(training.id, checkpointId);
+      setCheckpoints((prev) => prev.filter((c) => c.id !== checkpointId));
+    } catch (error) {
+      console.error('Failed to delete checkpoint:', error);
     }
   };
 
@@ -331,8 +367,8 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           </div>
 
           {/* Toggle Buttons */}
-          {training.status === TrainingStatus.RUNNING && (
-            <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            {training.status === TrainingStatus.RUNNING && (
               <button
                 type="button"
                 onClick={() => setShowMetrics(!showMetrics)}
@@ -341,16 +377,21 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 <Activity className="w-4 h-4" />
                 <span>{showMetrics ? 'Hide' : 'Show'} Live Metrics</span>
               </button>
+            )}
+            {/* Show checkpoints for running, completed, paused, or failed trainings */}
+            {[TrainingStatus.RUNNING, TrainingStatus.COMPLETED, TrainingStatus.PAUSED, TrainingStatus.FAILED].includes(training.status) && (
               <button
                 type="button"
                 onClick={() => setShowCheckpoints(!showCheckpoints)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+                className={`px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                  training.status === TrainingStatus.RUNNING ? '' : 'col-span-2'
+                }`}
               >
                 <Download className="w-4 h-4" />
-                <span>Checkpoints ({trainingCheckpoints.length})</span>
+                <span>Checkpoints ({checkpoints.length})</span>
               </button>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Checkpoint Management Section */}
           {showCheckpoints && (
@@ -361,43 +402,53 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 </h5>
                 <button
                   type="button"
-                  onClick={() => console.log('Save checkpoint')}
-                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 rounded text-sm flex items-center gap-1 transition-colors"
+                  onClick={handleSaveCheckpoint}
+                  disabled={isSavingCheckpoint}
+                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 rounded text-sm flex items-center gap-1 transition-colors"
                 >
-                  <Save className="w-4 h-4" />
-                  Save Now
+                  {isSavingCheckpoint ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  {isSavingCheckpoint ? 'Saving...' : 'Save Now'}
                 </button>
               </div>
 
               {/* Checkpoint List */}
-              {trainingCheckpoints.length > 0 ? (
+              {checkpoints.length > 0 ? (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {trainingCheckpoints.map((cp: any) => (
+                  {checkpoints.map((cp: any) => (
                     <div
                       key={cp.id}
                       className="flex items-center justify-between bg-slate-800/30 p-3 rounded"
                     >
                       <div>
                         <div className="font-medium text-sm text-slate-100">
-                          Step {cp.step}
+                          Step {cp.step.toLocaleString()}
                         </div>
                         <div className="text-xs text-slate-400">
-                          Loss: {cp.loss.toFixed(4)} •{' '}
-                          {new Date(cp.timestamp).toLocaleTimeString()}
+                          Loss: {cp.loss.toFixed(4)}
+                          {cp.l0_sparsity && ` • L0: ${cp.l0_sparsity.toFixed(3)}`}
+                          {' • '}
+                          {new Date(cp.created_at).toLocaleTimeString()}
                         </div>
                       </div>
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => console.log('Load checkpoint', cp.id)}
+                          onClick={() => {
+                            // Download checkpoint (future implementation)
+                            console.log('Download checkpoint', cp.id);
+                          }}
                           className="p-1 hover:bg-slate-700 rounded text-slate-300 hover:text-slate-100 transition-colors"
-                          title="Load"
+                          title="Download"
                         >
                           <Download className="w-4 h-4" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => console.log('Delete checkpoint', cp.id)}
+                          onClick={() => handleDeleteCheckpoint(cp.id)}
                           className="p-1 hover:bg-red-900/30 text-red-400 rounded transition-colors"
                           title="Delete"
                         >

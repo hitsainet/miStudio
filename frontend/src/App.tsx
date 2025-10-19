@@ -83,7 +83,7 @@ function AppContent() {
                   : 'text-slate-400 hover:text-slate-300'
               }`}
             >
-              SAE Training
+              Training
               {activePanel === 'training' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
               )}
@@ -96,7 +96,7 @@ function AppContent() {
                   : 'text-slate-400 hover:text-slate-300'
               }`}
             >
-              Extraction Templates
+              Templates
               {activePanel === 'templates' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
               )}
@@ -109,7 +109,7 @@ function AppContent() {
                   : 'text-slate-400 hover:text-slate-300'
               }`}
             >
-              System Monitor
+              Monitor
               {activePanel === 'system' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
               )}

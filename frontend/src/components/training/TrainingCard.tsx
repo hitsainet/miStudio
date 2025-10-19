@@ -73,6 +73,17 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   const [isSavingCheckpoint, setIsSavingCheckpoint] = useState(false);
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
 
+  // Metrics history for charts (keep last 20 points)
+  const [metricsHistory, setMetricsHistory] = useState<{
+    loss: number[];
+    l0_sparsity: number[];
+    timestamps: string[];
+  }>({
+    loss: [],
+    l0_sparsity: [],
+    timestamps: [],
+  });
+
   // Calculate current metrics
   const hasMetrics = training.progress > 10;
   const currentLoss = training.current_loss ?? 0;
@@ -165,6 +176,24 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       .then(setCheckpoints)
       .catch((error) => console.error('Failed to load checkpoints:', error));
   }, [training.id]);
+
+  // Update metrics history when training metrics change
+  useEffect(() => {
+    if (training.current_loss !== undefined && training.current_loss !== null) {
+      setMetricsHistory((prev) => {
+        const newLoss = [...prev.loss, training.current_loss!];
+        const newL0 = [...prev.l0_sparsity, training.current_l0_sparsity ?? 0];
+        const newTimestamps = [...prev.timestamps, new Date().toISOString()];
+
+        // Keep only last 20 points
+        return {
+          loss: newLoss.slice(-20),
+          l0_sparsity: newL0.slice(-20),
+          timestamps: newTimestamps.slice(-20),
+        };
+      });
+    }
+  }, [training.current_loss, training.current_l0_sparsity, training.current_step]);
 
   // Handle save checkpoint
   const handleSaveCheckpoint = async () => {
@@ -509,16 +538,31 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               <div className="bg-slate-800/30 rounded-lg p-4">
                 <h5 className="text-sm font-medium text-slate-300 mb-3">Loss Curve</h5>
                 <div className="h-24 flex items-end gap-1">
-                  {Array.from({ length: 20 }, (_, i) => {
-                    const height = Math.max(10, 100 - i * 3 - Math.random() * 10);
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 bg-emerald-500 rounded-t transition-all"
-                        style={{ height: `${height}%` }}
-                      />
-                    );
-                  })}
+                  {metricsHistory.loss.length > 0 ? (
+                    (() => {
+                      const maxLoss = Math.max(...metricsHistory.loss);
+                      const minLoss = Math.min(...metricsHistory.loss);
+                      const range = maxLoss - minLoss || 1;
+
+                      // Pad with empty bars if less than 20 points
+                      const paddedLoss = [...Array(Math.max(0, 20 - metricsHistory.loss.length)).fill(0), ...metricsHistory.loss];
+
+                      return paddedLoss.map((loss, i) => {
+                        const height = loss === 0 ? 0 : Math.max(10, ((maxLoss - loss) / range) * 90 + 10);
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 bg-emerald-500 rounded-t transition-all"
+                            style={{ height: `${height}%` }}
+                          />
+                        );
+                      });
+                    })()
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
+                      No data yet
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -526,16 +570,30 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               <div className="bg-slate-800/30 rounded-lg p-4">
                 <h5 className="text-sm font-medium text-slate-300 mb-3">L0 Sparsity</h5>
                 <div className="h-24 flex items-end gap-1">
-                  {Array.from({ length: 20 }, (_, i) => {
-                    const height = Math.min(90, 30 + i * 2 + Math.random() * 10);
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 bg-blue-500 rounded-t transition-all"
-                        style={{ height: `${height}%` }}
-                      />
-                    );
-                  })}
+                  {metricsHistory.l0_sparsity.length > 0 ? (
+                    (() => {
+                      const maxSparsity = Math.max(...metricsHistory.l0_sparsity);
+                      const range = maxSparsity || 1;
+
+                      // Pad with empty bars if less than 20 points
+                      const paddedSparsity = [...Array(Math.max(0, 20 - metricsHistory.l0_sparsity.length)).fill(0), ...metricsHistory.l0_sparsity];
+
+                      return paddedSparsity.map((sparsity, i) => {
+                        const height = sparsity === 0 ? 0 : Math.max(10, (sparsity / range) * 90 + 10);
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 bg-blue-500 rounded-t transition-all"
+                            style={{ height: `${height}%` }}
+                          />
+                        );
+                      });
+                    })()
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
+                      No data yet
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -546,37 +604,32 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                   <span className="text-emerald-400 text-xs">Live</span>
                 </div>
                 <div className="h-32 overflow-y-auto space-y-1">
-                  <div className="text-slate-300">
-                    <span className="text-slate-500">
-                      [{new Date().toLocaleTimeString()}]
-                    </span>{' '}
-                    Step {training.current_step}: loss={currentLoss.toFixed(4)}
-                  </div>
-                  <div className="text-slate-300">
-                    <span className="text-slate-500">
-                      [{new Date().toLocaleTimeString()}]
-                    </span>{' '}
-                    L0 sparsity: {l0Sparsity.toFixed(4)}
-                  </div>
-                  <div className="text-slate-300">
-                    <span className="text-slate-500">
-                      [{new Date().toLocaleTimeString()}]
-                    </span>{' '}
-                    Dead neurons: {Math.floor(deadNeurons)}/
-                    {training.hyperparameters.latent_dim}
-                  </div>
-                  <div className="text-slate-300">
-                    <span className="text-slate-500">
-                      [{new Date().toLocaleTimeString()}]
-                    </span>{' '}
-                    GPU utilization: {gpuUtil.toFixed(0)}%
-                  </div>
-                  <div className="text-slate-300">
-                    <span className="text-slate-500">
-                      [{new Date().toLocaleTimeString()}]
-                    </span>{' '}
-                    Learning rate: {learningRate.toExponential(2)}
-                  </div>
+                  {metricsHistory.loss.length > 0 ? (
+                    metricsHistory.timestamps.slice(-10).map((timestamp, i) => {
+                      const idx = metricsHistory.timestamps.length - 10 + i;
+                      if (idx < 0) return null;
+
+                      const loss = metricsHistory.loss[idx];
+                      const sparsity = metricsHistory.l0_sparsity[idx];
+                      const time = new Date(timestamp).toLocaleTimeString();
+
+                      return (
+                        <div key={i} className="text-slate-300">
+                          <span className="text-slate-500">[{time}]</span>{' '}
+                          Step {training.current_step - (metricsHistory.loss.length - idx - 1) * 10}:
+                          loss={loss.toFixed(4)},
+                          L0={sparsity.toFixed(4)},
+                          dead={Math.floor(deadNeurons)}/{training.hyperparameters.latent_dim},
+                          GPU={gpuUtil.toFixed(0)}%,
+                          lr={learningRate.toExponential(2)}
+                        </div>
+                      );
+                    }).filter(Boolean)
+                  ) : (
+                    <div className="text-slate-500 text-center py-4">
+                      Waiting for training metrics...
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

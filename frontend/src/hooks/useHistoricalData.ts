@@ -26,7 +26,7 @@ interface HistoricalDataOptions {
 
 export function useHistoricalData(_options: HistoricalDataOptions = {}) {
   const [data, setData] = useState<MultiSeriesDataPoint[]>([]);
-  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
+  const timeRange: TimeRange = '1h'; // Fixed to 1 hour
   const lastPruneTime = useRef<number>(Date.now());
 
   // Time range configurations (in milliseconds)
@@ -62,7 +62,7 @@ export function useHistoricalData(_options: HistoricalDataOptions = {}) {
       const now = Date.now();
       if (now - lastPruneTime.current > 60000) {
         lastPruneTime.current = now;
-        const cutoffTime = now - timeRangeConfig['24h']; // Keep 24h max
+        const cutoffTime = now - timeRangeConfig['1h']; // Keep 1h max
         return updatedData.filter((point) => point.timestamp > cutoffTime);
       }
 
@@ -156,8 +156,6 @@ export function useHistoricalData(_options: HistoricalDataOptions = {}) {
 
   return {
     data: getAggregatedData(),
-    timeRange,
-    setTimeRange,
     addDataPoint,
     getSeries,
     getSeriesStats,

@@ -9,10 +9,8 @@ import { useEffect, useState } from 'react';
 import { Activity, Settings } from 'lucide-react';
 import { useSystemMonitorStore } from '../../stores/systemMonitorStore';
 import { useHistoricalData } from '../../hooks/useHistoricalData';
-import { TimeRangeSelector } from './TimeRangeSelector';
 import { UtilizationChart } from './UtilizationChart';
 import { MemoryUsageChart } from './MemoryUsageChart';
-import { TemperatureChart } from './TemperatureChart';
 import { GPUSelector } from './GPUSelector';
 import { ViewModeToggle } from './ViewModeToggle';
 import { GPUCard } from './GPUCard';
@@ -51,13 +49,11 @@ export function SystemMonitor() {
   // Settings modal state
   const [showSettings, setShowSettings] = useState(false);
 
-  // Initialize historical data hook
+  // Initialize historical data hook - fixed to 1 hour
   const {
     data: historicalData,
-    timeRange,
-    setTimeRange,
     addDataPoint,
-  } = useHistoricalData({ maxDataPoints: 86400 }); // 24h at 1s intervals
+  } = useHistoricalData({ maxDataPoints: 3600 }); // 1h at 1s intervals
 
   // Fetch GPU list on mount
   useEffect(() => {
@@ -287,17 +283,13 @@ export function SystemMonitor() {
             </div>
           )}
 
-          {/* Historical Trends */}
+          {/* Historical Trends - Last Hour */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-100">Historical Trends</h2>
-              <TimeRangeSelector selected={timeRange} onChange={setTimeRange} />
-            </div>
+            <h2 className="text-lg font-semibold text-slate-100">Historical Trends (Last Hour)</h2>
 
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <UtilizationChart data={historicalData} />
               <MemoryUsageChart data={historicalData} />
-              <TemperatureChart data={historicalData} maxTemp={95} />
             </div>
           </div>
         </div>

@@ -458,6 +458,34 @@ After each development session, update:
 - **Duration:** ~4 hours
 - **Key Fixes:** API configuration for nginx proxy, data directory permissions, UI/UX improvements
 
+### Session 3: 2025-10-18/19 - SAE Training UX & System Monitor Improvements
+- **Accomplished:**
+  - **Training Feature Enhancements:**
+    - Fixed retry button functionality (implemented retryTraining store method)
+    - Added bulk delete with checkbox selection for training jobs
+    - Added compact hyperparameters display in training tiles
+    - Implemented detailed hyperparameters modal with organized sections
+    - Changed icon from Info to Sliders for better affordance
+    - Added human-readable model/dataset names (lookup from stores)
+    - Added completion timestamp and calculated training duration
+    - Implemented config persistence after job start for easy iteration
+  - **System Monitor Improvements:**
+    - Fixed time range to 1 hour view only (removed TimeRangeSelector)
+    - Overlaid GPU temperature on utilization chart with dual Y-axis
+    - Combined 3 charts into 2-column grid layout
+    - Ensured always-current data on page visit
+    - Updated chart title to "Utilization & Temperature"
+    - Added proper units to tooltip (% vs °C)
+- **Files Modified:**
+  - `frontend/src/components/training/TrainingCard.tsx`
+  - `frontend/src/components/panels/TrainingPanel.tsx`
+  - `frontend/src/stores/trainingsStore.ts`
+  - `frontend/src/components/SystemMonitor/SystemMonitor.tsx`
+  - `frontend/src/components/SystemMonitor/UtilizationChart.tsx`
+  - `frontend/src/hooks/useHistoricalData.ts`
+- **Duration:** ~3 hours
+- **Key Improvements:** Enhanced UX for training iteration, cleaner System Monitor with efficient layout
+
 *[Add new sessions as they occur]*
 
 ## Research Integration

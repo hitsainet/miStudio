@@ -28,7 +28,7 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
           </p>
           {payload.map((entry: any, index: number) => (
             <p key={index} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {entry.value.toFixed(1)}%
+              {entry.name}: {entry.dataKey === 'gpu_temperature' ? `${entry.value.toFixed(1)}°C` : `${entry.value.toFixed(1)}%`}
             </p>
           ))}
         </div>
@@ -40,7 +40,7 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
   return (
     <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
       <h3 className="text-lg font-semibold text-slate-100 mb-4">
-        Utilization Over Time
+        Utilization & Temperature
       </h3>
       {data.length === 0 ? (
         <div className="h-64 flex items-center justify-center text-slate-500">
@@ -48,7 +48,7 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+          <LineChart data={data} margin={{ top: 5, right: 40, left: 0, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
             <XAxis
               dataKey="timestamp"
@@ -57,10 +57,19 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
               style={{ fontSize: '12px' }}
             />
             <YAxis
+              yAxisId="left"
               domain={[0, 100]}
               stroke="#64748b"
               style={{ fontSize: '12px' }}
               label={{ value: '%', angle: -90, position: 'insideLeft', style: { fill: '#64748b' } }}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              domain={[0, 100]}
+              stroke="#f59e0b"
+              style={{ fontSize: '12px' }}
+              label={{ value: '°C', angle: 90, position: 'insideRight', style: { fill: '#f59e0b' } }}
             />
             <Tooltip content={<CustomTooltip />} />
             <Legend
@@ -68,19 +77,31 @@ export function UtilizationChart({ data }: UtilizationChartProps) {
               iconType="line"
             />
             <Line
+              yAxisId="left"
               type="monotone"
               dataKey="gpu_utilization"
-              name="GPU"
+              name="GPU Util"
               stroke="#10b981"
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}
             />
             <Line
+              yAxisId="left"
               type="monotone"
               dataKey="cpu_utilization"
-              name="CPU"
+              name="CPU Util"
               stroke="#3b82f6"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="gpu_temperature"
+              name="GPU Temp"
+              stroke="#f59e0b"
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}

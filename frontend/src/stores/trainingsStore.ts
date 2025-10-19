@@ -104,6 +104,7 @@ interface TrainingStoreActions {
   fetchTraining: (trainingId: string) => Promise<void>;
   createTraining: (config: TrainingCreateRequest) => Promise<Training>;
   deleteTraining: (trainingId: string) => Promise<void>;
+  retryTraining: (trainingId: string) => Promise<Training>;
 
   // Training control operations
   pauseTraining: (trainingId: string) => Promise<TrainingControlResponse>;
@@ -332,6 +333,52 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
     } catch (error: any) {
       set({
         error: error.response?.data?.message || 'Failed to delete training',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Retry a failed training job by creating a new training with the same configuration.
+   *
+   * @param trainingId - Failed training job ID
+   * @returns New training job
+   */
+  retryTraining: async (trainingId: string) => {
+    set({ isLoading: true, error: null });
+
+    try {
+      // Get the failed training to extract its configuration
+      const state = get();
+      const failedTraining = state.trainings.find((t) => t.id === trainingId);
+
+      if (!failedTraining) {
+        throw new Error('Training not found');
+      }
+
+      // Create new training request with same configuration
+      const retryRequest: TrainingCreateRequest = {
+        model_id: failedTraining.model_id,
+        dataset_id: failedTraining.dataset_id,
+        extraction_id: failedTraining.extraction_id,
+        hyperparameters: failedTraining.hyperparameters,
+      };
+
+      // Create the new training
+      const response = await axios.post<Training>(API_BASE_URL, retryRequest);
+
+      // Add the new training to the list
+      set((state) => ({
+        trainings: [response.data, ...state.trainings],
+        totalTrainings: state.totalTrainings + 1,
+        isLoading: false,
+      }));
+
+      return response.data;
+    } catch (error: any) {
+      set({
+        error: error.response?.data?.message || 'Failed to retry training',
         isLoading: false,
       });
       throw error;

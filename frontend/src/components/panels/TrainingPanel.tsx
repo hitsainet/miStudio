@@ -24,6 +24,7 @@ import {
   CheckCircle,
   XCircle,
   Loader,
+  Trash2,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
@@ -42,6 +43,7 @@ export const TrainingPanel: React.FC = () => {
     resetConfig,
     fetchTrainings,
     createTraining,
+    deleteTraining,
     statusFilter,
     setStatusFilter,
     isLoading,
@@ -54,6 +56,8 @@ export const TrainingPanel: React.FC = () => {
   // UI state
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [selectedTrainingIds, setSelectedTrainingIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch data on mount
   useEffect(() => {
@@ -71,6 +75,50 @@ export const TrainingPanel: React.FC = () => {
 
   // Validation
   const isFormValid = config.model_id && config.dataset_id;
+
+  // Selection handlers
+  const handleToggleSelection = (trainingId: string) => {
+    setSelectedTrainingIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(trainingId)) {
+        newSet.delete(trainingId);
+      } else {
+        newSet.add(trainingId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedTrainingIds.size === trainings.length) {
+      setSelectedTrainingIds(new Set());
+    } else {
+      setSelectedTrainingIds(new Set(trainings.map((t) => t.id)));
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedTrainingIds.size === 0) return;
+
+    const count = selectedTrainingIds.size;
+    if (!confirm(`Are you sure you want to delete ${count} training job${count > 1 ? 's' : ''}? This will remove all associated data and cannot be undone.`)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      // Delete all selected trainings in parallel
+      await Promise.all(
+        Array.from(selectedTrainingIds).map((id) => deleteTraining(id))
+      );
+      // Clear selection after successful deletion
+      setSelectedTrainingIds(new Set());
+    } catch (error) {
+      console.error('Failed to delete selected trainings:', error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Handle start training
   const handleStartTraining = async () => {
@@ -102,7 +150,8 @@ export const TrainingPanel: React.FC = () => {
       };
 
       await createTraining(request);
-      resetConfig();
+      // Don't reset config - keep selections so user can easily start another training
+      // Only collapse advanced configuration section
       setShowAdvanced(false);
     } catch (err) {
       console.error('Failed to start training:', err);
@@ -483,8 +532,35 @@ export const TrainingPanel: React.FC = () => {
         {/* Training Jobs Section */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-slate-100">Training Jobs</h3>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <h3 className="text-lg font-semibold text-slate-100">Training Jobs</h3>
+              {trainings.length > 0 && (
+                <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={selectedTrainingIds.size === trainings.length && trainings.length > 0}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                  />
+                  Select All
+                </label>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              {selectedTrainingIds.size > 0 && (
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={isDeleting}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-md transition-colors"
+                >
+                  {isDeleting ? (
+                    <Loader size={16} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={16} />
+                  )}
+                  Delete Selected ({selectedTrainingIds.size})
+                </button>
+              )}
               <span className="text-sm text-slate-400">{statusCounts.all} total</span>
             </div>
           </div>
@@ -552,7 +628,14 @@ export const TrainingPanel: React.FC = () => {
           ) : (
             <div className="space-y-4">
               {trainings.map((training) => (
-                <TrainingCard key={training.id} training={training} />
+                <TrainingCard
+                  key={training.id}
+                  training={training}
+                  isSelected={selectedTrainingIds.has(training.id)}
+                  onToggleSelect={handleToggleSelection}
+                  models={models}
+                  datasets={datasets}
+                />
               ))}
             </div>
           )}

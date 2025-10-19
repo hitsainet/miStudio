@@ -288,16 +288,16 @@
   - [x] 17.10 Add connection status indicator in TrainingPanel header (Live/Disconnected badge with pulse animation)
   - [ ] 17.11 Test WebSocket subscription: verify events received and state updated correctly (requires backend)
 
-- [ ] 18.0 Phase 18: Memory Optimization and OOM Handling
-  - [ ] 18.1 Add dynamic batch size reduction in training loop on OOM error (TDD lines 1028-1033)
-  - [ ] 18.2 Implement gradient accumulation when batch_size < 64 to maintain effective batch size (TDD line 1194)
-  - [ ] 18.3 Add GPU cache clearing: `torch.cuda.empty_cache()` after every training step (TID line 239)
-  - [ ] 18.4 Implement memory monitoring: log GPU memory usage every 100 steps
-  - [ ] 18.5 Add memory budget validation before training start: estimate model + SAE + activations + gradients + optimizer state (TDD lines 1575-1587)
-  - [ ] 18.6 Show OOM error message in UI with actionable suggestions: "Reduce batch size or expansion factor" (TDD lines 768-776)
-  - [ ] 18.7 Add retry count tracking: increment on OOM, stop after 3 retries (training table has retry_count field)
+- [x] 18.0 Phase 18: Memory Optimization and OOM Handling
+  - [x] 18.1 Add dynamic batch size reduction in training loop on OOM error (TDD lines 1028-1033)
+  - [x] 18.2 Implement gradient accumulation when batch_size < 64 to maintain effective batch size (TDD line 1194)
+  - [x] 18.3 Add GPU cache clearing: `torch.cuda.empty_cache()` after every training step (TID line 239)
+  - [x] 18.4 Implement memory monitoring: log GPU memory usage every 100 steps
+  - [x] 18.5 Add memory budget validation before training start: estimate model + SAE + activations + gradients + optimizer state (TDD lines 1575-1587)
+  - [x] 18.6 Show OOM error message in UI with actionable suggestions: "Reduce batch size or expansion factor" (TDD lines 768-776)
+  - [x] 18.7 Add retry count tracking: increment on OOM, stop after 3 retries (training table has retry_count field)
   - [ ] 18.8 Test OOM handling: simulate OOM error, verify batch_size reduced, training continues
-  - [ ] 18.9 Add ghost gradient penalty to reduce dead neurons (TDD line 339, Mock UI lines 1797-1814)
+  - [x] 18.9 Add ghost gradient penalty to reduce dead neurons (TDD line 339, Mock UI lines 1797-1814)
   - [ ] 18.10 Test ghost gradient penalty: verify dead neuron count decreases with penalty enabled
 
 - [ ] 19.0 Phase 19: Testing - Unit Tests

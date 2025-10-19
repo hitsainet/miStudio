@@ -38,8 +38,9 @@ async def test_model(async_session):
 @pytest_asyncio.fixture
 async def test_dataset(async_session):
     """Create a test dataset for training tests."""
+    from uuid import UUID
     dataset = Dataset(
-        id="ds_test456",
+        id=UUID("12345678-1234-5678-1234-567812345678"),
         name="Test Dataset",
         source="HuggingFace",
         hf_repo_id="test/dataset",
@@ -69,7 +70,7 @@ class TestTrainingServiceCreate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="ds_test456",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -82,7 +83,7 @@ class TestTrainingServiceCreate:
         assert training is not None
         assert training.id.startswith("train_")
         assert training.model_id == "m_test123"
-        assert training.dataset_id == "ds_test456"
+        assert training.dataset_id == "12345678-1234-5678-1234-567812345678"
         assert training.status == TrainingStatus.PENDING.value
         assert training.progress == 0.0
         assert training.current_step == 0
@@ -90,8 +91,8 @@ class TestTrainingServiceCreate:
         assert training.hyperparameters['hidden_dim'] == 768
         assert training.hyperparameters['latent_dim'] == 16384
 
-    async def test_create_training_with_extraction_id(self, async_session, test_model, test_dataset):
-        """Test creating training with extraction_id."""
+    async def test_create_training_without_extraction_id(self, async_session, test_model, test_dataset):
+        """Test creating training without extraction_id (optional field)."""
         hyperparameters = TrainingHyperparameters(
             hidden_dim=768,
             latent_dim=16384,
@@ -101,17 +102,17 @@ class TestTrainingServiceCreate:
             total_steps=100000,
         )
 
+        # extraction_id is optional, test creating without it
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="ds_test456",
-            extraction_id="ext_m_test789",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
         with patch('src.services.training_service._emit_training_event_sync'):
             training = await TrainingService.create_training(async_session, training_data)
 
-        assert training.extraction_id == "ext_m_test789"
+        assert training.extraction_id is None
 
     async def test_create_training_generates_unique_id(self, async_session, test_model, test_dataset):
         """Test that each training gets a unique ID."""
@@ -126,7 +127,7 @@ class TestTrainingServiceCreate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="ds_test456",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -156,7 +157,7 @@ class TestTrainingServiceCreate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="ds_test456",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -194,7 +195,7 @@ class TestTrainingServiceGet:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="ds_test456",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -207,7 +208,7 @@ class TestTrainingServiceGet:
         assert fetched_training is not None
         assert fetched_training.id == created_training.id
         assert fetched_training.model_id == "m_test123"
-        assert fetched_training.dataset_id == "ds_test456"
+        assert fetched_training.dataset_id == "12345678-1234-5678-1234-567812345678"
 
     async def test_get_training_not_found(self, async_session, test_model, test_dataset):
         """Test getting a non-existent training returns None."""
@@ -222,7 +223,7 @@ class TestTrainingServiceList:
 
     async def test_list_all_trainings(self, async_session, test_model, test_dataset):
         """Test listing all trainings."""
-        # Create multiple trainings
+        # Create multiple trainings using existing test fixtures
         hyperparameters = TrainingHyperparameters(
             hidden_dim=768,
             latent_dim=16384,
@@ -235,8 +236,8 @@ class TestTrainingServiceList:
         with patch('src.services.training_service._emit_training_event_sync'):
             for i in range(3):
                 training_data = TrainingCreate(
-                    model_id=f"m_test{i}",
-                    dataset_id=f"ds_test{i}",
+                    model_id="m_test123",  # Use existing test_model fixture
+                    dataset_id="12345678-1234-5678-1234-567812345678",  # Use existing test_dataset fixture
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -259,11 +260,11 @@ class TestTrainingServiceList:
         )
 
         with patch('src.services.training_service._emit_training_event_sync'):
-            # Create trainings with different model IDs
-            for model_id in ["m_test1", "m_test1", "m_test2"]:
+            # Create trainings with model m_test123
+            for i in range(2):
                 training_data = TrainingCreate(
-                    model_id=model_id,
-                    dataset_id="ds_test",
+                    model_id="m_test123",
+                    dataset_id="12345678-1234-5678-1234-567812345678",
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -271,12 +272,12 @@ class TestTrainingServiceList:
         # Filter by model_id
         trainings, total = await TrainingService.list_trainings(
             async_session,
-            model_id="m_test1"
+            model_id="m_test123"
         )
 
         assert len(trainings) == 2
         assert total == 2
-        assert all(t.model_id == "m_test1" for t in trainings)
+        assert all(t.model_id == "m_test123" for t in trainings)
 
     async def test_list_trainings_filter_by_dataset_id(self, async_session, test_model, test_dataset):
         """Test filtering trainings by dataset_id."""
@@ -290,11 +291,11 @@ class TestTrainingServiceList:
         )
 
         with patch('src.services.training_service._emit_training_event_sync'):
-            # Create trainings with different dataset IDs
-            for dataset_id in ["ds_test1", "ds_test2", "ds_test1"]:
+            # Create trainings with the test dataset
+            for i in range(2):
                 training_data = TrainingCreate(
-                    model_id="m_test",
-                    dataset_id=dataset_id,
+                    model_id="m_test123",
+                    dataset_id="12345678-1234-5678-1234-567812345678",
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -302,12 +303,12 @@ class TestTrainingServiceList:
         # Filter by dataset_id
         trainings, total = await TrainingService.list_trainings(
             async_session,
-            dataset_id="ds_test1"
+            dataset_id="12345678-1234-5678-1234-567812345678"
         )
 
         assert len(trainings) == 2
         assert total == 2
-        assert all(t.dataset_id == "ds_test1" for t in trainings)
+        assert all(t.dataset_id == "12345678-1234-5678-1234-567812345678" for t in trainings)
 
     async def test_list_trainings_filter_by_status(self, async_session, test_model, test_dataset):
         """Test filtering trainings by status."""
@@ -324,8 +325,8 @@ class TestTrainingServiceList:
             # Create trainings
             for i in range(3):
                 training_data = TrainingCreate(
-                    model_id="m_test",
-                    dataset_id="ds_test",
+                    model_id="m_test123",
+                    dataset_id="12345678-1234-5678-1234-567812345678",
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -355,8 +356,8 @@ class TestTrainingServiceList:
             # Create 5 trainings
             for i in range(5):
                 training_data = TrainingCreate(
-                    model_id="m_test",
-                    dataset_id="ds_test",
+                    model_id="m_test123",
+                    dataset_id="12345678-1234-5678-1234-567812345678",
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -401,8 +402,8 @@ class TestTrainingServiceList:
         with patch('src.services.training_service._emit_training_event_sync'):
             for i in range(3):
                 training_data = TrainingCreate(
-                    model_id=f"m_test{i}",
-                    dataset_id="ds_test",
+                    model_id="m_test123",  # Use existing test_model fixture
+                    dataset_id="12345678-1234-5678-1234-567812345678",
                     hyperparameters=hyperparameters,
                 )
                 training = await TrainingService.create_training(async_session, training_data)
@@ -433,8 +434,8 @@ class TestTrainingServiceUpdate:
         )
 
         training_data = TrainingCreate(
-            model_id="m_test",
-            dataset_id="ds_test",
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -465,8 +466,8 @@ class TestTrainingServiceUpdate:
         )
 
         training_data = TrainingCreate(
-            model_id="m_test",
-            dataset_id="ds_test",
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -518,8 +519,8 @@ class TestTrainingServiceDelete:
         )
 
         training_data = TrainingCreate(
-            model_id="m_test",
-            dataset_id="ds_test",
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -558,8 +559,8 @@ class TestTrainingServiceWebSocketEvents:
         )
 
         training_data = TrainingCreate(
-            model_id="m_test",
-            dataset_id="ds_test",
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
             hyperparameters=hyperparameters,
         )
 
@@ -574,6 +575,6 @@ class TestTrainingServiceWebSocketEvents:
             # Verify event data
             assert call_args[1]['training_id'] == training.id
             assert call_args[1]['event'] == "created"
-            assert call_args[1]['data']['model_id'] == "m_test"
-            assert call_args[1]['data']['dataset_id'] == "ds_test"
+            assert call_args[1]['data']['model_id'] == "m_test123"
+            assert call_args[1]['data']['dataset_id'] == "12345678-1234-5678-1234-567812345678"
             assert call_args[1]['data']['status'] == TrainingStatus.PENDING.value

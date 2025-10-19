@@ -40,7 +40,6 @@ export const TrainingPanel: React.FC = () => {
     trainings,
     config,
     updateConfig,
-    resetConfig,
     fetchTrainings,
     createTraining,
     deleteTraining,

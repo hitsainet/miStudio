@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { FileText, Download, Calendar, Layers, Database, TrendingUp, Activity, Trash2 } from 'lucide-react';
+import { FileText, Calendar, Layers, Database, TrendingUp, Activity, Trash2 } from 'lucide-react';
 import { Model } from '../../types/model';
 import { getModelExtractions, deleteExtractions } from '../../api/models';
 import { DeleteExtractionsModal } from './DeleteExtractionsModal';
@@ -88,7 +88,7 @@ export function ActivationExtractionHistory({
       : `${totalMB.toFixed(2)} MB`;
   };
 
-  const toggleSelection = (extractionId: string, event: React.MouseEvent) => {
+  const toggleSelection = (extractionId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     event.stopPropagation(); // Prevent expanding the extraction
     const newSelected = new Set(selectedIds);
     if (newSelected.has(extractionId)) {

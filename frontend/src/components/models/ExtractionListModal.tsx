@@ -114,7 +114,7 @@ export function ExtractionListModal({
     }
   };
 
-  const toggleSelection = (extractionId: string, event: React.MouseEvent) => {
+  const toggleSelection = (extractionId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     event.stopPropagation(); // Prevent opening detail modal
     const newSelected = new Set(selectedIds);
     if (newSelected.has(extractionId)) {

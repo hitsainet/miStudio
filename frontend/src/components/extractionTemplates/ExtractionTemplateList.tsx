@@ -4,7 +4,7 @@
  * This component renders a grid of template cards with search, filter, and pagination.
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Search, SlidersHorizontal, Loader } from 'lucide-react';
 import { ExtractionTemplate } from '../../types/extractionTemplate';
 import { ExtractionTemplateCard } from './ExtractionTemplateCard';

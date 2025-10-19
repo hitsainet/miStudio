@@ -368,7 +368,7 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
       const retryRequest: TrainingCreateRequest = {
         model_id: failedTraining.model_id,
         dataset_id: failedTraining.dataset_id,
-        extraction_id: failedTraining.extraction_id,
+        extraction_id: failedTraining.extraction_id || undefined,
         hyperparameters: failedTraining.hyperparameters,
       };
 

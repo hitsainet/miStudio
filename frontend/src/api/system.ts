@@ -68,11 +68,11 @@ export async function getGPUMetrics(gpuId: number = 0): Promise<GPUMetricsRespon
  */
 export async function getAllGPUMetrics(): Promise<{
   gpu_count: number;
-  gpus: Array<ReturnType<GPUMetricsResponse['metrics']['toJSON']>>;
+  gpus: Array<GPUMetricsResponse['metrics']>;
 }> {
   return fetchAPI<{
     gpu_count: number;
-    gpus: Array<ReturnType<GPUMetricsResponse['metrics']['toJSON']>>;
+    gpus: Array<GPUMetricsResponse['metrics']>;
   }>('/system/gpu-metrics/all');
 }
 

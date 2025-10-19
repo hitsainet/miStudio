@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Play, Star, Save, AlertCircle, Info } from 'lucide-react';
+import { X, Play, Save, AlertCircle, Info } from 'lucide-react';
 import { Model, ActivationExtractionConfig as ExtractionConfig } from '../../types/model';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
@@ -527,7 +527,7 @@ export function ActivationExtractionConfig({
               ) : resourceEstimates ? (
                 <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg text-sm">
                   <div className="flex items-center gap-2 font-medium mb-3 text-slate-300">
-                    <Info className="w-4 h-4 text-blue-400" title="GPU memory, disk space, and processing time estimates" />
+                    <Info className="w-4 h-4 text-blue-400" />
                     <span>Resource Requirements:</span>
                   </div>
 

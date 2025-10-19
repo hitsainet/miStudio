@@ -349,7 +349,7 @@ export function ModelPreviewModal({
               {onDownload && (
                 <button
                   onClick={handleDownload}
-                  disabled={modelInfo.unsupportedArchitecture || (modelInfo.requiresTrustRemoteCode && !trustRemoteCode)}
+                  disabled={!!modelInfo.unsupportedArchitecture || (modelInfo.requiresTrustRemoteCode && !trustRemoteCode)}
                   className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg transition-colors text-white font-medium flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />

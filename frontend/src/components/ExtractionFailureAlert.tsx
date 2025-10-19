@@ -6,7 +6,6 @@
  * Designed to appear within model tiles for immediate visibility.
  */
 
-import React from 'react';
 import { AlertCircle, RefreshCw, X } from 'lucide-react';
 import { Model } from '../types/model';
 

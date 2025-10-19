@@ -22,7 +22,7 @@ interface ModelCardProps {
   onCancel: (id: string) => void;
 }
 
-export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDeleteExtractions, onDelete, onCancel }: ModelCardProps) {
+export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDelete, onCancel }: ModelCardProps) {
   const isActive = model.status === ModelStatus.DOWNLOADING ||
                    model.status === ModelStatus.LOADING ||
                    model.status === ModelStatus.QUANTIZING;

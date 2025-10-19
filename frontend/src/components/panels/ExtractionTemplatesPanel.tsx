@@ -58,9 +58,9 @@ export function ExtractionTemplatesPanel() {
   };
 
   // Handle create template
-  const handleCreate = async (data: ExtractionTemplateCreate) => {
+  const handleCreate = async (data: ExtractionTemplateCreate | ExtractionTemplateUpdate) => {
     try {
-      await createTemplate(data);
+      await createTemplate(data as ExtractionTemplateCreate);
       showNotification('success', 'Template created successfully');
       setActiveTab('all');
       fetchFavorites(); // Refresh favorites if new template is favorite

@@ -25,6 +25,7 @@
 import { useEffect } from 'react';
 import { websocketClient } from '../api/websocket';
 import { useTrainingsStore } from '../stores/trainingsStore';
+import { TrainingStatus } from '../types/training';
 import type {
   TrainingProgressEvent,
   CheckpointCreatedEvent,
@@ -78,7 +79,7 @@ export const useTrainingWebSocket = (trainingIds: string[]) => {
           case 'completed':
             // Training completed
             updateTrainingStatus(event.data.training_id, {
-              status: 'completed',
+              status: TrainingStatus.COMPLETED,
               progress: 100.0,
               completed_at: new Date().toISOString(),
             });
@@ -87,7 +88,7 @@ export const useTrainingWebSocket = (trainingIds: string[]) => {
           case 'failed':
             // Training failed
             updateTrainingStatus(event.data.training_id, {
-              status: 'failed',
+              status: TrainingStatus.FAILED,
               error_message: event.data.error_message,
             });
             break;

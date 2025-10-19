@@ -300,10 +300,10 @@
   - [x] 18.9 Add ghost gradient penalty to reduce dead neurons (TDD line 339, Mock UI lines 1797-1814)
   - [ ] 18.10 Test ghost gradient penalty: verify dead neuron count decreases with penalty enabled
 
-- [ ] 19.0 Phase 19: Testing - Unit Tests
-  - [ ] 19.1 Write unit tests for `SparseAutoencoder` forward pass: verify output shapes, no NaN values (TDD lines 1242-1252)
-  - [ ] 19.2 Write unit tests for SAE loss calculation: verify reconstruction loss + L1 penalty (TDD lines 1242-1252)
-  - [ ] 19.3 Write unit tests for `HyperparametersSchema` validation: valid config, invalid ranges (TDD lines 1222-1239)
+- [~] 19.0 Phase 19: Testing - Unit Tests
+  - [x] 19.1 Write unit tests for `SparseAutoencoder` forward pass: verify output shapes, no NaN values (TDD lines 1242-1252)
+  - [x] 19.2 Write unit tests for SAE loss calculation: verify reconstruction loss + L1 penalty (TDD lines 1242-1252)
+  - [x] 19.3 Write unit tests for `HyperparametersSchema` validation: valid config, invalid ranges (TDD lines 1222-1239)
   - [ ] 19.4 Write unit tests for `TrainingService.create_training()`: verify DB record created, Celery task enqueued
   - [ ] 19.5 Write unit tests for `TrainingService.pause_training()`: verify Redis signal set, status updated
   - [ ] 19.6 Write unit tests for `CheckpointService.save_checkpoint()`: verify safetensors file saved, DB record created

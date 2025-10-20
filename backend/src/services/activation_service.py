@@ -625,24 +625,81 @@ class ActivationService:
                             logger.warning(f"Failed to write incremental metadata: {e}")
 
             # Concatenate all batch files for each layer to create final activations
-            logger.info("Concatenating batch activations into final arrays")
+            # Use memory-efficient chunked concatenation to avoid OOM during large extractions
+            logger.info("Concatenating batch activations into final arrays (memory-efficient mode)")
             activations = {}
             for layer_name, temp_files in accumulated_files.items():
-                # Load all batch files for this layer
-                batch_arrays = []
-                for temp_file_path in temp_files:
-                    batch_array = np.load(temp_file_path)
-                    batch_arrays.append(batch_array)
+                if not temp_files:
+                    continue
 
-                # Concatenate along batch dimension
-                if batch_arrays:
-                    activations[layer_name] = np.concatenate(batch_arrays, axis=0)
-                    logger.info(f"Concatenated {len(batch_arrays)} batches for {layer_name}: final shape={activations[layer_name].shape}")
+                logger.info(f"Processing {len(temp_files)} batch files for {layer_name}")
 
-                # Clean up temporary files
+                # Strategy: Use numpy.memmap for zero-copy concatenation
+                # 1. Determine final shape by loading first file
+                # 2. Pre-allocate output file with final shape
+                # 3. Copy batches directly into output file
+                # 4. Clean up temp files as we go
+
+                # Load first file to get shape and dtype
+                first_array = np.load(temp_files[0])
+                sample_shape = first_array.shape[1:]  # Shape without batch dimension
+                dtype = first_array.dtype
+
+                # Calculate total samples across all batches
+                total_samples = 0
+                batch_sizes = []
                 for temp_file_path in temp_files:
+                    arr = np.load(temp_file_path, mmap_mode='r')  # Memory-mapped read
+                    batch_sizes.append(arr.shape[0])
+                    total_samples += arr.shape[0]
+
+                # Create output file path
+                final_shape = (total_samples,) + sample_shape
+                output_file = output_dir / f"{layer_name}_temp_concat.npy"
+
+                logger.info(f"Creating memory-mapped output for {layer_name}: shape={final_shape}, dtype={dtype}")
+
+                # Pre-allocate output array as memory-mapped file
+                final_array = np.lib.format.open_memmap(
+                    str(output_file),
+                    mode='w+',
+                    dtype=dtype,
+                    shape=final_shape
+                )
+
+                # Copy batches into final array in chunks
+                current_idx = 0
+                for i, (temp_file_path, batch_size) in enumerate(zip(temp_files, batch_sizes)):
+                    # Load batch as memory-mapped array (no memory allocation)
+                    batch_array = np.load(temp_file_path, mmap_mode='r')
+
+                    # Copy directly into output file
+                    final_array[current_idx:current_idx + batch_size] = batch_array
+                    current_idx += batch_size
+
+                    # Force flush to disk every 10 batches to free memory
+                    if i % 10 == 0:
+                        final_array.flush()
+
+                    # Immediately delete temp file to free disk space
                     try:
                         Path(temp_file_path).unlink()
+                    except Exception as e:
+                        logger.warning(f"Failed to delete temp file {temp_file_path}: {e}")
+
+                # Final flush
+                final_array.flush()
+
+                # Load final array (still memory-mapped, not in RAM)
+                activations[layer_name] = final_array
+
+                logger.info(f"Concatenated {len(temp_files)} batches for {layer_name}: final shape={final_array.shape}")
+
+                # Clean up any remaining temp files
+                for temp_file_path in temp_files:
+                    try:
+                        if Path(temp_file_path).exists():
+                            Path(temp_file_path).unlink()
                     except Exception as e:
                         logger.warning(f"Failed to delete temp file {temp_file_path}: {e}")
 
@@ -657,6 +714,10 @@ class ActivationService:
         """
         Save activations to disk as .npy files.
 
+        Handles both regular numpy arrays and memory-mapped arrays.
+        For memory-mapped arrays created during concatenation, renames the file
+        instead of copying to avoid memory overhead.
+
         Args:
             output_dir: Directory to save files
             activations: Dictionary of activations
@@ -667,18 +728,36 @@ class ActivationService:
         saved_files = []
 
         for layer_name, activation_array in activations.items():
-            # Create filename
+            # Create final filename
             filename = f"{layer_name}.npy"
             filepath = output_dir / filename
 
-            # Save as numpy array
-            np.save(filepath, activation_array)
+            # Check if this is a memory-mapped array from concatenation
+            temp_concat_file = output_dir / f"{layer_name}_temp_concat.npy"
+
+            if temp_concat_file.exists() and isinstance(activation_array, np.memmap):
+                # This is a memory-mapped array - just rename the file
+                # First, ensure all data is flushed to disk
+                if hasattr(activation_array, 'flush'):
+                    activation_array.flush()
+
+                # Delete reference to allow file rename
+                del activation_array
+
+                # Rename temp file to final filename
+                temp_concat_file.rename(filepath)
+                logger.debug(
+                    f"Renamed memory-mapped file for {layer_name} (zero-copy save)"
+                )
+            else:
+                # Regular array - save normally
+                np.save(filepath, activation_array)
+                logger.debug(
+                    f"Saved {layer_name}: shape={activation_array.shape}, "
+                    f"dtype={activation_array.dtype}, size={activation_array.nbytes / 1024 / 1024:.2f}MB"
+                )
 
             saved_files.append(filename)
-            logger.debug(
-                f"Saved {layer_name}: shape={activation_array.shape}, "
-                f"dtype={activation_array.dtype}, size={activation_array.nbytes / 1024 / 1024:.2f}MB"
-            )
 
         return saved_files
 

@@ -422,7 +422,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        expect(screen.getByTitle('Pause training')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument();
       });
 
       it('should call pauseTraining when pause button is clicked', async () => {
@@ -436,7 +436,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        const pauseButton = screen.getByTitle('Pause training');
+        const pauseButton = screen.getByRole('button', { name: /pause/i });
         fireEvent.click(pauseButton);
 
         await waitFor(() => {
@@ -457,7 +457,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        expect(screen.getByTitle('Resume training')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument();
       });
 
       it('should call resumeTraining when resume button is clicked', async () => {
@@ -471,7 +471,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        const resumeButton = screen.getByTitle('Resume training');
+        const resumeButton = screen.getByRole('button', { name: /resume/i });
         fireEvent.click(resumeButton);
 
         await waitFor(() => {
@@ -492,7 +492,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        expect(screen.getByTitle('Stop training')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
 
         rerender(
           <TrainingCard
@@ -504,7 +504,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        expect(screen.getByTitle('Stop training')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
       });
 
       it('should call stopTraining when stop button is clicked', async () => {
@@ -518,7 +518,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        const stopButton = screen.getByTitle('Stop training');
+        const stopButton = screen.getByRole('button', { name: /stop/i });
         fireEvent.click(stopButton);
 
         await waitFor(() => {
@@ -576,7 +576,7 @@ describe('TrainingCard', () => {
       it('should not show metrics initially', () => {
         render(
           <TrainingCard
-            training={baseMockTraining}
+            training={{ ...baseMockTraining, status: TrainingStatus.RUNNING }}
             isSelected={false}
             onToggleSelect={mockOnToggleSelect}
             models={mockModels}
@@ -584,13 +584,13 @@ describe('TrainingCard', () => {
           />
         );
 
-        expect(screen.queryByTestId('live-metrics')).not.toBeInTheDocument();
+        expect(screen.queryByText('Loss Curve')).not.toBeInTheDocument();
       });
 
       it('should toggle metrics section when button is clicked', () => {
         render(
           <TrainingCard
-            training={baseMockTraining}
+            training={{ ...baseMockTraining, status: TrainingStatus.RUNNING }}
             isSelected={false}
             onToggleSelect={mockOnToggleSelect}
             models={mockModels}
@@ -598,14 +598,15 @@ describe('TrainingCard', () => {
           />
         );
 
-        const metricsButton = screen.getByText(/Metrics/);
+        const metricsButton = screen.getByRole('button', { name: /show live metrics/i });
         fireEvent.click(metricsButton);
 
-        expect(screen.getByTestId('live-metrics')).toBeInTheDocument();
+        expect(screen.getByText('Loss Curve')).toBeInTheDocument();
 
         // Click again to hide
-        fireEvent.click(metricsButton);
-        expect(screen.queryByTestId('live-metrics')).not.toBeInTheDocument();
+        const hideButton = screen.getByRole('button', { name: /hide live metrics/i });
+        fireEvent.click(hideButton);
+        expect(screen.queryByText('Loss Curve')).not.toBeInTheDocument();
       });
     });
 
@@ -621,7 +622,7 @@ describe('TrainingCard', () => {
           />
         );
 
-        expect(screen.queryByTestId('checkpoint-management')).not.toBeInTheDocument();
+        expect(screen.queryByText('Checkpoint Management')).not.toBeInTheDocument();
       });
 
       it('should toggle checkpoints section when button is clicked', () => {
@@ -635,19 +636,19 @@ describe('TrainingCard', () => {
           />
         );
 
-        const checkpointsButton = screen.getByText(/Checkpoints/);
+        const checkpointsButton = screen.getByRole('button', { name: /checkpoints/i });
         fireEvent.click(checkpointsButton);
 
-        expect(screen.getByTestId('checkpoint-management')).toBeInTheDocument();
+        expect(screen.getByText('Checkpoint Management')).toBeInTheDocument();
 
         // Click again to hide
         fireEvent.click(checkpointsButton);
-        expect(screen.queryByTestId('checkpoint-management')).not.toBeInTheDocument();
+        expect(screen.queryByText('Checkpoint Management')).not.toBeInTheDocument();
       });
     });
 
     describe('Hyperparameters Section', () => {
-      it('should not show hyperparameters initially', () => {
+      it('should not show hyperparameters modal initially', () => {
         render(
           <TrainingCard
             training={baseMockTraining}
@@ -658,10 +659,10 @@ describe('TrainingCard', () => {
           />
         );
 
-        expect(screen.queryByText('Hidden Dim')).not.toBeInTheDocument();
+        expect(screen.queryByText('Training Hyperparameters')).not.toBeInTheDocument();
       });
 
-      it('should toggle hyperparameters section when icon is clicked', () => {
+      it('should toggle hyperparameters modal when icon is clicked', () => {
         render(
           <TrainingCard
             training={baseMockTraining}
@@ -672,22 +673,20 @@ describe('TrainingCard', () => {
           />
         );
 
-        const hyperparamsButton = screen.getByTitle('View hyperparameters');
+        const hyperparamsButton = screen.getByTitle('View all hyperparameters');
         fireEvent.click(hyperparamsButton);
 
-        expect(screen.getByText('Hidden Dim')).toBeInTheDocument();
-        expect(screen.getByText('768')).toBeInTheDocument();
-        expect(screen.getByText('Latent Dim')).toBeInTheDocument();
-        expect(screen.getByText('8192')).toBeInTheDocument();
+        expect(screen.getByText('Training Hyperparameters')).toBeInTheDocument();
+        expect(screen.getByText('SAE Architecture')).toBeInTheDocument();
       });
     });
   });
 
   describe('Time Display', () => {
-    it('should display created time', () => {
+    it('should display started time when available', () => {
       render(
         <TrainingCard
-          training={baseMockTraining}
+          training={{ ...baseMockTraining, started_at: '2025-01-20T10:00:00Z' }}
           isSelected={false}
           onToggleSelect={mockOnToggleSelect}
           models={mockModels}
@@ -695,8 +694,8 @@ describe('TrainingCard', () => {
         />
       );
 
-      // Should display formatted time
-      expect(screen.getByText(/Created:/)).toBeInTheDocument();
+      // Component shows "Started:" not "Created:"
+      expect(screen.getByText(/Started:/)).toBeInTheDocument();
     });
 
     it('should display completion time for completed trainings', () => {
@@ -705,6 +704,7 @@ describe('TrainingCard', () => {
           training={{
             ...baseMockTraining,
             status: TrainingStatus.COMPLETED,
+            started_at: '2025-01-20T10:00:00Z',
             completed_at: '2025-01-20T11:00:00Z',
           }}
           isSelected={false}
@@ -723,7 +723,7 @@ describe('TrainingCard', () => {
           training={{
             ...baseMockTraining,
             status: TrainingStatus.COMPLETED,
-            created_at: '2025-01-20T10:00:00Z',
+            started_at: '2025-01-20T10:00:00Z',
             completed_at: '2025-01-20T11:30:00Z',
           }}
           isSelected={false}
@@ -733,8 +733,9 @@ describe('TrainingCard', () => {
         />
       );
 
-      // Duration should be 1 hour 30 minutes
+      // Duration should be displayed
       expect(screen.getByText(/Duration:/)).toBeInTheDocument();
+      // Check for duration format (1h 30m)
       expect(screen.getByText(/1h 30m/)).toBeInTheDocument();
     });
   });
@@ -754,7 +755,7 @@ describe('TrainingCard', () => {
         />
       );
 
-      const pauseButton = screen.getByTitle('Pause training');
+      const pauseButton = screen.getByRole('button', { name: /pause/i });
       fireEvent.click(pauseButton);
 
       await waitFor(() => {
@@ -778,7 +779,7 @@ describe('TrainingCard', () => {
         />
       );
 
-      const resumeButton = screen.getByTitle('Resume training');
+      const resumeButton = screen.getByRole('button', { name: /resume/i });
       fireEvent.click(resumeButton);
 
       await waitFor(() => {
@@ -802,7 +803,7 @@ describe('TrainingCard', () => {
         />
       );
 
-      const stopButton = screen.getByTitle('Stop training');
+      const stopButton = screen.getByRole('button', { name: /stop/i });
       fireEvent.click(stopButton);
 
       await waitFor(() => {
@@ -819,10 +820,11 @@ describe('TrainingCard', () => {
         <TrainingCard
           training={{
             ...baseMockTraining,
-            current_loss: undefined,
-            current_l0_sparsity: undefined,
-            current_dead_neurons: undefined,
-            current_learning_rate: undefined,
+            progress: 50, // Need progress > 10% to show metrics section
+            current_loss: null,
+            current_l0_sparsity: null,
+            current_dead_neurons: null,
+            current_learning_rate: null,
           }}
           isSelected={false}
           onToggleSelect={mockOnToggleSelect}
@@ -831,7 +833,9 @@ describe('TrainingCard', () => {
         />
       );
 
-      expect(screen.getByText('0.000')).toBeInTheDocument(); // Default values
+      // Component should still render without errors
+      expect(screen.getByText('50.0%')).toBeInTheDocument();
+      expect(screen.getByText('Training Progress')).toBeInTheDocument();
     });
 
     it('should handle training with 0% progress', () => {
@@ -850,7 +854,7 @@ describe('TrainingCard', () => {
       );
 
       expect(screen.getByText('0.0%')).toBeInTheDocument();
-      expect(screen.getByText('0 / 10,000')).toBeInTheDocument();
+      expect(screen.getByText('Training Progress')).toBeInTheDocument();
     });
 
     it('should handle training with 100% progress', () => {

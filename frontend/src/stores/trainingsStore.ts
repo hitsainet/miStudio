@@ -46,6 +46,9 @@ export interface TrainingConfig {
   latent_dim: number;
   architecture_type: SAEArchitectureType;
 
+  // Layer configuration
+  training_layers: number[];
+
   // Sparsity
   l1_alpha: number;
   target_l0?: number;
@@ -149,6 +152,9 @@ const defaultConfig: TrainingConfig = {
   hidden_dim: 768,
   latent_dim: 8192, // 8-16x expansion ratio
   architecture_type: SAEArchitectureType.STANDARD,
+
+  // Layer configuration - default to layer 0 (single-layer training)
+  training_layers: [0],
 
   // Sparsity - moderate L1 penalty
   l1_alpha: 0.001,

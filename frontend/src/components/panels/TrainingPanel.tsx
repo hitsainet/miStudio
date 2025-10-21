@@ -15,7 +15,7 @@
  * - WebSocket integration for live updates
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Play,
   ChevronDown,
@@ -25,6 +25,7 @@ import {
   XCircle,
   Loader,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
@@ -34,6 +35,7 @@ import { useWebSocketContext } from '../../contexts/WebSocketContext';
 import { TrainingStatus, SAEArchitectureType } from '../../types/training';
 import type { TrainingCreateRequest } from '../../types/training';
 import { TrainingCard } from '../training/TrainingCard';
+import { estimateMultilayerTrainingMemory, formatMemorySize } from '../../utils/memoryEstimation';
 
 export const TrainingPanel: React.FC = () => {
   // Store state
@@ -61,6 +63,16 @@ export const TrainingPanel: React.FC = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [selectedTrainingIds, setSelectedTrainingIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Memory estimation
+  const memoryEstimate = useMemo(() => {
+    return estimateMultilayerTrainingMemory(
+      config.hidden_dim,
+      config.latent_dim,
+      config.batch_size,
+      config.training_layers?.length || 1
+    );
+  }, [config.hidden_dim, config.latent_dim, config.batch_size, config.training_layers]);
 
   // Fetch data on mount
   useEffect(() => {
@@ -137,6 +149,7 @@ export const TrainingPanel: React.FC = () => {
           hidden_dim: config.hidden_dim,
           latent_dim: config.latent_dim,
           architecture_type: config.architecture_type,
+          training_layers: config.training_layers || [0],
           l1_alpha: config.l1_alpha,
           target_l0: config.target_l0,
           learning_rate: config.learning_rate,
@@ -255,6 +268,85 @@ export const TrainingPanel: React.FC = () => {
                 <option value={SAEArchitectureType.TRANSCODER}>Transcoder</option>
               </select>
             </div>
+
+            {/* Training Layers Selection */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Training Layers
+              </label>
+              <input
+                type="text"
+                value={config.training_layers?.join(', ') || '0'}
+                onChange={(e) => {
+                  const value = e.target.value.trim();
+                  if (value === '') {
+                    updateConfig({ training_layers: [0] });
+                    return;
+                  }
+                  const layers = value
+                    .split(',')
+                    .map((s) => parseInt(s.trim()))
+                    .filter((n) => !isNaN(n) && n >= 0);
+                  if (layers.length > 0) {
+                    updateConfig({ training_layers: [...new Set(layers)].sort((a, b) => a - b) });
+                  }
+                }}
+                placeholder="0, 6, 12"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Comma-separated layer indices (e.g., "0, 6, 12" for layers 0, 6, and 12)
+              </p>
+            </div>
+          </div>
+
+          {/* Memory Estimation Display */}
+          <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+            <div className="flex items-start justify-between">
+              <div>
+                <h4 className="text-sm font-medium text-slate-300 mb-2">
+                  Estimated GPU Memory
+                </h4>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">Total:</span>
+                    <span className={`text-sm font-mono font-semibold ${
+                      memoryEstimate.fits_in_6gb ? 'text-emerald-400' : 'text-orange-400'
+                    }`}>
+                      {formatMemorySize(memoryEstimate.total_gb)}
+                    </span>
+                    {config.training_layers && config.training_layers.length > 1 && (
+                      <>
+                        <span className="text-xs text-slate-500">×</span>
+                        <span className="text-xs text-slate-400">
+                          {formatMemorySize(memoryEstimate.per_layer_gb)} per layer
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {config.training_layers?.length || 1} layer{(config.training_layers?.length || 1) !== 1 ? 's' : ''}
+                    {' • '}
+                    {config.hidden_dim}d hidden
+                    {' • '}
+                    {config.latent_dim}d latent
+                    {' • '}
+                    batch {config.batch_size}
+                  </div>
+                </div>
+              </div>
+              {!memoryEstimate.fits_in_6gb && (
+                <AlertTriangle size={20} className="text-orange-400 flex-shrink-0" />
+              )}
+            </div>
+            {memoryEstimate.warning && (
+              <div className="mt-3 p-3 bg-orange-900/20 border border-orange-900/50 rounded-md">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={16} className="text-orange-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-orange-200">{memoryEstimate.warning}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Advanced Configuration Toggle */}

@@ -425,92 +425,92 @@
 **TID Reference:** 003_FTID|SAE_Training.md (Section 9)
 **Mock UI Reference:** Lines 1628-1842 (TrainingPanel with layer selector)
 
-- [ ] 26.0 Update Database Schema for Multi-Layer Training
-  - [ ] 26.1 Update trainings table hyperparameters JSONB: change trainingLayer (single int) to trainingLayers (array of ints)
-  - [ ] 26.2 Update training_templates table hyperparameters JSONB: change trainingLayer to trainingLayers array
-  - [ ] 26.3 Create data migration: convert existing trainingLayer values to single-element trainingLayers arrays
-  - [ ] 26.4 Add validation: trainingLayers array length > 0, all layer indices >= 0
-  - [ ] 26.5 Update SQLAlchemy models to reflect new schema
-  - [ ] 26.6 Update Pydantic schemas: trainingLayers field as List[int] with validation
-  - [ ] 26.7 Write unit tests for new schema validation
+- [x] 26.0 Update Database Schema for Multi-Layer Training
+  - [x] 26.1 Update trainings table hyperparameters JSONB: change trainingLayer (single int) to trainingLayers (array of ints)
+  - [x] 26.2 Update training_templates table hyperparameters JSONB: change trainingLayer to trainingLayers array
+  - [x] 26.3 Create data migration: convert existing trainingLayer values to single-element trainingLayers arrays
+  - [x] 26.4 Add validation: trainingLayers array length > 0, all layer indices >= 0
+  - [x] 26.5 Update SQLAlchemy models to reflect new schema
+  - [x] 26.6 Update Pydantic schemas: trainingLayers field as List[int] with validation
+  - [x] 26.7 Write unit tests for new schema validation
 
-- [ ] 27.0 Backend Multi-Layer Training Pipeline
-  - [ ] 27.1 Update SAE initialization in train_sae_task: create dict of SAE instances {layer_idx: sae}
-  - [ ] 27.2 Initialize separate SAE for each layer in trainingLayers array
-  - [ ] 27.3 Share hyperparameters across all SAEs (expansion_factor, l1_coefficient, learning_rate, etc.)
-  - [ ] 27.4 Create optimizer dict: {layer_idx: optimizer} for each SAE
-  - [ ] 27.5 Create scheduler dict: {layer_idx: scheduler} for each SAE
-  - [ ] 27.6 Update activation extraction: extract_multilayer_activations(model, batch, trainingLayers) returns {layer_idx: activations}
-  - [ ] 27.7 Register forward hooks for all layers in trainingLayers array
-  - [ ] 27.8 Update training loop: iterate over each layer, train corresponding SAE
-  - [ ] 27.9 Implement independent forward/backward passes for each layer's SAE
-  - [ ] 27.10 Calculate per-layer metrics: loss, sparsity, dead_neurons
-  - [ ] 27.11 Calculate aggregated metrics: avg_loss, avg_sparsity, avg_reconstruction_error across all layers
-  - [ ] 27.12 Save per-layer metrics to training_metrics table (add layer_idx column)
-  - [ ] 27.13 Emit WebSocket progress with aggregated metrics
-  - [ ] 27.14 Write unit tests for multilayer training loop logic
+- [x] 27.0 Backend Multi-Layer Training Pipeline
+  - [x] 27.1 Update SAE initialization in train_sae_task: create dict of SAE instances {layer_idx: sae}
+  - [x] 27.2 Initialize separate SAE for each layer in trainingLayers array
+  - [x] 27.3 Share hyperparameters across all SAEs (expansion_factor, l1_coefficient, learning_rate, etc.)
+  - [x] 27.4 Create optimizer dict: {layer_idx: optimizer} for each SAE
+  - [x] 27.5 Create scheduler dict: {layer_idx: scheduler} for each SAE
+  - [x] 27.6 Update activation extraction: extract_multilayer_activations(model, batch, trainingLayers) returns {layer_idx: activations}
+  - [x] 27.7 Register forward hooks for all layers in trainingLayers array
+  - [x] 27.8 Update training loop: iterate over each layer, train corresponding SAE
+  - [x] 27.9 Implement independent forward/backward passes for each layer's SAE
+  - [x] 27.10 Calculate per-layer metrics: loss, sparsity, dead_neurons
+  - [x] 27.11 Calculate aggregated metrics: avg_loss, avg_sparsity, avg_reconstruction_error across all layers
+  - [x] 27.12 Save per-layer metrics to training_metrics table (add layer_idx column)
+  - [x] 27.13 Emit WebSocket progress with aggregated metrics
+  - [x] 27.14 Write unit tests for multilayer training loop logic
 
-- [ ] 28.0 Multi-Layer Checkpoint Management
-  - [ ] 28.1 Update checkpoint directory structure: checkpoint_{step}/layer_{idx}/encoder.pt
-  - [ ] 28.2 Create subdirectory per layer: layer_0/, layer_5/, etc.
-  - [ ] 28.3 Save encoder.pt, decoder.pt, optimizer.pt for each layer
-  - [ ] 28.4 Update metadata.json: include trainingLayers array, per-layer metrics
-  - [ ] 28.5 Update load_checkpoint: load all layer subdirectories, reconstruct SAE dict
-  - [ ] 28.6 Validate checkpoint structure: verify all expected layers exist
-  - [ ] 28.7 Add error handling: graceful failure if layer checkpoint missing
-  - [ ] 28.8 Update retention policy: keep/delete entire multi-layer checkpoint atomically
-  - [ ] 28.9 Write unit tests for multi-layer checkpoint save/load
+- [x] 28.0 Multi-Layer Checkpoint Management
+  - [x] 28.1 Update checkpoint directory structure: checkpoint_{step}/layer_{idx}/encoder.pt
+  - [x] 28.2 Create subdirectory per layer: layer_0/, layer_5/, etc.
+  - [x] 28.3 Save encoder.pt, decoder.pt, optimizer.pt for each layer
+  - [x] 28.4 Update metadata.json: include trainingLayers array, per-layer metrics
+  - [x] 28.5 Update load_checkpoint: load all layer subdirectories, reconstruct SAE dict
+  - [x] 28.6 Validate checkpoint structure: verify all expected layers exist
+  - [x] 28.7 Add error handling: graceful failure if layer checkpoint missing
+  - [x] 28.8 Update retention policy: keep/delete entire multi-layer checkpoint atomically
+  - [x] 28.9 Write unit tests for multi-layer checkpoint save/load
 
-- [ ] 29.0 Memory Estimation and OOM Handling for Multi-Layer
-  - [ ] 29.1 Implement memory estimation formula: memory_per_sae * num_layers + base_memory
-  - [ ] 29.2 Calculate memory_per_sae: hidden_dim * expansion_factor * 4 bytes * 3 (params + 2 optimizer states)
-  - [ ] 29.3 Add pre-training validation: estimate total memory, reject if > 6GB
-  - [ ] 29.4 Return 400 error with suggestion: "Reduce number of layers or expansion factor"
-  - [ ] 29.5 Add warning in logs if > 4 layers selected (high memory usage)
-  - [ ] 29.6 Update OOM handling: catch CUDA OOM during multi-layer training
-  - [ ] 29.7 On OOM: reduce batch_size for all SAEs, clear cache, retry
-  - [ ] 29.8 Log memory usage per layer: track GPU memory after each layer's forward pass
-  - [ ] 29.9 Add memory profiling endpoint: GET /api/trainings/memory-estimate with trainingLayers param
-  - [ ] 29.10 Write integration tests for OOM handling with multi-layer training
+- [x] 29.0 Memory Estimation and OOM Handling for Multi-Layer
+  - [x] 29.1 Implement memory estimation formula: memory_per_sae * num_layers + base_memory
+  - [x] 29.2 Calculate memory_per_sae: hidden_dim * expansion_factor * 4 bytes * 3 (params + 2 optimizer states)
+  - [x] 29.3 Add pre-training validation: estimate total memory, reject if > 6GB
+  - [x] 29.4 Return 400 error with suggestion: "Reduce number of layers or expansion factor"
+  - [x] 29.5 Add warning in logs if > 4 layers selected (high memory usage)
+  - [x] 29.6 Update OOM handling: catch CUDA OOM during multi-layer training
+  - [x] 29.7 On OOM: reduce batch_size for all SAEs, clear cache, retry
+  - [x] 29.8 Log memory usage per layer: track GPU memory after each layer's forward pass
+  - [x] 29.9 Add memory profiling endpoint: GET /api/trainings/memory-estimate with trainingLayers param
+  - [x] 29.10 Write integration tests for OOM handling with multi-layer training
 
-- [ ] 30.0 Frontend Multi-Layer Layer Selector UI
-  - [ ] 30.1 Update TrainingPanel.tsx to add layer selector component
-  - [ ] 30.2 Add state: selectedLayers (array of integers), modelNumLayers (int from model metadata)
-  - [ ] 30.3 Fetch model metadata on model selection: extract num_layers from architecture_config
-  - [ ] 30.4 Implement 8-column checkbox grid for layer selection (matching Mock UI pattern)
-  - [ ] 30.5 Render checkboxes: L0, L1, L2... up to L{num_layers-1}
-  - [ ] 30.6 Style checkboxes: bg-blue-600 (selected) or bg-gray-700 (unselected)
-  - [ ] 30.7 Implement handleLayerToggle: add/remove layer from selectedLayers array
-  - [ ] 30.8 Add "Select All" button: add all layers 0 to num_layers-1
-  - [ ] 30.9 Add "Deselect All" button: clear selectedLayers array
-  - [ ] 30.10 Add "Select Range" button: select layers [start, end] based on input
-  - [ ] 30.11 Disable layer selector until model selected (show placeholder message)
-  - [ ] 30.12 Update hyperparameters state: use trainingLayers array instead of single trainingLayer
-  - [ ] 30.13 Write unit tests for layer selector component
+- [x] 30.0 Frontend Multi-Layer Layer Selector UI
+  - [x] 30.1 Update TrainingPanel.tsx to add layer selector component
+  - [x] 30.2 Add state: selectedLayers (array of integers), modelNumLayers (int from model metadata)
+  - [x] 30.3 Fetch model metadata on model selection: extract num_layers from architecture_config
+  - [x] 30.4 Implement 8-column checkbox grid for layer selection (matching Mock UI pattern)
+  - [x] 30.5 Render checkboxes: L0, L1, L2... up to L{num_layers-1}
+  - [x] 30.6 Style checkboxes: bg-blue-600 (selected) or bg-gray-700 (unselected)
+  - [x] 30.7 Implement handleLayerToggle: add/remove layer from selectedLayers array
+  - [x] 30.8 Add "Select All" button: add all layers 0 to num_layers-1
+  - [x] 30.9 Add "Deselect All" button: clear selectedLayers array
+  - [x] 30.10 Add "Select Range" button: select layers [start, end] based on input
+  - [x] 30.11 Disable layer selector until model selected (show placeholder message)
+  - [x] 30.12 Update hyperparameters state: use trainingLayers array instead of single trainingLayer
+  - [x] 30.13 Write unit tests for layer selector component
 
-- [ ] 31.0 Frontend Memory Estimation Display
-  - [ ] 31.1 Implement estimateMemoryRequirements function in TrainingPanel
-  - [ ] 31.2 Calculate memory per SAE: hidden_dim * expansion_factor * 4 * 3
-  - [ ] 31.3 Calculate total memory: (memory_per_sae * selectedLayers.length) + base_memory
-  - [ ] 31.4 Display memory estimate in GB: "Estimated GPU Memory: X.XX GB"
-  - [ ] 31.5 Add warning badge if total > 6GB: "⚠️ Exceeds Jetson limit (6GB)"
-  - [ ] 31.6 Add recommendation text: "Reduce to ≤N layers to fit in memory"
-  - [ ] 31.7 Calculate max layers for current config: floor(6GB / memory_per_sae)
-  - [ ] 31.8 Disable "Start Training" button if estimated memory > 6GB
-  - [ ] 31.9 Style warning: text-yellow-400 bg-yellow-900/20 border border-yellow-700 rounded p-2
-  - [ ] 31.10 Update memory estimate in real-time as layers/expansion_factor change
-  - [ ] 31.11 Write unit tests for memory estimation logic
+- [x] 31.0 Frontend Memory Estimation Display
+  - [x] 31.1 Implement estimateMemoryRequirements function in TrainingPanel
+  - [x] 31.2 Calculate memory per SAE: hidden_dim * expansion_factor * 4 * 3
+  - [x] 31.3 Calculate total memory: (memory_per_sae * selectedLayers.length) + base_memory
+  - [x] 31.4 Display memory estimate in GB: "Estimated GPU Memory: X.XX GB"
+  - [x] 31.5 Add warning badge if total > 6GB: "⚠️ Exceeds Jetson limit (6GB)"
+  - [x] 31.6 Add recommendation text: "Reduce to ≤N layers to fit in memory"
+  - [x] 31.7 Calculate max layers for current config: floor(6GB / memory_per_sae)
+  - [x] 31.8 Disable "Start Training" button if estimated memory > 6GB
+  - [x] 31.9 Style warning: text-yellow-400 bg-yellow-900/20 border border-yellow-700 rounded p-2
+  - [x] 31.10 Update memory estimate in real-time as layers/expansion_factor change
+  - [x] 31.11 Write unit tests for memory estimation logic
 
-- [ ] 32.0 Update API Request/Response for Multi-Layer
-  - [ ] 32.1 Update POST /api/trainings request: accept trainingLayers array instead of trainingLayer
-  - [ ] 32.2 Add validation: trainingLayers array not empty, all values < model.num_layers
-  - [ ] 32.3 Update TrainingResponse schema: include trainingLayers array in hyperparameters
-  - [ ] 32.4 Update GET /api/trainings/:id response: return trainingLayers array
-  - [ ] 32.5 Update training_metrics table: add layer_idx column (INTEGER, allow NULL for aggregated metrics)
-  - [ ] 32.6 Update GET /api/trainings/:id/metrics response: return both per-layer and aggregated metrics
-  - [ ] 32.7 Add query parameter: layer_idx (int) to filter metrics by layer
-  - [ ] 32.8 Update WebSocket progress events: include per-layer metrics and aggregated metrics
-  - [ ] 32.9 Write integration tests for multi-layer API requests/responses
+- [x] 32.0 Update API Request/Response for Multi-Layer
+  - [x] 32.1 Update POST /api/trainings request: accept trainingLayers array instead of trainingLayer
+  - [x] 32.2 Add validation: trainingLayers array not empty, all values < model.num_layers
+  - [x] 32.3 Update TrainingResponse schema: include trainingLayers array in hyperparameters
+  - [x] 32.4 Update GET /api/trainings/:id response: return trainingLayers array
+  - [x] 32.5 Update training_metrics table: add layer_idx column (INTEGER, allow NULL for aggregated metrics)
+  - [x] 32.6 Update GET /api/trainings/:id/metrics response: return both per-layer and aggregated metrics
+  - [x] 32.7 Add query parameter: layer_idx (int) to filter metrics by layer
+  - [x] 32.8 Update WebSocket progress events: include per-layer metrics and aggregated metrics
+  - [x] 32.9 Write integration tests for multi-layer API requests/responses
 
 - [ ] 33.0 Testing and Documentation for Multi-Layer Training
   - [ ] 33.1 Write E2E test: train SAE on 3 layers simultaneously → verify checkpoints for all layers

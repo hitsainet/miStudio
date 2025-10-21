@@ -66,6 +66,10 @@ export interface HyperparametersConfig {
   /** SAE architecture type */
   architecture_type: SAEArchitectureType;
 
+  // Layer configuration
+  /** List of layer indices to train SAEs on (e.g., [0, 6, 12]) */
+  training_layers: number[];
+
   // Sparsity
   /** L1 sparsity penalty coefficient */
   l1_alpha: number;

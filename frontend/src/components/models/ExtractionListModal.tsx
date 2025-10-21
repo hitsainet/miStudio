@@ -8,10 +8,12 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Activity, Calendar, Layers, Database, AlertCircle, Trash2 } from 'lucide-react';
+import { Activity, Layers, Database, AlertCircle, Trash2 } from 'lucide-react';
 import { Model } from '../../types/model';
 import { getModelExtractions, deleteExtractions } from '../../api/models';
 import { DeleteExtractionsModal } from './DeleteExtractionsModal';
+import { useDatasetsStore } from '../../stores/datasetsStore';
+import { useModelsStore } from '../../stores/modelsStore';
 
 interface ExtractionStatistics {
   shape: number[];
@@ -26,6 +28,7 @@ interface ExtractionStatistics {
 export interface Extraction {
   extraction_id: string;
   model_id: string;
+  dataset_id: string;
   status: string;
   architecture?: string;
   quantization?: string;
@@ -61,8 +64,21 @@ export function ExtractionListModal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
+  // Get datasets and models for name lookups
+  const datasets = useDatasetsStore((state) => state.datasets);
+  const models = useModelsStore((state) => state.models);
+  const fetchDatasets = useDatasetsStore((state) => state.fetchDatasets);
+  const fetchModels = useModelsStore((state) => state.fetchModels);
+
   useEffect(() => {
     fetchExtractions();
+    // Ensure datasets and models are loaded for name lookups
+    if (datasets.length === 0) {
+      fetchDatasets();
+    }
+    if (models.length === 0) {
+      fetchModels();
+    }
   }, [model.id]);
 
   const fetchExtractions = async () => {
@@ -79,8 +95,25 @@ export function ExtractionListModal({
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString();
+  };
+
+  const calculateDuration = (startTime: string, endTime: string): string => {
+    const start = new Date(startTime).getTime();
+    const end = new Date(endTime).getTime();
+    const diffMs = end - start;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const hours = Math.floor(diffSecs / 3600);
+    const mins = Math.floor((diffSecs % 3600) / 60);
+    const secs = diffSecs % 60;
+
+    if (hours > 0) {
+      return `${hours}h ${mins}m`;
+    } else if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
   };
 
   const getTotalSize = (extraction: Extraction) => {
@@ -251,15 +284,39 @@ export function ExtractionListModal({
                       <div className="flex items-center gap-2 mb-2">
                         <Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                         <h3 className="text-sm font-mono text-slate-100 truncate">
-                          {extraction.extraction_id}
+                          {extraction.extraction_id.slice(0, 24)}
                         </h3>
                         {getStatusBadge(extraction.status)}
                       </div>
+
+                      {/* Model + Dataset + Split */}
+                      <div className="flex items-center gap-2 mb-1 text-xs text-slate-300">
+                        <span>{models.find((m) => m.id === extraction.model_id)?.name || extraction.model_id}</span>
+                        <span className="text-slate-500">+</span>
+                        <span>
+                          {(() => {
+                            const dataset = datasets.find((d) => d.id === extraction.dataset_id);
+                            const datasetName = dataset?.name || extraction.dataset_id;
+                            const split = dataset?.metadata?.download?.split ? ` (${dataset.metadata.download.split})` : '';
+                            return `${datasetName}${split}`;
+                          })()}
+                        </span>
+                      </div>
+
+                      {/* Timing Information */}
+                      <div className="text-xs text-slate-400 mb-1">
+                        Started: {formatTime(extraction.created_at)}
+                        {extraction.completed_at && (
+                          <>
+                            {' • '}
+                            Completed: {formatTime(extraction.completed_at)}
+                            {' • '}
+                            Duration: {calculateDuration(extraction.created_at, extraction.completed_at)}
+                          </>
+                        )}
+                      </div>
+
                       <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          <span>{formatDate(extraction.created_at)}</span>
-                        </div>
                         <div className="flex items-center gap-1">
                           <Layers className="w-3 h-3" />
                           <span>{extraction.layer_indices.length} layer{extraction.layer_indices.length !== 1 ? 's' : ''}</span>

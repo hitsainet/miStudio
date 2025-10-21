@@ -631,10 +631,13 @@ async def list_model_extractions(
     for db_ext in db_extractions:
         extraction_map[db_ext.id] = {
             "extraction_id": db_ext.id,
+            "model_id": db_ext.model_id,
+            "dataset_id": db_ext.dataset_id,
             "status": db_ext.status.value,
             "progress": db_ext.progress,
             "samples_processed": db_ext.samples_processed,
             "max_samples": db_ext.max_samples,
+            "batch_size": db_ext.batch_size,
             "layer_indices": db_ext.layer_indices,
             "hook_types": db_ext.hook_types,
             "created_at": db_ext.created_at.isoformat(),

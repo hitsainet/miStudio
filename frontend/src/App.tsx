@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DatasetsPanel } from './components/panels/DatasetsPanel';
 import { ModelsPanel } from './components/panels/ModelsPanel';
-import { ExtractionTemplatesPanel } from './components/panels/ExtractionTemplatesPanel';
+import { TemplatesPanel } from './components/panels/TemplatesPanel';
 import { TrainingPanel } from './components/panels/TrainingPanel';
 import { SystemMonitor } from './components/SystemMonitor/SystemMonitor';
 import { CompactGPUStatus } from './components/SystemMonitor/CompactGPUStatus';
@@ -126,7 +126,7 @@ function AppContent() {
         {activePanel === 'datasets' && <DatasetsPanel />}
         {activePanel === 'models' && <ModelsPanel />}
         {activePanel === 'training' && <TrainingPanel />}
-        {activePanel === 'templates' && <ExtractionTemplatesPanel />}
+        {activePanel === 'templates' && <TemplatesPanel />}
         {activePanel === 'system' && <SystemMonitor />}
       </main>
     </div>

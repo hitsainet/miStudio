@@ -21,6 +21,15 @@ from .extraction_template import (
     ExtractionTemplateExport,
     ExtractionTemplateImport,
 )
+from .training_template import (
+    TrainingTemplateBase,
+    TrainingTemplateCreate,
+    TrainingTemplateUpdate,
+    TrainingTemplateResponse,
+    TrainingTemplateListResponse,
+    TrainingTemplateExport,
+    TrainingTemplateImport,
+)
 from .training import (
     SAEArchitectureType,
     TrainingHyperparameters,
@@ -50,6 +59,13 @@ __all__ = [
     "ExtractionTemplateListResponse",
     "ExtractionTemplateExport",
     "ExtractionTemplateImport",
+    "TrainingTemplateBase",
+    "TrainingTemplateCreate",
+    "TrainingTemplateUpdate",
+    "TrainingTemplateResponse",
+    "TrainingTemplateListResponse",
+    "TrainingTemplateExport",
+    "TrainingTemplateImport",
     "SAEArchitectureType",
     "TrainingHyperparameters",
     "TrainingCreate",

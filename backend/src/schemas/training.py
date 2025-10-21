@@ -32,6 +32,13 @@ class TrainingHyperparameters(BaseModel):
         description="SAE architecture: standard, skip, or transcoder"
     )
 
+    # Layer configuration
+    training_layers: List[int] = Field(
+        default=[0],
+        min_length=1,
+        description="List of layer indices to train SAEs on (e.g., [0, 6, 12])"
+    )
+
     # Sparsity
     l1_alpha: float = Field(..., gt=0, description="L1 sparsity penalty coefficient")
     target_l0: Optional[float] = Field(None, gt=0, le=1, description="Target L0 sparsity (fraction of active features)")
@@ -54,12 +61,25 @@ class TrainingHyperparameters(BaseModel):
     dead_neuron_threshold: int = Field(1000, gt=0, description="Steps before a neuron is considered dead")
     resample_dead_neurons: bool = Field(True, description="Resample dead neurons during training")
 
+    @field_validator("training_layers")
+    @classmethod
+    def validate_training_layers(cls, v: List[int]) -> List[int]:
+        """Validate training_layers array."""
+        if not v:
+            raise ValueError("training_layers must contain at least one layer")
+        if any(layer < 0 for layer in v):
+            raise ValueError("All layer indices must be non-negative")
+        if len(v) != len(set(v)):
+            raise ValueError("training_layers must not contain duplicate layer indices")
+        return sorted(v)  # Return sorted list for consistency
+
     model_config = {
         "json_schema_extra": {
             "example": {
                 "hidden_dim": 768,
                 "latent_dim": 16384,
                 "architecture_type": "standard",
+                "training_layers": [0, 6, 12],
                 "l1_alpha": 0.001,
                 "learning_rate": 0.0003,
                 "batch_size": 4096,

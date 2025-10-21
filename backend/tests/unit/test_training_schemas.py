@@ -664,3 +664,108 @@ class TestTrainingHyperparametersDefaults:
         )
 
         assert hp.dead_neuron_threshold == 1000
+
+    def test_default_training_layers(self):
+        """Test default training_layers is [0]."""
+        hp = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        assert hp.training_layers == [0]
+
+    def test_training_layers_single_layer(self):
+        """Test training_layers with single layer."""
+        hp = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+            training_layers=[6],
+        )
+
+        assert hp.training_layers == [6]
+
+    def test_training_layers_multiple_layers(self):
+        """Test training_layers with multiple layers."""
+        hp = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+            training_layers=[0, 6, 12, 18],
+        )
+
+        assert hp.training_layers == [0, 6, 12, 18]
+
+    def test_training_layers_sorted(self):
+        """Test that training_layers are automatically sorted."""
+        hp = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+            training_layers=[12, 0, 18, 6],  # Unsorted input
+        )
+
+        assert hp.training_layers == [0, 6, 12, 18]  # Should be sorted
+
+    def test_training_layers_empty_array_fails(self):
+        """Test that empty training_layers array fails validation."""
+        with pytest.raises(ValidationError) as exc_info:
+            TrainingHyperparameters(
+                hidden_dim=768,
+                latent_dim=16384,
+                l1_alpha=0.001,
+                learning_rate=0.0003,
+                batch_size=4096,
+                total_steps=100000,
+                training_layers=[],  # Empty array - invalid
+            )
+
+        # Check that validation failed (either from Pydantic min_length or custom validator)
+        errors = exc_info.value.errors()
+        assert len(errors) > 0
+        assert errors[0]['loc'] == ('training_layers',)
+
+    def test_training_layers_negative_index_fails(self):
+        """Test that negative layer indices fail validation."""
+        with pytest.raises(ValidationError) as exc_info:
+            TrainingHyperparameters(
+                hidden_dim=768,
+                latent_dim=16384,
+                l1_alpha=0.001,
+                learning_rate=0.0003,
+                batch_size=4096,
+                total_steps=100000,
+                training_layers=[0, -1, 6],  # Negative index - invalid
+            )
+
+        errors = exc_info.value.errors()
+        assert any("All layer indices must be non-negative" in str(e) for e in errors)
+
+    def test_training_layers_duplicate_indices_fails(self):
+        """Test that duplicate layer indices fail validation."""
+        with pytest.raises(ValidationError) as exc_info:
+            TrainingHyperparameters(
+                hidden_dim=768,
+                latent_dim=16384,
+                l1_alpha=0.001,
+                learning_rate=0.0003,
+                batch_size=4096,
+                total_steps=100000,
+                training_layers=[0, 6, 6, 12],  # Duplicate 6 - invalid
+            )
+
+        errors = exc_info.value.errors()
+        assert any("training_layers must not contain duplicate layer indices" in str(e) for e in errors)

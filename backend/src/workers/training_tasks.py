@@ -20,7 +20,11 @@ from ..models.training import Training, TrainingStatus
 from ..services.training_service import TrainingService
 from ..services.checkpoint_service import CheckpointService
 from ..core.config import settings
-from ..utils.resource_estimation import estimate_training_memory, estimate_oom_reduced_batch_size
+from ..utils.resource_estimation import (
+    estimate_training_memory,
+    estimate_multilayer_training_memory,
+    estimate_oom_reduced_batch_size,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +85,7 @@ class TrainingTask(DatabaseTask):
         grad_norm: Optional[float] = None,
         gpu_memory_used_mb: Optional[float] = None,
         samples_per_second: Optional[float] = None,
+        layer_idx: Optional[int] = None,
     ):
         """
         Log training metric to database.
@@ -96,6 +101,7 @@ class TrainingTask(DatabaseTask):
             grad_norm: Gradient norm
             gpu_memory_used_mb: GPU memory usage
             samples_per_second: Training throughput
+            layer_idx: Layer index (None for aggregated metrics)
         """
         with self.get_db() as db:
             from ..models.training_metric import TrainingMetric
@@ -111,6 +117,7 @@ class TrainingTask(DatabaseTask):
                 grad_norm=grad_norm,
                 gpu_memory_used_mb=gpu_memory_used_mb,
                 samples_per_second=samples_per_second,
+                layer_idx=layer_idx,
             )
             db.add(metric)
             db.commit()
@@ -155,21 +162,43 @@ def train_sae_task(
         hp = training.hyperparameters
         logger.info(f"Hyperparameters: {hp}")
 
+        # Extract training layers (default to [0] for backward compatibility)
+        training_layers = hp.get('training_layers', [0])
+        if not isinstance(training_layers, list):
+            training_layers = [training_layers]  # Convert single int to list
+        logger.info(f"Training layers: {training_layers}")
+
     try:
         # Memory budget validation
         logger.info("Validating memory budget...")
         batch_size = hp['batch_size']
-        memory_estimate = estimate_training_memory(
-            hidden_dim=hp['hidden_dim'],
-            latent_dim=hp['latent_dim'],
-            batch_size=batch_size,
-        )
+        num_layers = len(training_layers)
+
+        if num_layers == 1:
+            # Single-layer training
+            memory_estimate = estimate_training_memory(
+                hidden_dim=hp['hidden_dim'],
+                latent_dim=hp['latent_dim'],
+                batch_size=batch_size,
+            )
+        else:
+            # Multi-layer training
+            memory_estimate = estimate_multilayer_training_memory(
+                hidden_dim=hp['hidden_dim'],
+                latent_dim=hp['latent_dim'],
+                batch_size=batch_size,
+                num_layers=num_layers,
+            )
+
         logger.info(f"Estimated memory usage: {memory_estimate['total_gb']:.2f} GB")
+        if num_layers > 1:
+            logger.info(f"Per-layer memory: {memory_estimate['per_layer_gb']:.2f} GB")
+            logger.info(f"Max layers in 6GB: {memory_estimate['max_layers_in_6gb']}")
 
         if not memory_estimate['fits_in_6gb']:
             error_msg = (
                 f"Training requires {memory_estimate['total_gb']:.2f} GB but only 6 GB available. "
-                f"Reduce batch_size (current: {batch_size}) or latent_dim."
+                f"{memory_estimate.get('recommendation', 'Reduce batch_size or latent_dim.')}"
             )
             logger.error(error_msg)
             with self.get_db() as db:
@@ -179,35 +208,46 @@ def train_sae_task(
                 db.commit()
             raise RuntimeError(error_msg)
 
-        # Initialize model
-        logger.info("Initializing SAE model...")
+        # Initialize models, optimizers, and schedulers (one per layer)
+        logger.info(f"Initializing SAE models for {num_layers} layer(s)...")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Using device: {device}")
 
-        model = create_sae(
-            architecture_type=hp.get('architecture_type', 'standard'),
-            hidden_dim=hp['hidden_dim'],
-            latent_dim=hp['latent_dim'],
-            l1_alpha=hp['l1_alpha'],
-            ghost_gradient_penalty=hp.get('ghost_gradient_penalty', 0.0),
-        ).to(device)
+        models = {}
+        optimizers = {}
+        schedulers = {}
 
-        # Initialize optimizer
-        optimizer = optim.Adam(
-            model.parameters(),
-            lr=hp['learning_rate'],
-            weight_decay=hp.get('weight_decay', 0.0),
-        )
+        for layer_idx in training_layers:
+            # Create SAE for this layer
+            model = create_sae(
+                architecture_type=hp.get('architecture_type', 'standard'),
+                hidden_dim=hp['hidden_dim'],
+                latent_dim=hp['latent_dim'],
+                l1_alpha=hp['l1_alpha'],
+                ghost_gradient_penalty=hp.get('ghost_gradient_penalty', 0.0),
+            ).to(device)
+            models[layer_idx] = model
 
-        # Learning rate scheduler (linear warmup + constant)
-        warmup_steps = hp.get('warmup_steps', 0)
+            # Initialize optimizer for this layer
+            optimizer = optim.Adam(
+                model.parameters(),
+                lr=hp['learning_rate'],
+                weight_decay=hp.get('weight_decay', 0.0),
+            )
+            optimizers[layer_idx] = optimizer
 
-        def lr_lambda(step):
-            if step < warmup_steps:
-                return step / warmup_steps
-            return 1.0
+            # Learning rate scheduler (linear warmup + constant)
+            warmup_steps = hp.get('warmup_steps', 0)
 
-        scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+            def lr_lambda(step):
+                if step < warmup_steps:
+                    return step / warmup_steps
+                return 1.0
+
+            scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+            schedulers[layer_idx] = scheduler
+
+            logger.info(f"  Layer {layer_idx}: SAE model initialized")
 
         # Create checkpoint directory
         checkpoint_dir = settings.data_dir / "trainings" / training_id / "checkpoints"
@@ -261,28 +301,48 @@ def train_sae_task(
                 # For now, use dummy data for testing
                 x = torch.randn(batch_size, hp['hidden_dim']).to(device)
 
-                # Forward pass
-                if step % grad_accum_steps == 0:
-                    optimizer.zero_grad()
+                # Train all layers
+                layer_losses = {}
+                layer_sparsities = {}
+                layer_dead_neurons = {}
 
-                x_reconstructed, z, losses = model(x, return_loss=True)
+                for layer_idx in training_layers:
+                    model = models[layer_idx]
+                    optimizer = optimizers[layer_idx]
+                    scheduler = schedulers[layer_idx]
 
-                # Backward pass with gradient accumulation
-                loss = losses['loss']
-                if grad_accum_steps > 1:
-                    loss = loss / grad_accum_steps
-                loss.backward()
+                    # Forward pass
+                    if step % grad_accum_steps == 0:
+                        optimizer.zero_grad()
 
-                # Optimizer step (only every grad_accum_steps)
-                if (step + 1) % grad_accum_steps == 0:
-                    # Gradient clipping
-                    grad_clip_norm = hp.get('grad_clip_norm')
-                    if grad_clip_norm:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+                    x_reconstructed, z, losses = model(x, return_loss=True)
 
-                    # Optimizer step
-                    optimizer.step()
-                    scheduler.step()
+                    # Backward pass with gradient accumulation
+                    loss = losses['loss']
+                    if grad_accum_steps > 1:
+                        loss = loss / grad_accum_steps
+                    loss.backward()
+
+                    # Optimizer step (only every grad_accum_steps)
+                    if (step + 1) % grad_accum_steps == 0:
+                        # Gradient clipping
+                        grad_clip_norm = hp.get('grad_clip_norm')
+                        if grad_clip_norm:
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+
+                        # Optimizer step
+                        optimizer.step()
+                        scheduler.step()
+
+                    # Store layer metrics
+                    layer_losses[layer_idx] = loss.item() * grad_accum_steps  # Undo accumulation scaling
+                    layer_sparsities[layer_idx] = (z != 0).float().mean().item()
+                    layer_dead_neurons[layer_idx] = (z == 0).all(dim=0).sum().item()
+
+                # Calculate aggregated metrics across all layers
+                avg_loss = sum(layer_losses.values()) / len(layer_losses)
+                avg_sparsity = sum(layer_sparsities.values()) / len(layer_sparsities)
+                avg_dead_neurons = sum(layer_dead_neurons.values()) / len(layer_dead_neurons)
 
                 # Clear GPU cache after every step
                 if torch.cuda.is_available():
@@ -329,16 +389,8 @@ def train_sae_task(
                     # Re-raise other runtime errors
                     raise
 
-            # Get metrics
-            loss_value = loss.item()
-            l0_sparsity = losses['l0_sparsity'].item()
-            l1_penalty = losses['l1_penalty'].item()
-            current_lr = scheduler.get_last_lr()[0]
-
-            # Count dead neurons
-            with torch.no_grad():
-                dead_mask = model.get_dead_neurons(z, threshold=1e-6)
-                dead_neurons = dead_mask.sum().item()
+            # Get aggregated metrics
+            current_lr = schedulers[training_layers[0]].get_last_lr()[0]  # Use first layer's LR
 
             # Log metrics periodically
             if step % log_interval == 0:
@@ -349,29 +401,42 @@ def train_sae_task(
                     gpu_memory_reserved = torch.cuda.memory_reserved(device) / (1024 ** 2)  # MB
                     gpu_memory_mb = gpu_memory_allocated
                     logger.info(
-                        f"GPU memory: allocated={gpu_memory_allocated:.2f}MB, "
-                        f"reserved={gpu_memory_reserved:.2f}MB"
+                        f"Step {step}: avg_loss={avg_loss:.4f}, avg_sparsity={avg_sparsity:.4f}, "
+                        f"GPU memory: allocated={gpu_memory_allocated:.2f}MB"
                     )
 
+                # Log aggregated metrics (layer_idx=None)
                 self.log_metric(
                     training_id=training_id,
                     step=step,
-                    loss=loss_value,
-                    l0_sparsity=l0_sparsity,
-                    l1_sparsity=l1_penalty,
-                    dead_neurons=int(dead_neurons),
+                    loss=avg_loss,
+                    l0_sparsity=avg_sparsity,
+                    dead_neurons=int(avg_dead_neurons),
                     learning_rate=current_lr,
                     gpu_memory_used_mb=gpu_memory_mb,
+                    layer_idx=None,  # Aggregated across all layers
                 )
 
-                # Update progress
+                # Log per-layer metrics
+                for layer_idx in training_layers:
+                    self.log_metric(
+                        training_id=training_id,
+                        step=step,
+                        loss=layer_losses[layer_idx],
+                        l0_sparsity=layer_sparsities[layer_idx],
+                        dead_neurons=int(layer_dead_neurons[layer_idx]),
+                        learning_rate=current_lr,
+                        layer_idx=layer_idx,
+                    )
+
+                # Update progress with aggregated metrics
                 self.update_training_progress(
                     training_id=training_id,
                     step=step,
                     total_steps=total_steps,
-                    loss=loss_value,
-                    l0_sparsity=l0_sparsity,
-                    dead_neurons=int(dead_neurons),
+                    loss=avg_loss,
+                    l0_sparsity=avg_sparsity,
+                    dead_neurons=int(avg_dead_neurons),
                     learning_rate=current_lr,
                 )
 
@@ -385,43 +450,44 @@ def train_sae_task(
                         "current_step": step,
                         "total_steps": total_steps,
                         "progress": (step / total_steps) * 100.0,
-                        "loss": loss_value,
-                        "l0_sparsity": l0_sparsity,
-                        "dead_neurons": int(dead_neurons),
+                        "loss": avg_loss,
+                        "l0_sparsity": avg_sparsity,
+                        "dead_neurons": int(avg_dead_neurons),
                         "learning_rate": current_lr,
+                        "num_layers": num_layers,
+                        "training_layers": training_layers,
                     }
-                )
-
-                logger.info(
-                    f"Step {step}/{total_steps}: "
-                    f"loss={loss_value:.4f}, l0={l0_sparsity:.4f}, "
-                    f"dead={dead_neurons}, lr={current_lr:.6f}"
                 )
 
             # Save checkpoint periodically
             if step % checkpoint_interval == 0 and step > 0:
-                checkpoint_path = f"{checkpoint_dir}/step_{step}.safetensors"
+                logger.info(f"Saving checkpoint at step {step}...")
 
-                # Save checkpoint file
-                CheckpointService.save_checkpoint(
-                    model=model,
-                    optimizer=optimizer,
+                # Save multi-layer checkpoint
+                checkpoint_paths = CheckpointService.save_multilayer_checkpoint(
+                    models=models,
+                    optimizers=optimizers,
                     step=step,
-                    storage_path=checkpoint_path,
+                    base_storage_path=str(checkpoint_dir),
+                    training_layers=training_layers,
                     extra_metadata={
-                        'loss': loss_value,
-                        'l0_sparsity': l0_sparsity,
+                        'avg_loss': avg_loss,
+                        'avg_sparsity': avg_sparsity,
+                        'layer_losses': {str(k): v for k, v in layer_losses.items()},
                     }
                 )
 
-                # Create checkpoint record
+                # Use first layer's checkpoint path for database record
+                checkpoint_path = checkpoint_paths[training_layers[0]]
+
+                # Create checkpoint record (using aggregated metrics)
                 with self.get_db() as db:
                     from ..models.checkpoint import Checkpoint
                     from uuid import uuid4
 
-                    is_best = loss_value < best_loss
+                    is_best = avg_loss < best_loss
                     if is_best:
-                        best_loss = loss_value
+                        best_loss = avg_loss
 
                         # Unmark previous best checkpoints
                         prev_best = db.query(Checkpoint).filter_by(
@@ -436,13 +502,20 @@ def train_sae_task(
                         id=checkpoint_id,
                         training_id=training_id,
                         step=step,
-                        loss=loss_value,
-                        l0_sparsity=l0_sparsity,
+                        loss=avg_loss,
+                        l0_sparsity=avg_sparsity,
                         storage_path=checkpoint_path,
                         is_best=is_best,
+                        extra_metadata={
+                            'num_layers': num_layers,
+                            'training_layers': training_layers,
+                            'layer_losses': {str(k): v for k, v in layer_losses.items()},
+                        },
                     )
                     db.add(checkpoint)
                     db.commit()
+
+                    logger.info(f"Checkpoint saved: {checkpoint_id} (is_best={is_best})")
 
                     # Emit checkpoint:created WebSocket event
                     from ..workers.websocket_emitter import emit_checkpoint_created
@@ -450,7 +523,7 @@ def train_sae_task(
                         training_id=training_id,
                         checkpoint_id=checkpoint_id,
                         step=step,
-                        loss=loss_value,
+                        loss=avg_loss,
                         is_best=is_best,
                         storage_path=checkpoint_path,
                     )

@@ -411,6 +411,81 @@ def estimate_training_memory(
     }
 
 
+def estimate_multilayer_training_memory(
+    hidden_dim: int,
+    latent_dim: int,
+    batch_size: int,
+    num_layers: int,
+    dtype_bytes: int = 4,  # FP32 = 4 bytes
+    safety_factor: float = 1.3,  # 30% safety margin
+    base_memory_gb: float = 2.0,  # Base PyTorch/CUDA overhead
+) -> Dict[str, Any]:
+    """
+    Estimate GPU memory requirements for multi-layer SAE training.
+
+    This function calculates memory for training multiple SAEs simultaneously,
+    one per layer. Memory scales linearly with number of layers.
+
+    Args:
+        hidden_dim: Input/output dimension
+        latent_dim: SAE latent dimension (typically 8-32x hidden_dim)
+        batch_size: Training batch size
+        num_layers: Number of layers being trained simultaneously
+        dtype_bytes: Bytes per parameter (FP32=4, FP16=2)
+        safety_factor: Safety multiplier for overhead
+        base_memory_gb: Base memory for PyTorch/CUDA (GB)
+
+    Returns:
+        Dictionary with memory estimates in MB/GB and per-layer breakdown
+    """
+    # Calculate memory for a single layer
+    single_layer_estimate = estimate_training_memory(
+        hidden_dim=hidden_dim,
+        latent_dim=latent_dim,
+        batch_size=batch_size,
+        dtype_bytes=dtype_bytes,
+        safety_factor=1.0,  # Don't apply safety factor yet
+    )
+
+    # Memory per layer (without safety factor)
+    per_layer_bytes = single_layer_estimate["total_bytes"] / safety_factor
+
+    # Total memory = (per_layer * num_layers) + base_memory
+    base_memory_bytes = base_memory_gb * (1024 ** 3)
+    total_bytes = (per_layer_bytes * num_layers + base_memory_bytes) * safety_factor
+
+    # Convert to human-readable units
+    total_mb = total_bytes / (1024 ** 2)
+    total_gb = total_bytes / (1024 ** 3)
+
+    # Per-layer breakdown
+    per_layer_mb = per_layer_bytes / (1024 ** 2)
+    per_layer_gb = per_layer_bytes / (1024 ** 3)
+
+    # Warning level for Jetson Orin Nano (6GB VRAM)
+    warning = "critical" if total_gb > 6 else "high" if total_gb > 4 else "normal"
+
+    # Calculate maximum layers that fit in 6GB
+    available_memory_bytes = 6.0 * (1024 ** 3) - base_memory_bytes
+    max_layers = max(1, int(available_memory_bytes / (per_layer_bytes * safety_factor)))
+
+    return {
+        "total_bytes": int(total_bytes),
+        "total_mb": round(total_mb, 2),
+        "total_gb": round(total_gb, 2),
+        "per_layer_mb": round(per_layer_mb, 2),
+        "per_layer_gb": round(per_layer_gb, 2),
+        "num_layers": num_layers,
+        "base_memory_gb": base_memory_gb,
+        "warning": warning,
+        "fits_in_6gb": total_gb <= 6.0,
+        "max_layers_in_6gb": max_layers,
+        "recommendation": (
+            f"Reduce to ≤{max_layers} layer(s) to fit in 6GB" if total_gb > 6.0 else "Memory usage is acceptable"
+        ),
+    }
+
+
 def estimate_oom_reduced_batch_size(
     current_batch_size: int,
     memory_limit_gb: float = 6.0,

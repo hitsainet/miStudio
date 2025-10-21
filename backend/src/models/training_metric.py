@@ -38,6 +38,9 @@ class TrainingMetric(Base):
     step = Column(Integer, nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # Layer information (NULL for aggregated metrics across all layers)
+    layer_idx = Column(Integer, nullable=True, index=True, comment="Layer index (NULL for aggregated metrics)")
+
     # Loss metrics
     loss = Column(Float, nullable=False)  # Total reconstruction loss
     loss_reconstructed = Column(Float, nullable=True)  # Reconstruction component

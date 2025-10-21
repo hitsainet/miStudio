@@ -349,3 +349,108 @@ class CheckpointService:
             "optimizer_state": optimizer_state,
             "storage_path": storage_path,
         }
+
+    @staticmethod
+    def save_multilayer_checkpoint(
+        models: Dict[int, torch.nn.Module],
+        optimizers: Dict[int, torch.optim.Optimizer],
+        step: int,
+        base_storage_path: str,
+        training_layers: List[int],
+        extra_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[int, str]:
+        """
+        Save checkpoints for multi-layer training.
+
+        Creates directory structure: checkpoint_{step}/layer_{idx}/checkpoint.safetensors
+
+        Args:
+            models: Dictionary of models per layer {layer_idx: model}
+            optimizers: Dictionary of optimizers per layer {layer_idx: optimizer}
+            step: Current training step
+            base_storage_path: Base directory for checkpoints
+            training_layers: List of layer indices being trained
+            extra_metadata: Additional metadata to save
+
+        Returns:
+            Dictionary mapping layer_idx to checkpoint path
+        """
+        checkpoint_dir = Path(base_storage_path) / f"checkpoint_{step}"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        checkpoint_paths = {}
+
+        for layer_idx in training_layers:
+            layer_dir = checkpoint_dir / f"layer_{layer_idx}"
+            layer_dir.mkdir(parents=True, exist_ok=True)
+
+            storage_path = str(layer_dir / "checkpoint.safetensors")
+
+            # Add layer-specific metadata
+            layer_metadata = {
+                "layer_idx": layer_idx,
+                **(extra_metadata or {})
+            }
+
+            CheckpointService.save_checkpoint(
+                model=models[layer_idx],
+                optimizer=optimizers[layer_idx],
+                step=step,
+                storage_path=storage_path,
+                extra_metadata=layer_metadata,
+            )
+
+            checkpoint_paths[layer_idx] = storage_path
+
+        return checkpoint_paths
+
+    @staticmethod
+    def load_multilayer_checkpoint(
+        checkpoint_dir: str,
+        models: Dict[int, torch.nn.Module],
+        optimizers: Dict[int, torch.optim.Optimizer],
+        training_layers: List[int],
+        device: str = "cpu",
+    ) -> Dict[str, Any]:
+        """
+        Load checkpoints for multi-layer training.
+
+        Args:
+            checkpoint_dir: Directory containing layer subdirectories
+            models: Dictionary of models to load into {layer_idx: model}
+            optimizers: Dictionary of optimizers to load into {layer_idx: optimizer}
+            training_layers: List of layer indices to restore
+            device: Device to load tensors onto
+
+        Returns:
+            Dictionary with metadata and layer information
+        """
+        checkpoint_path = Path(checkpoint_dir)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_dir}")
+
+        loaded_layers = {}
+
+        for layer_idx in training_layers:
+            layer_checkpoint_path = checkpoint_path / f"layer_{layer_idx}" / "checkpoint.safetensors"
+
+            if not layer_checkpoint_path.exists():
+                raise FileNotFoundError(
+                    f"Checkpoint for layer {layer_idx} not found: {layer_checkpoint_path}"
+                )
+
+            # Load checkpoint for this layer
+            checkpoint_data = CheckpointService.load_checkpoint(
+                storage_path=str(layer_checkpoint_path),
+                model=models.get(layer_idx),
+                optimizer=optimizers.get(layer_idx),
+                device=device,
+            )
+
+            loaded_layers[layer_idx] = checkpoint_data
+
+        return {
+            "loaded_layers": loaded_layers,
+            "checkpoint_dir": str(checkpoint_path),
+            "training_layers": training_layers,
+        }

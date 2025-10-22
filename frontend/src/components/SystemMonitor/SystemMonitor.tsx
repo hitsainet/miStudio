@@ -18,6 +18,8 @@ import { SettingsModal } from './SettingsModal';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { ErrorBanner } from './ErrorBanner';
 import { MetricWarning } from './MetricWarning';
+import { ActiveOperationsSection } from './ActiveOperationsSection';
+import { FailedOperationsSection } from './FailedOperationsSection';
 
 export function SystemMonitor() {
   const {
@@ -422,6 +424,13 @@ export function SystemMonitor() {
           </div>
         </div>
       )}
+
+      {/* Task Queue Operations */}
+      <div className="space-y-6">
+        <ActiveOperationsSection />
+        <FailedOperationsSection />
+      </div>
+
       </div>
 
       {/* Settings Modal */}

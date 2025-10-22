@@ -452,7 +452,7 @@ def train_sae_task(
                 from ..workers.websocket_emitter import emit_training_progress
                 emit_training_progress(
                     training_id=training_id,
-                    event="progress",
+                    event="training:progress",
                     data={
                         "training_id": training_id,
                         "current_step": step,
@@ -549,6 +549,18 @@ def train_sae_task(
             training.completed_at = datetime.now(UTC)
             db.commit()
 
+        # Emit training:completed WebSocket event
+        from ..workers.websocket_emitter import emit_training_progress
+        emit_training_progress(
+            training_id=training_id,
+            event="training:completed",
+            data={
+                "training_id": training_id,
+                "status": "completed",
+                "final_loss": loss_value,
+            }
+        )
+
         return {
             "status": "completed",
             "steps": total_steps,
@@ -569,6 +581,17 @@ def train_sae_task(
                 from datetime import datetime, UTC
                 training.completed_at = datetime.now(UTC)
                 db.commit()
+
+        # Emit training:failed WebSocket event
+        from ..workers.websocket_emitter import emit_training_progress
+        emit_training_progress(
+            training_id=training_id,
+            event="training:failed",
+            data={
+                "training_id": training_id,
+                "error_message": str(e),
+            }
+        )
 
         raise
 

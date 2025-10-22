@@ -266,7 +266,14 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </span>
             </div>
             <p className="text-sm text-slate-400">
-              Encoder: {training.hyperparameters.architecture_type} •{' '}
+              Encoder: {training.hyperparameters.architecture_type}
+              {training.hyperparameters.training_layers && training.hyperparameters.training_layers.length > 0 && (
+                <>
+                  {' • '}
+                  Layers: {training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')}
+                </>
+              )}
+              {' • '}
               Started: {training.started_at ? formatTime(training.started_at) : 'Not started'}
               {training.completed_at && training.started_at && (
                 <>
@@ -751,6 +758,14 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                     <div className="text-xs text-slate-400 mb-1">Architecture Type</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.architecture_type}
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg p-3">
+                    <div className="text-xs text-slate-400 mb-1">Training Layers</div>
+                    <div className="text-sm text-slate-100 font-medium font-mono">
+                      {training.hyperparameters.training_layers && training.hyperparameters.training_layers.length > 0
+                        ? training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')
+                        : 'L0'}
                     </div>
                   </div>
                   <div className="bg-slate-800/50 rounded-lg p-3">

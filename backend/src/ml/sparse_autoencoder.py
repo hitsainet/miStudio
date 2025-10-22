@@ -451,20 +451,24 @@ def create_sae(
             **kwargs
         )
     elif architecture_type == 'skip':
+        # SkipAutoencoder doesn't support ghost_gradient_penalty
+        skip_kwargs = {k: v for k, v in kwargs.items() if k != 'ghost_gradient_penalty'}
         return SkipAutoencoder(
             hidden_dim=hidden_dim,
             latent_dim=latent_dim,
             l1_alpha=l1_alpha,
-            **kwargs
+            **skip_kwargs
         )
     elif architecture_type == 'transcoder':
+        # Transcoder doesn't support ghost_gradient_penalty
         output_dim = kwargs.pop('output_dim', hidden_dim)
+        transcoder_kwargs = {k: v for k, v in kwargs.items() if k != 'ghost_gradient_penalty'}
         return Transcoder(
             input_dim=hidden_dim,
             output_dim=output_dim,
             latent_dim=latent_dim,
             l1_alpha=l1_alpha,
-            **kwargs
+            **transcoder_kwargs
         )
     else:
         raise ValueError(

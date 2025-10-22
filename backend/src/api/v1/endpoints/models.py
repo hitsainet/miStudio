@@ -551,27 +551,28 @@ async def get_active_extraction(
         )
 
     if not active_extraction:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No active extraction found for model '{model_id}'"
-        )
+        # Return null instead of 404 to avoid console spam
+        # The frontend expects this when no extraction is active
+        return {"data": None}
 
     # Return extraction details
     return {
-        "extraction_id": active_extraction.id,
-        "model_id": active_extraction.model_id,
-        "dataset_id": active_extraction.dataset_id,
-        "celery_task_id": active_extraction.celery_task_id,
-        "status": active_extraction.status.value,
-        "progress": active_extraction.progress,
-        "samples_processed": active_extraction.samples_processed,
-        "max_samples": active_extraction.max_samples,
-        "layer_indices": active_extraction.layer_indices,
-        "hook_types": active_extraction.hook_types,
-        "batch_size": active_extraction.batch_size,
-        "created_at": active_extraction.created_at.isoformat(),
-        "updated_at": active_extraction.updated_at.isoformat(),
-        "error_message": active_extraction.error_message
+        "data": {
+            "extraction_id": active_extraction.id,
+            "model_id": active_extraction.model_id,
+            "dataset_id": active_extraction.dataset_id,
+            "celery_task_id": active_extraction.celery_task_id,
+            "status": active_extraction.status.value,
+            "progress": active_extraction.progress,
+            "samples_processed": active_extraction.samples_processed,
+            "max_samples": active_extraction.max_samples,
+            "layer_indices": active_extraction.layer_indices,
+            "hook_types": active_extraction.hook_types,
+            "batch_size": active_extraction.batch_size,
+            "created_at": active_extraction.created_at.isoformat(),
+            "updated_at": active_extraction.updated_at.isoformat(),
+            "error_message": active_extraction.error_message
+        }
     }
 
 

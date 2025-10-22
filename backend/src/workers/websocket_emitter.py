@@ -362,6 +362,216 @@ def emit_checkpoint_created(
     return emit_progress(channel, "checkpoint_created", data)
 
 
+# ============================================================================
+# System Monitoring Emission Functions
+# ============================================================================
+
+
+def emit_gpu_metrics(
+    gpu_id: int,
+    metrics: Dict[str, Any],
+) -> bool:
+    """
+    Emit metrics update for a specific GPU.
+
+    Convenience function for GPU monitoring that automatically constructs
+    the channel name for GPU-specific metrics.
+
+    Args:
+        gpu_id: GPU device ID (0, 1, 2, etc.)
+        metrics: GPU metrics payload including utilization, memory, temperature, etc.
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        system/gpu/{gpu_id}
+
+    Examples:
+        >>> emit_gpu_metrics(
+        ...     gpu_id=0,
+        ...     metrics={
+        ...         "gpu_id": 0,
+        ...         "utilization": 85.5,
+        ...         "memory_used": 7168,
+        ...         "memory_total": 11264,
+        ...         "memory_percent": 63.6,
+        ...         "temperature": 72,
+        ...         "power_usage": 245.3,
+        ...         "timestamp": "2025-10-22T12:34:56Z"
+        ...     }
+        ... )
+        True
+    """
+    channel = f"system/gpu/{gpu_id}"
+    return emit_progress(channel, "metrics", metrics)
+
+
+def emit_cpu_metrics(
+    metrics: Dict[str, Any],
+) -> bool:
+    """
+    Emit CPU utilization metrics.
+
+    Convenience function for CPU monitoring that automatically constructs
+    the channel name for system-wide CPU metrics.
+
+    Args:
+        metrics: CPU metrics payload including utilization, core count, etc.
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        system/cpu
+
+    Examples:
+        >>> emit_cpu_metrics(
+        ...     metrics={
+        ...         "cpu_percent": 45.2,
+        ...         "cpu_count": 16,
+        ...         "cpu_freq": 3.5,
+        ...         "timestamp": "2025-10-22T12:34:56Z"
+        ...     }
+        ... )
+        True
+    """
+    channel = "system/cpu"
+    return emit_progress(channel, "metrics", metrics)
+
+
+def emit_memory_metrics(
+    metrics: Dict[str, Any],
+) -> bool:
+    """
+    Emit RAM and Swap memory metrics.
+
+    Convenience function for memory monitoring that automatically constructs
+    the channel name for system-wide memory metrics.
+
+    Args:
+        metrics: Memory metrics payload including RAM and Swap usage
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        system/memory
+
+    Examples:
+        >>> emit_memory_metrics(
+        ...     metrics={
+        ...         "ram_used_gb": 24.5,
+        ...         "ram_total_gb": 64.0,
+        ...         "ram_percent": 38.3,
+        ...         "swap_used_gb": 0.5,
+        ...         "swap_total_gb": 8.0,
+        ...         "swap_percent": 6.25,
+        ...         "timestamp": "2025-10-22T12:34:56Z"
+        ...     }
+        ... )
+        True
+    """
+    channel = "system/memory"
+    return emit_progress(channel, "metrics", metrics)
+
+
+def emit_disk_metrics(
+    metrics: Dict[str, Any],
+) -> bool:
+    """
+    Emit disk I/O metrics.
+
+    Convenience function for disk monitoring that automatically constructs
+    the channel name for system-wide disk I/O metrics.
+
+    Args:
+        metrics: Disk I/O metrics payload including read/write bytes
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        system/disk
+
+    Examples:
+        >>> emit_disk_metrics(
+        ...     metrics={
+        ...         "disk_read_mb": 1523.4,
+        ...         "disk_write_mb": 892.1,
+        ...         "timestamp": "2025-10-22T12:34:56Z"
+        ...     }
+        ... )
+        True
+    """
+    channel = "system/disk"
+    return emit_progress(channel, "metrics", metrics)
+
+
+def emit_network_metrics(
+    metrics: Dict[str, Any],
+) -> bool:
+    """
+    Emit network I/O metrics.
+
+    Convenience function for network monitoring that automatically constructs
+    the channel name for system-wide network I/O metrics.
+
+    Args:
+        metrics: Network I/O metrics payload including sent/received bytes
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        system/network
+
+    Examples:
+        >>> emit_network_metrics(
+        ...     metrics={
+        ...         "network_sent_mb": 234.5,
+        ...         "network_recv_mb": 567.8,
+        ...         "timestamp": "2025-10-22T12:34:56Z"
+        ...     }
+        ... )
+        True
+    """
+    channel = "system/network"
+    return emit_progress(channel, "metrics", metrics)
+
+
+def emit_system_metrics(
+    metrics_type: str,
+    metrics: Dict[str, Any],
+) -> bool:
+    """
+    Generic system metrics emission function.
+
+    This is a lower-level function for emitting any type of system metrics.
+    Prefer using the specific convenience functions (emit_gpu_metrics, emit_cpu_metrics, etc.)
+    for better type safety and clarity.
+
+    Args:
+        metrics_type: Type of metrics (gpu, cpu, memory, disk, network)
+        metrics: Metrics data payload
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        system/{metrics_type}  OR  system/{metrics_type}/{id} for per-device metrics
+
+    Examples:
+        >>> emit_system_metrics(
+        ...     metrics_type="cpu",
+        ...     metrics={"cpu_percent": 45.2, "cpu_count": 16}
+        ... )
+        True
+    """
+    channel = f"system/{metrics_type}"
+    return emit_progress(channel, "metrics", metrics)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -371,4 +581,11 @@ __all__ = [
     "emit_extraction_failed",
     "emit_training_progress",
     "emit_checkpoint_created",
+    # System monitoring functions
+    "emit_system_metrics",
+    "emit_gpu_metrics",
+    "emit_cpu_metrics",
+    "emit_memory_metrics",
+    "emit_disk_metrics",
+    "emit_network_metrics",
 ]

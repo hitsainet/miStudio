@@ -1,12 +1,13 @@
 # Project: MechInterp Studio (miStudio)
 
 ## Current Status
-- **Phase:** Training Templates Feature - Implementation Complete
-- **Last Session:** 2025-10-21 - Completed Training Templates frontend implementation
-- **Next Steps:** Continue with Feature Discovery & Browser (Core Feature #4 - P0)
-- **Active Feature:** Training Templates & Presets (Secondary Feature #6 - P1) ✅ COMPLETE
-- **Test Status:** Frontend components created and compiled successfully with HMR
-- **Services Status:** Backend (port 8000) ✅, Frontend (port 3000) ✅, PostgreSQL ✅, Redis ✅, Celery ✅, Nginx ✅
+- **Phase:** Architecture Improvements - Progress Monitoring & WebSocket Migration
+- **Last Session:** 2025-10-22 - Completed System Monitoring WebSocket Migration (HP-1)
+- **Current Task:** HP-2: Expand Test Coverage - Phase 1 (60% target coverage)
+- **Active Work:** Supplemental architecture improvements from multi-agent review
+- **Completed:** HP-1 System Monitoring WebSocket Migration (10/10 sub-tasks) ✅
+- **Test Status:** Backend and frontend code changes deployed, services restarted
+- **Services Status:** Backend (port 8000) ✅, Frontend (port 3000) ✅, PostgreSQL ✅, Redis ✅, Celery Worker ✅, Celery Beat ✅, Nginx ✅
 
 ## PRIMARY UI/UX REFERENCE
 
@@ -362,6 +363,45 @@ After each development session, update:
 
 ## Implementation Patterns
 
+### Real-time Updates Architecture
+The application uses a consistent WebSocket-first approach for all real-time updates:
+
+**WebSocket Channels Pattern:**
+- Channel naming: `{entity_type}/{entity_id}/{event_type}` or `{entity_type}/{entity_id}`
+- Event types: `progress`, `metrics`, `status`, etc.
+- All channels use Socket.IO rooms for pub/sub
+
+**Current WebSocket Implementations:**
+1. **Training Progress** - Channel: `training/{training_id}`, Events: `progress`, `completed`, `failed`
+2. **Extraction Progress** - Channel: `extraction/{extraction_id}`, Events: `progress`, `completed`, `failed`
+3. **Model Download Progress** - Channel: `model/{model_id}`, Events: `download_progress`, `download_completed`, `download_failed`
+4. **Dataset Progress** - Channel: `dataset/{dataset_id}`, Events: `progress`, `completed`, `failed`
+5. **System Monitoring** - Channels:
+   - `system/gpu/{gpu_id}` - Per-GPU metrics (utilization, memory, temperature, power)
+   - `system/cpu` - CPU utilization metrics
+   - `system/memory` - RAM and Swap usage
+   - `system/disk` - Disk I/O rates
+   - `system/network` - Network I/O rates
+   - Event type: `metrics` (emitted every 2 seconds via Celery Beat)
+
+**WebSocket Fallback Pattern:**
+- Frontend hooks automatically detect WebSocket connection state
+- Stores implement automatic fallback to HTTP polling when WebSocket disconnects
+- Polling stops automatically when WebSocket reconnects
+- Example: `systemMonitorStore.setIsWebSocketConnected()` manages fallback logic
+
+**Backend Emission Pattern:**
+- All WebSocket emissions use `backend/src/workers/websocket_emitter.py`
+- Celery tasks emit updates via internal HTTP endpoint: `POST /api/internal/ws/emit`
+- Emission functions: `emit_training_progress()`, `emit_gpu_metrics()`, etc.
+- Celery Beat scheduler handles periodic emissions (system monitoring)
+
+**Frontend Subscription Pattern:**
+- React hooks manage channel subscriptions: `useTrainingWebSocket()`, `useSystemMonitorWebSocket()`, etc.
+- Hooks subscribe to channels on mount, unsubscribe on unmount
+- Event handlers update Zustand stores
+- Stores provide data to components via selectors
+
 ### Error Handling
 *[Will be defined in ADR - placeholder for standards]*
 - Use project-standard error handling patterns from ADR
@@ -518,6 +558,50 @@ After each development session, update:
   - Database migration, SQLAlchemy model, Pydantic schemas, service layer, and API endpoints already implemented
 - **Duration:** ~3 hours
 - **Key Achievement:** Production-ready Training Templates feature with full CRUD, matching ExtractionTemplates quality and patterns
+
+### Session 5: 2025-10-22 - System Monitoring WebSocket Migration & Architecture Review
+- **Accomplished:**
+  - **Architecture Review:**
+    - Conducted comprehensive multi-agent review of progress/resource monitoring architecture
+    - Identified inconsistency: Job progress uses WebSocket consistently, system monitoring uses polling
+    - Created detailed review document with findings from 4 agent perspectives (Product, QA, Architect, Test)
+    - Generated prioritized task list (9 major tasks, 79 sub-tasks, 110-144 hours estimated)
+  - **System Monitoring WebSocket Migration (HP-1):**
+    - Added 6 new WebSocket emission functions to `websocket_emitter.py` for system metrics
+    - Created new Celery Beat task for periodic system metrics collection (every 2 seconds)
+    - Defined WebSocket channel naming conventions for system monitoring:
+      - `system/gpu/{gpu_id}` - Per-GPU metrics
+      - `system/cpu` - CPU utilization
+      - `system/memory` - RAM and Swap
+      - `system/disk` - Disk I/O rates
+      - `system/network` - Network I/O rates
+    - Created `useSystemMonitorWebSocket.ts` React hook for channel subscriptions
+    - Updated `systemMonitorStore.ts` with WebSocket integration and automatic polling fallback
+    - Updated `SystemMonitor.tsx` component to use WebSocket-first with polling fallback
+    - Configured Celery Beat scheduler with system monitoring task
+    - Added `system_monitor_interval_seconds` configuration setting (default: 2s)
+  - **Bug Fixes:**
+    - Fixed console spam from 404 errors on extraction endpoint (now returns 200 with null data)
+    - Updated frontend to handle new extraction endpoint response format
+  - **Documentation:**
+    - Added comprehensive Real-time Updates Architecture section to CLAUDE.md
+    - Documented WebSocket channel patterns, fallback logic, emission patterns, and subscription patterns
+- **Files Created:**
+  - `.claude/context/sessions/review_progress_monitoring_architecture_2025-10-22.md` - Architecture review document
+  - `0xcc/tasks/SUPP_TASKS|Progress_Architecture_Improvements.md` - Implementation task list
+  - `backend/src/workers/system_monitor_tasks.py` - Celery Beat task for metrics collection
+  - `frontend/src/hooks/useSystemMonitorWebSocket.ts` - WebSocket subscription hook
+- **Files Modified:**
+  - `backend/src/workers/websocket_emitter.py` - Added system metrics emission functions
+  - `backend/src/core/config.py` - Added system_monitor_interval_seconds setting
+  - `backend/src/core/celery_app.py` - Added beat schedule, routing, autodiscovery
+  - `frontend/src/stores/systemMonitorStore.ts` - Added WebSocket integration
+  - `frontend/src/components/SystemMonitor/SystemMonitor.tsx` - Integrated WebSocket hook
+  - `backend/src/api/v1/endpoints/models.py` - Fixed extraction endpoint 404 response
+  - `frontend/src/stores/modelsStore.ts` - Updated to handle new extraction endpoint format
+  - `CLAUDE.md` - Added Real-time Updates Architecture documentation
+- **Duration:** ~5 hours
+- **Key Achievement:** Achieved architectural consistency by migrating system monitoring from polling to WebSocket-first pattern, matching the approach used for all job progress tracking
 
 *[Add new sessions as they occur]*
 

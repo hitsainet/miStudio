@@ -102,6 +102,11 @@ class Settings(BaseSettings):
         description="Internal WebSocket emission endpoint URL for Celery workers"
     )
 
+    # System Monitoring Configuration
+    system_monitor_interval_seconds: int = Field(
+        default=2, ge=1, le=30, description="System metrics collection interval in seconds (via WebSocket)"
+    )
+
     # Rate Limiting
     rate_limit_enabled: bool = Field(default=True, description="Enable rate limiting")
     rate_limit_per_minute: int = Field(

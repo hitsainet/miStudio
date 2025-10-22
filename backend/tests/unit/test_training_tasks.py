@@ -97,6 +97,121 @@ class TestTrainingTaskHelpers:
             assert mock_training.current_dead_neurons is None
             assert mock_training.current_learning_rate is None
 
+    def test_calculate_training_progress_start(self):
+        """Test progress calculation at training start (step 0)."""
+        task = TrainingTask()
+
+        mock_training = Mock()
+        mock_db = Mock()
+        mock_db.query.return_value.filter_by.return_value.first.return_value = mock_training
+
+        with patch.object(task, 'get_db') as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = mock_db
+
+            task.update_training_progress(
+                training_id="train_test123",
+                step=0,
+                total_steps=10000,
+                loss=1.5,
+            )
+
+            assert mock_training.progress == 0.0
+            assert mock_training.current_step == 0
+            assert mock_training.status == TrainingStatus.RUNNING.value
+
+    def test_calculate_training_progress_complete(self):
+        """Test progress calculation at training completion (step = total_steps)."""
+        task = TrainingTask()
+
+        mock_training = Mock()
+        mock_db = Mock()
+        mock_db.query.return_value.filter_by.return_value.first.return_value = mock_training
+
+        with patch.object(task, 'get_db') as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = mock_db
+
+            task.update_training_progress(
+                training_id="train_test123",
+                step=10000,
+                total_steps=10000,
+                loss=0.05,
+            )
+
+            assert mock_training.progress == 100.0
+            assert mock_training.current_step == 10000
+            assert mock_training.current_loss == 0.05
+            assert mock_training.status == TrainingStatus.RUNNING.value
+
+    def test_calculate_training_progress_with_checkpoint_steps(self):
+        """Test progress calculation at various checkpoint milestones."""
+        task = TrainingTask()
+
+        mock_training = Mock()
+        mock_db = Mock()
+        mock_db.query.return_value.filter_by.return_value.first.return_value = mock_training
+
+        with patch.object(task, 'get_db') as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = mock_db
+
+            # Test at 10% checkpoint
+            task.update_training_progress(
+                training_id="train_test123",
+                step=1000,
+                total_steps=10000,
+                loss=0.8,
+            )
+            assert mock_training.progress == 10.0
+
+            # Test at 25% checkpoint
+            task.update_training_progress(
+                training_id="train_test123",
+                step=2500,
+                total_steps=10000,
+                loss=0.6,
+            )
+            assert mock_training.progress == 25.0
+
+            # Test at 75% checkpoint
+            task.update_training_progress(
+                training_id="train_test123",
+                step=7500,
+                total_steps=10000,
+                loss=0.2,
+            )
+            assert mock_training.progress == 75.0
+
+            # Test at 90% checkpoint
+            task.update_training_progress(
+                training_id="train_test123",
+                step=9000,
+                total_steps=10000,
+                loss=0.1,
+            )
+            assert mock_training.progress == 90.0
+
+    def test_calculate_training_progress_fractional_steps(self):
+        """Test progress calculation with non-round step numbers."""
+        task = TrainingTask()
+
+        mock_training = Mock()
+        mock_db = Mock()
+        mock_db.query.return_value.filter_by.return_value.first.return_value = mock_training
+
+        with patch.object(task, 'get_db') as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = mock_db
+
+            # Test with non-divisible step count
+            task.update_training_progress(
+                training_id="train_test123",
+                step=3333,
+                total_steps=10000,
+                loss=0.5,
+            )
+
+            # Should calculate as 33.33%
+            assert abs(mock_training.progress - 33.33) < 0.01
+            assert mock_training.current_step == 3333
+
     def test_log_metric_all_fields(self):
         """Test logging training metric with all fields."""
         task = TrainingTask()
@@ -156,6 +271,86 @@ class TestTrainingTaskHelpers:
             assert metric.loss == 0.567
             assert metric.l0_sparsity is None
             assert metric.dead_neurons is None
+
+    def test_log_metric_multi_layer_aggregated(self):
+        """Test logging aggregated metrics for multi-layer training."""
+        task = TrainingTask()
+
+        mock_db = Mock()
+
+        with patch.object(task, 'get_db') as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = mock_db
+
+            # Log aggregated metric (layer_idx=None)
+            task.log_metric(
+                training_id="train_test123",
+                step=1000,
+                loss=0.3,  # Average loss across all layers
+                l0_sparsity=0.05,  # Average sparsity across all layers
+                dead_neurons=150,  # Total dead neurons across all layers
+                learning_rate=0.0003,
+                layer_idx=None,  # Aggregated metric
+            )
+
+            mock_db.add.assert_called_once()
+            metric = mock_db.add.call_args[0][0]
+            assert metric.training_id == "train_test123"
+            assert metric.step == 1000
+            assert metric.loss == 0.3
+            assert metric.l0_sparsity == 0.05
+            assert metric.dead_neurons == 150
+            assert metric.layer_idx is None  # Aggregated across all layers
+
+    def test_log_metric_multi_layer_individual_layers(self):
+        """Test logging individual layer metrics for multi-layer training."""
+        task = TrainingTask()
+
+        mock_db = Mock()
+
+        with patch.object(task, 'get_db') as mock_get_db:
+            mock_get_db.return_value.__enter__.return_value = mock_db
+
+            # Log metrics for layer 0
+            task.log_metric(
+                training_id="train_test123",
+                step=1000,
+                loss=0.25,
+                l0_sparsity=0.04,
+                dead_neurons=40,
+                layer_idx=0,
+            )
+
+            # Log metrics for layer 1
+            task.log_metric(
+                training_id="train_test123",
+                step=1000,
+                loss=0.35,
+                l0_sparsity=0.06,
+                dead_neurons=60,
+                layer_idx=1,
+            )
+
+            # Log metrics for layer 2
+            task.log_metric(
+                training_id="train_test123",
+                step=1000,
+                loss=0.30,
+                l0_sparsity=0.05,
+                dead_neurons=50,
+                layer_idx=2,
+            )
+
+            # Verify 3 metrics were logged
+            assert mock_db.add.call_count == 3
+
+            # Verify layer indices are correct
+            calls = mock_db.add.call_args_list
+            assert calls[0][0][0].layer_idx == 0
+            assert calls[0][0][0].loss == 0.25
+            assert calls[1][0][0].layer_idx == 1
+            assert calls[1][0][0].loss == 0.35
+            assert calls[2][0][0].layer_idx == 2
+            assert calls[2][0][0].loss == 0.30
 
 
 class TestTrainSAETaskFlow:

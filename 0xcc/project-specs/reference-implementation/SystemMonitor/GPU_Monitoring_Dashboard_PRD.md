@@ -148,7 +148,6 @@ To provide a unified, intuitive interface for monitoring hardware utilization, i
 - Support for 2+ mount points
 - Updates every 5 seconds (less frequent than other metrics)
 - Warning colors at 70%, 85%, 95% thresholds
-
 #### FR-005: Process Monitoring
 **Priority**: P1 (High)
 - Display list of active GPU processes

@@ -6,62 +6,73 @@
 ## Current Analysis
 
 ### Testing Health Assessment
-**Last Assessed:** [DATE] 
-**Testing Maturity:** [COMPREHENSIVE/GOOD/BASIC/MINIMAL]
+**Last Assessed:** 2025-10-22
+**Testing Maturity:** BASIC-GOOD (Recent improvements, significant gaps remain)
 
 **Coverage Analysis:**
-- **Unit Tests:** _% coverage (Target: _%)
-- **Integration Tests:** _% coverage (Target: _%)
-- **End-to-End Tests:** _% coverage (Target: _%)
-- **Performance Tests:** [YES/NO/PLANNED]
-- **Security Tests:** [YES/NO/PLANNED]
+- **Unit Tests:** 40% coverage (Target: 70%)
+- **Integration Tests:** 20% coverage (Target: 50%)
+- **End-to-End Tests:** 10% coverage (Target: 30%)
+- **Performance Tests:** PLANNED (TrainingMetric query performance)
+- **Security Tests:** PLANNED (WebSocket authentication, rate limiting)
 
 **Test Quality Metrics:**
-- **Test Reliability:** [HIGH/MEDIUM/LOW]
-- **Test Speed:** [FAST/ACCEPTABLE/SLOW]
-- **Maintenance Burden:** [LOW/MEDIUM/HIGH]
+- **Test Reliability:** MEDIUM (improving with recent additions)
+- **Test Speed:** FAST (unit tests run quickly)
+- **Maintenance Burden:** LOW (good patterns make tests easier to maintain)
 
 ### Testing Strategy
 **Current Focus:**
-- [ ] Unit test expansion for core logic
-- [ ] Integration test implementation
-- [ ] End-to-end workflow testing
-- [ ] Performance benchmarking
-- [ ] Security vulnerability testing
+- [x] Unit test expansion for core logic (TrainingPanel, trainingsStore completed)
+- [ ] Integration test implementation (WebSocket emission flows needed)
+- [ ] End-to-end workflow testing (complete training flow needed)
+- [ ] Performance benchmarking (TrainingMetric queries needed)
+- [ ] Security vulnerability testing (WebSocket auth needed)
 
 **Test Automation Status:**
-- **CI/CD Integration:** [FULL/PARTIAL/NONE]
-- **Automated Test Runs:** [YES/NO]
-- **Test Reporting:** [COMPREHENSIVE/BASIC/NONE]
+- **CI/CD Integration:** PARTIAL (tests exist, CI pipeline status unknown)
+- **Automated Test Runs:** YES (pytest, vitest)
+- **Test Reporting:** BASIC (console output, coverage reports)
 
 ### Risk Assessment
 **High-Risk Areas:**
-1. **[COMPONENT]:** [Risk description and testing approach]
-2. **[COMPONENT]:** [Risk description and testing approach]
+1. **WebSocket Connection Reliability (P0):** Silent disconnects could show stale progress to users. Need reconnection tests, message ordering tests, state synchronization tests.
+
+2. **Progress Monitor Thread Safety (P1):** Background thread in model_tasks.py could have race conditions. Need concurrent update tests, verify no missed/duplicate progress updates.
+
+3. **Polling Fallback Activation (P1):** Unclear when polling vs WebSocket is active. Could cause duplicate API calls. Need integration tests for fallback scenarios.
+
+4. **TrainingMetric Table Growth (P2):** Could reach millions of rows, slow queries. Need performance tests with 1000+ training runs, load testing.
 
 **Testing Gaps:**
-1. 
-2. 
-3. 
+1. No WebSocket reliability tests (connection, disconnection, reconnection, state sync)
+2. No unit tests for progress calculation formulas (3-phase extraction, training steps)
+3. No integration tests for error recovery flows (OOM retry, batch_size reduction)
+4. No tests for concurrent operations (multiple jobs updating simultaneously)
+5. No performance tests for system monitor polling efficiency
+6. No security tests for WebSocket authentication/authorization
 
 ### Troubleshooting & Debugging
 **Current Issues:**
-- **P0 (Critical):** 
-- **P1 (High):** 
-- **P2 (Medium):** 
+- **P0 (Critical):** No visibility into WebSocket connection state (users can't tell if updates are stale)
+- **P1 (High):** Test coverage insufficient for production deployment (40% vs 70% target)
+- **P2 (Medium):** No progress history UI for debugging slow training runs
 
 **Debugging Tools Status:**
-- [ ] Logging comprehensive and structured
-- [ ] Error tracking implemented
-- [ ] Performance monitoring active
-- [ ] Test environment stable
+- [x] Logging comprehensive and structured (console.log in stores, backend logging)
+- [x] Error tracking implemented (TaskQueue captures failures)
+- [x] Performance monitoring active (system monitor dashboard)
+- [x] Test environment stable (recent tests passing)
 
 ### Session Context
-**Current Testing Focus:** [What you're testing]
-**Test Development Status:** [What tests you're writing/updating]
+**Current Testing Focus:** Progress tracking & resource monitoring architecture
+**Test Development Status:** Planning test expansion for WebSocket reliability and progress calculations
 **Next Testing Actions:**
-1. 
-2. 
+1. Write unit tests for all progress calculation functions (training, extraction, model download)
+2. Write integration tests for WebSocket emission flows (training, extraction, dataset)
+3. Write WebSocket reconnection tests (simulate network failure, verify state recovery)
+4. Write concurrent operations tests (multiple jobs updating simultaneously)
+5. Write performance tests for TrainingMetric queries (1000+ training runs) 
 
 ---
 

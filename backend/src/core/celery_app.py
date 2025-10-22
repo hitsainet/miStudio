@@ -82,6 +82,12 @@ celery_app.conf.update(
             "queue": "low_priority",
             "priority": 3,
         },
+
+        # System monitoring operations: Background metrics collection
+        "src.workers.system_monitor_tasks.*": {
+            "queue": "low_priority",
+            "priority": 2,
+        },
     },
 
     # Task priority queues (higher priority = processed first)
@@ -108,7 +114,17 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,  # Disable prefetching for fair distribution
 
     # Beat scheduler settings (for periodic tasks)
-    beat_schedule={},  # To be populated with periodic tasks
+    beat_schedule={
+        # System metrics monitoring - runs every N seconds (configurable via SYSTEM_MONITOR_INTERVAL_SECONDS)
+        "monitor-system-metrics": {
+            "task": "workers.monitor_system_metrics",
+            "schedule": settings.system_monitor_interval_seconds,  # Run every 2 seconds (default)
+            "options": {
+                "queue": "low_priority",
+                "priority": 2,
+            },
+        },
+    },
 
     # Worker settings
     worker_max_tasks_per_child=100,  # Restart worker after 100 tasks (memory cleanup)
@@ -126,6 +142,7 @@ celery_app.autodiscover_tasks(
         "src.workers.model_tasks",
         "src.workers.training_tasks",
         "src.workers.extraction_tasks",
+        "src.workers.system_monitor_tasks",
     ],
     force=True,
 )

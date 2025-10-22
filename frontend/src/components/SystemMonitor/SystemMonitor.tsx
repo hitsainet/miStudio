@@ -5,10 +5,11 @@
  * Displays real-time metrics with auto-refresh.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Activity, Settings } from 'lucide-react';
 import { useSystemMonitorStore } from '../../stores/systemMonitorStore';
 import { useHistoricalData } from '../../hooks/useHistoricalData';
+import { useSystemMonitorWebSocket } from '../../hooks/useSystemMonitorWebSocket';
 import { UtilizationChart } from './UtilizationChart';
 import { MemoryUsageChart } from './MemoryUsageChart';
 import { GPUSelector } from './GPUSelector';
@@ -38,6 +39,7 @@ export function SystemMonitor() {
     errorType,
     isPolling,
     isConnected,
+    isWebSocketConnected,
     fetchGPUList,
     setSelectedGPU,
     setUpdateInterval,
@@ -57,19 +59,34 @@ export function SystemMonitor() {
     addDataPoint,
   } = useHistoricalData({ maxDataPoints: 3600 }); // 1h at 1s intervals
 
+  // Get GPU IDs for WebSocket subscription
+  const gpuIds = useMemo(() => {
+    if (!gpuList) return [];
+    return gpuList.gpus.map(gpu => gpu.gpu_id);
+  }, [gpuList]);
+
+  // Subscribe to system monitoring WebSocket channels
+  useSystemMonitorWebSocket(gpuIds);
+
   // Fetch GPU list on mount
   useEffect(() => {
     fetchGPUList();
   }, [fetchGPUList]);
 
-  // Start polling on mount or when updateInterval changes, stop on unmount
+  // Fallback polling: Only start if WebSocket is not connected
+  // WebSocket connection state managed by useSystemMonitorWebSocket hook
   useEffect(() => {
-    startPolling(updateInterval);
+    // Only use polling as fallback when WebSocket is not connected
+    if (!isWebSocketConnected && !isPolling) {
+      console.log('[SystemMonitor] Starting polling fallback (WebSocket not connected)');
+      startPolling(updateInterval);
+    }
 
     return () => {
+      // Clean up polling on unmount
       stopPolling();
     };
-  }, [updateInterval, startPolling, stopPolling]);
+  }, [isWebSocketConnected, isPolling, updateInterval, startPolling, stopPolling]);
 
   // Update historical data when new metrics arrive
   useEffect(() => {

@@ -42,6 +42,7 @@ interface SystemMonitorState {
   errorType: 'connection' | 'gpu' | 'api' | 'general' | null;
   isPolling: boolean;
   isConnected: boolean;
+  isWebSocketConnected: boolean; // NEW: WebSocket connection state
   consecutiveErrors: number;
   lastSuccessfulFetch: number | null;
 
@@ -56,6 +57,10 @@ interface SystemMonitorState {
   setError: (error: string | null, errorType?: 'connection' | 'gpu' | 'api' | 'general') => void;
   clearError: () => void;
   retryConnection: () => Promise<void>;
+  // NEW: WebSocket update methods
+  setIsWebSocketConnected: (connected: boolean) => void;
+  setGPUMetrics: (gpuId: number, metrics: any) => void;
+  updateSystemMetrics: (metrics: Partial<SystemMetrics>) => void;
 }
 
 // Polling interval ID (stored outside of Zustand state)
@@ -83,6 +88,7 @@ export const useSystemMonitorStore = create<SystemMonitorState>()(
         errorType: null,
         isPolling: false,
         isConnected: true,
+        isWebSocketConnected: false, // NEW: Initially false, set by WebSocket hook
         consecutiveErrors: 0,
         lastSuccessfulFetch: null,
 
@@ -231,6 +237,47 @@ export const useSystemMonitorStore = create<SystemMonitorState>()(
           // Just fetch once
           await get().fetchAllMetrics();
         }
+      },
+
+      // NEW: WebSocket update methods
+      // Set WebSocket connection state
+      setIsWebSocketConnected: (connected: boolean) => {
+        set({ isWebSocketConnected: connected });
+
+        // If WebSocket disconnected, start polling as fallback
+        if (!connected && !get().isPolling) {
+          console.log('[SystemMonitorStore] WebSocket disconnected, starting polling fallback');
+          get().startPolling(get().updateInterval);
+        }
+        // If WebSocket connected, stop polling (WebSocket will provide updates)
+        else if (connected && get().isPolling) {
+          console.log('[SystemMonitorStore] WebSocket connected, stopping polling');
+          get().stopPolling();
+        }
+      },
+
+      // Set GPU metrics from WebSocket update
+      setGPUMetrics: (gpuId: number, metrics: any) => {
+        // Only update if this is the selected GPU
+        if (gpuId === get().selectedGPU) {
+          set({
+            gpuMetrics: metrics,
+            lastSuccessfulFetch: Date.now(),
+            consecutiveErrors: 0,
+          });
+        }
+      },
+
+      // Update system metrics from WebSocket (partial update)
+      updateSystemMetrics: (metrics: Partial<SystemMetrics>) => {
+        set((state) => ({
+          systemMetrics: {
+            ...state.systemMetrics,
+            ...metrics,
+          } as SystemMetrics,
+          lastSuccessfulFetch: Date.now(),
+          consecutiveErrors: 0,
+        }));
       },
       }),
       {

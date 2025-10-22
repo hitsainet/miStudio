@@ -268,17 +268,19 @@ export const useModelsStore = create<ModelsState>()(
         try {
           const response = await fetch(`${API_BASE_URL}/api/v1/models/${modelId}/extractions/active`);
 
-          if (response.status === 404) {
-            // No active extraction found
-            console.log('[ModelsStore] No active extraction found for model:', modelId);
-            return false;
-          }
-
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
 
-          const activeExtraction = await response.json();
+          const result = await response.json();
+
+          // Check if data is null (no active extraction)
+          if (!result.data) {
+            console.log('[ModelsStore] No active extraction found for model:', modelId);
+            return false;
+          }
+
+          const activeExtraction = result.data;
           console.log('[ModelsStore] Active extraction found:', activeExtraction);
 
           // Update model state with extraction progress

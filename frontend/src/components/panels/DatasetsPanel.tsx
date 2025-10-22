@@ -100,15 +100,27 @@ export function DatasetsPanel() {
               Your Datasets ({datasets.length})
             </h2>
             <div className="grid gap-4 md:grid-cols-2">
-              {datasets.map((dataset) => (
-                <DatasetCard
-                  key={dataset.id}
-                  dataset={dataset}
-                  onClick={() => handleDatasetClick(dataset)}
-                  onDelete={handleDelete}
-                  onCancel={handleCancel}
-                />
-              ))}
+              {[...datasets]
+                .sort((a, b) => {
+                  // Active operations first (downloading, processing)
+                  const aActive = ['downloading', 'processing'].includes(a.status);
+                  const bActive = ['downloading', 'processing'].includes(b.status);
+
+                  if (aActive && !bActive) return -1;
+                  if (!aActive && bActive) return 1;
+
+                  // Then by creation time (newest first)
+                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                })
+                .map((dataset) => (
+                  <DatasetCard
+                    key={dataset.id}
+                    dataset={dataset}
+                    onClick={() => handleDatasetClick(dataset)}
+                    onDelete={handleDelete}
+                    onCancel={handleCancel}
+                  />
+                ))}
             </div>
           </div>
         )}

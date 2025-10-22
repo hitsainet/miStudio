@@ -783,16 +783,24 @@ export const TrainingPanel: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {trainings.map((training) => (
-                <TrainingCard
-                  key={training.id}
-                  training={training}
-                  isSelected={selectedTrainingIds.has(training.id)}
-                  onToggleSelect={handleToggleSelection}
-                  models={models}
-                  datasets={datasets}
-                />
-              ))}
+              {[...trainings]
+                .sort((a, b) => {
+                  // Running jobs first
+                  if (a.status === TrainingStatus.RUNNING && b.status !== TrainingStatus.RUNNING) return -1;
+                  if (a.status !== TrainingStatus.RUNNING && b.status === TrainingStatus.RUNNING) return 1;
+                  // Then by creation time (newest first)
+                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                })
+                .map((training) => (
+                  <TrainingCard
+                    key={training.id}
+                    training={training}
+                    isSelected={selectedTrainingIds.has(training.id)}
+                    onToggleSelect={handleToggleSelection}
+                    models={models}
+                    datasets={datasets}
+                  />
+                ))}
             </div>
           )}
 

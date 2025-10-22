@@ -315,7 +315,15 @@ def train_sae_task(
                     if step % grad_accum_steps == 0:
                         optimizer.zero_grad()
 
-                    x_reconstructed, z, losses = model(x, return_loss=True)
+                    # Handle different architecture types
+                    architecture_type = hp.get('architecture_type', 'standard')
+                    if architecture_type == 'transcoder':
+                        # Transcoder requires both x_input and x_target
+                        # For single-layer training, use same activation as both
+                        x_reconstructed, z, losses = model(x, x, return_loss=True)
+                    else:
+                        # Standard and Skip architectures
+                        x_reconstructed, z, losses = model(x, return_loss=True)
 
                     # Backward pass with gradient accumulation
                     loss = losses['loss']

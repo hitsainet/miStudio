@@ -100,6 +100,7 @@ poetry==2.2.1
 poetry-core==2.2.1
 prompt_toolkit==3.0.52
 propcache==0.4.0
+protobuf==6.33.0
 psutil==7.1.0
 pynvml>=11.5.0
 psycopg2-binary==2.9.10

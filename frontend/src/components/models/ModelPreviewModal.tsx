@@ -139,7 +139,7 @@ export function ModelPreviewModal({
                       <p className="text-sm text-red-200/80 mt-1">
                         This model uses the <span className="font-mono">{modelInfo.unsupportedArchitecture}</span> architecture,
                         which is not currently supported. Supported architectures are: falcon, gpt2, gpt_neox, llama,
-                        mistral, mixtral, phi, phi3, phi3_v, pythia, qwen, qwen3.
+                        mistral, mixtral, phi, phi3, phi3_v, pythia, qwen, qwen2, qwen3.
                       </p>
                     </div>
                   </div>

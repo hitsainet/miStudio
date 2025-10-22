@@ -26,6 +26,7 @@ const SUPPORTED_ARCHITECTURES = [
   'phi3_v',
   'pythia',
   'qwen',
+  'qwen2',
   'qwen3',
 ];
 

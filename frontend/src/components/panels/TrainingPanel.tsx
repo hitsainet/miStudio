@@ -88,8 +88,19 @@ export const TrainingPanel: React.FC = () => {
   const readyModels = models.filter((m) => m.status === 'ready');
   const readyDatasets = datasets.filter((d) => d.status === 'ready');
 
+  // Get selected model and its layer count
+  const selectedModel = models.find((m) => m.id === config.model_id);
+  const numLayers = selectedModel?.architecture_config?.num_hidden_layers || 0;
+
+  // Auto-select layer 0 when model is first selected
+  useEffect(() => {
+    if (config.model_id && numLayers > 0 && (!config.training_layers || config.training_layers.length === 0)) {
+      updateConfig({ training_layers: [0] });
+    }
+  }, [config.model_id, numLayers]);
+
   // Validation
-  const isFormValid = config.model_id && config.dataset_id;
+  const isFormValid = config.model_id && config.dataset_id && config.training_layers && config.training_layers.length > 0;
 
   // Selection handlers
   const handleToggleSelection = (trainingId: string) => {
@@ -269,35 +280,74 @@ export const TrainingPanel: React.FC = () => {
               </select>
             </div>
 
-            {/* Training Layers Selection */}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Training Layers
+          </div>
+
+          {/* Training Layers Selection */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-slate-300">
+                Select Layers ({config.training_layers?.length || 0} selected)
               </label>
-              <input
-                type="text"
-                value={config.training_layers?.join(', ') || '0'}
-                onChange={(e) => {
-                  const value = e.target.value.trim();
-                  if (value === '') {
-                    updateConfig({ training_layers: [0] });
-                    return;
-                  }
-                  const layers = value
-                    .split(',')
-                    .map((s) => parseInt(s.trim()))
-                    .filter((n) => !isNaN(n) && n >= 0);
-                  if (layers.length > 0) {
-                    updateConfig({ training_layers: [...new Set(layers)].sort((a, b) => a - b) });
-                  }
-                }}
-                placeholder="0, 6, 12"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Comma-separated layer indices (e.g., "0, 6, 12" for layers 0, 6, and 12)
-              </p>
+              {numLayers > 0 && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allLayers = Array.from({ length: numLayers }, (_, i) => i);
+                      updateConfig({ training_layers: allLayers });
+                    }}
+                    className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateConfig({ training_layers: [] })}
+                    className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              )}
             </div>
+            {numLayers > 0 ? (
+              <div className="grid grid-cols-6 gap-2">
+                {Array.from({ length: numLayers }, (_, i) => i).map((layerIdx) => {
+                  const isSelected = config.training_layers?.includes(layerIdx) || false;
+                  return (
+                    <button
+                      key={layerIdx}
+                      type="button"
+                      onClick={() => {
+                        const currentLayers = config.training_layers || [];
+                        if (isSelected) {
+                          updateConfig({
+                            training_layers: currentLayers.filter((l) => l !== layerIdx),
+                          });
+                        } else {
+                          updateConfig({
+                            training_layers: [...currentLayers, layerIdx].sort((a, b) => a - b),
+                          });
+                        }
+                      }}
+                      className={`px-3 py-2 text-sm font-medium rounded transition-colors ${
+                        isSelected
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      }`}
+                    >
+                      L{layerIdx}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-4 py-8 text-center text-slate-500 bg-slate-800/50 rounded-lg border border-slate-700">
+                {config.model_id
+                  ? 'Loading model architecture...'
+                  : 'Select a model to choose training layers'}
+              </div>
+            )}
           </div>
 
           {/* Memory Estimation Display */}

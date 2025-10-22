@@ -34,6 +34,7 @@ SUPPORTED_ARCHITECTURES = {
     "mistral",
     "mixtral",
     "qwen",
+    "qwen2",  # Qwen2 models
     "qwen3",  # Qwen3 models (added to transformers 2025-03-31)
     "falcon",
 }

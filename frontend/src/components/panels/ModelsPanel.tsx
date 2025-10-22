@@ -202,18 +202,30 @@ export function ModelsPanel() {
               Your Models ({models.length})
             </h2>
             <div className="grid gap-4">
-              {models.map((model) => (
-                <ModelCard
-                  key={model.id}
-                  model={model}
-                  onClick={() => handleModelClick(model)}
-                  onExtract={() => handleExtractActivations(model)}
-                  onViewExtractions={() => handleViewExtractions(model)}
-                  onDeleteExtractions={() => handleDeleteExtractions(model)}
-                  onDelete={handleDelete}
-                  onCancel={handleCancel}
-                />
-              ))}
+              {[...models]
+                .sort((a, b) => {
+                  // Active downloads first (downloading, loading, quantizing)
+                  const aActive = ['downloading', 'loading', 'quantizing'].includes(a.status);
+                  const bActive = ['downloading', 'loading', 'quantizing'].includes(b.status);
+
+                  if (aActive && !bActive) return -1;
+                  if (!aActive && bActive) return 1;
+
+                  // Then by creation time (newest first)
+                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                })
+                .map((model) => (
+                  <ModelCard
+                    key={model.id}
+                    model={model}
+                    onClick={() => handleModelClick(model)}
+                    onExtract={() => handleExtractActivations(model)}
+                    onViewExtractions={() => handleViewExtractions(model)}
+                    onDeleteExtractions={() => handleDeleteExtractions(model)}
+                    onDelete={handleDelete}
+                    onCancel={handleCancel}
+                  />
+                ))}
             </div>
           </div>
         )}

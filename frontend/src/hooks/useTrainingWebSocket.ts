@@ -2,13 +2,13 @@
  * Training WebSocket Hook
  *
  * React hook for subscribing to training progress and checkpoint events via WebSocket.
+ * Uses WebSocketContext for proper connection management and event queuing.
  *
  * WebSocket Channels:
  * - trainings/{training_id}/progress - Progress updates
  * - trainings/{training_id}/checkpoints - Checkpoint creation
  *
  * Events:
- * - training:created - New training job created
  * - training:progress - Progress update (every 100 steps)
  * - training:status_changed - Status changed (pause/resume/stop)
  * - training:completed - Training completed
@@ -22,8 +22,8 @@
  *   // Updates are handled by trainingsStore.updateTrainingStatus()
  */
 
-import { useEffect } from 'react';
-import { websocketClient } from '../api/websocket';
+import { useEffect, useRef } from 'react';
+import { useWebSocketContext } from '../contexts/WebSocketContext';
 import { useTrainingsStore } from '../stores/trainingsStore';
 import { TrainingStatus } from '../types/training';
 import type {
@@ -32,101 +32,119 @@ import type {
 } from '../types/training';
 
 export const useTrainingWebSocket = (trainingIds: string[]) => {
+  const { on, off, subscribe, unsubscribe, isConnected } = useWebSocketContext();
   const { updateTrainingStatus } = useTrainingsStore();
+  const handlersRegisteredRef = useRef(false);
 
+  // Set up global event handlers (once)
   useEffect(() => {
-    // Connect WebSocket
-    const socket = websocketClient.connect();
+    if (handlersRegisteredRef.current) return;
 
-    if (!socket.connected) {
-      console.warn('WebSocket not connected, training updates will not be real-time');
+    console.log('[Training WS] Setting up training event handlers');
+
+    // Handler for 'training:progress' events
+    const handleProgress = (data: TrainingProgressEvent) => {
+      console.log('[Training WS] Progress event:', data);
+      updateTrainingStatus(data.training_id, {
+        current_step: data.current_step,
+        progress: data.progress,
+        current_loss: data.loss,
+        current_l0_sparsity: data.l0_sparsity,
+        current_dead_neurons: data.dead_neurons,
+        current_learning_rate: data.learning_rate,
+      });
+    };
+
+    // Handler for 'training:status_changed' events
+    const handleStatusChanged = (data: any) => {
+      console.log('[Training WS] Status changed:', data);
+      updateTrainingStatus(data.training_id, {
+        status: data.status,
+        current_step: data.current_step,
+        progress: data.progress,
+      });
+    };
+
+    // Handler for 'training:completed' events
+    const handleCompleted = (data: any) => {
+      console.log('[Training WS] Training completed:', data);
+      updateTrainingStatus(data.training_id, {
+        status: TrainingStatus.COMPLETED,
+        progress: 100.0,
+        completed_at: new Date().toISOString(),
+      });
+    };
+
+    // Handler for 'training:failed' events
+    const handleFailed = (data: any) => {
+      console.log('[Training WS] Training failed:', data);
+      updateTrainingStatus(data.training_id, {
+        status: TrainingStatus.FAILED,
+        error_message: data.error_message || data.message,
+      });
+    };
+
+    // Handler for 'checkpoint:created' events
+    const handleCheckpointCreated = (data: CheckpointCreatedEvent) => {
+      console.log('[Training WS] Checkpoint created:', data);
+      // TODO: Update checkpoints in store when we add checkpoint state management
+    };
+
+    // Register event handlers
+    on('training:progress', handleProgress);
+    on('training:status_changed', handleStatusChanged);
+    on('training:completed', handleCompleted);
+    on('training:failed', handleFailed);
+    on('checkpoint:created', handleCheckpointCreated);
+
+    handlersRegisteredRef.current = true;
+    console.log('[Training WS] Event handlers registered');
+
+    // Cleanup
+    return () => {
+      console.log('[Training WS] Cleaning up event handlers');
+      off('training:progress', handleProgress);
+      off('training:status_changed', handleStatusChanged);
+      off('training:completed', handleCompleted);
+      off('training:failed', handleFailed);
+      off('checkpoint:created', handleCheckpointCreated);
+      handlersRegisteredRef.current = false;
+    };
+  }, [on, off, updateTrainingStatus]);
+
+  // Subscribe to channels for active trainings
+  useEffect(() => {
+    if (!isConnected) {
+      console.log('[Training WS] Not connected, skipping channel subscriptions');
       return;
     }
 
-    // Subscribe to each training's progress updates
-    const progressHandlers = trainingIds.map((trainingId) => {
-      const handler = (event: { event: string; data: any }) => {
-        console.log(`[WS] Training ${trainingId} event:`, event.event, event.data);
+    if (trainingIds.length === 0) {
+      console.log('[Training WS] No trainings to subscribe to');
+      return;
+    }
 
-        switch (event.event) {
-          case 'created':
-            // New training created - could refresh list
-            console.log('Training created:', event.data);
-            break;
+    console.log('[Training WS] Subscribing to', trainingIds.length, 'training channels');
 
-          case 'progress':
-            // Progress update
-            const progressData = event.data as TrainingProgressEvent;
-            updateTrainingStatus(progressData.training_id, {
-              current_step: progressData.current_step,
-              progress: progressData.progress,
-              current_loss: progressData.loss,
-              current_l0_sparsity: progressData.l0_sparsity,
-              current_dead_neurons: progressData.dead_neurons,
-              current_learning_rate: progressData.learning_rate,
-            });
-            break;
+    // Subscribe to progress and checkpoint channels for each training
+    trainingIds.forEach((trainingId) => {
+      const progressChannel = `trainings/${trainingId}/progress`;
+      const checkpointChannel = `trainings/${trainingId}/checkpoints`;
 
-          case 'status_changed':
-            // Status changed (pause/resume/stop)
-            updateTrainingStatus(event.data.training_id, {
-              status: event.data.status,
-              current_step: event.data.current_step,
-              progress: event.data.progress,
-            });
-            break;
+      console.log(`[Training WS] Subscribing to ${progressChannel}`);
+      subscribe(progressChannel);
 
-          case 'completed':
-            // Training completed
-            updateTrainingStatus(event.data.training_id, {
-              status: TrainingStatus.COMPLETED,
-              progress: 100.0,
-              completed_at: new Date().toISOString(),
-            });
-            break;
-
-          case 'failed':
-            // Training failed
-            updateTrainingStatus(event.data.training_id, {
-              status: TrainingStatus.FAILED,
-              error_message: event.data.error_message,
-            });
-            break;
-
-          default:
-            console.warn('Unknown training event:', event.event);
-        }
-      };
-
-      websocketClient.subscribeToTrainingProgress(trainingId, handler);
-      return { trainingId, handler };
+      console.log(`[Training WS] Subscribing to ${checkpointChannel}`);
+      subscribe(checkpointChannel);
     });
 
-    // Subscribe to checkpoint events for each training
-    const checkpointHandlers = trainingIds.map((trainingId) => {
-      const handler = (event: { event: string; data: CheckpointCreatedEvent }) => {
-        console.log(`[WS] Checkpoint event for ${trainingId}:`, event.event, event.data);
-
-        if (event.event === 'checkpoint_created') {
-          // Checkpoint created - could update checkpoint list
-          console.log('Checkpoint created:', event.data);
-          // TODO: Update checkpoints in store when we add checkpoint state management
-        }
-      };
-
-      websocketClient.subscribeToTrainingCheckpoints(trainingId, handler);
-      return { trainingId, handler };
-    });
-
-    // Cleanup on unmount or when trainingIds change
+    // Cleanup subscriptions
     return () => {
-      progressHandlers.forEach(({ trainingId }) => {
-        websocketClient.unsubscribeFromTrainingProgress(trainingId);
-      });
-
-      checkpointHandlers.forEach(({ trainingId }) => {
-        websocketClient.unsubscribeFromTrainingCheckpoints(trainingId);
+      console.log('[Training WS] Unsubscribing from training channels');
+      trainingIds.forEach((trainingId) => {
+        unsubscribe(`trainings/${trainingId}/progress`);
+        unsubscribe(`trainings/${trainingId}/checkpoints`);
       });
     };
-  }, [trainingIds, updateTrainingStatus]);
+  }, [trainingIds, isConnected, subscribe, unsubscribe]);
 };

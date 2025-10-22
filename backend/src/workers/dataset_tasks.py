@@ -220,26 +220,44 @@ def download_dataset_task(
             import uuid
 
             with self.get_db() as db:
-                task_queue_entry = TaskQueue(
-                    id=f"tq_{uuid.uuid4().hex[:12]}",
-                    task_id=self.request.id,
-                    task_type="download",
+                # Check if there's an existing queued task_queue entry for this entity
+                existing_entry = db.query(TaskQueue).filter_by(
                     entity_id=dataset_id,
                     entity_type="dataset",
-                    status="failed",
-                    progress=0.0,
-                    error_message=error_message,
-                    retry_params={
-                        "repo_id": repo_id,
-                        "access_token": access_token,
-                        "split": split,
-                        "config": config,
-                    },
-                    retry_count=0,
-                )
-                db.add(task_queue_entry)
-                db.commit()
-                print(f"Saved failed dataset download to task_queue: {task_queue_entry.id}")
+                    task_type="download"
+                ).filter(
+                    TaskQueue.status.in_(["queued", "running"])
+                ).first()
+
+                if existing_entry:
+                    # This is a retry that failed - update the existing entry
+                    existing_entry.status = "failed"
+                    existing_entry.error_message = error_message
+                    existing_entry.task_id = self.request.id
+                    db.commit()
+                    print(f"Updated failed retry in task_queue: {existing_entry.id} (retry #{existing_entry.retry_count})")
+                else:
+                    # This is an initial failure - create new entry
+                    task_queue_entry = TaskQueue(
+                        id=f"tq_{uuid.uuid4().hex[:12]}",
+                        task_id=self.request.id,
+                        task_type="download",
+                        entity_id=dataset_id,
+                        entity_type="dataset",
+                        status="failed",
+                        progress=0.0,
+                        error_message=error_message,
+                        retry_params={
+                            "repo_id": repo_id,
+                            "access_token": access_token,
+                            "split": split,
+                            "config": config,
+                        },
+                        retry_count=0,
+                    )
+                    db.add(task_queue_entry)
+                    db.commit()
+                    print(f"Saved failed dataset download to task_queue: {task_queue_entry.id}")
         except Exception as queue_exc:
             print(f"Failed to save task to queue: {queue_exc}")
 
@@ -588,29 +606,47 @@ def tokenize_dataset_task(
             import uuid
 
             with self.get_db() as db:
-                task_queue_entry = TaskQueue(
-                    id=f"tq_{uuid.uuid4().hex[:12]}",
-                    task_id=self.request.id,
-                    task_type="tokenization",
+                # Check if there's an existing queued task_queue entry for this entity
+                existing_entry = db.query(TaskQueue).filter_by(
                     entity_id=dataset_id,
                     entity_type="dataset",
-                    status="failed",
-                    progress=0.0,
-                    error_message=error_message,
-                    retry_params={
-                        "tokenizer_name": tokenizer_name,
-                        "max_length": max_length,
-                        "stride": stride,
-                        "padding": padding,
-                        "truncation": truncation,
-                        "add_special_tokens": add_special_tokens,
-                        "text_column": text_column,
-                    },
-                    retry_count=0,
-                )
-                db.add(task_queue_entry)
-                db.commit()
-                print(f"Saved failed tokenization to task_queue: {task_queue_entry.id}")
+                    task_type="tokenization"
+                ).filter(
+                    TaskQueue.status.in_(["queued", "running"])
+                ).first()
+
+                if existing_entry:
+                    # This is a retry that failed - update the existing entry
+                    existing_entry.status = "failed"
+                    existing_entry.error_message = error_message
+                    existing_entry.task_id = self.request.id
+                    db.commit()
+                    print(f"Updated failed retry in task_queue: {existing_entry.id} (retry #{existing_entry.retry_count})")
+                else:
+                    # This is an initial failure - create new entry
+                    task_queue_entry = TaskQueue(
+                        id=f"tq_{uuid.uuid4().hex[:12]}",
+                        task_id=self.request.id,
+                        task_type="tokenization",
+                        entity_id=dataset_id,
+                        entity_type="dataset",
+                        status="failed",
+                        progress=0.0,
+                        error_message=error_message,
+                        retry_params={
+                            "tokenizer_name": tokenizer_name,
+                            "max_length": max_length,
+                            "stride": stride,
+                            "padding": padding,
+                            "truncation": truncation,
+                            "add_special_tokens": add_special_tokens,
+                            "text_column": text_column,
+                        },
+                        retry_count=0,
+                    )
+                    db.add(task_queue_entry)
+                    db.commit()
+                    print(f"Saved failed tokenization to task_queue: {task_queue_entry.id}")
         except Exception as queue_exc:
             print(f"Failed to save task to queue: {queue_exc}")
 

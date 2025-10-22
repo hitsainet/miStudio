@@ -422,26 +422,45 @@ def download_and_load_model(
             import uuid
 
             with self.get_db() as db:
-                task_queue_entry = TaskQueue(
-                    id=f"tq_{uuid.uuid4().hex[:12]}",
-                    task_id=self.request.id,
-                    task_type="download",
+                # Check if there's an existing queued task_queue entry for this entity
+                # (which would indicate this is a retry)
+                existing_entry = db.query(TaskQueue).filter_by(
                     entity_id=model_id,
                     entity_type="model",
-                    status="failed",
-                    progress=0.0,
-                    error_message=str(exc),
-                    retry_params={
-                        "repo_id": repo_id,
-                        "quantization": quantization,
-                        "access_token": access_token,
-                        "trust_remote_code": trust_remote_code,
-                    },
-                    retry_count=0,
-                )
-                db.add(task_queue_entry)
-                db.commit()
-                logger.info(f"Saved failed task to task_queue: {task_queue_entry.id}")
+                    task_type="download"
+                ).filter(
+                    TaskQueue.status.in_(["queued", "running"])
+                ).first()
+
+                if existing_entry:
+                    # This is a retry that failed - update the existing entry
+                    existing_entry.status = "failed"
+                    existing_entry.error_message = str(exc)
+                    existing_entry.task_id = self.request.id
+                    db.commit()
+                    logger.info(f"Updated failed retry in task_queue: {existing_entry.id} (retry #{existing_entry.retry_count})")
+                else:
+                    # This is an initial failure - create new entry
+                    task_queue_entry = TaskQueue(
+                        id=f"tq_{uuid.uuid4().hex[:12]}",
+                        task_id=self.request.id,
+                        task_type="download",
+                        entity_id=model_id,
+                        entity_type="model",
+                        status="failed",
+                        progress=0.0,
+                        error_message=str(exc),
+                        retry_params={
+                            "repo_id": repo_id,
+                            "quantization": quantization,
+                            "access_token": access_token,
+                            "trust_remote_code": trust_remote_code,
+                        },
+                        retry_count=0,
+                    )
+                    db.add(task_queue_entry)
+                    db.commit()
+                    logger.info(f"Saved failed task to task_queue: {task_queue_entry.id}")
         except Exception as queue_exc:
             logger.error(f"Failed to save task to queue: {queue_exc}")
 

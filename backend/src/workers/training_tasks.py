@@ -557,14 +557,14 @@ def train_sae_task(
             data={
                 "training_id": training_id,
                 "status": "completed",
-                "final_loss": loss_value,
+                "final_loss": avg_loss,
             }
         )
 
         return {
             "status": "completed",
             "steps": total_steps,
-            "final_loss": loss_value,
+            "final_loss": avg_loss,
         }
 
     except Exception as e:

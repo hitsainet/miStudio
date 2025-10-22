@@ -207,8 +207,7 @@ def send_progress_update(model_id: str, progress: float, status: str, message: s
     bind=True,
     base=DatabaseTask,
     name="workers.model_tasks.download_and_load_model",
-    max_retries=3,
-    default_retry_delay=300,  # 5 minutes
+    max_retries=0,  # No auto-retry - user must manually retry
     queue="processing",
 )
 def download_and_load_model(
@@ -417,10 +416,42 @@ def download_and_load_model(
         except Exception as db_exc:
             logger.error(f"Failed to update error state in database: {db_exc}")
 
-        # Retry if not at max retries
-        if self.request.retries < self.max_retries:
-            logger.info(f"Retrying task for model {model_id} (attempt {self.request.retries + 1})")
-            raise self.retry(exc=exc)
+        # Save failure state to task_queue for manual retry
+        try:
+            from ..models.task_queue import TaskQueue
+            import uuid
+
+            with self.get_db() as db:
+                task_queue_entry = TaskQueue(
+                    id=f"tq_{uuid.uuid4().hex[:12]}",
+                    task_id=self.request.id,
+                    task_type="download",
+                    entity_id=model_id,
+                    entity_type="model",
+                    status="failed",
+                    progress=0.0,
+                    error_message=str(exc),
+                    retry_params={
+                        "repo_id": repo_id,
+                        "quantization": quantization,
+                        "access_token": access_token,
+                        "trust_remote_code": trust_remote_code,
+                    },
+                    retry_count=0,
+                )
+                db.add(task_queue_entry)
+                db.commit()
+                logger.info(f"Saved failed task to task_queue: {task_queue_entry.id}")
+        except Exception as queue_exc:
+            logger.error(f"Failed to save task to queue: {queue_exc}")
+
+        # Send WebSocket notification of failure
+        send_progress_update(
+            model_id=model_id,
+            progress=0.0,
+            status="error",
+            message=f"Download failed: {str(exc)}"
+        )
 
         raise
 

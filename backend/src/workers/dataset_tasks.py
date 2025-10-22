@@ -27,8 +27,7 @@ from .websocket_emitter import emit_dataset_progress
     bind=True,
     base=DatabaseTask,
     name="src.workers.dataset_tasks.download_dataset_task",
-    max_retries=3,
-    default_retry_delay=60,
+    max_retries=0,  # No auto-retry - user must manually retry
 )
 def download_dataset_task(
     self,
@@ -215,14 +214,34 @@ def download_dataset_task(
             },
         )
 
-        # Retry with exponential backoff if not max retries
-        # Formula: base_delay * (2 ** retry_count)
-        # Attempt 1: 60s, Attempt 2: 120s, Attempt 3: 240s
-        if self.request.retries < self.max_retries:
-            base_delay = 60
-            retry_delay = base_delay * (2 ** self.request.retries)
-            print(f"Retrying download (attempt {self.request.retries + 1}/{self.max_retries}) in {retry_delay}s...")
-            raise self.retry(exc=e, countdown=retry_delay)
+        # Save failure state to task_queue for manual retry
+        try:
+            from ..models.task_queue import TaskQueue
+            import uuid
+
+            with self.get_db() as db:
+                task_queue_entry = TaskQueue(
+                    id=f"tq_{uuid.uuid4().hex[:12]}",
+                    task_id=self.request.id,
+                    task_type="download",
+                    entity_id=dataset_id,
+                    entity_type="dataset",
+                    status="failed",
+                    progress=0.0,
+                    error_message=error_message,
+                    retry_params={
+                        "repo_id": repo_id,
+                        "access_token": access_token,
+                        "split": split,
+                        "config": config,
+                    },
+                    retry_count=0,
+                )
+                db.add(task_queue_entry)
+                db.commit()
+                print(f"Saved failed dataset download to task_queue: {task_queue_entry.id}")
+        except Exception as queue_exc:
+            print(f"Failed to save task to queue: {queue_exc}")
 
         raise
 
@@ -231,8 +250,7 @@ def download_dataset_task(
     bind=True,
     base=DatabaseTask,
     name="src.workers.dataset_tasks.tokenize_dataset_task",
-    max_retries=2,
-    default_retry_delay=120,
+    max_retries=0,  # No auto-retry - user must manually retry
 )
 def tokenize_dataset_task(
     self,
@@ -564,14 +582,37 @@ def tokenize_dataset_task(
             },
         )
 
-        # Retry with exponential backoff if not max retries
-        # Formula: base_delay * (2 ** retry_count)
-        # Attempt 1: 120s, Attempt 2: 240s
-        if self.request.retries < self.max_retries:
-            base_delay = 120
-            retry_delay = base_delay * (2 ** self.request.retries)
-            print(f"Retrying tokenization (attempt {self.request.retries + 1}/{self.max_retries}) in {retry_delay}s...")
-            raise self.retry(exc=e, countdown=retry_delay)
+        # Save failure state to task_queue for manual retry
+        try:
+            from ..models.task_queue import TaskQueue
+            import uuid
+
+            with self.get_db() as db:
+                task_queue_entry = TaskQueue(
+                    id=f"tq_{uuid.uuid4().hex[:12]}",
+                    task_id=self.request.id,
+                    task_type="tokenization",
+                    entity_id=dataset_id,
+                    entity_type="dataset",
+                    status="failed",
+                    progress=0.0,
+                    error_message=error_message,
+                    retry_params={
+                        "tokenizer_name": tokenizer_name,
+                        "max_length": max_length,
+                        "stride": stride,
+                        "padding": padding,
+                        "truncation": truncation,
+                        "add_special_tokens": add_special_tokens,
+                        "text_column": text_column,
+                    },
+                    retry_count=0,
+                )
+                db.add(task_queue_entry)
+                db.commit()
+                print(f"Saved failed tokenization to task_queue: {task_queue_entry.id}")
+        except Exception as queue_exc:
+            print(f"Failed to save task to queue: {queue_exc}")
 
         raise
 

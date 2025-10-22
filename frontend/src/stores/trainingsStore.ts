@@ -501,7 +501,10 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
       );
       return response.data.data;
     } catch (error: any) {
-      console.error('Failed to fetch checkpoints:', error);
+      // Ignore 404 errors (training may have been deleted)
+      if (error?.response?.status !== 404) {
+        console.error('Failed to fetch checkpoints:', error);
+      }
       throw error;
     }
   },

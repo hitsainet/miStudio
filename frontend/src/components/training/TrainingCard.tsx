@@ -171,7 +171,12 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   useEffect(() => {
     fetchCheckpoints(training.id)
       .then(setCheckpoints)
-      .catch((error) => console.error('Failed to load checkpoints:', error));
+      .catch((error) => {
+        // Ignore 404 errors (training may have been deleted)
+        if (error?.response?.status !== 404) {
+          console.error('Failed to load checkpoints:', error);
+        }
+      });
   }, [training.id]);
 
   // Update metrics history when training metrics change

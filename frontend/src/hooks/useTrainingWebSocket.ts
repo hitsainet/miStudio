@@ -22,7 +22,7 @@
  *   // Updates are handled by trainingsStore.updateTrainingStatus()
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useWebSocketContext } from '../contexts/WebSocketContext';
 import { useTrainingsStore } from '../stores/trainingsStore';
 import { TrainingStatus } from '../types/training';
@@ -112,6 +112,9 @@ export const useTrainingWebSocket = (trainingIds: string[]) => {
     };
   }, [on, off, updateTrainingStatus]);
 
+  // Create a stable key from trainingIds to prevent unnecessary re-subscriptions
+  const trainingIdsKey = useMemo(() => trainingIds.sort().join(','), [trainingIds.join(',')]);
+
   // Subscribe to channels for active trainings
   useEffect(() => {
     if (!isConnected) {
@@ -146,5 +149,5 @@ export const useTrainingWebSocket = (trainingIds: string[]) => {
         unsubscribe(`trainings/${trainingId}/checkpoints`);
       });
     };
-  }, [trainingIds, isConnected, subscribe, unsubscribe]);
+  }, [trainingIdsKey, isConnected, subscribe, unsubscribe]);
 };

@@ -91,9 +91,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   const deadNeurons = training.current_dead_neurons ?? 0;
   const learningRate = training.current_learning_rate ?? 0;
 
-  // Mock GPU util (would come from backend in production)
-  const gpuUtil = training.status === TrainingStatus.RUNNING ? 75 + Math.random() * 15 : 0;
-
   // Look up human-readable names
   const modelName = models.find((m) => m.id === training.model_id)?.name || training.model_id;
   const datasetName = datasets.find((d) => d.id === training.dataset_id)?.name || training.dataset_id;
@@ -393,11 +390,11 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </div>
             </div>
 
-            {/* GPU Util */}
+            {/* Learning Rate */}
             <div className="bg-slate-800/50 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">GPU Util</div>
+              <div className="text-xs text-slate-400 mb-1">Learning Rate</div>
               <div className="text-lg font-semibold text-purple-400">
-                {training.status === TrainingStatus.RUNNING ? `${gpuUtil.toFixed(0)}%` : '—'}
+                {hasMetrics ? learningRate.toExponential(2) : '—'}
               </div>
             </div>
           </div>
@@ -627,7 +624,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                           loss={loss.toFixed(4)},
                           L0={sparsity.toFixed(4)},
                           dead={Math.floor(deadNeurons)}/{training.hyperparameters.latent_dim},
-                          GPU={gpuUtil.toFixed(0)}%,
                           lr={learningRate.toExponential(2)}
                         </div>
                       );

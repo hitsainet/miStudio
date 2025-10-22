@@ -10,7 +10,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....db.session import get_db
+from ....core.deps import get_db
 from ....services.task_queue_service import TaskQueueService
 from ....schemas.task_queue import (
     TaskQueueResponse,

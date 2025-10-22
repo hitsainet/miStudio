@@ -8,7 +8,7 @@ and enables user-controlled retry of failed operations.
 from datetime import datetime
 from sqlalchemy import Column, String, Float, Integer, Text, DateTime, JSON
 from sqlalchemy.sql import func
-from src.db.base import Base
+from ..core.database import Base
 
 
 class TaskQueue(Base):

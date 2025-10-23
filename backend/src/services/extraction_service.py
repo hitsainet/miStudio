@@ -349,6 +349,53 @@ class ExtractionService:
             f"Updated extraction {extraction_id}: status={status}, progress={progress}"
         )
 
+    def update_extraction_status_sync(
+        self,
+        extraction_id: str,
+        status: str,
+        progress: Optional[float] = None,
+        statistics: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None
+    ) -> None:
+        """
+        Synchronous version of update_extraction_status for use in Celery tasks.
+
+        Args:
+            extraction_id: ID of the extraction job
+            status: New status (queued, extracting, completed, failed, cancelled)
+            progress: Progress percentage (0.0-1.0)
+            statistics: Extraction statistics (on completion)
+            error_message: Error message (if failed)
+        """
+        extraction_job = self.db.query(ExtractionJob).filter(
+            ExtractionJob.id == extraction_id
+        ).first()
+
+        if not extraction_job:
+            logger.error(f"Extraction job {extraction_id} not found")
+            return
+
+        extraction_job.status = status
+        extraction_job.updated_at = datetime.now(timezone.utc)
+
+        if progress is not None:
+            extraction_job.progress = progress
+
+        if statistics is not None:
+            extraction_job.statistics = statistics
+
+        if error_message is not None:
+            extraction_job.error_message = error_message
+
+        if status == ExtractionStatus.COMPLETED.value:
+            extraction_job.completed_at = datetime.now(timezone.utc)
+
+        self.db.commit()
+
+        logger.debug(
+            f"Updated extraction {extraction_id}: status={status}, progress={progress}"
+        )
+
     def extract_features_for_training(
         self,
         training_id: str,
@@ -387,7 +434,7 @@ class ExtractionService:
 
         try:
             # Update status to extracting
-            self.update_extraction_status(
+            self.update_extraction_status_sync(
                 extraction_job.id,
                 ExtractionStatus.EXTRACTING.value,
                 progress=0.0
@@ -395,8 +442,16 @@ class ExtractionService:
 
             # Load training and checkpoint (sync query)
             training = self.db.query(Training).filter(Training.id == training_id).first()
-            if not training or not training.final_checkpoint_id:
-                raise ValueError(f"Training {training_id} not found or has no final checkpoint")
+            if not training:
+                raise ValueError(f"Training {training_id} not found")
+
+            # Check if training has at least one checkpoint
+            checkpoint = self.db.query(Checkpoint).filter(
+                Checkpoint.training_id == training_id
+            ).order_by(Checkpoint.step.desc()).first()
+
+            if not checkpoint:
+                raise ValueError(f"Training {training_id} has no checkpoints")
 
             logger.info(f"Starting feature extraction for training {training_id}")
             logger.info(f"Config: {config}")
@@ -408,11 +463,7 @@ class ExtractionService:
             batch_size = 32  # Process 32 samples at a time for GPU efficiency
 
             # Task 4.5: Load SAE checkpoint
-            checkpoint = self.db.query(Checkpoint).filter(
-                Checkpoint.id == training.final_checkpoint_id
-            ).first()
-            if not checkpoint:
-                raise ValueError(f"Checkpoint {training.final_checkpoint_id} not found")
+            logger.info(f"Using latest checkpoint at step {checkpoint.step}")
 
             logger.info(f"Loading SAE checkpoint from {checkpoint.storage_path}")
 
@@ -595,7 +646,7 @@ class ExtractionService:
                         # Task 4.15-4.16: Update progress every 5%
                         progress = batch_end / len(dataset)
                         if int(progress * 20) > int((batch_start / len(dataset)) * 20):  # Every 5%
-                            self.update_extraction_status(
+                            self.update_extraction_status_sync(
                                 extraction_job.id,
                                 ExtractionStatus.EXTRACTING.value,
                                 progress=progress
@@ -705,7 +756,7 @@ class ExtractionService:
             logger.info(f"Extraction statistics: {statistics}")
 
             # Mark as completed
-            self.update_extraction_status(
+            self.update_extraction_status_sync(
                 extraction_job.id,
                 ExtractionStatus.COMPLETED.value,
                 progress=1.0,
@@ -729,7 +780,7 @@ class ExtractionService:
             logger.error(f"Feature extraction failed for training {training_id}: {e}", exc_info=True)
 
             # Update status to failed
-            self.update_extraction_status(
+            self.update_extraction_status_sync(
                 extraction_job.id,
                 ExtractionStatus.FAILED.value,
                 error_message=str(e)

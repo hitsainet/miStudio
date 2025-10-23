@@ -31,12 +31,14 @@ import {
   Save,
   Sliders,
   X,
+  Zap,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { TrainingStatus } from '../../types/training';
 import type { Training } from '../../types/training';
 import type { Model } from '../../types/model';
 import type { Dataset } from '../../types/dataset';
+import { FeaturesPanel } from '../features/FeaturesPanel';
 
 interface TrainingCardProps {
   training: Training;
@@ -66,6 +68,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   // UI state
   const [showMetrics, setShowMetrics] = useState(false);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
+  const [showFeatures, setShowFeatures] = useState(false);
   const [showHyperparameters, setShowHyperparameters] = useState(false);
   const [autoSave, setAutoSave] = useState(false);
   const [autoSaveInterval, setAutoSaveInterval] = useState(1000);
@@ -431,11 +434,22 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 type="button"
                 onClick={() => setShowCheckpoints(!showCheckpoints)}
                 className={`px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                  training.status === TrainingStatus.RUNNING ? '' : 'col-span-2'
+                  training.status === TrainingStatus.RUNNING ? '' : (training.status === TrainingStatus.COMPLETED ? '' : 'col-span-2')
                 }`}
               >
                 <Download className="w-4 h-4" />
                 <span>Checkpoints ({checkpoints.length})</span>
+              </button>
+            )}
+            {/* Show features for completed trainings */}
+            {training.status === TrainingStatus.COMPLETED && (
+              <button
+                type="button"
+                onClick={() => setShowFeatures(!showFeatures)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <Zap className="w-4 h-4" />
+                <span>{showFeatures ? 'Hide' : 'Discover'} Features</span>
               </button>
             )}
           </div>
@@ -940,6 +954,14 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Features Section */}
+      {showFeatures && training.status === TrainingStatus.COMPLETED && (
+        <div className="border-t border-slate-700 pt-4 mt-4">
+          <h5 className="text-sm font-medium text-slate-300 mb-4">Feature Discovery</h5>
+          <FeaturesPanel training={training} />
         </div>
       )}
 

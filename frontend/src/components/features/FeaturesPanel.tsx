@@ -322,7 +322,7 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
               onClick={async () => {
                 if (window.confirm('Are you sure you want to delete this extraction?')) {
                   try {
-                    await deleteExtraction(status.extraction_id, training.id);
+                    await deleteExtraction(status.id, training.id);
                   } catch (error) {
                     console.error('Failed to delete extraction:', error);
                   }

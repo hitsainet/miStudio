@@ -84,6 +84,8 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
       });
     } catch (error) {
       console.error('Failed to start extraction:', error);
+      // Refresh extraction status to show current state (e.g., existing failed extraction)
+      await getExtractionStatus(training.id);
     }
   };
 

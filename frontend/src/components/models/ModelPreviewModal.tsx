@@ -241,11 +241,13 @@ export function ModelPreviewModal({
                     <div className="text-sm text-slate-300 font-medium">{modelInfo.cardData.license}</div>
                   </div>
                 )}
-                {modelInfo.cardData?.language && modelInfo.cardData.language.length > 0 && (
+                {modelInfo.cardData?.language && (
                   <div className="bg-slate-800/50 rounded-lg p-4">
                     <div className="text-xs text-slate-500 mb-1">Language</div>
                     <div className="text-sm text-slate-300 font-medium">
-                      {modelInfo.cardData.language.join(', ')}
+                      {Array.isArray(modelInfo.cardData.language)
+                        ? modelInfo.cardData.language.join(', ')
+                        : modelInfo.cardData.language}
                     </div>
                   </div>
                 )}

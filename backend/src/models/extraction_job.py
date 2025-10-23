@@ -8,7 +8,7 @@ Feature extraction jobs extract interpretable features from trained SAE models.
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -50,7 +50,11 @@ class ExtractionJob(Base):
     # Contains: {evaluation_samples: int, top_k_examples: int}
 
     # Processing status
-    status = Column(String(50), nullable=False, default=ExtractionStatus.QUEUED.value)
+    status = Column(
+        SQLEnum(ExtractionStatus, name='extraction_status_enum', create_constraint=False),
+        nullable=False,
+        default=ExtractionStatus.QUEUED
+    )
     progress = Column(Float, nullable=True, default=0.0)  # 0-100
     features_extracted = Column(Integer, nullable=True, default=0)
     total_features = Column(Integer, nullable=True)

@@ -9,10 +9,11 @@ This service provides feature discovery and management capabilities:
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc, func, or_
+from sqlalchemy import desc, asc, func, or_, select
 from sqlalchemy.sql import text
 
 from src.models.feature import Feature, LabelSource
@@ -43,11 +44,11 @@ class FeatureService:
     - Managing favorite features
     """
 
-    def __init__(self, db: Session):
-        """Initialize feature service."""
+    def __init__(self, db: Union[AsyncSession, Session]):
+        """Initialize feature service with either async or sync session."""
         self.db = db
 
-    def list_features(
+    async def list_features(
         self,
         training_id: str,
         search_params: FeatureSearchRequest
@@ -63,7 +64,7 @@ class FeatureService:
             FeatureListResponse with features, pagination info, and statistics
         """
         # Task 9.3: Build base query with training_id filter
-        query = self.db.query(Feature).filter(Feature.training_id == training_id)
+        query = select(Feature).where(Feature.training_id == training_id)
 
         # Task 9.4: Apply full-text search filter if specified
         if search_params.search:
@@ -71,14 +72,23 @@ class FeatureService:
             # The GIN index on (to_tsvector('english', name || ' ' || description)) handles this efficiently
             search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
             search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
-            query = query.filter(search_vector.op('@@')(search_query))
+            query = query.where(search_vector.op('@@')(search_query))
 
         # Task 9.5: Apply is_favorite filter if specified
         if search_params.is_favorite is not None:
-            query = query.filter(Feature.is_favorite == search_params.is_favorite)
+            query = query.where(Feature.is_favorite == search_params.is_favorite)
 
         # Get total count before pagination
-        total = query.count()
+        count_query = select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
+        if search_params.search:
+            search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
+            search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
+            count_query = count_query.where(search_vector.op('@@')(search_query))
+        if search_params.is_favorite is not None:
+            count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
+
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar_one()
 
         # Task 9.6: Apply sorting
         if search_params.sort_by == "activation_freq":
@@ -97,18 +107,21 @@ class FeatureService:
         query = query.limit(search_params.limit).offset(search_params.offset)
 
         # Execute query to get features
-        features = query.all()
+        result = await self.db.execute(query)
+        features = result.scalars().all()
 
         # Task 9.8: For each feature, include one example_context
         feature_responses = []
         for feature in features:
             # Get first max-activating example
-            example = (
-                self.db.query(FeatureActivation)
-                .filter(FeatureActivation.feature_id == feature.id)
+            example_query = (
+                select(FeatureActivation)
+                .where(FeatureActivation.feature_id == feature.id)
                 .order_by(desc(FeatureActivation.max_activation))
-                .first()
+                .limit(1)
             )
+            example_result = await self.db.execute(example_query)
+            example = example_result.scalar_one_or_none()
 
             example_context = None
             if example:
@@ -140,21 +153,29 @@ class FeatureService:
             feature_responses.append(feature_response)
 
         # Task 9.9: Calculate statistics
-        # Get all features for this training (without pagination) for statistics
-        all_features_query = self.db.query(Feature).filter(Feature.training_id == training_id)
-
         # Total features
-        total_features = all_features_query.count()
+        total_features_query = select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
+        total_features_result = await self.db.execute(total_features_query)
+        total_features = total_features_result.scalar_one()
 
         # Interpretable percentage (interpretability_score > 0.5)
-        interpretable_count = all_features_query.filter(Feature.interpretability_score > 0.5).count()
+        interpretable_count_query = (
+            select(func.count())
+            .select_from(Feature)
+            .where(Feature.training_id == training_id, Feature.interpretability_score > 0.5)
+        )
+        interpretable_count_result = await self.db.execute(interpretable_count_query)
+        interpretable_count = interpretable_count_result.scalar_one()
         interpretable_percentage = (interpretable_count / total_features * 100) if total_features > 0 else 0.0
 
         # Average activation frequency
-        avg_activation_freq_result = self.db.query(
-            func.avg(Feature.activation_frequency)
-        ).filter(Feature.training_id == training_id).scalar()
-        avg_activation_frequency = float(avg_activation_freq_result) if avg_activation_freq_result else 0.0
+        avg_activation_freq_query = (
+            select(func.avg(Feature.activation_frequency))
+            .where(Feature.training_id == training_id)
+        )
+        avg_activation_freq_result = await self.db.execute(avg_activation_freq_query)
+        avg_activation_freq_value = avg_activation_freq_result.scalar_one_or_none()
+        avg_activation_frequency = float(avg_activation_freq_value) if avg_activation_freq_value else 0.0
 
         statistics = FeatureStatistics(
             total_features=total_features,
@@ -170,7 +191,7 @@ class FeatureService:
             statistics=statistics
         )
 
-    def get_feature_detail(self, feature_id: str) -> Optional[FeatureDetailResponse]:
+    async def get_feature_detail(self, feature_id: str) -> Optional[FeatureDetailResponse]:
         """
         Get detailed information about a feature.
 
@@ -181,16 +202,20 @@ class FeatureService:
             FeatureDetailResponse with computed active_samples field, or None if not found
         """
         # Task 9.10: Load feature record
-        feature = self.db.query(Feature).filter(Feature.id == feature_id).first()
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
 
         if not feature:
             return None
 
         # Calculate active_samples (activation_frequency * total_evaluation_samples)
         # Get extraction job to find evaluation_samples count
-        extraction_job = self.db.query(ExtractionJob).filter(
+        extraction_job_query = select(ExtractionJob).where(
             ExtractionJob.id == feature.extraction_job_id
-        ).first()
+        )
+        extraction_job_result = await self.db.execute(extraction_job_query)
+        extraction_job = extraction_job_result.scalar_one_or_none()
 
         evaluation_samples = extraction_job.config.get("evaluation_samples", 10000) if extraction_job else 10000
         active_samples = int(feature.activation_frequency * evaluation_samples)
@@ -214,7 +239,7 @@ class FeatureService:
             active_samples=active_samples
         )
 
-    def update_feature(
+    async def update_feature(
         self,
         feature_id: str,
         updates: FeatureUpdateRequest
@@ -230,7 +255,9 @@ class FeatureService:
             Updated FeatureResponse, or None if feature not found
         """
         # Task 9.11: Load feature, validate updates
-        feature = self.db.query(Feature).filter(Feature.id == feature_id).first()
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
 
         if not feature:
             return None
@@ -257,8 +284,8 @@ class FeatureService:
         # Update timestamp
         feature.updated_at = datetime.now(timezone.utc)
 
-        self.db.commit()
-        self.db.refresh(feature)
+        await self.db.commit()
+        await self.db.refresh(feature)
 
         logger.info(f"Updated feature {feature_id}: name_changed={name_changed}")
 
@@ -282,7 +309,7 @@ class FeatureService:
             example_context=None
         )
 
-    def toggle_favorite(self, feature_id: str, is_favorite: bool) -> Optional[bool]:
+    async def toggle_favorite(self, feature_id: str, is_favorite: bool) -> Optional[bool]:
         """
         Toggle favorite status for a feature.
 
@@ -294,7 +321,9 @@ class FeatureService:
             New is_favorite value, or None if feature not found
         """
         # Task 9.12: Load feature, update is_favorite
-        feature = self.db.query(Feature).filter(Feature.id == feature_id).first()
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
 
         if not feature:
             return None
@@ -302,13 +331,13 @@ class FeatureService:
         feature.is_favorite = is_favorite
         feature.updated_at = datetime.now(timezone.utc)
 
-        self.db.commit()
+        await self.db.commit()
 
         logger.info(f"Toggled favorite for feature {feature_id}: is_favorite={is_favorite}")
 
         return is_favorite
 
-    def get_feature_examples(
+    async def get_feature_examples(
         self,
         feature_id: str,
         limit: int = 100
@@ -323,13 +352,14 @@ class FeatureService:
         Returns:
             List of max-activating examples with tokens and activations
         """
-        examples = (
-            self.db.query(FeatureActivation)
-            .filter(FeatureActivation.feature_id == feature_id)
+        examples_query = (
+            select(FeatureActivation)
+            .where(FeatureActivation.feature_id == feature_id)
             .order_by(desc(FeatureActivation.max_activation))
             .limit(limit)
-            .all()
         )
+        examples_result = await self.db.execute(examples_query)
+        examples = examples_result.scalars().all()
 
         return [
             FeatureActivationExample(
@@ -342,6 +372,6 @@ class FeatureService:
         ]
 
 
-def get_feature_service(db: Session) -> FeatureService:
+def get_feature_service(db: Union[AsyncSession, Session]) -> FeatureService:
     """Dependency injection helper for FeatureService."""
     return FeatureService(db)

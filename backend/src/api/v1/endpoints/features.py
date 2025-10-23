@@ -175,7 +175,7 @@ async def list_features(
         offset=offset
     )
 
-    return feature_service.list_features(training_id, search_params)
+    return await feature_service.list_features(training_id, search_params)
 
 
 @router.get(
@@ -201,7 +201,7 @@ async def get_feature_detail(
     """
     feature_service = FeatureService(db)
 
-    feature_detail = feature_service.get_feature_detail(feature_id)
+    feature_detail = await feature_service.get_feature_detail(feature_id)
 
     if not feature_detail:
         raise HTTPException(
@@ -237,7 +237,7 @@ async def update_feature(
     """
     feature_service = FeatureService(db)
 
-    updated_feature = feature_service.update_feature(feature_id, updates)
+    updated_feature = await feature_service.update_feature(feature_id, updates)
 
     if not updated_feature:
         raise HTTPException(
@@ -273,7 +273,7 @@ async def toggle_favorite(
     """
     feature_service = FeatureService(db)
 
-    new_favorite_status = feature_service.toggle_favorite(feature_id, is_favorite)
+    new_favorite_status = await feature_service.toggle_favorite(feature_id, is_favorite)
 
     if new_favorite_status is None:
         raise HTTPException(
@@ -306,6 +306,6 @@ async def get_feature_examples(
     """
     feature_service = FeatureService(db)
 
-    examples = feature_service.get_feature_examples(feature_id, limit)
+    examples = await feature_service.get_feature_examples(feature_id, limit)
 
     return examples

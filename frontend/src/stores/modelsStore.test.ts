@@ -598,4 +598,435 @@ describe('modelsStore', () => {
       expect(mockCallback).toHaveBeenCalledWith('m_callback_test', 'progress');
     });
   });
+
+  describe('Extraction Progress Updates', () => {
+    describe('updateExtractionProgress', () => {
+      it('should update extraction progress for a model', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_extract',
+              name: 'ExtractModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionProgress } = useModelsStore.getState();
+        updateExtractionProgress(
+          'm_extract',
+          'ext_123',
+          45.5,
+          'extracting',
+          'Extracting activations: 455/1000 samples'
+        );
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_id).toBe('ext_123');
+        expect(state.models[0].extraction_progress).toBe(45.5);
+        expect(state.models[0].extraction_status).toBe('extracting');
+        expect(state.models[0].extraction_message).toBe(
+          'Extracting activations: 455/1000 samples'
+        );
+      });
+
+      it('should update extraction progress to completion', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_complete',
+              name: 'CompleteModel',
+              architecture: 'llama',
+              params_count: 7000000000,
+              quantization: QuantizationFormat.Q8,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_456',
+              extraction_progress: 90,
+              extraction_status: 'extracting' as any,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionProgress } = useModelsStore.getState();
+        updateExtractionProgress(
+          'm_complete',
+          'ext_456',
+          100,
+          'completed',
+          'Extraction completed successfully'
+        );
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_progress).toBe(100);
+        expect(state.models[0].extraction_status).toBe('completed');
+        expect(state.models[0].extraction_message).toBe('Extraction completed successfully');
+      });
+
+      it('should not update extraction for non-existent model', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_other',
+              name: 'OtherModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionProgress } = useModelsStore.getState();
+        updateExtractionProgress('m_nonexistent', 'ext_999', 50, 'extracting', 'Test message');
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_id).toBeUndefined();
+        expect(state.models[0].extraction_progress).toBeUndefined();
+      });
+
+      it('should handle multiple extraction progress updates', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_progress_track',
+              name: 'ProgressTrackModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionProgress } = useModelsStore.getState();
+
+        // First update
+        updateExtractionProgress('m_progress_track', 'ext_777', 10, 'loading', 'Loading model...');
+        let state = useModelsStore.getState();
+        expect(state.models[0].extraction_progress).toBe(10);
+        expect(state.models[0].extraction_status).toBe('loading');
+
+        // Second update
+        updateExtractionProgress(
+          'm_progress_track',
+          'ext_777',
+          50,
+          'extracting',
+          'Extracting: 500/1000'
+        );
+        state = useModelsStore.getState();
+        expect(state.models[0].extraction_progress).toBe(50);
+        expect(state.models[0].extraction_status).toBe('extracting');
+
+        // Third update
+        updateExtractionProgress(
+          'm_progress_track',
+          'ext_777',
+          90,
+          'saving',
+          'Saving results...'
+        );
+        state = useModelsStore.getState();
+        expect(state.models[0].extraction_progress).toBe(90);
+        expect(state.models[0].extraction_status).toBe('saving');
+      });
+    });
+
+    describe('clearExtractionProgress', () => {
+      it('should clear extraction progress fields', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_clear',
+              name: 'ClearModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_clear_123',
+              extraction_progress: 75,
+              extraction_status: 'extracting' as any,
+              extraction_message: 'Extracting...',
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { clearExtractionProgress } = useModelsStore.getState();
+        clearExtractionProgress('m_clear');
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_id).toBeUndefined();
+        expect(state.models[0].extraction_progress).toBeUndefined();
+        expect(state.models[0].extraction_status).toBeUndefined();
+        expect(state.models[0].extraction_message).toBeUndefined();
+      });
+
+      it('should not affect other model properties when clearing extraction', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_preserve',
+              name: 'PreserveModel',
+              architecture: 'llama',
+              params_count: 7000000000,
+              quantization: QuantizationFormat.Q8,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_preserve',
+              extraction_progress: 100,
+              extraction_status: 'completed' as any,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { clearExtractionProgress } = useModelsStore.getState();
+        clearExtractionProgress('m_preserve');
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].id).toBe('m_preserve');
+        expect(state.models[0].name).toBe('PreserveModel');
+        expect(state.models[0].status).toBe(ModelStatus.READY);
+        expect(state.models[0].progress).toBe(100);
+      });
+
+      it('should handle clearing extraction for non-existent model', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_exists',
+              name: 'ExistsModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_exists',
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { clearExtractionProgress } = useModelsStore.getState();
+        clearExtractionProgress('m_nonexistent');
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_id).toBe('ext_exists'); // Unchanged
+      });
+
+      it('should handle clearing when no extraction data exists', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_no_extraction',
+              name: 'NoExtractionModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { clearExtractionProgress } = useModelsStore.getState();
+        clearExtractionProgress('m_no_extraction');
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_id).toBeUndefined();
+        expect(state.models[0].extraction_progress).toBeUndefined();
+      });
+    });
+
+    describe('updateExtractionFailure', () => {
+      it('should update extraction failure with error details', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_fail',
+              name: 'FailModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_fail_123',
+              extraction_progress: 25,
+              extraction_status: 'extracting' as any,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionFailure } = useModelsStore.getState();
+        updateExtractionFailure(
+          'm_fail',
+          'ext_fail_123',
+          'OOM',
+          'CUDA out of memory',
+          { batch_size: 16 }
+        );
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_id).toBe('ext_fail_123');
+        expect(state.models[0].extraction_progress).toBeUndefined();
+        expect(state.models[0].extraction_status).toBe('failed');
+        expect(state.models[0].extraction_message).toBe('CUDA out of memory');
+        expect(state.models[0].extraction_error_type).toBe('OOM');
+        expect(state.models[0].extraction_suggested_retry_params).toEqual({ batch_size: 16 });
+      });
+
+      it('should update extraction failure without retry params', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_validation_fail',
+              name: 'ValidationFailModel',
+              architecture: 'llama',
+              params_count: 7000000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_validation',
+              extraction_progress: 0,
+              extraction_status: 'loading' as any,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionFailure } = useModelsStore.getState();
+        updateExtractionFailure(
+          'm_validation_fail',
+          'ext_validation',
+          'VALIDATION',
+          'Dataset not found'
+        );
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_status).toBe('failed');
+        expect(state.models[0].extraction_message).toBe('Dataset not found');
+        expect(state.models[0].extraction_error_type).toBe('VALIDATION');
+        expect(state.models[0].extraction_suggested_retry_params).toBeUndefined();
+      });
+
+      it('should handle timeout error with retry params', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_timeout',
+              name: 'TimeoutModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q8,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_timeout',
+              extraction_progress: 50,
+              extraction_status: 'extracting' as any,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionFailure } = useModelsStore.getState();
+        updateExtractionFailure(
+          'm_timeout',
+          'ext_timeout',
+          'TIMEOUT',
+          'Operation timed out after 300 seconds',
+          { batch_size: 32 }
+        );
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_error_type).toBe('TIMEOUT');
+        expect(state.models[0].extraction_message).toBe('Operation timed out after 300 seconds');
+        expect(state.models[0].extraction_suggested_retry_params).toEqual({ batch_size: 32 });
+      });
+
+      it('should not update failure for non-existent model', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_other_model',
+              name: 'OtherModel',
+              architecture: 'gpt2',
+              params_count: 124000000,
+              quantization: QuantizationFormat.Q4,
+              status: ModelStatus.READY,
+              progress: 100,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionFailure } = useModelsStore.getState();
+        updateExtractionFailure('m_nonexistent', 'ext_999', 'OOM', 'Out of memory');
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_error_type).toBeUndefined();
+        expect(state.models[0].extraction_status).toBeUndefined();
+      });
+
+      it('should handle extraction error type', () => {
+        useModelsStore.setState({
+          models: [
+            {
+              id: 'm_extraction_error',
+              name: 'ExtractionErrorModel',
+              architecture: 'llama',
+              params_count: 7000000000,
+              quantization: QuantizationFormat.Q2,
+              status: ModelStatus.READY,
+              progress: 100,
+              extraction_id: 'ext_error',
+              extraction_progress: 10,
+              extraction_status: 'extracting' as any,
+              created_at: '2025-10-12T00:00:00Z',
+              updated_at: '2025-10-12T00:00:00Z',
+            },
+          ],
+        });
+
+        const { updateExtractionFailure } = useModelsStore.getState();
+        updateExtractionFailure(
+          'm_extraction_error',
+          'ext_error',
+          'EXTRACTION',
+          'Hook registration failed'
+        );
+
+        const state = useModelsStore.getState();
+        expect(state.models[0].extraction_error_type).toBe('EXTRACTION');
+        expect(state.models[0].extraction_message).toBe('Hook registration failed');
+        expect(state.models[0].extraction_status).toBe('failed');
+      });
+    });
+  });
 });

@@ -86,7 +86,9 @@ export function SystemMonitor() {
       // Clean up polling on unmount
       stopPolling();
     };
-  }, [isWebSocketConnected, isPolling, updateInterval, startPolling, stopPolling]);
+    // Note: startPolling and stopPolling are stable store methods, not included in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWebSocketConnected, isPolling, updateInterval]);
 
   // Update historical data when new metrics arrive
   useEffect(() => {

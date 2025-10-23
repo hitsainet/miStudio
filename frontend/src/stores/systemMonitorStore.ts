@@ -212,7 +212,10 @@ export const useSystemMonitorStore = create<SystemMonitorState>()(
           clearInterval(pollingIntervalId);
           pollingIntervalId = null;
         }
-        set({ isPolling: false });
+        // Only update state if polling was actually active
+        if (get().isPolling) {
+          set({ isPolling: false });
+        }
       },
 
       // Set error message

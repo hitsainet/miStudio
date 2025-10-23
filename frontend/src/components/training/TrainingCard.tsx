@@ -280,8 +280,8 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </span>
             </div>
             <p className="text-sm text-slate-400">
-              Encoder: {training.hyperparameters.architecture_type}
-              {training.hyperparameters.training_layers && training.hyperparameters.training_layers.length > 0 && (
+              Encoder: {training.hyperparameters?.architecture_type || 'N/A'}
+              {training.hyperparameters?.training_layers && training.hyperparameters.training_layers.length > 0 && (
                 <>
                   {' • '}
                   Layers: {training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')}
@@ -324,37 +324,37 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           <div>
             <span className="text-slate-400">Latent Dim: </span>
             <span className="text-slate-100 font-medium">
-              {training.hyperparameters.latent_dim.toLocaleString()}
+              {training.hyperparameters?.latent_dim?.toLocaleString() || 'N/A'}
             </span>
           </div>
           <div>
             <span className="text-slate-400">Learning Rate: </span>
             <span className="text-slate-100 font-medium">
-              {training.hyperparameters.learning_rate}
+              {training.hyperparameters?.learning_rate ?? 'N/A'}
             </span>
           </div>
           <div>
             <span className="text-slate-400">Batch Size: </span>
             <span className="text-slate-100 font-medium">
-              {training.hyperparameters.batch_size}
+              {training.hyperparameters?.batch_size ?? 'N/A'}
             </span>
           </div>
           <div>
             <span className="text-slate-400">Total Steps: </span>
             <span className="text-slate-100 font-medium">
-              {training.hyperparameters.total_steps.toLocaleString()}
+              {training.hyperparameters?.total_steps?.toLocaleString() || 'N/A'}
             </span>
           </div>
           <div>
             <span className="text-slate-400">L1 Alpha: </span>
             <span className="text-slate-100 font-medium">
-              {training.hyperparameters.l1_alpha}
+              {training.hyperparameters?.l1_alpha ?? 'N/A'}
             </span>
           </div>
           <div>
             <span className="text-slate-400">Hidden Dim: </span>
             <span className="text-slate-100 font-medium">
-              {training.hyperparameters.hidden_dim.toLocaleString()}
+              {training.hyperparameters?.hidden_dim?.toLocaleString() || 'N/A'}
             </span>
           </div>
         </div>
@@ -651,7 +651,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                           Step {training.current_step - (metricsHistory.loss.length - idx - 1) * 10}:
                           loss={loss.toFixed(4)},
                           L0={sparsity.toFixed(4)},
-                          dead={Math.floor(deadNeurons)}/{training.hyperparameters.latent_dim},
+                          dead={Math.floor(deadNeurons)}/{training.hyperparameters?.latent_dim || 'N/A'},
                           lr={learningRate.toExponential(2)}
                         </div>
                       );
@@ -756,7 +756,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       )}
 
       {/* Hyperparameters Modal */}
-      {showHyperparameters && (
+      {showHyperparameters && training.hyperparameters && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
             {/* Modal Header */}

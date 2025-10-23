@@ -6,6 +6,8 @@
  *
  * Backend API Contract:
  * - POST /api/v1/trainings/:id/extract-features - Start feature extraction
+ * - POST /api/v1/trainings/:id/cancel-extraction - Cancel active extraction
+ * - DELETE /api/v1/extractions/:id - Delete extraction job
  * - GET /api/v1/trainings/:id/extraction-status - Get extraction status
  * - GET /api/v1/trainings/:id/features - List/search features
  * - GET /api/v1/features/:id - Get feature details
@@ -76,6 +78,8 @@ interface FeaturesStoreState {
 
   // Actions
   startExtraction: (trainingId: string, config: ExtractionConfigRequest) => Promise<void>;
+  cancelExtraction: (trainingId: string) => Promise<void>;
+  deleteExtraction: (extractionId: string, trainingId: string) => Promise<void>;
   getExtractionStatus: (trainingId: string) => Promise<void>;
   fetchFeatures: (trainingId: string, filters?: FeatureSearchRequest) => Promise<void>;
   fetchFeatureDetail: (featureId: string) => Promise<void>;
@@ -131,6 +135,48 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
       }));
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || error.message || 'Failed to start extraction';
+      set({ extractionError: errorMessage, isLoadingExtraction: false });
+      throw error;
+    }
+  },
+
+  /**
+   * Cancel an active extraction.
+   */
+  cancelExtraction: async (trainingId: string) => {
+    set({ isLoadingExtraction: true, extractionError: null });
+
+    try {
+      await axios.post(`/api/v1/trainings/${trainingId}/cancel-extraction`);
+
+      // Refresh status to get updated state
+      await get().getExtractionStatus(trainingId);
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to cancel extraction';
+      set({ extractionError: errorMessage, isLoadingExtraction: false });
+      throw error;
+    }
+  },
+
+  /**
+   * Delete an extraction job.
+   */
+  deleteExtraction: async (extractionId: string, trainingId: string) => {
+    set({ isLoadingExtraction: true, extractionError: null });
+
+    try {
+      await axios.delete(`/api/v1/extractions/${extractionId}`);
+
+      // Clear extraction status for this training
+      set((state) => ({
+        extractionStatus: {
+          ...state.extractionStatus,
+          [trainingId]: null,
+        },
+        isLoadingExtraction: false,
+      }));
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to delete extraction';
       set({ extractionError: errorMessage, isLoadingExtraction: false });
       throw error;
     }

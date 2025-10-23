@@ -198,6 +198,109 @@ class ExtractionService:
             "completed_at": extraction_job.completed_at
         }
 
+    async def cancel_extraction(self, training_id: str) -> None:
+        """
+        Cancel an active extraction job for a training.
+
+        Args:
+            training_id: ID of the training
+
+        Raises:
+            ValueError: If no active extraction job found
+        """
+        # Get active extraction job
+        result = await self.db.execute(
+            select(ExtractionJob).where(
+                ExtractionJob.training_id == training_id,
+                ExtractionJob.status.in_([
+                    ExtractionStatus.QUEUED,
+                    ExtractionStatus.EXTRACTING
+                ])
+            )
+        )
+        extraction_job = result.scalar_one_or_none()
+
+        if not extraction_job:
+            raise ValueError(f"No active extraction job found for training {training_id}")
+
+        # Revoke Celery task if it exists
+        if extraction_job.task_id:
+            from src.core.celery_app import celery_app
+            celery_app.control.revoke(extraction_job.task_id, terminate=True)
+            logger.info(f"Revoked Celery task {extraction_job.task_id}")
+
+        # Update status to failed with cancellation message
+        extraction_job.status = ExtractionStatus.FAILED
+        extraction_job.error_message = "Extraction cancelled by user"
+        extraction_job.completed_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+        logger.info(f"Cancelled extraction {extraction_job.id} for training {training_id}")
+
+        # Emit WebSocket event
+        emit_training_progress(
+            training_id=training_id,
+            event="extraction:failed",
+            data={
+                "extraction_id": extraction_job.id,
+                "training_id": training_id,
+                "error": "Extraction cancelled by user"
+            }
+        )
+
+    async def delete_extraction(self, extraction_id: str) -> None:
+        """
+        Delete an extraction job and all associated features.
+
+        Args:
+            extraction_id: ID of the extraction job
+
+        Raises:
+            ValueError: If extraction not found or is still active
+        """
+        # Get extraction job
+        result = await self.db.execute(
+            select(ExtractionJob).where(ExtractionJob.id == extraction_id)
+        )
+        extraction_job = result.scalar_one_or_none()
+
+        if not extraction_job:
+            raise ValueError(f"Extraction job {extraction_id} not found")
+
+        # Cannot delete active extraction
+        if extraction_job.status in [ExtractionStatus.QUEUED, ExtractionStatus.EXTRACTING]:
+            raise ValueError(
+                f"Cannot delete active extraction job. Please cancel it first."
+            )
+
+        # Get feature IDs first
+        from sqlalchemy import delete as sql_delete
+        feature_ids_result = await self.db.execute(
+            select(Feature.id).where(Feature.extraction_job_id == extraction_id)
+        )
+        feature_ids = [row[0] for row in feature_ids_result.fetchall()]
+
+        # Delete feature activations first
+        if feature_ids:
+            await self.db.execute(
+                sql_delete(FeatureActivation).where(
+                    FeatureActivation.feature_id.in_(feature_ids)
+                )
+            )
+
+        # Delete features
+        await self.db.execute(
+            sql_delete(Feature).where(Feature.extraction_job_id == extraction_id)
+        )
+
+        # Delete extraction job
+        await self.db.execute(
+            sql_delete(ExtractionJob).where(ExtractionJob.id == extraction_id)
+        )
+
+        await self.db.commit()
+        logger.info(f"Deleted extraction job {extraction_id} and associated features")
+
     async def update_extraction_status(
         self,
         extraction_id: str,

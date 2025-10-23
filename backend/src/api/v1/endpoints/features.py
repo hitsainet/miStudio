@@ -133,6 +133,77 @@ async def get_extraction_status(
     return ExtractionStatusResponse(**status_dict)
 
 
+@router.post(
+    "/trainings/{training_id}/cancel-extraction",
+    status_code=status.HTTP_200_OK,
+    summary="Cancel extraction"
+)
+async def cancel_extraction(
+    training_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an active extraction job for a training.
+
+    Args:
+        training_id: ID of the training
+
+    Returns:
+        Success message
+
+    Raises:
+        404: No active extraction job found for this training
+    """
+    extraction_service = ExtractionService(db)
+
+    try:
+        await extraction_service.cancel_extraction(training_id)
+        return {"message": "Extraction cancelled successfully"}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.delete(
+    "/extractions/{extraction_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete extraction job"
+)
+async def delete_extraction(
+    extraction_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete an extraction job and all associated features.
+
+    Args:
+        extraction_id: ID of the extraction job
+
+    Raises:
+        404: Extraction job not found
+        409: Cannot delete active extraction (must cancel first)
+    """
+    extraction_service = ExtractionService(db)
+
+    try:
+        await extraction_service.delete_extraction(extraction_id)
+    except ValueError as e:
+        error_message = str(e)
+        if "not found" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_message
+            )
+        else:
+            # Must be active extraction
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=error_message
+            )
+
+
 @router.get(
     "/trainings/{training_id}/features",
     response_model=FeatureListResponse,

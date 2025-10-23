@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Zap, Search, ArrowUpDown, Star } from 'lucide-react';
+import { Zap, Search, ArrowUpDown, Star, XCircle, Trash2 } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import type { Training } from '../../types/training';
@@ -37,6 +37,8 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
     extractionError,
     featuresError,
     startExtraction,
+    cancelExtraction,
+    deleteExtraction,
     getExtractionStatus,
     fetchFeatures,
     toggleFavorite,
@@ -251,7 +253,24 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
     return (
       <div className="space-y-4">
         <div className="bg-slate-900/50 rounded-lg p-6 border border-slate-800">
-          <h3 className="text-lg font-semibold text-white mb-4">Extracting Features...</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white">Extracting Features...</h3>
+            <button
+              onClick={async () => {
+                if (window.confirm('Are you sure you want to cancel this extraction?')) {
+                  try {
+                    await cancelExtraction(training.id);
+                  } catch (error) {
+                    console.error('Failed to cancel extraction:', error);
+                  }
+                }
+              }}
+              className="flex items-center gap-1 px-3 py-1 text-sm bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-700 rounded transition-colors"
+            >
+              <XCircle className="w-4 h-4" />
+              Cancel
+            </button>
+          </div>
 
           {/* Progress Bar */}
           <div className="mb-4">
@@ -292,12 +311,29 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
           <p className="text-sm text-red-300">
             {status.error_message || 'An error occurred during feature extraction'}
           </p>
-          <button
-            onClick={() => getExtractionStatus(training.id)}
-            className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded transition-colors"
-          >
-            Retry
-          </button>
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={() => getExtractionStatus(training.id)}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              onClick={async () => {
+                if (window.confirm('Are you sure you want to delete this extraction?')) {
+                  try {
+                    await deleteExtraction(status.extraction_id, training.id);
+                  } catch (error) {
+                    console.error('Failed to delete extraction:', error);
+                  }
+                }
+              }}
+              className="flex items-center gap-1 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-700 rounded transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete
+            </button>
+          </div>
         </div>
       </div>
     );

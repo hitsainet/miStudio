@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, select, func
+from sqlalchemy import desc, select
 from collections import defaultdict
 import torch
 import numpy as np

@@ -51,7 +51,12 @@ class ExtractionJob(Base):
 
     # Processing status
     status = Column(
-        SQLEnum(ExtractionStatus, name='extraction_status_enum', create_constraint=False),
+        SQLEnum(
+            ExtractionStatus,
+            name='extraction_status_enum',
+            create_type=False,  # Don't create the enum (it already exists in DB)
+            values_callable=lambda x: [e.value for e in x]  # Use enum values, not names
+        ),
         nullable=False,
         default=ExtractionStatus.QUEUED
     )

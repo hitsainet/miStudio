@@ -180,7 +180,7 @@ class ExtractionService:
             )
             training = result.scalar_one_or_none()
             if training and extraction_job.progress:
-                total_features = training.config.get("dict_size", 16384)
+                total_features = training.hyperparameters.get("dict_size", 16384)
                 features_extracted = int(total_features * extraction_job.progress)
 
         return {
@@ -459,7 +459,7 @@ class ExtractionService:
             # Get configuration parameters
             evaluation_samples = config.get("evaluation_samples", 10000)
             top_k_examples = config.get("top_k_examples", 100)
-            dict_size = training.config.get("dict_size", 16384)
+            dict_size = training.hyperparameters.get("dict_size", 16384)
             batch_size = 32  # Process 32 samples at a time for GPU efficiency
 
             # Task 4.5: Load SAE checkpoint
@@ -469,9 +469,9 @@ class ExtractionService:
 
             # Initialize SAE model
             sae = SparseAutoencoder(
-                input_dim=training.config["input_dim"],
+                input_dim=training.hyperparameters["input_dim"],
                 dict_size=dict_size,
-                l1_coefficient=training.config.get("l1_coefficient", 0.001)
+                l1_coefficient=training.hyperparameters.get("l1_coefficient", 0.001)
             )
 
             # Load checkpoint weights

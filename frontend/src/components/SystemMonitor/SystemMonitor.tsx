@@ -5,7 +5,7 @@
  * Displays real-time metrics with auto-refresh.
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Activity, Settings } from 'lucide-react';
 import { useSystemMonitorStore } from '../../stores/systemMonitorStore';
 import { useHistoricalData } from '../../hooks/useHistoricalData';
@@ -75,20 +75,31 @@ export function SystemMonitor() {
 
   // Fallback polling: Only start if WebSocket is not connected
   // WebSocket connection state managed by useSystemMonitorWebSocket hook
+  const hasStartedPolling = useRef(false);
+
   useEffect(() => {
-    // Only use polling as fallback when WebSocket is not connected
-    if (!isWebSocketConnected && !isPolling) {
+    // Start polling if WebSocket is not connected and we haven't started polling yet
+    if (!isWebSocketConnected && !hasStartedPolling.current) {
       console.log('[SystemMonitor] Starting polling fallback (WebSocket not connected)');
       startPolling(updateInterval);
+      hasStartedPolling.current = true;
+    }
+    // Stop polling if WebSocket connects and we had started polling
+    else if (isWebSocketConnected && hasStartedPolling.current) {
+      console.log('[SystemMonitor] Stopping polling (WebSocket connected)');
+      stopPolling();
+      hasStartedPolling.current = false;
     }
 
     return () => {
-      // Clean up polling on unmount
-      stopPolling();
+      // Clean up polling only on unmount, and only if we started it
+      if (hasStartedPolling.current) {
+        console.log('[SystemMonitor] Component unmounting, stopping polling');
+        stopPolling();
+        hasStartedPolling.current = false;
+      }
     };
-    // Note: startPolling and stopPolling are stable store methods, not included in deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWebSocketConnected, isPolling, updateInterval]);
+  }, [isWebSocketConnected, updateInterval, startPolling, stopPolling]);
 
   // Update historical data when new metrics arrive
   useEffect(() => {

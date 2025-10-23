@@ -41,6 +41,14 @@ interface FeaturesStoreState {
   // Extraction status by training ID
   extractionStatus: Record<string, ExtractionStatusResponse | null>;
 
+  // All extraction jobs (for list view)
+  allExtractions: ExtractionStatusResponse[];
+  extractionsMetadata: {
+    total: number;
+    limit: number;
+    offset: number;
+  } | null;
+
   // Features by training ID
   featuresByTraining: Record<string, Feature[]>;
 
@@ -67,12 +75,14 @@ interface FeaturesStoreState {
 
   // Loading states
   isLoadingExtraction: boolean;
+  isLoadingExtractions: boolean;
   isLoadingFeatures: boolean;
   isLoadingFeatureDetail: boolean;
   isLoadingExamples: boolean;
 
   // Error states
   extractionError: string | null;
+  extractionsError: string | null;
   featuresError: string | null;
   featureDetailError: string | null;
 
@@ -81,6 +91,7 @@ interface FeaturesStoreState {
   cancelExtraction: (trainingId: string) => Promise<void>;
   deleteExtraction: (extractionId: string, trainingId: string) => Promise<void>;
   getExtractionStatus: (trainingId: string) => Promise<void>;
+  fetchAllExtractions: (statusFilter?: string[], limit?: number, offset?: number) => Promise<void>;
   fetchFeatures: (trainingId: string, filters?: FeatureSearchRequest) => Promise<void>;
   fetchFeatureDetail: (featureId: string) => Promise<void>;
   fetchFeatureExamples: (featureId: string, limit?: number) => Promise<void>;
@@ -101,16 +112,20 @@ interface FeaturesStoreState {
 export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
   // Initial state
   extractionStatus: {},
+  allExtractions: [],
+  extractionsMetadata: null,
   featuresByTraining: {},
   featureListMetadata: {},
   selectedFeature: null,
   featureExamples: [],
   searchFilters: {},
   isLoadingExtraction: false,
+  isLoadingExtractions: false,
   isLoadingFeatures: false,
   isLoadingFeatureDetail: false,
   isLoadingExamples: false,
   extractionError: null,
+  extractionsError: null,
   featuresError: null,
   featureDetailError: null,
 
@@ -214,6 +229,38 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         const errorMessage = error.response?.data?.detail || error.message || 'Failed to get extraction status';
         set({ extractionError: errorMessage, isLoadingExtraction: false });
       }
+    }
+  },
+
+  /**
+   * Fetch all extraction jobs with optional filtering.
+   */
+  fetchAllExtractions: async (statusFilter?: string[], limit: number = 50, offset: number = 0) => {
+    set({ isLoadingExtractions: true, extractionsError: null });
+
+    try {
+      const params: Record<string, any> = {
+        limit,
+        offset,
+      };
+
+      if (statusFilter && statusFilter.length > 0) {
+        params.status_filter = statusFilter.join(',');
+      }
+
+      const response = await axios.get<{ data: ExtractionStatusResponse[]; meta: { total: number; limit: number; offset: number } }>(
+        `/api/v1/extractions`,
+        { params }
+      );
+
+      set({
+        allExtractions: response.data.data,
+        extractionsMetadata: response.data.meta,
+        isLoadingExtractions: false,
+      });
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch extractions';
+      set({ extractionsError: errorMessage, isLoadingExtractions: false });
     }
   },
 

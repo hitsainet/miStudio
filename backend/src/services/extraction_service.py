@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, select, func
+from sqlalchemy import desc, select, func, String
 from collections import defaultdict
 import torch
 import numpy as np
@@ -97,10 +97,11 @@ class ExtractionService:
             raise ValueError(f"Training {training_id} has no checkpoints")
 
         # Check for active extraction on this training
+        # Cast status to text for comparison since DB has ENUM type
         result = await self.db.execute(
             select(ExtractionJob).where(
                 ExtractionJob.training_id == training_id,
-                ExtractionJob.status.in_([
+                func.cast(ExtractionJob.status, String).in_([
                     ExtractionStatus.QUEUED.value,
                     ExtractionStatus.EXTRACTING.value
                 ])

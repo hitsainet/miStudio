@@ -5,7 +5,7 @@ Provides REST API for feature extraction, search, and management.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 

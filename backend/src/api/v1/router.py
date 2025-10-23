@@ -6,7 +6,7 @@ This module aggregates all v1 API endpoints into a single router.
 
 from fastapi import APIRouter
 
-from .endpoints import datasets, models, workers, extraction_templates, training_templates, system, trainings, task_queue
+from .endpoints import datasets, models, workers, extraction_templates, training_templates, system, trainings, task_queue, features
 
 api_router = APIRouter(prefix="/v1")
 
@@ -19,3 +19,4 @@ api_router.include_router(training_templates.router)
 api_router.include_router(system.router)
 api_router.include_router(trainings.router)
 api_router.include_router(task_queue.router, prefix="/task-queue", tags=["task-queue"])
+api_router.include_router(features.router, tags=["features"])

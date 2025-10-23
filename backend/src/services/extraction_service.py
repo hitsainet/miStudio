@@ -29,10 +29,11 @@ from src.core.websocket import manager as ws_manager
 from src.core.config import settings
 from src.utils.auto_labeling import auto_label_feature
 from src.services.checkpoint_service import CheckpointService
-from src.services.activation_service import ActivationService
 from src.services.tokenization_service import TokenizationService
 from src.ml.sparse_autoencoder import SparseAutoencoder
-from src.ml.model_loader import ModelRegistry
+from src.ml.model_loader import load_model_from_hf
+from src.ml.forward_hooks import HookManager, HookType
+from src.models.model import Model as ModelRecord, QuantizationFormat
 
 
 logger = logging.getLogger(__name__)
@@ -328,108 +329,180 @@ class ExtractionService:
 
             logger.info(f"Dataset loaded: {len(dataset)} samples")
 
-            # Task 4.7: Get activation extraction config
+            # Task 4.7: Get activation extraction config and base model
             activation_extraction = self.db.query(ActivationExtraction).filter(
                 ActivationExtraction.id == training.activation_extraction_id
             ).first()
             if not activation_extraction:
                 raise ValueError(f"Activation extraction {training.activation_extraction_id} not found")
 
-            # Initialize services
+            # Get base model record
+            model_record = self.db.query(ModelRecord).filter(
+                ModelRecord.id == activation_extraction.model_id
+            ).first()
+            if not model_record:
+                raise ValueError(f"Model {activation_extraction.model_id} not found")
+
+            logger.info(f"Loading base model: {model_record.model_id}")
+
+            # Load base model for activation extraction
+            base_model, tokenizer = load_model_from_hf(
+                model_id=model_record.model_id,
+                model_path=model_record.storage_path,
+                quantization=QuantizationFormat(model_record.quantization),
+                device=device
+            )
+            base_model.eval()
+
+            # Initialize tokenization service
             tokenization_service = TokenizationService(db=self.db)
-            activation_service = ActivationService(db=self.db)
 
             # Data structures for accumulating feature activations
             # feature_activations[neuron_idx] = list of (sample_idx, max_activation, tokens, activations)
             feature_activations = defaultdict(list)
             feature_activation_counts = np.zeros(dict_size)  # Count activations > threshold per feature
 
-            # Process dataset in batches
+            # Process dataset in batches with real model activations
             logger.info(f"Extracting features from {len(dataset)} samples...")
 
-            for batch_start in range(0, len(dataset), batch_size):
-                batch_end = min(batch_start + batch_size, len(dataset))
-                batch = dataset[batch_start:batch_end]
+            # Get extraction configuration
+            layer_indices = activation_extraction.config.get("layer_indices", [0])
+            hook_types = activation_extraction.config.get("hook_types", ["residual"])
+            architecture = model_record.architecture
 
-                # Get text samples
+            # Use HookManager to extract real activations from base model
+            with HookManager(base_model) as hook_manager:
+                # Register hooks on the specified layers
+                hook_type_enums = [HookType(ht) for ht in hook_types]
+                hook_manager.register_hooks(layer_indices, hook_type_enums, architecture)
+
+                # Get text column from dataset config
                 text_column = dataset_record.config.get("text_column", "text")
-                texts = batch[text_column] if isinstance(batch[text_column], list) else [batch[text_column]]
 
-                # Task 4.7: Extract model activations using ActivationService
-                # We'll use the tokenization and activation extraction that was already set up
-                for sample_idx, text in enumerate(texts):
-                    global_sample_idx = batch_start + sample_idx
+                # Process samples in batches
+                with torch.no_grad():
+                    for batch_start in range(0, len(dataset), batch_size):
+                        batch_end = min(batch_start + batch_size, len(dataset))
+                        batch = dataset[batch_start:batch_end]
 
-                    # Tokenize
-                    tokens = tokenization_service.tokenize(
-                        model_id=activation_extraction.model_id,
-                        text=text,
-                        max_length=activation_extraction.config.get("max_length", 512)
-                    )
+                        # Extract input_ids from batch
+                        batch_input_ids = []
+                        batch_texts = []
 
-                    # Extract base model activations
-                    # Note: This is simplified - full implementation would use ActivationService
-                    # For now, we'll create dummy activations as placeholder
-                    # In production, this would call activation_service.extract_activations()
+                        if isinstance(batch, dict) and text_column in batch:
+                            texts = batch[text_column]
+                            if not isinstance(texts, list):
+                                texts = [texts]
 
-                    # Task 4.8: Pass through SAE encoder (using dummy activations for now)
-                    # Shape: (seq_len, input_dim) -> (seq_len, dict_size)
-                    input_dim = training.config["input_dim"]
-                    seq_len = len(tokens["input_ids"]) if isinstance(tokens["input_ids"], list) else tokens["input_ids"].shape[0]
+                            # Tokenize texts
+                            for text in texts:
+                                encoded = tokenizer(
+                                    text,
+                                    max_length=activation_extraction.config.get("max_length", 512),
+                                    truncation=True,
+                                    return_tensors="pt"
+                                )
+                                batch_input_ids.append(encoded["input_ids"][0].tolist())
+                                batch_texts.append(text)
 
-                    # Create dummy input activations (would come from base model in production)
-                    dummy_activations = torch.randn(seq_len, input_dim).to(device)
+                        # Pad sequences to same length
+                        max_length = max(len(ids) for ids in batch_input_ids)
+                        pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
 
-                    with torch.no_grad():
-                        # Pass through SAE encoder to get feature activations
-                        sae_features = sae.encode(dummy_activations)  # Shape: (seq_len, dict_size)
+                        padded_input_ids = []
+                        attention_masks = []
 
-                        # Process each SAE neuron (feature)
-                        for neuron_idx in range(dict_size):
-                            neuron_activations = sae_features[:, neuron_idx].cpu().numpy()  # Shape: (seq_len,)
-                            max_activation = float(neuron_activations.max())
+                        for input_ids in batch_input_ids:
+                            padding_length = max_length - len(input_ids)
+                            padded_ids = input_ids + [pad_token_id] * padding_length
+                            mask = [1] * len(input_ids) + [0] * padding_length
 
-                            # Task 4.9: Count activations above threshold (0.01)
-                            if max_activation > 0.01:
-                                feature_activation_counts[neuron_idx] += 1
+                            padded_input_ids.append(padded_ids)
+                            attention_masks.append(mask)
 
-                            # Task 4.11: Store top-K examples per feature
-                            if max_activation > 0:  # Only store if feature activated
-                                # Get token strings
-                                token_strings = tokens["tokens"] if "tokens" in tokens else []
+                        # Convert to tensors
+                        input_ids_tensor = torch.tensor(padded_input_ids, device=device)
+                        attention_mask_tensor = torch.tensor(attention_masks, device=device)
 
-                                feature_activations[neuron_idx].append({
-                                    "sample_index": global_sample_idx,
-                                    "max_activation": max_activation,
-                                    "tokens": token_strings,
-                                    "activations": neuron_activations.tolist()
-                                })
+                        # Run model forward pass to capture activations
+                        hook_manager.reset()
+                        _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
 
-                # Task 4.15-4.16: Update progress every 5%
-                progress = batch_end / len(dataset)
-                if int(progress * 20) > int((batch_start / len(dataset)) * 20):  # Every 5%
-                    self.update_extraction_status(
-                        extraction_job.id,
-                        ExtractionStatus.EXTRACTING.value,
-                        progress=progress
-                    )
+                        # Get captured activations from hooks
+                        # hook_manager.activations is a dict: {layer_name: tensor}
+                        # We take the first (and typically only) layer's activations
+                        layer_name = list(hook_manager.activations.keys())[0]
+                        base_model_activations = hook_manager.activations[layer_name]  # Shape: (batch_size, seq_len, hidden_dim)
 
-                    # Emit WebSocket progress event
-                    ws_manager.emit(
-                        room=f"training:{training_id}",
-                        event="extraction:progress",
-                        data={
-                            "extraction_id": extraction_job.id,
-                            "training_id": training_id,
-                            "progress": progress,
-                            "features_extracted": int(dict_size * progress),
-                            "total_features": dict_size
-                        }
-                    )
+                        # Task 4.8: Pass through SAE encoder to get feature activations
+                        # Process each sample in the batch
+                        for batch_idx in range(len(batch_input_ids)):
+                            global_sample_idx = batch_start + batch_idx
 
-                # Clear GPU cache between batches
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                            # Get activations for this sample
+                            sample_activations = base_model_activations[batch_idx]  # Shape: (seq_len, hidden_dim)
+
+                            # Get actual sequence length (before padding)
+                            actual_length = len(batch_input_ids[batch_idx])
+                            sample_activations = sample_activations[:actual_length]  # Remove padding
+
+                            # Pass through SAE encoder
+                            sae_features = sae.encode(sample_activations)  # Shape: (seq_len, dict_size)
+
+                            # Get token strings for this sample
+                            token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
+
+                            # Process each SAE neuron (feature)
+                            for neuron_idx in range(dict_size):
+                                neuron_activations = sae_features[:, neuron_idx].cpu().numpy()  # Shape: (seq_len,)
+                                max_activation = float(neuron_activations.max())
+
+                                # Task 4.9: Count activations above threshold (0.01)
+                                if max_activation > 0.01:
+                                    feature_activation_counts[neuron_idx] += 1
+
+                                # Task 4.11: Store top-K examples per feature
+                                if max_activation > 0:  # Only store if feature activated
+                                    feature_activations[neuron_idx].append({
+                                        "sample_index": global_sample_idx,
+                                        "max_activation": max_activation,
+                                        "tokens": token_strings,
+                                        "activations": neuron_activations.tolist()
+                                    })
+
+                        # Task 4.15-4.16: Update progress every 5%
+                        progress = batch_end / len(dataset)
+                        if int(progress * 20) > int((batch_start / len(dataset)) * 20):  # Every 5%
+                            self.update_extraction_status(
+                                extraction_job.id,
+                                ExtractionStatus.EXTRACTING.value,
+                                progress=progress
+                            )
+
+                            # Emit WebSocket progress event
+                            ws_manager.emit(
+                                room=f"training:{training_id}",
+                                event="extraction:progress",
+                                data={
+                                    "extraction_id": extraction_job.id,
+                                    "training_id": training_id,
+                                    "progress": progress,
+                                    "features_extracted": int(dict_size * progress),
+                                    "total_features": dict_size
+                                }
+                            )
+
+                        # Clear GPU cache between batches
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+
+            # Clean up base model from GPU memory
+            logger.info("Cleaning up base model from GPU memory")
+            base_model.cpu()
+            del base_model
+            del tokenizer
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             logger.info(f"Activation extraction complete. Creating feature records...")
 

@@ -11,12 +11,12 @@ from typing import Dict, Any
 from src.core.celery_app import celery_app
 from src.core.database import get_db
 from src.services.extraction_service import ExtractionService
-from src.workers.base_task import BaseTask
+from src.workers.base_task import DatabaseTask
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, base=BaseTask, name="extract_features")
+@celery_app.task(bind=True, base=DatabaseTask, name="extract_features")
 def extract_features_task(
     self,
     training_id: str,

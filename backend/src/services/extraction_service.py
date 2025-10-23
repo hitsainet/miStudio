@@ -25,7 +25,7 @@ from src.models.checkpoint import Checkpoint
 from src.models.dataset import Dataset
 from src.models.activation_extraction import ActivationExtraction
 from src.core.database import get_db
-from src.core.websocket import manager as ws_manager
+from src.core.websocket import ws_manager
 from src.core.config import settings
 from src.utils.auto_labeling import auto_label_feature
 from src.services.checkpoint_service import CheckpointService

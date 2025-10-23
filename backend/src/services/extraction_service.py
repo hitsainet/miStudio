@@ -26,7 +26,7 @@ from src.models.checkpoint import Checkpoint
 from src.models.dataset import Dataset
 from src.models.activation_extraction import ActivationExtraction
 from src.core.database import get_db
-from src.core.websocket import ws_manager
+from src.workers.websocket_emitter import emit_training_progress
 from src.core.config import settings
 from src.utils.auto_labeling import auto_label_feature
 from src.services.checkpoint_service import CheckpointService
@@ -499,8 +499,8 @@ class ExtractionService:
                             )
 
                             # Emit WebSocket progress event
-                            ws_manager.emit(
-                                room=f"training:{training_id}",
+                            emit_training_progress(
+                                training_id=training_id,
                                 event="extraction:progress",
                                 data={
                                     "extraction_id": extraction_job.id,
@@ -610,8 +610,8 @@ class ExtractionService:
             )
 
             # Emit WebSocket completion event
-            ws_manager.emit(
-                room=f"training:{training_id}",
+            emit_training_progress(
+                training_id=training_id,
                 event="extraction:completed",
                 data={
                     "extraction_id": extraction_job.id,
@@ -633,8 +633,8 @@ class ExtractionService:
             )
 
             # Emit WebSocket failure event
-            ws_manager.emit(
-                room=f"training:{training_id}",
+            emit_training_progress(
+                training_id=training_id,
                 event="extraction:failed",
                 data={
                     "extraction_id": extraction_job.id,

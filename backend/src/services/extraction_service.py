@@ -8,10 +8,11 @@ statistics calculation.
 
 import logging
 import os
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, select, func
 from collections import defaultdict
 import torch
 import numpy as np
@@ -51,11 +52,11 @@ class ExtractionService:
     5. Store results and emit WebSocket events
     """
 
-    def __init__(self, db: Session):
-        """Initialize extraction service."""
+    def __init__(self, db: Union[AsyncSession, Session]):
+        """Initialize extraction service with either async or sync session."""
         self.db = db
 
-    def start_extraction(
+    async def start_extraction(
         self,
         training_id: str,
         config: Dict[str, Any]
@@ -74,7 +75,10 @@ class ExtractionService:
             ValueError: If training not found, not completed, or active extraction exists
         """
         # Validate training exists and is completed
-        training = self.db.query(Training).filter(Training.id == training_id).first()
+        result = await self.db.execute(
+            select(Training).where(Training.id == training_id)
+        )
+        training = result.scalar_one_or_none()
         if not training:
             raise ValueError(f"Training {training_id} not found")
 
@@ -85,17 +89,16 @@ class ExtractionService:
             raise ValueError(f"Training {training_id} has no final checkpoint")
 
         # Check for active extraction on this training
-        active_extraction = (
-            self.db.query(ExtractionJob)
-            .filter(
+        result = await self.db.execute(
+            select(ExtractionJob).where(
                 ExtractionJob.training_id == training_id,
                 ExtractionJob.status.in_([
                     ExtractionStatus.QUEUED.value,
                     ExtractionStatus.EXTRACTING.value
                 ])
             )
-            .first()
         )
+        active_extraction = result.scalar_one_or_none()
 
         if active_extraction:
             raise ValueError(
@@ -114,8 +117,8 @@ class ExtractionService:
         )
 
         self.db.add(extraction_job)
-        self.db.commit()
-        self.db.refresh(extraction_job)
+        await self.db.commit()
+        await self.db.refresh(extraction_job)
 
         logger.info(
             f"Created extraction job {extraction_job.id} for training {training_id}. "
@@ -128,7 +131,7 @@ class ExtractionService:
 
         return extraction_job
 
-    def get_extraction_status(self, training_id: str) -> Optional[Dict[str, Any]]:
+    async def get_extraction_status(self, training_id: str) -> Optional[Dict[str, Any]]:
         """
         Get the status of the most recent extraction job for a training.
 
@@ -139,12 +142,12 @@ class ExtractionService:
             Dict with extraction status, progress, config, statistics, or None if no extraction
         """
         # Get most recent extraction job for this training
-        extraction_job = (
-            self.db.query(ExtractionJob)
-            .filter(ExtractionJob.training_id == training_id)
+        result = await self.db.execute(
+            select(ExtractionJob)
+            .where(ExtractionJob.training_id == training_id)
             .order_by(desc(ExtractionJob.created_at))
-            .first()
         )
+        extraction_job = result.scalar_one_or_none()
 
         if not extraction_job:
             return None
@@ -154,13 +157,20 @@ class ExtractionService:
         total_features = None
 
         if extraction_job.status == ExtractionStatus.COMPLETED.value:
-            features_extracted = self.db.query(Feature).filter(
-                Feature.extraction_job_id == extraction_job.id
-            ).count()
+            from sqlalchemy import func
+            result = await self.db.execute(
+                select(func.count()).select_from(Feature).where(
+                    Feature.extraction_job_id == extraction_job.id
+                )
+            )
+            features_extracted = result.scalar_one()
             total_features = features_extracted
         elif extraction_job.status == ExtractionStatus.EXTRACTING.value:
             # Estimate based on progress (actual count would be in real-time update)
-            training = self.db.query(Training).filter(Training.id == training_id).first()
+            result = await self.db.execute(
+                select(Training).where(Training.id == training_id)
+            )
+            training = result.scalar_one_or_none()
             if training and extraction_job.progress:
                 total_features = training.config.get("dict_size", 16384)
                 features_extracted = int(total_features * extraction_job.progress)
@@ -180,7 +190,7 @@ class ExtractionService:
             "completed_at": extraction_job.completed_at
         }
 
-    def update_extraction_status(
+    async def update_extraction_status(
         self,
         extraction_id: str,
         status: str,
@@ -198,9 +208,10 @@ class ExtractionService:
             statistics: Extraction statistics (on completion)
             error_message: Error message (if failed)
         """
-        extraction_job = self.db.query(ExtractionJob).filter(
-            ExtractionJob.id == extraction_id
-        ).first()
+        result = await self.db.execute(
+            select(ExtractionJob).where(ExtractionJob.id == extraction_id)
+        )
+        extraction_job = result.scalar_one_or_none()
 
         if not extraction_job:
             logger.error(f"Extraction job {extraction_id} not found")
@@ -221,7 +232,7 @@ class ExtractionService:
         if status == ExtractionStatus.COMPLETED.value:
             extraction_job.completed_at = datetime.now(timezone.utc)
 
-        self.db.commit()
+        await self.db.commit()
 
         logger.debug(
             f"Updated extraction {extraction_id}: status={status}, progress={progress}"
@@ -233,7 +244,7 @@ class ExtractionService:
         config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Core feature extraction logic (called by Celery task).
+        Core feature extraction logic (called by Celery task with sync Session).
 
         This method:
         1. Loads SAE checkpoint and dataset
@@ -252,7 +263,7 @@ class ExtractionService:
         Raises:
             Exception: If extraction fails at any step
         """
-        # Get extraction job for this training
+        # Get extraction job for this training (sync query)
         extraction_job = (
             self.db.query(ExtractionJob)
             .filter(ExtractionJob.training_id == training_id)
@@ -271,7 +282,7 @@ class ExtractionService:
                 progress=0.0
             )
 
-            # Load training and checkpoint
+            # Load training and checkpoint (sync query)
             training = self.db.query(Training).filter(Training.id == training_id).first()
             if not training or not training.final_checkpoint_id:
                 raise ValueError(f"Training {training_id} not found or has no final checkpoint")

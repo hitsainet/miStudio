@@ -7,7 +7,7 @@ Provides REST API for feature extraction, search, and management.
 import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.deps import get_db
 from src.services.extraction_service import ExtractionService
@@ -40,7 +40,7 @@ router = APIRouter()
 async def start_feature_extraction(
     training_id: str,
     config: ExtractionConfigRequest,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Start a feature extraction job for a completed training.
@@ -61,13 +61,13 @@ async def start_feature_extraction(
 
     try:
         # Start extraction job
-        extraction_job = extraction_service.start_extraction(
+        extraction_job = await extraction_service.start_extraction(
             training_id=training_id,
             config=config.model_dump()
         )
 
         # Get status to return
-        status_dict = extraction_service.get_extraction_status(training_id)
+        status_dict = await extraction_service.get_extraction_status(training_id)
 
         if not status_dict:
             raise HTTPException(
@@ -106,7 +106,7 @@ async def start_feature_extraction(
 )
 async def get_extraction_status(
     training_id: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get the status of the most recent extraction job for a training.
@@ -122,7 +122,7 @@ async def get_extraction_status(
     """
     extraction_service = ExtractionService(db)
 
-    status_dict = extraction_service.get_extraction_status(training_id)
+    status_dict = await extraction_service.get_extraction_status(training_id)
 
     if not status_dict:
         raise HTTPException(
@@ -146,7 +146,7 @@ async def list_features(
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Page offset"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     List and search features for a training with filtering, sorting, and pagination.
@@ -185,7 +185,7 @@ async def list_features(
 )
 async def get_feature_detail(
     feature_id: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get detailed information about a feature.
@@ -220,7 +220,7 @@ async def get_feature_detail(
 async def update_feature(
     feature_id: str,
     updates: FeatureUpdateRequest,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Update feature metadata (name, description, notes).
@@ -256,7 +256,7 @@ async def update_feature(
 async def toggle_favorite(
     feature_id: str,
     is_favorite: bool = Query(..., description="New favorite status"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Toggle favorite status for a feature.
@@ -292,7 +292,7 @@ async def toggle_favorite(
 async def get_feature_examples(
     feature_id: str,
     limit: int = Query(100, ge=10, le=1000, description="Number of examples to return"),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get max-activating examples for a feature.

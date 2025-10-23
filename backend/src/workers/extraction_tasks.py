@@ -9,7 +9,6 @@ import logging
 from typing import Dict, Any
 
 from src.core.celery_app import celery_app
-from src.core.database import get_db
 from src.services.extraction_service import ExtractionService
 from src.workers.base_task import DatabaseTask
 
@@ -41,25 +40,22 @@ def extract_features_task(
     logger.info(f"Starting feature extraction task for training {training_id}")
     logger.info(f"Config: {config}")
 
-    db = next(get_db())
-    try:
-        extraction_service = ExtractionService(db)
+    with self.get_db() as db:
+        try:
+            extraction_service = ExtractionService(db)
 
-        # Core extraction logic is delegated to service
-        statistics = extraction_service.extract_features_for_training(training_id, config)
+            # Core extraction logic is delegated to service
+            statistics = extraction_service.extract_features_for_training(training_id, config)
 
-        logger.info(f"Feature extraction completed for training {training_id}")
-        logger.info(f"Statistics: {statistics}")
+            logger.info(f"Feature extraction completed for training {training_id}")
+            logger.info(f"Statistics: {statistics}")
 
-        return statistics
+            return statistics
 
-    except Exception as e:
-        logger.error(
-            f"Feature extraction task failed for training {training_id}: {e}",
-            exc_info=True
-        )
-        # Service already handles status update and WebSocket events on error
-        raise
-
-    finally:
-        db.close()
+        except Exception as e:
+            logger.error(
+                f"Feature extraction task failed for training {training_id}: {e}",
+                exc_info=True
+            )
+            # Service already handles status update and WebSocket events on error
+            raise

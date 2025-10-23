@@ -198,6 +198,86 @@ class ExtractionService:
             "completed_at": extraction_job.completed_at
         }
 
+    async def list_extractions(
+        self,
+        status_filter: Optional[List[str]] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        List all extraction jobs with optional filtering.
+
+        Args:
+            status_filter: Optional list of statuses to filter by
+            limit: Maximum number of results to return
+            offset: Number of results to skip
+
+        Returns:
+            Tuple of (list of extraction job dicts, total count)
+        """
+        from sqlalchemy import func
+
+        # Build query
+        query = select(ExtractionJob).order_by(desc(ExtractionJob.created_at))
+
+        if status_filter:
+            query = query.where(ExtractionJob.status.in_(status_filter))
+
+        # Get total count
+        count_query = select(func.count()).select_from(ExtractionJob)
+        if status_filter:
+            count_query = count_query.where(ExtractionJob.status.in_(status_filter))
+
+        count_result = await self.db.execute(count_query)
+        total = count_result.scalar_one()
+
+        # Get paginated results
+        query = query.limit(limit).offset(offset)
+        result = await self.db.execute(query)
+        extraction_jobs = result.scalars().all()
+
+        # Build response list
+        extractions_list = []
+        for extraction_job in extraction_jobs:
+            # Calculate features_extracted and total_features
+            features_extracted = None
+            total_features = None
+
+            if extraction_job.status == ExtractionStatus.COMPLETED.value:
+                result = await self.db.execute(
+                    select(func.count()).select_from(Feature).where(
+                        Feature.extraction_job_id == extraction_job.id
+                    )
+                )
+                features_extracted = result.scalar_one()
+                total_features = features_extracted
+            elif extraction_job.status == ExtractionStatus.EXTRACTING.value:
+                # Estimate based on progress
+                result = await self.db.execute(
+                    select(Training).where(Training.id == extraction_job.training_id)
+                )
+                training = result.scalar_one_or_none()
+                if training and extraction_job.progress:
+                    total_features = training.hyperparameters.get("dict_size", 16384)
+                    features_extracted = int(total_features * extraction_job.progress)
+
+            extractions_list.append({
+                "id": extraction_job.id,
+                "training_id": extraction_job.training_id,
+                "status": extraction_job.status,
+                "progress": extraction_job.progress,
+                "features_extracted": features_extracted,
+                "total_features": total_features,
+                "error_message": extraction_job.error_message,
+                "config": extraction_job.config,
+                "statistics": extraction_job.statistics,
+                "created_at": extraction_job.created_at,
+                "updated_at": extraction_job.updated_at,
+                "completed_at": extraction_job.completed_at
+            })
+
+        return extractions_list, total
+
     async def cancel_extraction(self, training_id: str) -> None:
         """
         Cancel an active extraction job for a training.

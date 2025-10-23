@@ -6,7 +6,7 @@ from trained SAE models.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -52,3 +52,17 @@ class ExtractionStatusResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None
+
+
+class ExtractionListResponse(BaseModel):
+    """
+    Response schema for list of extraction jobs.
+
+    Returns paginated list of extraction jobs with metadata.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    data: List[ExtractionStatusResponse]
+    meta: Dict[str, Any] = Field(
+        description="Metadata including total count, limit, offset"
+    )

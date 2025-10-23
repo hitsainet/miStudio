@@ -14,7 +14,8 @@ from src.services.extraction_service import ExtractionService
 from src.services.feature_service import FeatureService
 from src.schemas.extraction import (
     ExtractionConfigRequest,
-    ExtractionStatusResponse
+    ExtractionStatusResponse,
+    ExtractionListResponse
 )
 from src.schemas.feature import (
     FeatureSearchRequest,
@@ -131,6 +132,52 @@ async def get_extraction_status(
         )
 
     return ExtractionStatusResponse(**status_dict)
+
+
+@router.get(
+    "/extractions",
+    response_model=ExtractionListResponse,
+    summary="List all extraction jobs"
+)
+async def list_extractions(
+    status_filter: Optional[str] = Query(None, description="Comma-separated list of statuses to filter by"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Number of results to skip"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get a paginated list of all extraction jobs.
+
+    Args:
+        status_filter: Optional comma-separated list of statuses (e.g., "queued,extracting")
+        limit: Maximum number of results to return (1-100)
+        offset: Number of results to skip for pagination
+
+    Returns:
+        ExtractionListResponse with list of extraction jobs and metadata
+    """
+    extraction_service = ExtractionService(db)
+
+    # Parse status filter
+    status_list = None
+    if status_filter:
+        status_list = [s.strip() for s in status_filter.split(",")]
+
+    # Get extractions
+    extractions_list, total = await extraction_service.list_extractions(
+        status_filter=status_list,
+        limit=limit,
+        offset=offset
+    )
+
+    return ExtractionListResponse(
+        data=[ExtractionStatusResponse(**e) for e in extractions_list],
+        meta={
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+    )
 
 
 @router.post(

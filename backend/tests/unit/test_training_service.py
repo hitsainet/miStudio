@@ -578,3 +578,569 @@ class TestTrainingServiceWebSocketEvents:
             assert call_args[1]['data']['model_id'] == "m_test123"
             assert call_args[1]['data']['dataset_id'] == "12345678-1234-5678-1234-567812345678"
             assert call_args[1]['data']['status'] == TrainingStatus.PENDING.value
+
+
+@pytest.mark.asyncio
+class TestTrainingServiceStateManagement:
+    """Test training state management methods."""
+
+    async def test_start_training(self, async_session, test_model, test_dataset):
+        """Test starting a training job."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Start training
+        started_training = await TrainingService.start_training(
+            async_session,
+            training.id,
+            "celery_task_123"
+        )
+
+        assert started_training is not None
+        assert started_training.status == TrainingStatus.INITIALIZING.value
+        assert started_training.celery_task_id == "celery_task_123"
+        assert started_training.started_at is not None
+
+    async def test_start_training_not_found(self, async_session):
+        """Test starting non-existent training returns None."""
+        result = await TrainingService.start_training(
+            async_session,
+            "train_nonexistent",
+            "celery_task_123"
+        )
+
+        assert result is None
+
+    async def test_pause_training(self, async_session, test_model, test_dataset):
+        """Test pausing a running training job."""
+        # Create and start training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+            await TrainingService.start_training(async_session, training.id, "task_123")
+
+        # Update to running
+        update_data = TrainingUpdate(status=TrainingStatus.RUNNING)
+        await TrainingService.update_training(async_session, training.id, update_data)
+
+        # Pause training
+        with patch('src.services.training_service._emit_training_event_sync') as mock_emit:
+            paused_training = await TrainingService.pause_training(async_session, training.id)
+
+        assert paused_training is not None
+        assert paused_training.status == TrainingStatus.PAUSED.value
+        mock_emit.assert_called_once()
+
+    async def test_pause_training_not_running(self, async_session, test_model, test_dataset):
+        """Test pausing a non-running training returns None."""
+        # Create training in PENDING state
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Try to pause PENDING training (should fail)
+        paused_training = await TrainingService.pause_training(async_session, training.id)
+
+        assert paused_training is None
+
+    async def test_resume_training(self, async_session, test_model, test_dataset):
+        """Test resuming a paused training job."""
+        # Create, start, and pause training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+            await TrainingService.start_training(async_session, training.id, "task_123")
+
+        # Update to running then pause
+        update_data = TrainingUpdate(status=TrainingStatus.RUNNING)
+        await TrainingService.update_training(async_session, training.id, update_data)
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            await TrainingService.pause_training(async_session, training.id)
+
+        # Resume training
+        with patch('src.services.training_service._emit_training_event_sync') as mock_emit:
+            resumed_training = await TrainingService.resume_training(
+                async_session,
+                training.id,
+                "new_task_456"
+            )
+
+        assert resumed_training is not None
+        assert resumed_training.status == TrainingStatus.RUNNING.value
+        assert resumed_training.celery_task_id == "new_task_456"
+        mock_emit.assert_called_once()
+
+    async def test_resume_training_not_paused(self, async_session, test_model, test_dataset):
+        """Test resuming a non-paused training returns None."""
+        # Create training in PENDING state
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Try to resume PENDING training (should fail)
+        resumed_training = await TrainingService.resume_training(async_session, training.id)
+
+        assert resumed_training is None
+
+    async def test_stop_training(self, async_session, test_model, test_dataset):
+        """Test stopping (cancelling) a training job."""
+        # Create and start training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+            await TrainingService.start_training(async_session, training.id, "task_123")
+
+        # Stop training
+        with patch('src.services.training_service._emit_training_event_sync') as mock_emit:
+            stopped_training = await TrainingService.stop_training(async_session, training.id)
+
+        assert stopped_training is not None
+        assert stopped_training.status == TrainingStatus.CANCELLED.value
+        assert stopped_training.completed_at is not None
+        mock_emit.assert_called_once()
+
+    async def test_stop_training_already_terminal(self, async_session, test_model, test_dataset):
+        """Test stopping an already-completed training returns None."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+            # Mark as completed
+            await TrainingService.mark_training_completed(async_session, training.id)
+
+        # Try to stop completed training (should fail)
+        stopped_training = await TrainingService.stop_training(async_session, training.id)
+
+        assert stopped_training is None
+
+    async def test_mark_training_failed(self, async_session, test_model, test_dataset):
+        """Test marking a training as failed."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Mark as failed
+        with patch('src.services.training_service._emit_training_event_sync') as mock_emit:
+            failed_training = await TrainingService.mark_training_failed(
+                async_session,
+                training.id,
+                "CUDA out of memory",
+                "Traceback: ..."
+            )
+
+        assert failed_training is not None
+        assert failed_training.status == TrainingStatus.FAILED.value
+        assert failed_training.error_message == "CUDA out of memory"
+        assert failed_training.error_traceback == "Traceback: ..."
+        assert failed_training.completed_at is not None
+        mock_emit.assert_called_once()
+
+    async def test_mark_training_failed_not_found(self, async_session):
+        """Test marking non-existent training as failed returns None."""
+        result = await TrainingService.mark_training_failed(
+            async_session,
+            "train_nonexistent",
+            "Error message"
+        )
+
+        assert result is None
+
+    async def test_mark_training_completed(self, async_session, test_model, test_dataset):
+        """Test marking a training as completed."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Mark as completed
+        with patch('src.services.training_service._emit_training_event_sync') as mock_emit:
+            completed_training = await TrainingService.mark_training_completed(
+                async_session,
+                training.id
+            )
+
+        assert completed_training is not None
+        assert completed_training.status == TrainingStatus.COMPLETED.value
+        assert completed_training.progress == 100.0
+        assert completed_training.completed_at is not None
+        mock_emit.assert_called_once()
+
+    async def test_mark_training_completed_not_found(self, async_session):
+        """Test marking non-existent training as completed returns None."""
+        result = await TrainingService.mark_training_completed(
+            async_session,
+            "train_nonexistent"
+        )
+
+        assert result is None
+
+
+@pytest.mark.asyncio
+class TestTrainingServiceMetrics:
+    """Test training metrics management."""
+
+    async def test_add_metric(self, async_session, test_model, test_dataset):
+        """Test adding a training metric."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Add metric
+        metric = await TrainingService.add_metric(
+            async_session,
+            training.id,
+            step=1000,
+            loss=0.234,
+            l0_sparsity=15.5,
+            learning_rate=0.0003,
+        )
+
+        assert metric is not None
+        assert metric.training_id == training.id
+        assert metric.step == 1000
+        assert metric.loss == 0.234
+        assert metric.l0_sparsity == 15.5
+        assert metric.learning_rate == 0.0003
+
+    async def test_get_metrics_all(self, async_session, test_model, test_dataset):
+        """Test getting all metrics for a training."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Add multiple metrics
+        for step in [1000, 2000, 3000]:
+            await TrainingService.add_metric(
+                async_session,
+                training.id,
+                step=step,
+                loss=0.5 - (step / 10000),
+            )
+
+        # Get all metrics
+        metrics = await TrainingService.get_metrics(async_session, training.id)
+
+        assert len(metrics) == 3
+        assert metrics[0].step == 1000
+        assert metrics[1].step == 2000
+        assert metrics[2].step == 3000
+
+    async def test_get_metrics_with_start_step(self, async_session, test_model, test_dataset):
+        """Test getting metrics with start_step filter."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Add multiple metrics
+        for step in [1000, 2000, 3000, 4000]:
+            await TrainingService.add_metric(
+                async_session,
+                training.id,
+                step=step,
+                loss=0.5,
+            )
+
+        # Get metrics from step 2000 onwards
+        metrics = await TrainingService.get_metrics(
+            async_session,
+            training.id,
+            start_step=2000
+        )
+
+        assert len(metrics) == 3  # Steps 2000, 3000, 4000
+        assert all(m.step >= 2000 for m in metrics)
+
+    async def test_get_metrics_with_end_step(self, async_session, test_model, test_dataset):
+        """Test getting metrics with end_step filter."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Add multiple metrics
+        for step in [1000, 2000, 3000, 4000]:
+            await TrainingService.add_metric(
+                async_session,
+                training.id,
+                step=step,
+                loss=0.5,
+            )
+
+        # Get metrics up to step 3000
+        metrics = await TrainingService.get_metrics(
+            async_session,
+            training.id,
+            end_step=3000
+        )
+
+        assert len(metrics) == 3  # Steps 1000, 2000, 3000
+        assert all(m.step <= 3000 for m in metrics)
+
+    async def test_get_metrics_with_range(self, async_session, test_model, test_dataset):
+        """Test getting metrics with both start and end step filters."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Add multiple metrics
+        for step in [1000, 2000, 3000, 4000, 5000]:
+            await TrainingService.add_metric(
+                async_session,
+                training.id,
+                step=step,
+                loss=0.5,
+            )
+
+        # Get metrics in range [2000, 4000]
+        metrics = await TrainingService.get_metrics(
+            async_session,
+            training.id,
+            start_step=2000,
+            end_step=4000
+        )
+
+        assert len(metrics) == 3  # Steps 2000, 3000, 4000
+        assert all(2000 <= m.step <= 4000 for m in metrics)
+
+    async def test_get_metrics_with_limit(self, async_session, test_model, test_dataset):
+        """Test getting metrics with limit."""
+        # Create training
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        training_data = TrainingCreate(
+            model_id="m_test123",
+            dataset_id="12345678-1234-5678-1234-567812345678",
+            hyperparameters=hyperparameters,
+        )
+
+        with patch('src.services.training_service._emit_training_event_sync'):
+            training = await TrainingService.create_training(async_session, training_data)
+
+        # Add multiple metrics
+        for step in range(1000, 6000, 1000):
+            await TrainingService.add_metric(
+                async_session,
+                training.id,
+                step=step,
+                loss=0.5,
+            )
+
+        # Get only first 2 metrics
+        metrics = await TrainingService.get_metrics(
+            async_session,
+            training.id,
+            limit=2
+        )
+
+        assert len(metrics) == 2

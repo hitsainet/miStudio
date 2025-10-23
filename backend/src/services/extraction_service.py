@@ -85,8 +85,16 @@ class ExtractionService:
         if training.status != TrainingStatus.COMPLETED.value:
             raise ValueError(f"Training {training_id} must be completed before extraction")
 
-        if not training.final_checkpoint_id:
-            raise ValueError(f"Training {training_id} has no final checkpoint")
+        # Check if training has at least one checkpoint
+        checkpoint_result = await self.db.execute(
+            select(Checkpoint)
+            .where(Checkpoint.training_id == training_id)
+            .order_by(Checkpoint.step.desc())
+            .limit(1)
+        )
+        latest_checkpoint = checkpoint_result.scalar_one_or_none()
+        if not latest_checkpoint:
+            raise ValueError(f"Training {training_id} has no checkpoints")
 
         # Check for active extraction on this training
         result = await self.db.execute(

@@ -101,6 +101,16 @@ class Training(Base):
         cascade="all, delete-orphan",
         order_by="Checkpoint.step"
     )
+    extraction_jobs = relationship(
+        "ExtractionJob",
+        back_populates="training",
+        cascade="all, delete-orphan"
+    )
+    features = relationship(
+        "Feature",
+        back_populates="training",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Training(id={self.id}, status={self.status}, progress={self.progress:.1f}%)>"

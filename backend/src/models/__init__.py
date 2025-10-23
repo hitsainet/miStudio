@@ -8,10 +8,14 @@ from .dataset import Dataset, DatasetStatus
 from .model import Model, ModelStatus, QuantizationFormat
 from .extraction_template import ExtractionTemplate
 from .training_template import TrainingTemplate
-from .activation_extraction import ActivationExtraction, ExtractionStatus
+from .activation_extraction import ActivationExtraction, ExtractionStatus as ActivationExtractionStatus
 from .training import Training, TrainingStatus
 from .training_metric import TrainingMetric
 from .checkpoint import Checkpoint
+from .extraction_job import ExtractionJob, ExtractionStatus
+from .feature import Feature, LabelSource
+from .feature_activation import FeatureActivation
+from .feature_analysis_cache import FeatureAnalysisCache, AnalysisType
 
 __all__ = [
     "Dataset",
@@ -22,9 +26,16 @@ __all__ = [
     "ExtractionTemplate",
     "TrainingTemplate",
     "ActivationExtraction",
-    "ExtractionStatus",
+    "ActivationExtractionStatus",
     "Training",
     "TrainingStatus",
     "TrainingMetric",
     "Checkpoint",
+    "ExtractionJob",
+    "ExtractionStatus",
+    "Feature",
+    "LabelSource",
+    "FeatureActivation",
+    "FeatureAnalysisCache",
+    "AnalysisType",
 ]

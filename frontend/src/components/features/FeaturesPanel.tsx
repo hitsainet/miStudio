@@ -17,6 +17,7 @@ import { useTrainingsStore } from '../../stores/trainingsStore';
 import type { Training } from '../../types/training';
 import type { Feature, FeatureSearchRequest } from '../../types/features';
 import { TokenHighlightCompact } from './TokenHighlight';
+import { FeatureDetailModal } from './FeatureDetailModal';
 
 interface FeaturesPanelProps {
   training: Training;
@@ -49,6 +50,9 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
   // Local state for search
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+
+  // Local state for feature detail modal
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
 
   const status = extractionStatus[training.id];
   const features = featuresByTraining[training.id] || [];
@@ -408,6 +412,7 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                   features.map((feature) => (
                     <tr
                       key={feature.id}
+                      onClick={() => setSelectedFeatureId(feature.id)}
                       className="border-t border-slate-700 hover:bg-slate-800/30 cursor-pointer"
                     >
                       <td className="px-4 py-3">
@@ -489,6 +494,15 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
           <div className="mt-4 p-3 bg-red-900/20 border border-red-700 rounded text-red-400 text-sm">
             {featuresError}
           </div>
+        )}
+
+        {/* Feature Detail Modal */}
+        {selectedFeatureId && (
+          <FeatureDetailModal
+            featureId={selectedFeatureId}
+            trainingId={training.id}
+            onClose={() => setSelectedFeatureId(null)}
+          />
         )}
       </div>
     );

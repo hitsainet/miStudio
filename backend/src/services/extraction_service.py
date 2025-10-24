@@ -8,6 +8,7 @@ statistics calculation.
 
 import logging
 import os
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -591,11 +592,11 @@ class ExtractionService:
             logger.info(f"Loading base model: {model_record.repo_id}")
 
             # Load base model for activation extraction
-            base_model, tokenizer = load_model_from_hf(
-                model_id=model_record.repo_id,
-                model_path=model_record.file_path,
-                quantization=QuantizationFormat(model_record.quantization),
-                device=device
+            base_model, tokenizer, config, metadata = load_model_from_hf(
+                repo_id=model_record.repo_id,
+                quant_format=QuantizationFormat(model_record.quantization),
+                cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
+                device_map=device
             )
             base_model.eval()
 

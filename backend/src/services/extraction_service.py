@@ -602,7 +602,7 @@ class ExtractionService:
             # Data structures for accumulating feature activations
             # feature_activations[neuron_idx] = list of (sample_idx, max_activation, tokens, activations)
             feature_activations = defaultdict(list)
-            feature_activation_counts = np.zeros(dict_size)  # Count activations > threshold per feature
+            feature_activation_counts = np.zeros(latent_dim)  # Count activations > threshold per feature
 
             # Process dataset in batches with real model activations
             logger.info(f"Extracting features from {len(dataset)} samples...")
@@ -689,13 +689,13 @@ class ExtractionService:
                             sample_activations = sample_activations[:actual_length]  # Remove padding
 
                             # Pass through SAE encoder
-                            sae_features = sae.encode(sample_activations)  # Shape: (seq_len, dict_size)
+                            sae_features = sae.encode(sample_activations)  # Shape: (seq_len, latent_dim)
 
                             # Get token strings for this sample
                             token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
 
                             # Process each SAE neuron (feature)
-                            for neuron_idx in range(dict_size):
+                            for neuron_idx in range(latent_dim):
                                 neuron_activations = sae_features[:, neuron_idx].cpu().numpy()  # Shape: (seq_len,)
                                 max_activation = float(neuron_activations.max())
 
@@ -729,8 +729,8 @@ class ExtractionService:
                                     "extraction_id": extraction_job.id,
                                     "training_id": training_id,
                                     "progress": progress,
-                                    "features_extracted": int(dict_size * progress),
-                                    "total_features": dict_size
+                                    "features_extracted": int(latent_dim * progress),
+                                    "total_features": latent_dim
                                 }
                             )
 
@@ -756,7 +756,7 @@ class ExtractionService:
             total_interpretability = 0.0
             total_activation_freq = 0.0
 
-            for neuron_idx in range(dict_size):
+            for neuron_idx in range(latent_dim):
                 # Task 4.11: Sort and select top-K examples
                 examples = feature_activations[neuron_idx]
                 examples.sort(key=lambda x: x["max_activation"], reverse=True)
@@ -812,14 +812,14 @@ class ExtractionService:
             # Commit all features and activations
             self.db.commit()
 
-            logger.info(f"Created {dict_size} feature records")
+            logger.info(f"Created {latent_dim} feature records")
 
             # Task 4.17: Calculate final statistics
             statistics = {
-                "total_features": dict_size,
+                "total_features": latent_dim,
                 "interpretable_count": interpretable_count,
-                "avg_activation_frequency": float(total_activation_freq / dict_size),
-                "avg_interpretability": float(total_interpretability / dict_size)
+                "avg_activation_frequency": float(total_activation_freq / latent_dim),
+                "avg_interpretability": float(total_interpretability / latent_dim)
             }
 
             logger.info(f"Extraction statistics: {statistics}")

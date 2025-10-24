@@ -716,7 +716,7 @@ class ExtractionService:
                         attention_mask_tensor = torch.tensor(attention_masks, device=device)
 
                         # Run model forward pass to capture activations
-                        hook_manager.reset()
+                        hook_manager.clear_activations()
                         _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
 
                         # Get captured activations from hooks

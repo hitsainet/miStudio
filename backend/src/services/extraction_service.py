@@ -30,7 +30,6 @@ from src.workers.websocket_emitter import emit_training_progress
 from src.core.config import settings
 from src.utils.auto_labeling import auto_label_feature
 from src.services.checkpoint_service import CheckpointService
-from src.services.tokenization_service import TokenizationService
 from src.ml.sparse_autoencoder import SparseAutoencoder
 from src.ml.model_loader import load_model_from_hf
 from src.ml.forward_hooks import HookManager, HookType
@@ -599,9 +598,6 @@ class ExtractionService:
                 device_map=device
             )
             base_model.eval()
-
-            # Initialize tokenization service
-            tokenization_service = TokenizationService(db=self.db)
 
             # Data structures for accumulating feature activations
             # feature_activations[neuron_idx] = list of (sample_idx, max_activation, tokens, activations)

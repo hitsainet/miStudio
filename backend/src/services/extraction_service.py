@@ -573,8 +573,8 @@ class ExtractionService:
             if not dataset_record:
                 raise ValueError(f"Dataset {training.dataset_id} not found")
 
-            logger.info(f"Loading dataset from {dataset_record.storage_path}")
-            dataset = load_from_disk(dataset_record.storage_path)
+            logger.info(f"Loading dataset from {dataset_record.tokenized_path}")
+            dataset = load_from_disk(dataset_record.tokenized_path)
 
             # Limit to evaluation_samples
             if len(dataset) > evaluation_samples:
@@ -596,12 +596,12 @@ class ExtractionService:
             if not model_record:
                 raise ValueError(f"Model {activation_extraction.model_id} not found")
 
-            logger.info(f"Loading base model: {model_record.model_id}")
+            logger.info(f"Loading base model: {model_record.repo_id}")
 
             # Load base model for activation extraction
             base_model, tokenizer = load_model_from_hf(
-                model_id=model_record.model_id,
-                model_path=model_record.storage_path,
+                model_id=model_record.repo_id,
+                model_path=model_record.file_path,
                 quantization=QuantizationFormat(model_record.quantization),
                 device=device
             )

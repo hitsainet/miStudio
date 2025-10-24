@@ -549,9 +549,9 @@ class ExtractionService:
 
             # Initialize SAE model
             sae = SparseAutoencoder(
-                input_dim=training.hyperparameters["input_dim"],
+                input_dim=training.hyperparameters["hidden_dim"],
                 dict_size=dict_size,
-                l1_coefficient=training.hyperparameters.get("l1_coefficient", 0.001)
+                l1_coefficient=training.hyperparameters.get("l1_alpha", 0.001)
             )
 
             # Load checkpoint weights

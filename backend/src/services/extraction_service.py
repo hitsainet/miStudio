@@ -647,6 +647,10 @@ class ExtractionService:
                                 batch_input_ids.append(encoded["input_ids"][0].tolist())
                                 batch_texts.append(text)
 
+                        # Skip empty batches
+                        if not batch_input_ids:
+                            continue
+
                         # Pad sequences to same length
                         max_length = max(len(ids) for ids in batch_input_ids)
                         pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id

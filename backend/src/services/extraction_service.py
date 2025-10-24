@@ -327,10 +327,10 @@ class ExtractionService:
             raise ValueError(f"No active extraction job found for training {training_id}")
 
         # Revoke Celery task if it exists
-        if extraction_job.task_id:
+        if extraction_job.celery_task_id:
             from src.core.celery_app import celery_app
-            celery_app.control.revoke(extraction_job.task_id, terminate=True)
-            logger.info(f"Revoked Celery task {extraction_job.task_id}")
+            celery_app.control.revoke(extraction_job.celery_task_id, terminate=True)
+            logger.info(f"Revoked Celery task {extraction_job.celery_task_id}")
 
         # Update status to failed with cancellation message
         extraction_job.status = ExtractionStatus.FAILED

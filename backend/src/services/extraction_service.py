@@ -655,21 +655,42 @@ class ExtractionService:
                         batch_input_ids = []
                         batch_texts = []
 
-                        if isinstance(batch, dict) and text_column in batch:
-                            texts = batch[text_column]
-                            if not isinstance(texts, list):
-                                texts = [texts]
+                        if isinstance(batch, dict):
+                            # Check if dataset is already tokenized (has input_ids)
+                            if "input_ids" in batch:
+                                input_ids = batch["input_ids"]
+                                if not isinstance(input_ids, list):
+                                    input_ids = [input_ids]
 
-                            # Tokenize texts
-                            for text in texts:
-                                encoded = tokenizer(
-                                    text,
-                                    max_length=config.get("max_length", 512),
-                                    truncation=True,
-                                    return_tensors="pt"
-                                )
-                                batch_input_ids.append(encoded["input_ids"][0].tolist())
-                                batch_texts.append(text)
+                                for ids in input_ids:
+                                    if isinstance(ids, list):
+                                        batch_input_ids.append(ids)
+                                    else:
+                                        batch_input_ids.append(ids.tolist() if hasattr(ids, 'tolist') else list(ids))
+
+                                    # Decode tokens for display (if possible)
+                                    try:
+                                        tokens = tokenizer.convert_ids_to_tokens(batch_input_ids[-1])
+                                        batch_texts.append(" ".join([t.replace("Ġ", " ") for t in tokens if t]))
+                                    except:
+                                        batch_texts.append(f"[Tokens: {len(batch_input_ids[-1])}]")
+
+                            # Otherwise try to find text column and tokenize
+                            elif text_column in batch:
+                                texts = batch[text_column]
+                                if not isinstance(texts, list):
+                                    texts = [texts]
+
+                                # Tokenize texts
+                                for text in texts:
+                                    encoded = tokenizer(
+                                        text,
+                                        max_length=config.get("max_length", 512),
+                                        truncation=True,
+                                        return_tensors="pt"
+                                    )
+                                    batch_input_ids.append(encoded["input_ids"][0].tolist())
+                                    batch_texts.append(text)
 
                         # Skip empty batches
                         if not batch_input_ids:

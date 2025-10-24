@@ -584,10 +584,10 @@ class ExtractionService:
 
             # Task 4.7: Get activation extraction config and base model
             activation_extraction = self.db.query(ActivationExtraction).filter(
-                ActivationExtraction.id == training.activation_extraction_id
+                ActivationExtraction.id == training.extraction_id
             ).first()
             if not activation_extraction:
-                raise ValueError(f"Activation extraction {training.activation_extraction_id} not found")
+                raise ValueError(f"Activation extraction {training.extraction_id} not found")
 
             # Get base model record
             model_record = self.db.query(ModelRecord).filter(

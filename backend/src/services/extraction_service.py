@@ -737,8 +737,8 @@ class ExtractionService:
                             actual_length = len(batch_input_ids[batch_idx])
                             sample_activations = sample_activations[:actual_length]  # Remove padding
 
-                            # Pass through SAE encoder (ensure same device as SAE)
-                            sae_features = sae.encode(sample_activations.to(device))  # Shape: (seq_len, latent_dim)
+                            # Pass through SAE encoder (ensure same device and dtype as SAE)
+                            sae_features = sae.encode(sample_activations.to(device=device, dtype=torch.float32))  # Shape: (seq_len, latent_dim)
 
                             # Get token strings for this sample
                             token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])

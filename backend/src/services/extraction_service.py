@@ -618,8 +618,8 @@ class ExtractionService:
                 hook_type_enums = [HookType(ht) for ht in hook_types]
                 hook_manager.register_hooks(layer_indices, hook_type_enums, architecture)
 
-                # Get text column from dataset config
-                text_column = dataset_record.config.get("text_column", "text")
+                # Get text column from dataset metadata or use default
+                text_column = (dataset_record.extra_metadata or {}).get("text_column", "text")
 
                 # Process samples in batches
                 with torch.no_grad():

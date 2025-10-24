@@ -588,6 +588,8 @@ class ExtractionService:
             sae.eval()  # Set to evaluation mode
 
             logger.info(f"SAE loaded on device: {device}")
+            logger.info(f"SAE dimensions - hidden_dim: {sae.hidden_dim}, latent_dim: {sae.latent_dim}")
+            logger.info(f"SAE encoder output shape: {sae.encoder.out_features}")
 
             # Task 4.6: Load dataset samples
             dataset_record = self.db.query(Dataset).filter(
@@ -720,18 +722,21 @@ class ExtractionService:
                         _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
 
                         # Get captured activations from hooks
-                        # hook_manager.activations is a dict: {layer_name: tensor}
+                        # hook_manager.activations is a dict: {layer_name: List[tensor]}
                         # We take the first (and typically only) layer's activations
                         layer_name = list(hook_manager.activations.keys())[0]
-                        base_model_activations = hook_manager.activations[layer_name]  # Shape: (batch_size, seq_len, hidden_dim)
+                        base_model_activations = hook_manager.activations[layer_name][0]  # Get first tensor from list, Shape: (batch_size, seq_len, hidden_dim)
+                        logger.info(f"DEBUG: base_model_activations shape: {base_model_activations.shape}, len(batch_input_ids): {len(batch_input_ids)}")
 
                         # Task 4.8: Pass through SAE encoder to get feature activations
                         # Process each sample in the batch
                         for batch_idx in range(len(batch_input_ids)):
                             global_sample_idx = batch_start + batch_idx
+                            logger.info(f"DEBUG: Processing batch_idx={batch_idx}, global_sample_idx={global_sample_idx}")
 
                             # Get activations for this sample
                             sample_activations = base_model_activations[batch_idx]  # Shape: (seq_len, hidden_dim)
+                            logger.info(f"DEBUG: After indexing [batch_idx], sample_activations shape: {sample_activations.shape}")
 
                             # Get actual sequence length (before padding)
                             actual_length = len(batch_input_ids[batch_idx])
@@ -739,6 +744,7 @@ class ExtractionService:
 
                             # Pass through SAE encoder (ensure same device and dtype as SAE)
                             sae_features = sae.encode(sample_activations.to(device=device, dtype=torch.float32))  # Shape: (seq_len, latent_dim)
+                            logger.info(f"DEBUG: sample_activations shape: {sample_activations.shape}, sae_features shape: {sae_features.shape}, latent_dim: {latent_dim}")
 
                             # Get token strings for this sample
                             token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])

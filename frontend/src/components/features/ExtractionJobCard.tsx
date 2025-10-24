@@ -11,7 +11,6 @@ import { formatDistanceToNow } from 'date-fns';
 
 interface ExtractionJobCardProps {
   extraction: ExtractionStatusResponse;
-  trainingName?: string;
   onCancel?: () => void;
   onDelete?: () => void;
   onRetry?: () => void;
@@ -19,7 +18,6 @@ interface ExtractionJobCardProps {
 
 export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   extraction,
-  trainingName,
   onCancel,
   onDelete,
   onRetry,
@@ -80,7 +78,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-lg text-slate-100 truncate">
-                {trainingName || extraction.training_id}
+                {extraction.model_name || 'Unknown Model'} - {extraction.dataset_name || 'Unknown Dataset'}
               </h3>
               {getStatusBadge()}
             </div>

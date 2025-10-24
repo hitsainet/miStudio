@@ -29,6 +29,8 @@ export interface ExtractionConfigRequest {
 export interface ExtractionStatusResponse {
   id: string;
   training_id: string;
+  model_name: string | null;
+  dataset_name: string | null;
   status: ExtractionStatus;
   progress: number | null;
   features_extracted: number | null;

@@ -42,6 +42,8 @@ class ExtractionStatusResponse(BaseModel):
 
     id: str
     training_id: str
+    model_name: Optional[str] = None
+    dataset_name: Optional[str] = None
     status: str
     progress: Optional[float] = None
     features_extracted: Optional[int] = None

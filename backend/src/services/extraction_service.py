@@ -238,6 +238,32 @@ class ExtractionService:
         # Build response list
         extractions_list = []
         for extraction_job in extraction_jobs:
+            # Get training with model and dataset info
+            result = await self.db.execute(
+                select(Training).where(Training.id == extraction_job.training_id)
+            )
+            training = result.scalar_one_or_none()
+
+            # Get model name
+            model_name = None
+            if training and training.model_id:
+                model_result = await self.db.execute(
+                    select(ModelRecord).where(ModelRecord.id == training.model_id)
+                )
+                model = model_result.scalar_one_or_none()
+                if model:
+                    model_name = model.name
+
+            # Get dataset name
+            dataset_name = None
+            if training and training.dataset_id:
+                dataset_result = await self.db.execute(
+                    select(Dataset).where(Dataset.id == training.dataset_id)
+                )
+                dataset = dataset_result.scalar_one_or_none()
+                if dataset:
+                    dataset_name = dataset.name
+
             # Calculate features_extracted and total_features
             features_extracted = None
             total_features = None
@@ -252,10 +278,6 @@ class ExtractionService:
                 total_features = features_extracted
             elif extraction_job.status == ExtractionStatus.EXTRACTING.value:
                 # Estimate based on progress
-                result = await self.db.execute(
-                    select(Training).where(Training.id == extraction_job.training_id)
-                )
-                training = result.scalar_one_or_none()
                 if training and extraction_job.progress:
                     total_features = training.hyperparameters.get("dict_size", 16384)
                     features_extracted = int(total_features * extraction_job.progress)
@@ -263,6 +285,8 @@ class ExtractionService:
             extractions_list.append({
                 "id": extraction_job.id,
                 "training_id": extraction_job.training_id,
+                "model_name": model_name,
+                "dataset_name": dataset_name,
                 "status": extraction_job.status,
                 "progress": extraction_job.progress,
                 "features_extracted": features_extracted,

@@ -608,8 +608,8 @@ class ExtractionService:
             logger.info(f"Extracting features from {len(dataset)} samples...")
 
             # Get extraction configuration
-            layer_indices = activation_extraction.config.get("layer_indices", [0])
-            hook_types = activation_extraction.config.get("hook_types", ["residual"])
+            layer_indices = config.get("layer_indices", [0])
+            hook_types = config.get("hook_types", ["residual"])
             architecture = model_record.architecture
 
             # Use HookManager to extract real activations from base model
@@ -640,7 +640,7 @@ class ExtractionService:
                             for text in texts:
                                 encoded = tokenizer(
                                     text,
-                                    max_length=activation_extraction.config.get("max_length", 512),
+                                    max_length=config.get("max_length", 512),
                                     truncation=True,
                                     return_tensors="pt"
                                 )

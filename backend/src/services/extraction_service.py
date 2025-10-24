@@ -591,7 +591,7 @@ class ExtractionService:
             logger.info(f"Loading base model: {model_record.repo_id}")
 
             # Load base model for activation extraction
-            base_model, tokenizer, config, metadata = load_model_from_hf(
+            base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
                 cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,

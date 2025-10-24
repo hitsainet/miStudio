@@ -24,7 +24,6 @@ from src.models.feature import Feature, LabelSource
 from src.models.feature_activation import FeatureActivation
 from src.models.checkpoint import Checkpoint
 from src.models.dataset import Dataset
-from src.models.activation_extraction import ActivationExtraction
 from src.core.database import get_db
 from src.workers.websocket_emitter import emit_training_progress
 from src.core.config import settings
@@ -582,19 +581,12 @@ class ExtractionService:
 
             logger.info(f"Dataset loaded: {len(dataset)} samples")
 
-            # Task 4.7: Get activation extraction config and base model
-            activation_extraction = self.db.query(ActivationExtraction).filter(
-                ActivationExtraction.id == training.extraction_id
-            ).first()
-            if not activation_extraction:
-                raise ValueError(f"Activation extraction {training.extraction_id} not found")
-
-            # Get base model record
+            # Task 4.7: Get base model record for tokenizer and activation extraction
             model_record = self.db.query(ModelRecord).filter(
-                ModelRecord.id == activation_extraction.model_id
+                ModelRecord.id == training.model_id
             ).first()
             if not model_record:
-                raise ValueError(f"Model {activation_extraction.model_id} not found")
+                raise ValueError(f"Model {training.model_id} not found")
 
             logger.info(f"Loading base model: {model_record.repo_id}")
 

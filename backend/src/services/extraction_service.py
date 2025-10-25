@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, select
 from collections import defaultdict
+import heapq
 import torch
 import numpy as np
 from datasets import load_from_disk
@@ -752,14 +753,22 @@ class ExtractionService:
                                 if max_activation > 0.01:
                                     feature_activation_counts[neuron_idx] += 1
 
-                                # Task 4.11: Store top-K examples per feature
+                                # Task 4.11: Store top-K examples per feature using heap for memory efficiency
                                 if max_activation > 0:  # Only store if feature activated
-                                    feature_activations[neuron_idx].append({
+                                    example = {
                                         "sample_index": global_sample_idx,
                                         "max_activation": max_activation,
                                         "tokens": token_strings,
                                         "activations": neuron_activations.tolist()
-                                    })
+                                    }
+
+                                    # Use min-heap to keep only top-k examples (limits memory usage)
+                                    if len(feature_activations[neuron_idx]) < top_k_examples:
+                                        # Heap not full yet, just add
+                                        heapq.heappush(feature_activations[neuron_idx], (max_activation, example))
+                                    elif max_activation > feature_activations[neuron_idx][0][0]:
+                                        # Replace smallest if new activation is larger
+                                        heapq.heapreplace(feature_activations[neuron_idx], (max_activation, example))
 
                         # Task 4.15-4.16: Update progress every 5%
                         progress = batch_end / len(dataset)
@@ -806,13 +815,13 @@ class ExtractionService:
             total_activation_freq = 0.0
 
             for neuron_idx in range(latent_dim):
-                # Task 4.11: Sort and select top-K examples
-                examples = feature_activations[neuron_idx]
-                examples.sort(key=lambda x: x["max_activation"], reverse=True)
-                top_examples = examples[:top_k_examples]
-
-                if not top_examples:
+                # Task 4.11: Extract examples from heap and sort by activation (descending)
+                heap_items = feature_activations[neuron_idx]
+                if not heap_items:
                     continue  # Skip features with no activations
+
+                # Extract examples from heap tuples and sort by max_activation descending
+                top_examples = [example for (activation, example) in sorted(heap_items, key=lambda x: x[0], reverse=True)]
 
                 # Task 4.10: Calculate interpretability score
                 interpretability_score = self.calculate_interpretability_score(top_examples)

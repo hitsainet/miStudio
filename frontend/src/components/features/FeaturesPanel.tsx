@@ -18,6 +18,7 @@ import type { Training } from '../../types/training';
 import type { Feature, FeatureSearchRequest } from '../../types/features';
 import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
+import { ResourceConfigPanel } from './ResourceConfigPanel';
 
 interface FeaturesPanelProps {
   training: Training;
@@ -48,6 +49,11 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
   // Local state for extraction config
   const [evaluationSamples, setEvaluationSamples] = useState(10000);
   const [topKExamples, setTopKExamples] = useState(100);
+  const [resourceConfig, setResourceConfig] = useState<{
+    batch_size?: number;
+    num_workers?: number;
+    db_commit_batch?: number;
+  }>({});
 
   // Local state for search
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +87,7 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
       await startExtraction(training.id, {
         evaluation_samples: evaluationSamples,
         top_k_examples: topKExamples,
+        ...resourceConfig,
       });
     } catch (error) {
       console.error('Failed to start extraction:', error);
@@ -226,6 +233,16 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
               />
             </div>
+          </div>
+
+          {/* Resource Configuration Panel */}
+          <div className="mb-4">
+            <ResourceConfigPanel
+              trainingId={training.id}
+              evaluationSamples={evaluationSamples}
+              topKExamples={topKExamples}
+              onConfigChange={setResourceConfig}
+            />
           </div>
 
           {/* Extract Button */}

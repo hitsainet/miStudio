@@ -182,3 +182,47 @@ export interface AllMonitoringDataResponse {
 
 // View mode for System Monitor
 export type ViewMode = 'single' | 'compare';
+
+// Resource Estimation Types
+export interface ResourceEstimateRequest {
+  training_id: string;
+  evaluation_samples: number;
+  top_k_examples: number;
+  batch_size?: number;
+  num_workers?: number;
+  db_commit_batch?: number;
+}
+
+export interface SystemResources {
+  cpu_cores: number;
+  total_ram_gb: number;
+  available_ram_gb: number;
+  ram_percent_used: number;
+  gpu_available: boolean;
+  gpu_name?: string;
+  gpu_total_memory_gb?: number;
+  gpu_memory_allocated_gb?: number;
+  gpu_memory_reserved_gb?: number;
+  gpu_memory_available_gb?: number;
+}
+
+export interface ResourceSettings {
+  batch_size: number;
+  num_workers: number;
+  db_commit_batch: number;
+}
+
+export interface ResourceEstimates {
+  estimated_ram_gb: number;
+  estimated_gpu_gb: number | null;
+  estimated_duration_minutes: number;
+  warnings: string[];
+  errors: string[];
+}
+
+export interface ResourceEstimateResponse {
+  system_resources: SystemResources;
+  recommended_settings: ResourceSettings;
+  current_settings: ResourceSettings;
+  resource_estimates: ResourceEstimates;
+}

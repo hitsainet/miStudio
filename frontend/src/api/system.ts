@@ -15,6 +15,8 @@ import type {
   NetworkRatesResponse,
   DiskRatesResponse,
   AllMonitoringDataResponse,
+  ResourceEstimateRequest,
+  ResourceEstimateResponse,
 } from '../types/system';
 
 /**
@@ -220,4 +222,45 @@ export async function getAllMonitoringData(
 ): Promise<AllMonitoringDataResponse> {
   const query = buildQueryString({ gpu_id: gpuId });
   return fetchAPI<AllMonitoringDataResponse>(`/system/all?${query}`);
+}
+
+/**
+ * Get resource estimate for feature extraction configuration.
+ *
+ * Estimates RAM, GPU memory, and duration for the specified extraction configuration.
+ * Provides recommendations and validates against available system resources.
+ *
+ * @param request - Resource estimation request parameters
+ * @returns Promise resolving to resource estimates and recommendations
+ * @throws {APIError} If request fails or training not found (404)
+ *
+ * @example
+ * ```typescript
+ * const estimate = await getResourceEstimate({
+ *   training_id: 'train_123',
+ *   evaluation_samples: 10000,
+ *   top_k_examples: 100,
+ *   batch_size: 64
+ * });
+ * console.log(`Estimated RAM: ${estimate.resource_estimates.estimated_ram_gb} GB`);
+ * console.log(`Duration: ${estimate.resource_estimates.estimated_duration_minutes} min`);
+ * if (estimate.resource_estimates.errors.length > 0) {
+ *   console.error('Configuration errors:', estimate.resource_estimates.errors);
+ * }
+ * ```
+ */
+export async function getResourceEstimate(
+  request: Omit<ResourceEstimateRequest, 'training_id'> & { training_id: string }
+): Promise<ResourceEstimateResponse> {
+  const query = buildQueryString({
+    training_id: request.training_id,
+    evaluation_samples: request.evaluation_samples,
+    top_k_examples: request.top_k_examples,
+    ...(request.batch_size !== undefined && { batch_size: request.batch_size }),
+    ...(request.num_workers !== undefined && { num_workers: request.num_workers }),
+    ...(request.db_commit_batch !== undefined && {
+      db_commit_batch: request.db_commit_batch,
+    }),
+  });
+  return fetchAPI<ResourceEstimateResponse>(`/system/resource-estimate?${query}`);
 }

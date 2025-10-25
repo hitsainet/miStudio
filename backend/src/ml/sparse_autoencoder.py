@@ -141,7 +141,9 @@ class SparseAutoencoder(nn.Module):
             loss_reconstruction = F.mse_loss(x_reconstructed, x, reduction='mean')
 
             # L1 sparsity penalty
-            l1_penalty = z.abs().mean()
+            # Sum across features (latent_dim), then average across batch
+            # This makes penalty proportional to number of active features
+            l1_penalty = z.abs().sum(dim=-1).mean()
 
             # L0 sparsity (fraction of active features)
             l0_sparsity = (z > 0).float().mean()
@@ -382,7 +384,9 @@ class Transcoder(nn.Module):
             loss_reconstruction = F.mse_loss(x_transcoded, x_target, reduction='mean')
 
             # L1 sparsity penalty
-            l1_penalty = z.abs().mean()
+            # Sum across features (latent_dim), then average across batch
+            # This makes penalty proportional to number of active features
+            l1_penalty = z.abs().sum(dim=-1).mean()
 
             # L0 sparsity
             l0_sparsity = (z > 0).float().mean()

@@ -17,7 +17,7 @@ Created: 2025-10-16
 import logging
 from typing import Dict, List, Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
 from src.services.gpu_monitor_service import get_gpu_monitor_service

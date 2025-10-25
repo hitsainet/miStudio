@@ -625,9 +625,10 @@ class ExtractionService:
             base_model.eval()
 
             # Data structures for accumulating feature activations
-            # feature_activations[neuron_idx] = list of (sample_idx, max_activation, tokens, activations)
+            # feature_activations[neuron_idx] = heap of (max_activation, counter, example_dict)
             feature_activations = defaultdict(list)
             feature_activation_counts = np.zeros(latent_dim)  # Count activations > threshold per feature
+            heap_counter = 0  # Counter for heap tiebreaking
 
             # Process dataset in batches with real model activations
             logger.info(f"Extracting features from {len(dataset)} samples...")
@@ -763,12 +764,15 @@ class ExtractionService:
                                     }
 
                                     # Use min-heap to keep only top-k examples (limits memory usage)
+                                    # Tuple format: (max_activation, counter, example) - counter prevents dict comparison
                                     if len(feature_activations[neuron_idx]) < top_k_examples:
                                         # Heap not full yet, just add
-                                        heapq.heappush(feature_activations[neuron_idx], (max_activation, example))
+                                        heapq.heappush(feature_activations[neuron_idx], (max_activation, heap_counter, example))
+                                        heap_counter += 1
                                     elif max_activation > feature_activations[neuron_idx][0][0]:
                                         # Replace smallest if new activation is larger
-                                        heapq.heapreplace(feature_activations[neuron_idx], (max_activation, example))
+                                        heapq.heapreplace(feature_activations[neuron_idx], (max_activation, heap_counter, example))
+                                        heap_counter += 1
 
                         # Task 4.15-4.16: Update progress every 5%
                         progress = batch_end / len(dataset)
@@ -820,8 +824,8 @@ class ExtractionService:
                 if not heap_items:
                     continue  # Skip features with no activations
 
-                # Extract examples from heap tuples and sort by max_activation descending
-                top_examples = [example for (activation, example) in sorted(heap_items, key=lambda x: x[0], reverse=True)]
+                # Extract examples from heap tuples (activation, counter, example) and sort by max_activation descending
+                top_examples = [example for (activation, counter, example) in sorted(heap_items, key=lambda x: x[0], reverse=True)]
 
                 # Task 4.10: Calculate interpretability score
                 interpretability_score = self.calculate_interpretability_score(top_examples)

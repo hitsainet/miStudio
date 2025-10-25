@@ -756,11 +756,15 @@ class ExtractionService:
 
                                 # Task 4.11: Store top-K examples per feature using heap for memory efficiency
                                 if max_activation > 0:  # Only store if feature activated
+                                    # Find top-5 activating token positions to reduce memory (instead of all 512)
+                                    top_positions = np.argsort(neuron_activations)[-5:][::-1]  # Top 5 positions
+
                                     example = {
                                         "sample_index": global_sample_idx,
                                         "max_activation": max_activation,
-                                        "tokens": token_strings,
-                                        "activations": neuron_activations.tolist()
+                                        "tokens": [token_strings[i] for i in top_positions],  # Only top 5 tokens
+                                        "activations": neuron_activations[top_positions].tolist(),  # Only top 5 activations
+                                        "token_positions": top_positions.tolist()  # Store positions for context
                                     }
 
                                     # Use min-heap to keep only top-k examples (limits memory usage)

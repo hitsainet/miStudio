@@ -22,6 +22,11 @@ from pydantic import BaseModel, Field
 
 from src.services.gpu_monitor_service import get_gpu_monitor_service
 from src.services.system_monitor_service import get_system_monitor_service
+from src.services.resource_config import ResourceConfig
+from src.models.training import Training
+from src.core.deps import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 
 logger = logging.getLogger(__name__)
@@ -58,6 +63,14 @@ class GPUProcessesResponse(BaseModel):
 class SystemMetricsResponse(BaseModel):
     """Response model for system metrics"""
     metrics: Dict[str, Any] = Field(..., description="System resource metrics")
+
+
+class ResourceEstimateResponse(BaseModel):
+    """Response model for resource estimation"""
+    system_resources: Dict[str, Any] = Field(..., description="Current system resource availability")
+    recommended_settings: Dict[str, int] = Field(..., description="Recommended resource settings")
+    current_settings: Dict[str, int] = Field(..., description="User-specified or default settings")
+    resource_estimates: Dict[str, Any] = Field(..., description="Estimated resource usage and warnings")
 
 
 # Endpoints
@@ -438,3 +451,103 @@ async def get_all_monitoring_data(
     except Exception as e:
         logger.error(f"Failed to get all monitoring data: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get monitoring data: {str(e)}")
+
+
+@router.get("/resource-estimate", response_model=ResourceEstimateResponse)
+async def get_resource_estimate(
+    training_id: str = Query(..., description="Training ID to extract features from"),
+    evaluation_samples: int = Query(10000, ge=1000, le=100000, description="Number of samples to evaluate"),
+    top_k_examples: int = Query(100, ge=10, le=1000, description="Number of top examples per feature"),
+    batch_size: Optional[int] = Query(None, ge=8, le=256, description="Batch size (optional, will use recommended if not provided)"),
+    num_workers: Optional[int] = Query(None, ge=1, le=32, description="Number of CPU workers (optional, will use recommended if not provided)"),
+    db_commit_batch: Optional[int] = Query(None, ge=500, le=5000, description="Database commit batch size (optional, will use recommended if not provided)"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Estimate resource usage for a feature extraction job.
+
+    This endpoint calculates estimated RAM, GPU memory, and duration for an extraction
+    job based on the provided configuration. It also validates against available system
+    resources and provides recommendations.
+
+    Args:
+        training_id: ID of the training to extract features from
+        evaluation_samples: Number of dataset samples to evaluate
+        top_k_examples: Number of top-activating examples to store per feature
+        batch_size: Optional batch size (defaults to recommended)
+        num_workers: Optional number of CPU workers (defaults to recommended)
+        db_commit_batch: Optional database commit batch size (defaults to recommended)
+
+    Returns:
+        ResourceEstimateResponse with resource estimates and recommendations
+
+    Raises:
+        HTTPException 404: If training not found
+        HTTPException 500: If estimation fails
+    """
+    try:
+        # Fetch training to get hyperparameters
+        result = await db.execute(
+            select(Training).where(Training.id == training_id)
+        )
+        training = result.scalar_one_or_none()
+
+        if not training:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Training {training_id} not found"
+            )
+
+        # Get training hyperparameters
+        latent_dim = training.hyperparameters.get("latent_dim", 8192)
+        hidden_dim = training.hyperparameters.get("hidden_dim", 768)
+        max_length = 512  # Default sequence length
+
+        # Get system resources
+        system_resources = ResourceConfig.get_system_resources()
+
+        # Calculate recommended settings
+        recommended_settings = ResourceConfig.calculate_extraction_config(
+            num_features=latent_dim,
+            top_k_examples=top_k_examples,
+            sequence_length=max_length,
+            hidden_dim=hidden_dim
+        )
+
+        # Use provided settings or fall back to recommended
+        current_batch_size = batch_size if batch_size is not None else recommended_settings["batch_size"]
+        current_num_workers = num_workers if num_workers is not None else recommended_settings["num_workers"]
+        current_db_commit_batch = db_commit_batch if db_commit_batch is not None else recommended_settings["db_commit_batch"]
+
+        current_settings = {
+            "batch_size": current_batch_size,
+            "num_workers": current_num_workers,
+            "db_commit_batch": current_db_commit_batch
+        }
+
+        # Estimate resource usage
+        resource_estimates = ResourceConfig.estimate_resource_usage(
+            num_features=latent_dim,
+            top_k_examples=top_k_examples,
+            batch_size=current_batch_size,
+            num_workers=current_num_workers,
+            evaluation_samples=evaluation_samples,
+            sequence_length=max_length,
+            hidden_dim=hidden_dim
+        )
+
+        return ResourceEstimateResponse(
+            system_resources=system_resources,
+            recommended_settings=recommended_settings,
+            current_settings=current_settings,
+            resource_estimates=resource_estimates
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to estimate resources for training {training_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to estimate resources: {str(e)}"
+        )

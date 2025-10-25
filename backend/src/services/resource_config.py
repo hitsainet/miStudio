@@ -149,11 +149,11 @@ class ResourceConfig:
     ) -> Dict[str, int]:
         """
         Get optimal settings for extraction based on training and extraction configs.
-        
+
         Args:
             training_config: Training hyperparameters (latent_dim, hidden_dim, etc.)
             extraction_config: Extraction parameters (top_k_examples, evaluation_samples)
-            
+
         Returns:
             Optimal extraction settings
         """
@@ -163,3 +163,101 @@ class ResourceConfig:
             sequence_length=extraction_config.get("max_length", 512),
             hidden_dim=training_config.get("hidden_dim", 768)
         )
+
+    @classmethod
+    def estimate_resource_usage(
+        cls,
+        num_features: int,
+        top_k_examples: int,
+        batch_size: int,
+        num_workers: int,
+        evaluation_samples: int = 10000,
+        sequence_length: int = 512,
+        hidden_dim: int = 768
+    ) -> Dict[str, Any]:
+        """
+        Estimate resource usage for given extraction configuration.
+
+        Args:
+            num_features: Number of SAE features (latent_dim)
+            top_k_examples: Number of examples to store per feature
+            batch_size: Samples to process at once
+            num_workers: CPU workers for parallel processing
+            evaluation_samples: Total samples to evaluate
+            sequence_length: Max sequence length
+            hidden_dim: Hidden dimension size
+
+        Returns:
+            Dictionary with estimated resource usage:
+            - estimated_ram_gb: Estimated RAM usage
+            - estimated_gpu_gb: Estimated GPU VRAM usage (if available)
+            - estimated_duration_minutes: Estimated completion time
+            - warnings: List of warning messages
+            - errors: List of error messages (resource exhaustion)
+        """
+        resources = cls.get_system_resources()
+
+        # Calculate memory requirements
+        # 1. Heap storage for top-k examples
+        heap_memory_mb = (num_features * top_k_examples * cls.RAM_PER_FEATURE_HEAP_KB) / 1024
+
+        # 2. Batch processing memory (activation tensors, intermediate results)
+        batch_memory_overhead_mb = 500  # Base overhead
+        per_sample_ram_mb = cls.RAM_PER_SAMPLE_MB * sequence_length / 512
+        batch_memory_mb = per_sample_ram_mb * batch_size
+
+        # 3. Model and tokenizer memory (rough estimate)
+        model_memory_mb = 2000  # ~2GB for typical transformer model
+
+        # Total RAM estimate
+        estimated_ram_gb = (heap_memory_mb + batch_memory_overhead_mb + batch_memory_mb + model_memory_mb) / 1024
+
+        # GPU memory estimate (if available)
+        estimated_gpu_gb = 0
+        if resources["gpu_available"]:
+            # Model weights + activations + batch processing
+            model_gpu_mb = 2000  # Model on GPU
+            per_sample_gpu_mb = (sequence_length * hidden_dim * 4 * 2) / (1024**2)
+            batch_gpu_mb = per_sample_gpu_mb * batch_size
+            estimated_gpu_gb = (model_gpu_mb + batch_gpu_mb) / 1024
+
+        # Estimate duration (based on empirical data)
+        # Approximate processing rate: 150 samples/minute per worker
+        samples_per_minute = 150 * num_workers
+        estimated_duration_minutes = evaluation_samples / samples_per_minute
+
+        # Validate against available resources
+        warnings = []
+        errors = []
+
+        # Check RAM
+        available_ram_gb = resources["available_ram_gb"]
+        if estimated_ram_gb > available_ram_gb:
+            errors.append(f"Estimated RAM usage ({estimated_ram_gb:.1f}GB) exceeds available RAM ({available_ram_gb:.1f}GB)")
+        elif estimated_ram_gb > available_ram_gb * 0.9:
+            warnings.append(f"RAM usage will be very high ({estimated_ram_gb:.1f}GB of {available_ram_gb:.1f}GB available)")
+
+        # Check GPU
+        if resources["gpu_available"]:
+            available_gpu_gb = resources["gpu_memory_available_gb"]
+            if estimated_gpu_gb > available_gpu_gb:
+                errors.append(f"Estimated GPU memory ({estimated_gpu_gb:.1f}GB) exceeds available GPU memory ({available_gpu_gb:.1f}GB)")
+            elif estimated_gpu_gb > available_gpu_gb * 0.9:
+                warnings.append(f"GPU memory usage will be very high ({estimated_gpu_gb:.1f}GB of {available_gpu_gb:.1f}GB available)")
+
+        # Check batch size recommendations
+        recommended = cls.calculate_extraction_config(num_features, top_k_examples, sequence_length, hidden_dim)
+        if batch_size < recommended["batch_size"] * 0.5:
+            warnings.append(f"Batch size ({batch_size}) is significantly below recommended ({recommended['batch_size']}) - extraction will be slower")
+
+        # Check worker count
+        if num_workers > resources["cpu_cores"]:
+            warnings.append(f"Worker count ({num_workers}) exceeds CPU cores ({resources['cpu_cores']}) - may cause overhead")
+
+        return {
+            "estimated_ram_gb": round(estimated_ram_gb, 2),
+            "estimated_gpu_gb": round(estimated_gpu_gb, 2) if resources["gpu_available"] else None,
+            "estimated_duration_minutes": round(estimated_duration_minutes, 1),
+            "warnings": warnings,
+            "errors": errors
+        }

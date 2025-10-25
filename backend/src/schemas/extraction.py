@@ -31,6 +31,26 @@ class ExtractionConfigRequest(BaseModel):
         description="Number of top-activating examples to store per feature (10-1,000)"
     )
 
+    # Optional resource configuration
+    batch_size: Optional[int] = Field(
+        default=None,
+        ge=8,
+        le=256,
+        description="Batch size for processing (8-256). If not provided, will use recommended value based on system resources"
+    )
+    num_workers: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=32,
+        description="Number of CPU workers for parallel processing (1-32). If not provided, will use recommended value"
+    )
+    db_commit_batch: Optional[int] = Field(
+        default=None,
+        ge=500,
+        le=5000,
+        description="Number of features to commit at once (500-5000). If not provided, will use recommended value"
+    )
+
 
 class ExtractionStatusResponse(BaseModel):
     """

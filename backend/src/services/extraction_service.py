@@ -565,17 +565,49 @@ class ExtractionService:
             evaluation_samples = config.get("evaluation_samples", 10000)
             top_k_examples = config.get("top_k_examples", 100)
             latent_dim = training.hyperparameters.get("latent_dim", 16384)
+            hidden_dim = training.hyperparameters.get("hidden_dim", 768)
+            max_length = config.get("max_length", 512)
 
-            # Calculate optimal resource settings based on available system resources
-            resource_settings = ResourceConfig.get_optimal_settings(
+            # Calculate recommended resource settings based on available system resources
+            recommended_settings = ResourceConfig.get_optimal_settings(
                 training_config=training.hyperparameters,
                 extraction_config=config
             )
-            batch_size = resource_settings["batch_size"]
-            db_commit_batch = resource_settings["db_commit_batch"]
 
-            logger.info(f"Using dynamic resource settings: batch_size={batch_size}, "
-                       f"db_commit_batch={db_commit_batch}")
+            # Use provided resource settings or fall back to recommended
+            batch_size = config.get("batch_size") or recommended_settings["batch_size"]
+            num_workers = config.get("num_workers") or recommended_settings["num_workers"]
+            db_commit_batch = config.get("db_commit_batch") or recommended_settings["db_commit_batch"]
+
+            # Validate resource settings if user-provided
+            if config.get("batch_size") or config.get("num_workers"):
+                resource_estimates = ResourceConfig.estimate_resource_usage(
+                    num_features=latent_dim,
+                    top_k_examples=top_k_examples,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    evaluation_samples=evaluation_samples,
+                    sequence_length=max_length,
+                    hidden_dim=hidden_dim
+                )
+
+                # Check for resource errors (exceeding available resources)
+                if resource_estimates["errors"]:
+                    error_msg = "; ".join(resource_estimates["errors"])
+                    logger.error(f"Resource validation failed: {error_msg}")
+                    raise ValueError(f"Invalid resource configuration: {error_msg}")
+
+                # Log warnings if any
+                if resource_estimates["warnings"]:
+                    for warning in resource_estimates["warnings"]:
+                        logger.warning(f"Resource configuration warning: {warning}")
+
+            logger.info(f"Using resource settings: batch_size={batch_size}, "
+                       f"num_workers={num_workers}, db_commit_batch={db_commit_batch}")
+            if config.get("batch_size"):
+                logger.info(f"User-specified batch_size: {batch_size} (recommended: {recommended_settings['batch_size']})")
+            if config.get("num_workers"):
+                logger.info(f"User-specified num_workers: {num_workers} (recommended: {recommended_settings['num_workers']})")
 
             # Task 4.5: Load SAE checkpoint
             logger.info(f"Using latest checkpoint at step {checkpoint.step}")

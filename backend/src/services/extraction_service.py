@@ -538,6 +538,14 @@ class ExtractionService:
             raise ValueError(f"No extraction job found for training {training_id}")
 
         try:
+            # Clear GPU memory before starting to avoid leaks from previous runs
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                initial_memory = torch.cuda.memory_allocated(0) / (1024**3)
+                logger.info(f"GPU memory before extraction: {initial_memory:.2f}GB allocated")
+
             # Update status to extracting
             self.update_extraction_status_sync(
                 extraction_job.id,
@@ -621,8 +629,7 @@ class ExtractionService:
                 l1_alpha=training.hyperparameters.get("l1_alpha", 0.001)
             )
 
-            # Load checkpoint weights
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            # Load checkpoint weights (device already set at top of function)
             CheckpointService.load_checkpoint(
                 storage_path=checkpoint.storage_path,
                 model=sae,
@@ -631,7 +638,7 @@ class ExtractionService:
             sae.to(device)
             sae.eval()  # Set to evaluation mode
 
-            logger.info(f"SAE loaded on device: {device}")
+            logger.info(f"SAE loaded on device: {device}, GPU memory: {torch.cuda.memory_allocated(0)/(1024**3):.2f}GB" if torch.cuda.is_available() else f"SAE loaded on device: {device}")
 
             # Task 4.6: Load dataset samples
             dataset_record = self.db.query(Dataset).filter(
@@ -854,6 +861,9 @@ class ExtractionService:
             del tokenizer
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                memory_after_cleanup = torch.cuda.memory_allocated(0) / (1024**3)
+                logger.info(f"GPU memory after cleanup: {memory_after_cleanup:.2f}GB allocated")
 
             logger.info(f"Activation extraction complete. Creating feature records...")
 
@@ -940,6 +950,16 @@ class ExtractionService:
 
             logger.info(f"Extraction statistics: {statistics}")
 
+            # Clean up SAE from GPU memory
+            logger.info("Cleaning up SAE from GPU memory")
+            if torch.cuda.is_available():
+                sae.cpu()
+                del sae
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                final_memory = torch.cuda.memory_allocated(0) / (1024**3)
+                logger.info(f"Final GPU memory: {final_memory:.2f}GB allocated (freed {initial_memory - final_memory:.2f}GB)")
+
             # Mark as completed
             self.update_extraction_status_sync(
                 extraction_job.id,
@@ -963,6 +983,14 @@ class ExtractionService:
 
         except Exception as e:
             logger.error(f"Feature extraction failed for training {training_id}: {e}", exc_info=True)
+
+            # Clean up GPU memory on failure to prevent leaks
+            if torch.cuda.is_available():
+                logger.info("Cleaning up GPU memory after extraction failure")
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                error_memory = torch.cuda.memory_allocated(0) / (1024**3)
+                logger.info(f"GPU memory after error cleanup: {error_memory:.2f}GB allocated")
 
             # Update status to failed
             self.update_extraction_status_sync(

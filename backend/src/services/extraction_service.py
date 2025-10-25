@@ -29,6 +29,7 @@ from src.models.dataset import Dataset
 from src.core.database import get_db
 from src.workers.websocket_emitter import emit_training_progress
 from src.core.config import settings
+from src.services.resource_config import ResourceConfig
 from src.utils.auto_labeling import auto_label_feature
 from src.services.checkpoint_service import CheckpointService
 from src.ml.sparse_autoencoder import SparseAutoencoder
@@ -564,7 +565,17 @@ class ExtractionService:
             evaluation_samples = config.get("evaluation_samples", 10000)
             top_k_examples = config.get("top_k_examples", 100)
             latent_dim = training.hyperparameters.get("latent_dim", 16384)
-            batch_size = 32  # Process 32 samples at a time for GPU efficiency
+
+            # Calculate optimal resource settings based on available system resources
+            resource_settings = ResourceConfig.get_optimal_settings(
+                training_config=training.hyperparameters,
+                extraction_config=config
+            )
+            batch_size = resource_settings["batch_size"]
+            db_commit_batch = resource_settings["db_commit_batch"]
+
+            logger.info(f"Using dynamic resource settings: batch_size={batch_size}, "
+                       f"db_commit_batch={db_commit_batch}")
 
             # Task 4.5: Load SAE checkpoint
             logger.info(f"Using latest checkpoint at step {checkpoint.step}")
@@ -821,6 +832,7 @@ class ExtractionService:
             interpretable_count = 0
             total_interpretability = 0.0
             total_activation_freq = 0.0
+            features_processed = 0
 
             for neuron_idx in range(latent_dim):
                 # Task 4.11: Extract examples from heap and sort by activation (descending)
@@ -874,8 +886,14 @@ class ExtractionService:
                     interpretable_count += 1
                 total_interpretability += interpretability_score
                 total_activation_freq += activation_frequencies[neuron_idx]
+                features_processed += 1
 
-            # Commit all features and activations
+                # Commit in batches to reduce memory and improve performance
+                if features_processed % db_commit_batch == 0:
+                    self.db.commit()
+                    logger.info(f"Committed batch: {features_processed}/{latent_dim} features")
+
+            # Final commit for remaining features
             self.db.commit()
 
             logger.info(f"Created {latent_dim} feature records")

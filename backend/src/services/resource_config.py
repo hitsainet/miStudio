@@ -1,0 +1,165 @@
+"""
+Dynamic resource configuration based on available system resources.
+Balances performance with safety to avoid OOM while maximizing throughput.
+"""
+import psutil
+import torch
+import logging
+from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
+
+
+class ResourceConfig:
+    """Dynamically calculates optimal resource settings."""
+    
+    # Safety margins to prevent OOM
+    RAM_SAFETY_MARGIN = 0.25  # Reserve 25% of available RAM
+    GPU_SAFETY_MARGIN = 0.20  # Reserve 20% of GPU memory
+    
+    # Per-sample memory estimates (empirically determined)
+    RAM_PER_SAMPLE_MB = 2.0  # ~2MB per sample in batch
+    RAM_PER_FEATURE_HEAP_KB = 20  # ~20KB per feature for top-k heap
+    
+    @staticmethod
+    def get_system_resources() -> Dict[str, Any]:
+        """Get current system resource availability."""
+        memory = psutil.virtual_memory()
+        cpu_count = psutil.cpu_count(logical=True)
+        
+        resources = {
+            "cpu_cores": cpu_count,
+            "total_ram_gb": memory.total / (1024**3),
+            "available_ram_gb": memory.available / (1024**3),
+            "ram_percent_used": memory.percent,
+        }
+        
+        # GPU resources
+        if torch.cuda.is_available():
+            gpu_props = torch.cuda.get_device_properties(0)
+            gpu_memory_allocated = torch.cuda.memory_allocated(0) / (1024**3)
+            gpu_memory_reserved = torch.cuda.memory_reserved(0) / (1024**3)
+            
+            resources.update({
+                "gpu_available": True,
+                "gpu_name": gpu_props.name,
+                "gpu_total_memory_gb": gpu_props.total_memory / (1024**3),
+                "gpu_memory_allocated_gb": gpu_memory_allocated,
+                "gpu_memory_reserved_gb": gpu_memory_reserved,
+                "gpu_memory_available_gb": (gpu_props.total_memory / (1024**3)) - gpu_memory_reserved,
+            })
+        else:
+            resources["gpu_available"] = False
+            
+        return resources
+    
+    @classmethod
+    def calculate_extraction_config(
+        cls,
+        num_features: int,
+        top_k_examples: int,
+        sequence_length: int = 512,
+        hidden_dim: int = 768
+    ) -> Dict[str, int]:
+        """
+        Calculate optimal extraction settings based on available resources.
+        
+        Args:
+            num_features: Number of SAE features (latent_dim)
+            top_k_examples: Number of examples to store per feature
+            sequence_length: Max sequence length
+            hidden_dim: Hidden dimension size
+            
+        Returns:
+            Dictionary with optimal settings:
+            - batch_size: Samples to process at once
+            - num_workers: CPU workers for parallel processing
+            - db_commit_batch: Features to commit at once
+        """
+        resources = cls.get_system_resources()
+        
+        logger.info(f"Calculating extraction config for {resources['cpu_cores']} cores, "
+                   f"{resources['available_ram_gb']:.1f}GB available RAM")
+        
+        # 1. Calculate batch size based on available RAM and GPU memory
+        usable_ram_gb = resources["available_ram_gb"] * (1 - cls.RAM_SAFETY_MARGIN)
+        
+        # Memory for batch processing (activation tensors, intermediate results)
+        batch_memory_overhead_mb = 500  # Base overhead
+        per_sample_ram_mb = cls.RAM_PER_SAMPLE_MB * sequence_length / 512  # Scale with seq length
+        
+        # Memory for feature heap storage
+        heap_memory_mb = (num_features * top_k_examples * cls.RAM_PER_FEATURE_HEAP_KB) / 1024
+        
+        # Available for batches
+        available_for_batches_mb = (usable_ram_gb * 1024) - batch_memory_overhead_mb - heap_memory_mb
+        max_batch_from_ram = int(available_for_batches_mb / per_sample_ram_mb)
+        
+        # Constrain by GPU memory if available
+        if resources["gpu_available"]:
+            gpu_available_gb = resources["gpu_memory_available_gb"] * (1 - cls.GPU_SAFETY_MARGIN)
+            # Rough estimate: batch processing needs ~batch_size * seq_len * hidden_dim * 4 bytes * 2 (activations + gradients)
+            per_sample_gpu_mb = (sequence_length * hidden_dim * 4 * 2) / (1024**2)
+            max_batch_from_gpu = int((gpu_available_gb * 1024) / per_sample_gpu_mb)
+            
+            batch_size = min(max_batch_from_ram, max_batch_from_gpu)
+        else:
+            batch_size = max_batch_from_ram
+        
+        # Clamp to reasonable range
+        batch_size = max(8, min(batch_size, 256))  # Between 8 and 256
+        
+        # 2. Calculate number of CPU workers
+        # Use 50-75% of cores for CPU-bound feature processing
+        # Leave cores for system, database, other services
+        max_workers = max(1, int(resources["cpu_cores"] * 0.6))
+        
+        # Don't exceed what makes sense for workload
+        # Too many workers can cause overhead; diminishing returns after ~8
+        num_workers = min(max_workers, 8)
+        
+        # 3. Database commit batch size
+        # Larger batches = fewer commits, but more memory
+        # Scale with available RAM
+        if resources["available_ram_gb"] > 15:
+            db_commit_batch = 2000
+        elif resources["available_ram_gb"] > 8:
+            db_commit_batch = 1000
+        else:
+            db_commit_batch = 500
+            
+        config = {
+            "batch_size": batch_size,
+            "num_workers": num_workers,
+            "db_commit_batch": db_commit_batch,
+        }
+        
+        logger.info(f"Extraction config: batch_size={batch_size}, "
+                   f"num_workers={num_workers}, db_commit_batch={db_commit_batch}")
+        logger.info(f"Estimated RAM usage: ~{heap_memory_mb + batch_memory_overhead_mb:.0f}MB base + "
+                   f"~{per_sample_ram_mb * batch_size:.0f}MB per batch")
+        
+        return config
+    
+    @classmethod
+    def get_optimal_settings(
+        cls,
+        training_config: Dict[str, Any],
+        extraction_config: Dict[str, Any]
+    ) -> Dict[str, int]:
+        """
+        Get optimal settings for extraction based on training and extraction configs.
+        
+        Args:
+            training_config: Training hyperparameters (latent_dim, hidden_dim, etc.)
+            extraction_config: Extraction parameters (top_k_examples, evaluation_samples)
+            
+        Returns:
+            Optimal extraction settings
+        """
+        return cls.calculate_extraction_config(
+            num_features=training_config.get("latent_dim", 8192),
+            top_k_examples=extraction_config.get("top_k_examples", 100),
+            sequence_length=extraction_config.get("max_length", 512),
+            hidden_dim=training_config.get("hidden_dim", 768)
+        )

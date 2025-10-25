@@ -25,6 +25,7 @@ from ..utils.resource_estimation import (
     estimate_multilayer_training_memory,
     estimate_oom_reduced_batch_size,
 )
+from ..services.training_validator import TrainingValidator
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,31 @@ def train_sae_task(
                 training.error_message = error_msg
                 db.commit()
             raise RuntimeError(error_msg)
+
+        # Validate sparsity configuration
+        logger.info("Validating sparsity configuration...")
+        warnings, errors = TrainingValidator.validate_sparsity_config(hp)
+
+        # Log errors and fail if critical issues found
+        if errors:
+            error_msg = "Sparsity configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+            logger.error(error_msg)
+            with self.get_db() as db:
+                training = db.query(Training).filter_by(id=training_id).first()
+                training.status = TrainingStatus.FAILED.value
+                training.error_message = error_msg
+                db.commit()
+            raise ValueError(error_msg)
+
+        # Log warnings (non-blocking)
+        if warnings:
+            logger.warning("Sparsity configuration warnings:")
+            for warning in warnings:
+                logger.warning(f"  {warning}")
+
+            # Calculate recommended l1_alpha for reference
+            recommended_l1_alpha = TrainingValidator.calculate_recommended_l1_alpha(hp['latent_dim'])
+            logger.info(f"Recommended l1_alpha for latent_dim {hp['latent_dim']}: {recommended_l1_alpha:.6f}")
 
         # Initialize models, optimizers, and schedulers (one per layer)
         logger.info(f"Initializing SAE models for {num_layers} layer(s)...")
@@ -447,6 +473,19 @@ def train_sae_task(
                     dead_neurons=int(avg_dead_neurons),
                     learning_rate=current_lr,
                 )
+
+                # Check training quality
+                quality_warnings = TrainingValidator.check_training_quality(
+                    step=step,
+                    l0_sparsity=avg_sparsity,
+                    dead_neurons=int(avg_dead_neurons),
+                    latent_dim=hp['latent_dim'],
+                    target_l0=hp.get('target_l0', 0.05),
+                    warmup_steps=hp.get('warmup_steps', 0)
+                )
+                if quality_warnings:
+                    for warning in quality_warnings:
+                        logger.warning(warning)
 
                 # Emit training:progress WebSocket event
                 from ..workers.websocket_emitter import emit_training_progress

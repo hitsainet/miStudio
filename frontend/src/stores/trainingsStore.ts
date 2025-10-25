@@ -156,8 +156,8 @@ const defaultConfig: TrainingConfig = {
   // Layer configuration - default to layer 0 (single-layer training)
   training_layers: [0],
 
-  // Sparsity - moderate L1 penalty
-  l1_alpha: 0.001,
+  // Sparsity - moderate L1 penalty (recommended: 10/sqrt(latent_dim))
+  l1_alpha: 0.003,
   target_l0: 0.05, // 5% activation rate
 
   // Training - conservative defaults

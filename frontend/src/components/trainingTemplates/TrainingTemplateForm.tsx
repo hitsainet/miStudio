@@ -41,7 +41,7 @@ export function TrainingTemplateForm({
   // Form state - Hyperparameters
   const [hiddenDim, setHiddenDim] = useState(template?.hyperparameters.hidden_dim || 768);
   const [latentDim, setLatentDim] = useState(template?.hyperparameters.latent_dim || 16384);
-  const [l1Alpha, setL1Alpha] = useState(template?.hyperparameters.l1_alpha || 0.001);
+  const [l1Alpha, setL1Alpha] = useState(template?.hyperparameters.l1_alpha || 0.003);
   const [targetL0, setTargetL0] = useState<string>(
     template?.hyperparameters.target_l0?.toString() || ''
   );

@@ -394,8 +394,25 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             {/* L0 Sparsity */}
             <div className="bg-slate-800/50 rounded-lg p-3">
               <div className="text-xs text-slate-400 mb-1">L0 Sparsity</div>
-              <div className="text-lg font-semibold text-blue-400">
-                {hasMetrics ? l0Sparsity.toFixed(4) : '—'}
+              <div className="flex items-baseline gap-2">
+                <div
+                  className={`text-lg font-semibold ${
+                    !hasMetrics
+                      ? 'text-slate-400'
+                      : l0Sparsity > 0.15
+                      ? 'text-red-400'
+                      : l0Sparsity > 0.08
+                      ? 'text-yellow-400'
+                      : 'text-emerald-400'
+                  }`}
+                >
+                  {hasMetrics ? (l0Sparsity * 100).toFixed(2) + '%' : '—'}
+                </div>
+                {hasMetrics && training.hyperparameters?.target_l0 && (
+                  <div className="text-xs text-slate-500">
+                    (Target: {(training.hyperparameters.target_l0 * 100).toFixed(1)}%)
+                  </div>
+                )}
               </div>
             </div>
 

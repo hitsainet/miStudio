@@ -119,6 +119,64 @@ class TestTrainingHyperparametersValidation:
         error = exc_info.value.errors()[0]
         assert error['loc'] == ('l1_alpha',)
 
+    def test_l1_alpha_must_be_above_minimum(self):
+        """Test that l1_alpha must be > 0.00001 (minimum effective sparsity penalty)."""
+        with pytest.raises(ValidationError) as exc_info:
+            TrainingHyperparameters(
+                hidden_dim=768,
+                latent_dim=16384,
+                l1_alpha=0.000001,  # Too low - will produce dense features
+                learning_rate=0.0003,
+                batch_size=4096,
+                total_steps=100000,
+            )
+
+        error = exc_info.value.errors()[0]
+        assert error['loc'] == ('l1_alpha',)
+        assert 'greater than 0.00001' in error['msg']
+
+    def test_l1_alpha_minimum_boundary(self):
+        """Test that l1_alpha slightly above minimum (0.000011) is valid."""
+        hp = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.000011,  # Just above minimum (gt 0.00001)
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        assert hp.l1_alpha == 0.000011
+
+    def test_l1_alpha_cannot_exceed_maximum(self):
+        """Test that l1_alpha must be <= 0.1 (maximum before killing all features)."""
+        with pytest.raises(ValidationError) as exc_info:
+            TrainingHyperparameters(
+                hidden_dim=768,
+                latent_dim=16384,
+                l1_alpha=0.15,  # Too high - will kill features
+                learning_rate=0.0003,
+                batch_size=4096,
+                total_steps=100000,
+            )
+
+        error = exc_info.value.errors()[0]
+        assert error['loc'] == ('l1_alpha',)
+        assert 'less than or equal to 0.1' in error['msg']
+
+    def test_l1_alpha_maximum_boundary(self):
+        """Test that l1_alpha = 0.1 (maximum) is valid."""
+        hp = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.1,  # Maximum valid value
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+        )
+
+        assert hp.l1_alpha == 0.1
+
     def test_learning_rate_must_be_positive(self):
         """Test that learning_rate must be > 0."""
         with pytest.raises(ValidationError) as exc_info:
@@ -277,8 +335,8 @@ class TestTrainingHyperparametersValidation:
         error = exc_info.value.errors()[0]
         assert error['loc'] == ('target_l0',)
 
-    def test_target_l0_cannot_exceed_one(self):
-        """Test that target_l0 must be <= 1."""
+    def test_target_l0_cannot_exceed_maximum(self):
+        """Test that target_l0 must be <= 0.2 (maximum realistic sparsity target)."""
         with pytest.raises(ValidationError) as exc_info:
             TrainingHyperparameters(
                 hidden_dim=768,
@@ -287,12 +345,40 @@ class TestTrainingHyperparametersValidation:
                 learning_rate=0.0003,
                 batch_size=4096,
                 total_steps=100000,
-                target_l0=1.5,  # Invalid (>1)
+                target_l0=0.25,  # Invalid - too dense for interpretable features
             )
 
         error = exc_info.value.errors()[0]
         assert error['loc'] == ('target_l0',)
-        assert 'less than or equal to 1' in error['msg']
+        assert 'less than or equal to 0.2' in error['msg']
+
+    def test_target_l0_maximum_boundary(self):
+        """Test that target_l0 = 0.2 (maximum) is valid."""
+        hp = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=16384,
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=4096,
+            total_steps=100000,
+            target_l0=0.2,  # Maximum valid value
+        )
+
+        assert hp.target_l0 == 0.2
+
+    def test_target_l0_typical_values(self):
+        """Test that typical target_l0 values (0.01-0.05) are valid."""
+        for target in [0.01, 0.02, 0.03, 0.04, 0.05]:
+            hp = TrainingHyperparameters(
+                hidden_dim=768,
+                latent_dim=16384,
+                l1_alpha=0.001,
+                learning_rate=0.0003,
+                batch_size=4096,
+                total_steps=100000,
+                target_l0=target,
+            )
+            assert hp.target_l0 == target
 
     def test_target_l0_can_be_none(self):
         """Test that target_l0 can be None."""

@@ -40,8 +40,18 @@ class TrainingHyperparameters(BaseModel):
     )
 
     # Sparsity
-    l1_alpha: float = Field(..., gt=0, description="L1 sparsity penalty coefficient")
-    target_l0: Optional[float] = Field(None, gt=0, le=1, description="Target L0 sparsity (fraction of active features)")
+    l1_alpha: float = Field(
+        ...,
+        gt=0.00001,
+        le=0.1,
+        description="L1 sparsity penalty coefficient (typically 0.0001-0.01 for 8k-16k latent dims)"
+    )
+    target_l0: Optional[float] = Field(
+        None,
+        gt=0,
+        le=0.2,
+        description="Target L0 sparsity (fraction of active features, typically 0.01-0.05)"
+    )
 
     # Training
     learning_rate: float = Field(..., gt=0, description="Initial learning rate")

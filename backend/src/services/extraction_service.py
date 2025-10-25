@@ -847,7 +847,7 @@ class ExtractionService:
                     description=None,
                     label_source=LabelSource.AUTO.value,
                     activation_frequency=float(activation_frequencies[neuron_idx]),
-                    interpretability_score=interpretability_score,
+                    interpretability_score=float(interpretability_score),  # Convert numpy to Python float
                     max_activation=float(top_examples[0]["max_activation"]),
                     mean_activation=float(np.mean([ex["max_activation"] for ex in top_examples])),
                     is_favorite=False,

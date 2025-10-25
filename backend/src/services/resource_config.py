@@ -98,16 +98,24 @@ class ResourceConfig:
         # Constrain by GPU memory if available
         if resources["gpu_available"]:
             gpu_available_gb = resources["gpu_memory_available_gb"] * (1 - cls.GPU_SAFETY_MARGIN)
-            # Rough estimate: batch processing needs ~batch_size * seq_len * hidden_dim * 4 bytes * 2 (activations + gradients)
-            per_sample_gpu_mb = (sequence_length * hidden_dim * 4 * 2) / (1024**2)
-            max_batch_from_gpu = int((gpu_available_gb * 1024) / per_sample_gpu_mb)
-            
+
+            # Conservative estimate for transformer forward pass:
+            # - Model weights (already loaded): ~1-2GB for GPT-2 class models
+            # - Per-sample memory: seq_len * hidden_dim * 4 bytes * num_layers * 3 (input + intermediate + output)
+            # - For GPT-2: 512 * 768 * 4 * 12 * 3 ≈ 50MB per sample
+            per_sample_gpu_mb = (sequence_length * hidden_dim * 4 * 12 * 3) / (1024**2)  # Assume ~12 layers
+
+            # Reserve space for model and SAE (~2GB)
+            available_for_batch_gb = max(0.5, gpu_available_gb - 2.0)
+            max_batch_from_gpu = int((available_for_batch_gb * 1024) / per_sample_gpu_mb)
+
             batch_size = min(max_batch_from_ram, max_batch_from_gpu)
+            logger.info(f"GPU-constrained batch size: {max_batch_from_gpu} (available: {gpu_available_gb:.1f}GB)")
         else:
             batch_size = max_batch_from_ram
-        
-        # Clamp to reasonable range
-        batch_size = max(8, min(batch_size, 256))  # Between 8 and 256
+
+        # Clamp to reasonable range - more conservative for extraction
+        batch_size = max(8, min(batch_size, 64))  # Between 8 and 64 (reduced from 256)
         
         # 2. Calculate number of CPU workers
         # Use 50-75% of cores for CPU-bound feature processing

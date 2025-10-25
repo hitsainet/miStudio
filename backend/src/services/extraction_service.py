@@ -658,14 +658,12 @@ class ExtractionService:
 
             logger.info(f"Loading base model: {model_record.repo_id}")
 
-            # Load base model on CPU to save GPU memory (SAE needs GPU for encoding)
-            # During extraction, we only need activations - model can stay on CPU
-            logger.info("Loading base model on CPU to conserve GPU memory for SAE")
+            # Load base model for activation extraction
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
                 cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
-                device_map="cpu"  # Load on CPU to avoid OOM - only SAE needs GPU
+                device_map=device
             )
             base_model.eval()
 
@@ -758,11 +756,11 @@ class ExtractionService:
                             padded_input_ids.append(padded_ids)
                             attention_masks.append(mask)
 
-                        # Convert to tensors on CPU (base model is on CPU)
-                        input_ids_tensor = torch.tensor(padded_input_ids, device="cpu")
-                        attention_mask_tensor = torch.tensor(attention_masks, device="cpu")
+                        # Convert to tensors
+                        input_ids_tensor = torch.tensor(padded_input_ids, device=device)
+                        attention_mask_tensor = torch.tensor(attention_masks, device=device)
 
-                        # Run model forward pass to capture activations on CPU
+                        # Run model forward pass to capture activations
                         hook_manager.clear_activations()
                         _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
 
@@ -784,8 +782,7 @@ class ExtractionService:
                             actual_length = len(batch_input_ids[batch_idx])
                             sample_activations = sample_activations[:actual_length]  # Remove padding
 
-                            # Pass through SAE encoder (move activations from CPU to GPU for encoding)
-                            # Base model on CPU → activations on CPU → move to GPU for SAE
+                            # Pass through SAE encoder (ensure same device and dtype as SAE)
                             sae_features = sae.encode(sample_activations.to(device=device, dtype=torch.float32))  # Shape: (seq_len, latent_dim)
 
                             # Get token strings for this sample

@@ -793,8 +793,8 @@ class ExtractionService:
                                 neuron_activations = sae_features[:, neuron_idx].cpu().numpy()  # Shape: (seq_len,)
                                 max_activation = float(neuron_activations.max())
 
-                                # Task 4.9: Count activations above threshold (0.01)
-                                if max_activation > 0.01:
+                                # Task 4.9: Count activations above threshold
+                                if max_activation > 0:
                                     feature_activation_counts[neuron_idx] += 1
 
                                 # Task 4.11: Store top-K examples per feature using heap for memory efficiency

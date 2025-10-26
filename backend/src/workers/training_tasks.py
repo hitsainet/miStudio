@@ -29,8 +29,8 @@ from ..utils.resource_estimation import (
     estimate_oom_reduced_batch_size,
 )
 from ..services.training_validator import TrainingValidator
-from ..utils.model_loader import load_model_from_hf, QuantizationFormat
-from ..utils.hook_manager import HookManager, HookType
+from ..ml.model_loader import load_model_from_hf, QuantizationFormat
+from ..ml.hook_manager import HookManager, HookType
 
 logger = logging.getLogger(__name__)
 

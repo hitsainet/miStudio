@@ -94,6 +94,62 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   const deadNeurons = training.current_dead_neurons ?? 0;
   const learningRate = training.current_learning_rate ?? 0;
 
+  // Calculate training phase
+  const getTrainingPhase = () => {
+    if (training.status !== TrainingStatus.RUNNING && training.status !== TrainingStatus.PAUSED) {
+      return null;
+    }
+
+    const currentStep = training.current_step;
+    const totalSteps = training.total_steps;
+    const warmupSteps = training.hyperparameters.warmup_steps || 0;
+
+    if (currentStep < warmupSteps) {
+      const warmupProgress = (currentStep / warmupSteps) * 100;
+      return {
+        name: 'Warmup',
+        description: `LR ramping up (${warmupProgress.toFixed(0)}%)`,
+        color: 'text-blue-400',
+        bgColor: 'bg-blue-500/10',
+        borderColor: 'border-blue-500/30',
+      };
+    } else if (currentStep < warmupSteps + 10000) {
+      return {
+        name: 'Post-Warmup',
+        description: 'L0 convergence phase',
+        color: 'text-purple-400',
+        bgColor: 'bg-purple-500/10',
+        borderColor: 'border-purple-500/30',
+      };
+    } else if (currentStep < totalSteps * 0.5) {
+      return {
+        name: 'Mid-Training',
+        description: 'Feature learning',
+        color: 'text-cyan-400',
+        bgColor: 'bg-cyan-500/10',
+        borderColor: 'border-cyan-500/30',
+      };
+    } else if (currentStep < totalSteps * 0.9) {
+      return {
+        name: 'Late Training',
+        description: 'Refinement phase',
+        color: 'text-amber-400',
+        bgColor: 'bg-amber-500/10',
+        borderColor: 'border-amber-500/30',
+      };
+    } else {
+      return {
+        name: 'Final Phase',
+        description: 'Convergence',
+        color: 'text-emerald-400',
+        bgColor: 'bg-emerald-500/10',
+        borderColor: 'border-emerald-500/30',
+      };
+    }
+  };
+
+  const trainingPhase = getTrainingPhase();
+
   // Look up human-readable names
   const modelName = models.find((m) => m.id === training.model_id)?.name || training.model_id;
   const datasetName = datasets.find((d) => d.id === training.dataset_id)?.name || training.dataset_id;
@@ -365,9 +421,23 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
         training.status === TrainingStatus.COMPLETED ||
         training.status === TrainingStatus.PAUSED) && (
         <div className="space-y-3">
-          {/* Progress Label */}
+          {/* Progress Label with Phase Indicator */}
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-400">Training Progress</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">Training Progress</span>
+              {trainingPhase && (
+                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border ${trainingPhase.bgColor} ${trainingPhase.borderColor}`}>
+                  <Zap className={`w-3 h-3 ${trainingPhase.color}`} />
+                  <span className={`text-xs font-medium ${trainingPhase.color}`}>
+                    {trainingPhase.name}
+                  </span>
+                  <span className="text-xs text-slate-500">·</span>
+                  <span className="text-xs text-slate-400">
+                    {trainingPhase.description}
+                  </span>
+                </div>
+              )}
+            </div>
             <span className="text-emerald-400 font-medium">
               {training.progress.toFixed(1)}%
             </span>

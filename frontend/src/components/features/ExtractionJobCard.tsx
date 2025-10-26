@@ -7,7 +7,7 @@
 import React from 'react';
 import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock } from 'lucide-react';
 import type { ExtractionStatusResponse } from '../../types/features';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns';
 
 interface ExtractionJobCardProps {
   extraction: ExtractionStatusResponse;
@@ -25,6 +25,20 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const isActive = extraction.status === 'queued' || extraction.status === 'extracting';
   const isCompleted = extraction.status === 'completed';
   const isFailed = extraction.status === 'failed';
+
+  // Calculate elapsed time
+  const getElapsedTime = () => {
+    const startTime = new Date(extraction.created_at);
+    const endTime = extraction.completed_at ? new Date(extraction.completed_at) : new Date();
+
+    const duration = intervalToDuration({ start: startTime, end: endTime });
+
+    return formatDuration(duration, {
+      format: ['hours', 'minutes', 'seconds'],
+      zero: false,
+      delimiter: ', '
+    }) || 'Less than a second';
+  };
 
   const getStatusBadge = () => {
     const baseClasses = 'px-3 py-1 rounded-full text-sm font-medium';
@@ -82,14 +96,18 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               </h3>
               {getStatusBadge()}
             </div>
-            <p className="text-sm text-slate-400">
-              Started {formatDistanceToNow(new Date(extraction.created_at), { addSuffix: true })}
-            </p>
-            {extraction.completed_at && (
-              <p className="text-sm text-slate-400">
-                Completed {formatDistanceToNow(new Date(extraction.completed_at), { addSuffix: true })}
-              </p>
-            )}
+            <div className="text-sm text-slate-400 space-y-1">
+              <p>Started {formatDistanceToNow(new Date(extraction.created_at), { addSuffix: true })}</p>
+              {extraction.completed_at && (
+                <>
+                  <p>Completed {formatDistanceToNow(new Date(extraction.completed_at), { addSuffix: true })}</p>
+                  <p className="text-emerald-400 font-medium">Elapsed: {getElapsedTime()}</p>
+                </>
+              )}
+              {isActive && (
+                <p className="text-blue-400 font-medium">Elapsed: {getElapsedTime()}</p>
+              )}
+            </div>
           </div>
         </div>
 

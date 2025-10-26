@@ -30,7 +30,7 @@ from ..utils.resource_estimation import (
 )
 from ..services.training_validator import TrainingValidator
 from ..ml.model_loader import load_model_from_hf, QuantizationFormat
-from ..ml.hook_manager import HookManager, HookType
+from ..ml.forward_hooks import HookManager, HookType
 
 logger = logging.getLogger(__name__)
 

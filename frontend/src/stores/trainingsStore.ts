@@ -160,9 +160,9 @@ const defaultConfig: TrainingConfig = {
   l1_alpha: 0.01, // For latent_dim=8192, produces optimal L0≈4% (monosemantic features)
   target_l0: 0.05, // 5% activation rate
 
-  // Training - conservative defaults
+  // Training - optimized defaults for RTX 3080 Ti (12GB VRAM)
   learning_rate: 0.0003,
-  batch_size: 32,
+  batch_size: 64, // Increased from 32 for 2x throughput (uses ~8.5GB VRAM)
   total_steps: 100000,
   warmup_steps: 10000,
 
@@ -170,8 +170,8 @@ const defaultConfig: TrainingConfig = {
   weight_decay: 0.01,
   grad_clip_norm: 1.0,
 
-  // Checkpointing
-  checkpoint_interval: 1000,
+  // Checkpointing - reduced frequency for faster training and less disk usage
+  checkpoint_interval: 2000, // Increased from 1000 (50 checkpoints vs 100)
   log_interval: 100,
 
   // Dead neuron handling

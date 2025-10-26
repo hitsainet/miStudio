@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 
 import torch
 import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
 from celery import Task
 from datasets import load_from_disk
 
@@ -280,6 +281,15 @@ def train_sae_task(
 
             logger.info(f"  Layer {layer_idx}: SAE model initialized")
 
+        # Initialize gradient scalers for mixed precision training (one per layer)
+        scalers = {}
+        if torch.cuda.is_available():
+            for layer_idx in training_layers:
+                scalers[layer_idx] = GradScaler()
+            logger.info("Mixed precision training (FP16) enabled with GradScaler")
+        else:
+            logger.info("CPU training detected, mixed precision disabled")
+
         # Create checkpoint directory
         checkpoint_dir = settings.data_dir / "trainings" / training_id / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -431,36 +441,59 @@ def train_sae_task(
                     model = models[layer_idx]
                     optimizer = optimizers[layer_idx]
                     scheduler = schedulers[layer_idx]
+                    scaler = scalers.get(layer_idx)  # None if CPU training
 
                     # Forward pass
                     if step % grad_accum_steps == 0:
                         optimizer.zero_grad()
 
-                    # Handle different architecture types
-                    architecture_type = hp.get('architecture_type', 'standard')
-                    if architecture_type == 'transcoder':
-                        # Transcoder requires both x_input and x_target
-                        # For single-layer training, use same activation as both
-                        x_reconstructed, z, losses = model(x, x, return_loss=True)
-                    else:
-                        # Standard and Skip architectures
-                        x_reconstructed, z, losses = model(x, return_loss=True)
+                    # Forward pass with mixed precision (FP16) if GPU available
+                    if scaler is not None:
+                        with autocast():
+                            # Handle different architecture types
+                            architecture_type = hp.get('architecture_type', 'standard')
+                            if architecture_type == 'transcoder':
+                                x_reconstructed, z, losses = model(x, x, return_loss=True)
+                            else:
+                                x_reconstructed, z, losses = model(x, return_loss=True)
 
-                    # Backward pass with gradient accumulation
-                    loss = losses['loss']
-                    if grad_accum_steps > 1:
-                        loss = loss / grad_accum_steps
-                    loss.backward()
+                            loss = losses['loss']
+                            if grad_accum_steps > 1:
+                                loss = loss / grad_accum_steps
+
+                        # Backward pass with gradient scaling
+                        scaler.scale(loss).backward()
+                    else:
+                        # CPU training - no mixed precision
+                        architecture_type = hp.get('architecture_type', 'standard')
+                        if architecture_type == 'transcoder':
+                            x_reconstructed, z, losses = model(x, x, return_loss=True)
+                        else:
+                            x_reconstructed, z, losses = model(x, return_loss=True)
+
+                        loss = losses['loss']
+                        if grad_accum_steps > 1:
+                            loss = loss / grad_accum_steps
+                        loss.backward()
 
                     # Optimizer step (only every grad_accum_steps)
                     if (step + 1) % grad_accum_steps == 0:
+                        if scaler is not None:
+                            # Mixed precision: unscale gradients before clipping
+                            scaler.unscale_(optimizer)
+
                         # Gradient clipping
                         grad_clip_norm = hp.get('grad_clip_norm')
                         if grad_clip_norm:
                             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
 
-                        # Optimizer step
-                        optimizer.step()
+                        # Optimizer step with scaler
+                        if scaler is not None:
+                            scaler.step(optimizer)
+                            scaler.update()
+                        else:
+                            optimizer.step()
+
                         scheduler.step()
 
                     # Store layer metrics

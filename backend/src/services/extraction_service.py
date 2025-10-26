@@ -459,6 +459,7 @@ class ExtractionService:
         extraction_id: str,
         status: str,
         progress: Optional[float] = None,
+        features_extracted: Optional[int] = None,
         statistics: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None
     ) -> None:
@@ -469,6 +470,7 @@ class ExtractionService:
             extraction_id: ID of the extraction job
             status: New status (queued, extracting, completed, failed, cancelled)
             progress: Progress percentage (0.0-1.0)
+            features_extracted: Number of features extracted so far
             statistics: Extraction statistics (on completion)
             error_message: Error message (if failed)
         """
@@ -486,6 +488,9 @@ class ExtractionService:
         if progress is not None:
             extraction_job.progress = progress
 
+        if features_extracted is not None:
+            extraction_job.features_extracted = features_extracted
+
         if statistics is not None:
             extraction_job.statistics = statistics
 
@@ -500,6 +505,42 @@ class ExtractionService:
         logger.debug(
             f"Updated extraction {extraction_id}: status={status}, progress={progress}"
         )
+
+        # Emit WebSocket progress update
+        try:
+            from ..workers.websocket_emitter import emit_progress
+
+            # Prepare event data
+            event_data = {
+                "extraction_id": extraction_id,
+                "status": status,
+                "progress": progress if progress is not None else extraction_job.progress,
+                "features_extracted": extraction_job.features_extracted,
+                "total_features": extraction_job.total_features,
+            }
+
+            # Emit appropriate event based on status
+            if status == ExtractionStatus.COMPLETED.value:
+                emit_progress(
+                    channel=f"extraction/{extraction_id}",
+                    event="extraction:completed",
+                    data=event_data
+                )
+            elif status == ExtractionStatus.FAILED.value:
+                event_data["error_message"] = error_message
+                emit_progress(
+                    channel=f"extraction/{extraction_id}",
+                    event="extraction:failed",
+                    data=event_data
+                )
+            else:
+                emit_progress(
+                    channel=f"extraction/{extraction_id}",
+                    event="extraction:progress",
+                    data=event_data
+                )
+        except Exception as e:
+            logger.warning(f"Failed to emit WebSocket update for extraction {extraction_id}: {e}")
 
     def extract_features_for_training(
         self,
@@ -788,8 +829,20 @@ class ExtractionService:
                         # Get captured activations from hooks
                         # hook_manager.activations is a dict: {layer_name: List[tensor]}
                         # We take the first (and typically only) layer's activations
+                        if not hook_manager.activations:
+                            logger.error(f"No activations captured! hook_manager.activations is empty")
+                            raise ValueError("Hook did not capture any activations")
+
                         layer_name = list(hook_manager.activations.keys())[0]
                         base_model_activations = hook_manager.activations[layer_name][0]  # Get first tensor from list, Shape: (batch_size, seq_len, hidden_dim)
+
+                        # Debug: Log activation statistics for first batch
+                        if batch_start == 0:
+                            logger.info(f"Captured activations shape: {base_model_activations.shape}")
+                            logger.info(f"Captured activations mean: {base_model_activations.mean().item():.6f}")
+                            logger.info(f"Captured activations std: {base_model_activations.std().item():.6f}")
+                            logger.info(f"Captured activations min: {base_model_activations.min().item():.6f}")
+                            logger.info(f"Captured activations max: {base_model_activations.max().item():.6f}")
 
                         # Task 4.8: Pass through SAE encoder to get feature activations
                         # Process each sample in the batch
@@ -805,6 +858,17 @@ class ExtractionService:
 
                             # Pass through SAE encoder (ensure same device and dtype as SAE)
                             sae_features = sae.encode(sample_activations.to(device=device, dtype=torch.float32))  # Shape: (seq_len, latent_dim)
+
+                            # Debug: Log SAE output for first sample
+                            if batch_start == 0 and batch_idx == 0:
+                                logger.info(f"SAE features shape: {sae_features.shape}")
+                                logger.info(f"SAE features mean: {sae_features.mean().item():.6f}")
+                                logger.info(f"SAE features std: {sae_features.std().item():.6f}")
+                                logger.info(f"SAE features min: {sae_features.min().item():.6f}")
+                                logger.info(f"SAE features max: {sae_features.max().item():.6f}")
+                                non_zero_features = (sae_features > 0).sum().item()
+                                total_features = sae_features.numel()
+                                logger.info(f"SAE non-zero activations: {non_zero_features} / {total_features} ({100*non_zero_features/total_features:.2f}%)")
 
                             # Get token strings for this sample
                             token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
@@ -949,6 +1013,13 @@ class ExtractionService:
                     self.db.commit()
                     logger.info(f"Committed batch: {features_processed}/{latent_dim} features")
 
+                    # Update features_extracted counter in real-time
+                    self.update_extraction_status_sync(
+                        extraction_job.id,
+                        ExtractionStatus.EXTRACTING.value,
+                        features_extracted=features_processed
+                    )
+
             # Final commit for remaining features
             self.db.commit()
 
@@ -979,6 +1050,7 @@ class ExtractionService:
                 extraction_job.id,
                 ExtractionStatus.COMPLETED.value,
                 progress=1.0,
+                features_extracted=features_processed,
                 statistics=statistics
             )
 

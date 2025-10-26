@@ -20,9 +20,9 @@ class TrainingValidator:
         """
         Calculate recommended l1_alpha based on latent dimension.
 
-        Formula: l1_alpha = 10 / sqrt(latent_dim)
+        Formula: l1_alpha = 0.01 / sqrt(latent_dim / 8192)
 
-        This provides a reasonable starting point that scales with SAE width.
+        This formula is calibrated to research best practices (Anthropic, OpenAI).
         Larger SAEs need proportionally smaller penalties to avoid killing all features.
 
         Args:
@@ -32,11 +32,17 @@ class TrainingValidator:
             Recommended l1_alpha value
 
         Examples:
-            latent_dim=8192  → l1_alpha ≈ 0.0035
-            latent_dim=16384 → l1_alpha ≈ 0.0025
-            latent_dim=32768 → l1_alpha ≈ 0.0017
+            latent_dim=8192  → l1_alpha = 0.010000
+            latent_dim=16384 → l1_alpha = 0.007071
+            latent_dim=32768 → l1_alpha = 0.005000
+
+        Reference:
+            Typical research values: 0.0001 - 0.01
+            - Small SAEs (2k-4k):  l1_alpha = 0.01
+            - Medium SAEs (~8k):   l1_alpha = 0.001 - 0.005
+            - Large SAEs (16k+):   l1_alpha = 0.0001 - 0.001
         """
-        return 10.0 / math.sqrt(latent_dim)
+        return 0.01 / math.sqrt(latent_dim / 8192.0)
 
     @staticmethod
     def validate_sparsity_config(
@@ -92,19 +98,26 @@ class TrainingValidator:
                 f"Consider using {recommended_l1_alpha:.6f} for better sparsity."
             )
 
-        # Check if l1_alpha is too high (will kill features)
-        if l1_alpha > recommended_l1_alpha * 10:
-            warnings.append(
-                f"⚠️  l1_alpha ({l1_alpha:.6f}) is very high for latent_dim ({latent_dim}). "
-                f"Recommended: {recommended_l1_alpha:.6f}. "
-                f"This may cause too many dead neurons (>50%). "
-                f"Consider decreasing l1_alpha to {recommended_l1_alpha * 2:.6f}."
+        # Check if l1_alpha is DANGEROUSLY high (will cause "race to zero")
+        if l1_alpha > recommended_l1_alpha * 5:
+            errors.append(
+                f"🚨 CRITICAL: l1_alpha ({l1_alpha:.6f}) is {l1_alpha/recommended_l1_alpha:.1f}x higher than recommended ({recommended_l1_alpha:.6f})! "
+                f"This WILL cause 'race to zero' degenerate training where the SAE learns to output all zeros. "
+                f"Encoder biases will drift negative, making ALL features dead. "
+                f"STRONGLY RECOMMENDED: Use l1_alpha ≤ {recommended_l1_alpha * 2:.6f}."
             )
-        elif l1_alpha > recommended_l1_alpha * 5:
+        elif l1_alpha > recommended_l1_alpha * 3:
             warnings.append(
-                f"⚠️  l1_alpha ({l1_alpha:.6f}) is high for latent_dim ({latent_dim}). "
-                f"Recommended: {recommended_l1_alpha:.6f}. "
-                f"This may cause many dead neurons. Monitor dead_neurons metric during training."
+                f"⚠️  l1_alpha ({l1_alpha:.6f}) is {l1_alpha/recommended_l1_alpha:.1f}x higher than recommended ({recommended_l1_alpha:.6f}). "
+                f"This is likely too high and will cause excessive dead neurons (>50%). "
+                f"Risk of 'race to zero' degenerate solution. "
+                f"Recommended: Decrease to {recommended_l1_alpha:.6f}."
+            )
+        elif l1_alpha > recommended_l1_alpha * 2:
+            warnings.append(
+                f"⚠️  l1_alpha ({l1_alpha:.6f}) is {l1_alpha/recommended_l1_alpha:.1f}x higher than recommended ({recommended_l1_alpha:.6f}). "
+                f"This may cause many dead neurons (30-50%). "
+                f"Monitor dead_neurons and L0 sparsity closely during training."
             )
 
         # Validate target_l0 if provided
@@ -124,6 +137,9 @@ class TrainingValidator:
 
         return warnings, errors
 
+    # Class variable to track L0 history for race-to-zero detection
+    _l0_history = {}
+
     @staticmethod
     def check_training_quality(
         step: int,
@@ -131,13 +147,15 @@ class TrainingValidator:
         dead_neurons: int,
         latent_dim: int,
         target_l0: float = 0.05,
-        warmup_steps: int = 1000
+        warmup_steps: int = 1000,
+        training_id: str = None
     ) -> List[str]:
         """
         Check training quality metrics during training.
 
         Provides real-time warnings if L0 sparsity or dead neuron count
-        indicate poor training quality.
+        indicate poor training quality. Detects "race to zero" degenerate
+        training where SAE learns to output all zeros.
 
         Args:
             step: Current training step
@@ -146,6 +164,7 @@ class TrainingValidator:
             latent_dim: SAE latent dimension
             target_l0: Target L0 sparsity
             warmup_steps: Number of warmup steps (skip checks during warmup)
+            training_id: Training ID for tracking L0 history
 
         Returns:
             List of warning messages
@@ -155,6 +174,36 @@ class TrainingValidator:
         # Skip quality checks during warmup period
         if step < warmup_steps:
             return warnings
+
+        # Track L0 history for race-to-zero detection
+        if training_id:
+            if training_id not in TrainingValidator._l0_history:
+                TrainingValidator._l0_history[training_id] = []
+
+            history = TrainingValidator._l0_history[training_id]
+            history.append((step, l0_sparsity))
+
+            # Keep only last 50 checkpoints to detect trends
+            if len(history) > 50:
+                history.pop(0)
+
+            # Detect "race to zero" - dramatic L0 collapse
+            if len(history) >= 5:
+                # Check if L0 dropped by >70% in recent steps
+                recent_l0 = [l0 for _, l0 in history[-5:]]
+                if len(history) >= 10:
+                    earlier_l0 = [l0 for _, l0 in history[-10:-5]]
+                    earlier_avg = sum(earlier_l0) / len(earlier_l0)
+                    recent_avg = sum(recent_l0) / len(recent_l0)
+
+                    if earlier_avg > 0.15 and recent_avg < 0.05:
+                        drop_pct = ((earlier_avg - recent_avg) / earlier_avg) * 100
+                        warnings.append(
+                            f"🚨 RACE TO ZERO DETECTED at step {step}! "
+                            f"L0 sparsity collapsed {drop_pct:.0f}% (from {earlier_avg:.2f} to {recent_avg:.2f}). "
+                            f"This indicates degenerate training where SAE learns to output zeros. "
+                            f"RECOMMENDATION: Stop training and retrain with LOWER l1_alpha."
+                        )
 
         # Check L0 sparsity (too dense)
         if l0_sparsity > 0.20:

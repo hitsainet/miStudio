@@ -474,14 +474,15 @@ def train_sae_task(
                     learning_rate=current_lr,
                 )
 
-                # Check training quality
+                # Check training quality (with race-to-zero detection)
                 quality_warnings = TrainingValidator.check_training_quality(
                     step=step,
                     l0_sparsity=avg_sparsity,
                     dead_neurons=int(avg_dead_neurons),
                     latent_dim=hp['latent_dim'],
                     target_l0=hp.get('target_l0', 0.05),
-                    warmup_steps=hp.get('warmup_steps', 0)
+                    warmup_steps=hp.get('warmup_steps', 0),
+                    training_id=training_id
                 )
                 if quality_warnings:
                     for warning in quality_warnings:

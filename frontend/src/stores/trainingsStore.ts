@@ -156,8 +156,8 @@ const defaultConfig: TrainingConfig = {
   // Layer configuration - default to layer 0 (single-layer training)
   training_layers: [0],
 
-  // Sparsity - moderate L1 penalty (recommended: 10/sqrt(latent_dim))
-  l1_alpha: 0.003,
+  // Sparsity - research-calibrated L1 penalty (formula: 0.01 / sqrt(latent_dim / 8192))
+  l1_alpha: 0.01, // For latent_dim=8192, produces optimal L0≈4% (monosemantic features)
   target_l0: 0.05, // 5% activation rate
 
   // Training - conservative defaults

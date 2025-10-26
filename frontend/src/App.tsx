@@ -38,15 +38,17 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <h1 className="text-xl font-semibold">MechInterp Studio</h1>
-          <p className="text-sm text-slate-400">Edge AI Feature Discovery Platform</p>
-        </div>
-      </header>
+      {/* Sticky Header + Navigation Container */}
+      <div className="sticky top-0 z-50">
+        <header className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <h1 className="text-xl font-semibold">MechInterp Studio</h1>
+            <p className="text-sm text-slate-400">Edge AI Feature Discovery Platform</p>
+          </div>
+        </header>
 
-      {/* Navigation Tabs */}
-      <nav className="border-b border-slate-800 bg-slate-900/30">
+        {/* Navigation Tabs */}
+        <nav className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-1">
@@ -134,7 +136,8 @@ function AppContent() {
             <CompactGPUStatus />
           </div>
         </div>
-      </nav>
+        </nav>
+      </div>
 
       <main>
         {activePanel === 'datasets' && <DatasetsPanel />}

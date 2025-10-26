@@ -36,6 +36,7 @@ import { TrainingStatus, SAEArchitectureType } from '../../types/training';
 import type { TrainingCreateRequest } from '../../types/training';
 import { TrainingCard } from '../training/TrainingCard';
 import { estimateMultilayerTrainingMemory, formatMemorySize } from '../../utils/memoryEstimation';
+import { HyperparameterLabel, HyperparameterTooltip } from '../common/HyperparameterTooltip';
 
 export const TrainingPanel: React.FC = () => {
   // Store state
@@ -414,10 +415,14 @@ export const TrainingPanel: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 {/* Hidden Dimension */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Hidden Dimension
-                  </label>
+                  <HyperparameterLabel
+                    paramName="hidden_dim"
+                    label="Hidden Dimension"
+                    htmlFor="hidden-dim"
+                    className="mb-2"
+                  />
                   <input
+                    id="hidden-dim"
                     type="number"
                     value={config.hidden_dim}
                     onChange={(e) => updateConfig({ hidden_dim: parseInt(e.target.value) })}
@@ -425,17 +430,18 @@ export const TrainingPanel: React.FC = () => {
                     max={8192}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Input/output size (e.g., 768 for GPT-2)
-                  </p>
                 </div>
 
                 {/* Latent Dimension */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Latent Dimension
-                  </label>
+                  <HyperparameterLabel
+                    paramName="latent_dim"
+                    label="Latent Dimension"
+                    htmlFor="latent-dim"
+                    className="mb-2"
+                  />
                   <input
+                    id="latent-dim"
                     type="number"
                     value={config.latent_dim}
                     onChange={(e) => updateConfig({ latent_dim: parseInt(e.target.value) })}
@@ -444,17 +450,18 @@ export const TrainingPanel: React.FC = () => {
                     step={512}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
-                    SAE width (typically 8-16x hidden_dim)
-                  </p>
                 </div>
 
                 {/* L1 Alpha */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    L1 Sparsity Coefficient
-                  </label>
+                  <HyperparameterLabel
+                    paramName="l1_alpha"
+                    label="L1 Sparsity Coefficient"
+                    htmlFor="l1-alpha"
+                    className="mb-2"
+                  />
                   <input
+                    id="l1-alpha"
                     type="number"
                     value={config.l1_alpha}
                     onChange={(e) => updateConfig({ l1_alpha: parseFloat(e.target.value) })}
@@ -463,15 +470,18 @@ export const TrainingPanel: React.FC = () => {
                     step={0.00001}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">L1 penalty weight</p>
                 </div>
 
                 {/* Target L0 */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Target L0 Sparsity
-                  </label>
+                  <HyperparameterLabel
+                    paramName="target_l0"
+                    label="Target L0 Sparsity"
+                    htmlFor="target-l0"
+                    className="mb-2"
+                  />
                   <input
+                    id="target-l0"
                     type="number"
                     value={config.target_l0 ?? 0.05}
                     onChange={(e) => updateConfig({ target_l0: parseFloat(e.target.value) })}
@@ -480,17 +490,18 @@ export const TrainingPanel: React.FC = () => {
                     step={0.001}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Target activation rate (0-1)
-                  </p>
                 </div>
 
                 {/* Learning Rate */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Learning Rate
-                  </label>
+                  <HyperparameterLabel
+                    paramName="learning_rate"
+                    label="Learning Rate"
+                    htmlFor="learning-rate"
+                    className="mb-2"
+                  />
                   <input
+                    id="learning-rate"
                     type="number"
                     value={config.learning_rate}
                     onChange={(e) => updateConfig({ learning_rate: parseFloat(e.target.value) })}
@@ -499,15 +510,18 @@ export const TrainingPanel: React.FC = () => {
                     step={0.00001}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Initial learning rate</p>
                 </div>
 
                 {/* Batch Size */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Batch Size
-                  </label>
+                  <HyperparameterLabel
+                    paramName="batch_size"
+                    label="Batch Size"
+                    htmlFor="batch-size"
+                    className="mb-2"
+                  />
                   <input
+                    id="batch-size"
                     type="number"
                     value={config.batch_size}
                     onChange={(e) => updateConfig({ batch_size: parseInt(e.target.value) })}
@@ -515,15 +529,18 @@ export const TrainingPanel: React.FC = () => {
                     max={512}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Training batch size</p>
                 </div>
 
                 {/* Total Steps */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Total Steps
-                  </label>
+                  <HyperparameterLabel
+                    paramName="total_steps"
+                    label="Total Steps"
+                    htmlFor="total-steps"
+                    className="mb-2"
+                  />
                   <input
+                    id="total-steps"
                     type="number"
                     value={config.total_steps}
                     onChange={(e) => updateConfig({ total_steps: parseInt(e.target.value) })}
@@ -532,15 +549,18 @@ export const TrainingPanel: React.FC = () => {
                     step={1000}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Total training steps</p>
                 </div>
 
                 {/* Warmup Steps */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Warmup Steps
-                  </label>
+                  <HyperparameterLabel
+                    paramName="warmup_steps"
+                    label="Warmup Steps"
+                    htmlFor="warmup-steps"
+                    className="mb-2"
+                  />
                   <input
+                    id="warmup-steps"
                     type="number"
                     value={config.warmup_steps ?? 0}
                     onChange={(e) => updateConfig({ warmup_steps: parseInt(e.target.value) })}
@@ -549,15 +569,18 @@ export const TrainingPanel: React.FC = () => {
                     step={100}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Linear warmup steps</p>
                 </div>
 
                 {/* Weight Decay */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Weight Decay
-                  </label>
+                  <HyperparameterLabel
+                    paramName="weight_decay"
+                    label="Weight Decay"
+                    htmlFor="weight-decay"
+                    className="mb-2"
+                  />
                   <input
+                    id="weight-decay"
                     type="number"
                     value={config.weight_decay ?? 0.01}
                     onChange={(e) => updateConfig({ weight_decay: parseFloat(e.target.value) })}
@@ -566,15 +589,18 @@ export const TrainingPanel: React.FC = () => {
                     step={0.001}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">L2 regularization</p>
                 </div>
 
                 {/* Gradient Clipping */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Gradient Clipping
-                  </label>
+                  <HyperparameterLabel
+                    paramName="grad_clip_norm"
+                    label="Gradient Clipping"
+                    htmlFor="grad-clip-norm"
+                    className="mb-2"
+                  />
                   <input
+                    id="grad-clip-norm"
                     type="number"
                     value={config.grad_clip_norm ?? 1.0}
                     onChange={(e) => updateConfig({ grad_clip_norm: parseFloat(e.target.value) })}
@@ -583,15 +609,18 @@ export const TrainingPanel: React.FC = () => {
                     step={0.1}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Max gradient norm</p>
                 </div>
 
                 {/* Checkpoint Interval */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Checkpoint Interval
-                  </label>
+                  <HyperparameterLabel
+                    paramName="checkpoint_interval"
+                    label="Checkpoint Interval"
+                    htmlFor="checkpoint-interval"
+                    className="mb-2"
+                  />
                   <input
+                    id="checkpoint-interval"
                     type="number"
                     value={config.checkpoint_interval ?? 1000}
                     onChange={(e) =>
@@ -602,15 +631,18 @@ export const TrainingPanel: React.FC = () => {
                     step={100}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Save checkpoint every N steps</p>
                 </div>
 
                 {/* Log Interval */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Log Interval
-                  </label>
+                  <HyperparameterLabel
+                    paramName="log_interval"
+                    label="Log Interval"
+                    htmlFor="log-interval"
+                    className="mb-2"
+                  />
                   <input
+                    id="log-interval"
                     type="number"
                     value={config.log_interval ?? 100}
                     onChange={(e) => updateConfig({ log_interval: parseInt(e.target.value) })}
@@ -619,15 +651,18 @@ export const TrainingPanel: React.FC = () => {
                     step={10}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Log metrics every N steps</p>
                 </div>
 
                 {/* Dead Neuron Threshold */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Dead Neuron Threshold
-                  </label>
+                  <HyperparameterLabel
+                    paramName="dead_neuron_threshold"
+                    label="Dead Neuron Threshold"
+                    htmlFor="dead-neuron-threshold"
+                    className="mb-2"
+                  />
                   <input
+                    id="dead-neuron-threshold"
                     type="number"
                     value={config.dead_neuron_threshold ?? 10000}
                     onChange={(e) =>
@@ -638,26 +673,26 @@ export const TrainingPanel: React.FC = () => {
                     step={1000}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Steps before neuron considered dead
-                  </p>
                 </div>
 
                 {/* Resample Dead Neurons */}
                 <div className="col-span-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={config.resample_dead_neurons ?? true}
-                      onChange={(e) =>
-                        updateConfig({ resample_dead_neurons: e.target.checked })
-                      }
-                      className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
-                    />
-                    <span className="text-sm font-medium text-slate-300">
-                      Resample dead neurons during training
-                    </span>
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={config.resample_dead_neurons ?? true}
+                        onChange={(e) =>
+                          updateConfig({ resample_dead_neurons: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                      />
+                      <span className="text-sm font-medium text-slate-300">
+                        Resample dead neurons during training
+                      </span>
+                    </label>
+                    <HyperparameterTooltip paramName="resample_dead_neurons" />
+                  </div>
                 </div>
               </div>
             </div>

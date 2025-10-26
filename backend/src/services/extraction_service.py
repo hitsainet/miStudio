@@ -684,7 +684,21 @@ class ExtractionService:
             logger.info(f"Extracting features from {len(dataset)} samples...")
 
             # Get extraction configuration
-            layer_indices = config.get("layer_indices", [0])
+            # Extract layer from checkpoint path if not explicitly configured
+            # Path format: .../checkpoint_XXXXX/layer_N/checkpoint.safetensors
+            if "layer_indices" not in config:
+                import re
+                layer_match = re.search(r'/layer_(\d+)/', checkpoint.storage_path)
+                if layer_match:
+                    layer_from_checkpoint = int(layer_match.group(1))
+                    layer_indices = [layer_from_checkpoint]
+                    logger.info(f"Extracted layer index from checkpoint: {layer_from_checkpoint}")
+                else:
+                    layer_indices = [0]
+                    logger.warning(f"Could not extract layer from checkpoint path, defaulting to layer 0")
+            else:
+                layer_indices = config.get("layer_indices")
+
             hook_types = config.get("hook_types", ["residual"])
             architecture = model_record.architecture
 

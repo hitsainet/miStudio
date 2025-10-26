@@ -13,10 +13,13 @@ from typing import Optional, Dict, Any
 import torch
 import torch.optim as optim
 from celery import Task
+from datasets import load_from_disk
 
 from .base_task import DatabaseTask
 from ..ml.sparse_autoencoder import create_sae
 from ..models.training import Training, TrainingStatus
+from ..models.dataset import Dataset
+from ..models.model import ModelRecord
 from ..services.training_service import TrainingService
 from ..services.checkpoint_service import CheckpointService
 from ..core.config import settings
@@ -26,6 +29,8 @@ from ..utils.resource_estimation import (
     estimate_oom_reduced_batch_size,
 )
 from ..services.training_validator import TrainingValidator
+from ..utils.model_loader import load_model_from_hf, QuantizationFormat
+from ..utils.hook_manager import HookManager, HookType
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +311,37 @@ def train_sae_task(
         oom_retry_count = 0
         max_oom_retries = 3
 
+        # Load dataset and base model for real activations
+        logger.info("Loading dataset and base model for activation extraction...")
+        with self.get_db() as db:
+            dataset_record = db.query(Dataset).filter(
+                Dataset.id == training.dataset_id
+            ).first()
+            if not dataset_record:
+                raise ValueError(f"Dataset {training.dataset_id} not found")
+
+            model_record = db.query(ModelRecord).filter(
+                ModelRecord.id == training.model_id
+            ).first()
+            if not model_record:
+                raise ValueError(f"Model {training.model_id} not found")
+
+        logger.info(f"Loading dataset from {dataset_record.tokenized_path}")
+        dataset = load_from_disk(dataset_record.tokenized_path)
+
+        logger.info(f"Loading base model: {model_record.repo_id}")
+        base_model, tokenizer, model_config, metadata = load_model_from_hf(
+            repo_id=model_record.repo_id,
+            quant_format=QuantizationFormat(model_record.quantization),
+            cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
+            device_map=device
+        )
+        base_model.eval()
+
+        architecture = model_record.architecture
+        hook_types = [HookType.RESIDUAL]  # Default to residual stream
+
+        logger.info(f"Dataset: {len(dataset)} samples, Model: {model_record.repo_id}")
         logger.info(f"Starting training loop: {total_steps} steps, batch_size={batch_size}")
 
         # Training loop
@@ -323,9 +359,67 @@ def train_sae_task(
                     return {"status": "cancelled", "step": step}
 
             try:
-                # TODO: Load real data batch
-                # For now, use dummy data for testing
-                x = torch.randn(batch_size, hp['hidden_dim']).to(device)
+                # Extract real activations from base model
+                # Sample random batch from dataset
+                batch_indices = torch.randint(0, len(dataset), (batch_size,)).tolist()
+                batch = dataset.select(batch_indices)
+
+                # Get input_ids from batch
+                batch_input_ids = []
+                if "input_ids" in batch.column_names:
+                    for ids in batch["input_ids"]:
+                        if isinstance(ids, list):
+                            batch_input_ids.append(ids)
+                        else:
+                            batch_input_ids.append(ids.tolist() if hasattr(ids, 'tolist') else list(ids))
+
+                # Pad sequences to same length
+                max_length = min(max(len(ids) for ids in batch_input_ids), 512)
+                pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+                padded_input_ids = []
+                attention_masks = []
+
+                for input_ids in batch_input_ids:
+                    # Truncate if too long
+                    if len(input_ids) > max_length:
+                        input_ids = input_ids[:max_length]
+
+                    padding_length = max_length - len(input_ids)
+                    padded_ids = input_ids + [pad_token_id] * padding_length
+                    mask = [1] * len(input_ids) + [0] * padding_length
+
+                    padded_input_ids.append(padded_ids)
+                    attention_masks.append(mask)
+
+                # Convert to tensors
+                input_ids_tensor = torch.tensor(padded_input_ids, device=device)
+                attention_mask_tensor = torch.tensor(attention_masks, device=device)
+
+                # Extract activations using HookManager
+                with HookManager(base_model) as hook_manager:
+                    hook_manager.register_hooks(training_layers, hook_types, architecture)
+
+                    with torch.no_grad():
+                        _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
+
+                    # Get captured activations for each layer
+                    layer_activations = {}
+                    for layer_idx in training_layers:
+                        # Find the activation for this layer
+                        layer_key = None
+                        for key in hook_manager.activations.keys():
+                            if f"layer.{layer_idx}" in key or f"layers.{layer_idx}" in key:
+                                layer_key = key
+                                break
+
+                        if layer_key and hook_manager.activations[layer_key]:
+                            acts = hook_manager.activations[layer_key][0]  # Shape: (batch_size, seq_len, hidden_dim)
+                            # Average over sequence dimension to get (batch_size, hidden_dim)
+                            layer_activations[layer_idx] = acts.mean(dim=1).detach()
+                        else:
+                            logger.warning(f"No activations captured for layer {layer_idx}, using fallback")
+                            layer_activations[layer_idx] = torch.randn(batch_size, hp['hidden_dim']).to(device)
 
                 # Train all layers
                 layer_losses = {}
@@ -333,6 +427,7 @@ def train_sae_task(
                 layer_dead_neurons = {}
 
                 for layer_idx in training_layers:
+                    x = layer_activations[layer_idx]
                     model = models[layer_idx]
                     optimizer = optimizers[layer_idx]
                     scheduler = schedulers[layer_idx]
@@ -581,6 +676,18 @@ def train_sae_task(
         # Training completed
         logger.info(f"Training completed: {total_steps} steps")
 
+        # Cleanup: Unload base model and SAE models from GPU
+        logger.info("Cleaning up GPU memory...")
+        del base_model
+        del tokenizer
+        for layer_idx in training_layers:
+            del models[layer_idx]
+            del optimizers[layer_idx]
+            del schedulers[layer_idx]
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("GPU memory cleanup completed")
+
         with self.get_db() as db:
             training = db.query(Training).filter_by(id=training_id).first()
             training.status = TrainingStatus.COMPLETED.value
@@ -610,6 +717,27 @@ def train_sae_task(
     except Exception as e:
         logger.error(f"Training failed: {e}")
         logger.error(traceback.format_exc())
+
+        # Cleanup: Unload models from GPU
+        try:
+            logger.info("Cleaning up GPU memory after failure...")
+            if 'base_model' in locals():
+                del base_model
+            if 'tokenizer' in locals():
+                del tokenizer
+            if 'models' in locals():
+                for layer_idx in training_layers:
+                    if layer_idx in models:
+                        del models[layer_idx]
+                    if layer_idx in optimizers:
+                        del optimizers[layer_idx]
+                    if layer_idx in schedulers:
+                        del schedulers[layer_idx]
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("GPU memory cleanup completed")
+        except Exception as cleanup_error:
+            logger.warning(f"Error during cleanup: {cleanup_error}")
 
         # Mark training as failed
         with self.get_db() as db:

@@ -19,7 +19,7 @@ from .base_task import DatabaseTask
 from ..ml.sparse_autoencoder import create_sae
 from ..models.training import Training, TrainingStatus
 from ..models.dataset import Dataset
-from ..models.model import ModelRecord
+from ..models.model import Model
 from ..services.training_service import TrainingService
 from ..services.checkpoint_service import CheckpointService
 from ..core.config import settings
@@ -320,8 +320,8 @@ def train_sae_task(
             if not dataset_record:
                 raise ValueError(f"Dataset {training.dataset_id} not found")
 
-            model_record = db.query(ModelRecord).filter(
-                ModelRecord.id == training.model_id
+            model_record = db.query(Model).filter(
+                Model.id == training.model_id
             ).first()
             if not model_record:
                 raise ValueError(f"Model {training.model_id} not found")

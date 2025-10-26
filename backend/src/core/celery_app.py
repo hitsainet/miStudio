@@ -99,8 +99,9 @@ celery_app.conf.update(
     task_create_missing_queues=True,  # Auto-create queues if they don't exist
 
     # Task time limits (soft/hard)
-    task_soft_time_limit=3600,  # 1 hour soft limit
-    task_time_limit=7200,  # 2 hour hard limit
+    # Training tasks can take 5-10 hours for 100k steps, so set generous limits
+    task_soft_time_limit=36000,  # 10 hour soft limit (training tasks need this)
+    task_time_limit=43200,  # 12 hour hard limit (safety margin)
 
     # Result backend settings
     result_expires=3600,  # Results expire after 1 hour

@@ -321,6 +321,11 @@ def train_sae_task(
         oom_retry_count = 0
         max_oom_retries = 3
 
+        # Throughput monitoring
+        import time
+        step_start_time = time.time()
+        steps_per_min_target = 100  # Minimum acceptable throughput
+
         # Load dataset and base model for real activations
         logger.info("Loading dataset and base model for activation extraction...")
         with self.get_db() as db:
@@ -369,6 +374,14 @@ def train_sae_task(
                     return {"status": "cancelled", "step": step}
 
             try:
+                # ==================================================================
+                # SANITY CHECK: First step validates activation extraction
+                # ==================================================================
+                if step == 1:
+                    logger.info("=" * 70)
+                    logger.info("STEP 1 VALIDATION: Checking activation extraction...")
+                    logger.info("=" * 70)
+
                 # Extract real activations from base model
                 # Sample random batch from dataset
                 batch_indices = torch.randint(0, len(dataset), (batch_size,)).tolist()
@@ -428,6 +441,23 @@ def train_sae_task(
                             acts = hook_manager.activations[layer_key][0]  # Shape: (batch_size, seq_len, hidden_dim)
                             # Average over sequence dimension to get (batch_size, hidden_dim)
                             layer_activations[layer_idx] = acts.mean(dim=1).detach()
+
+                            # VALIDATION: Check activation statistics on first step
+                            if step == 1:
+                                act_mean = acts.mean().item()
+                                act_std = acts.std().item()
+                                act_min = acts.min().item()
+                                act_max = acts.max().item()
+                                logger.info(f"Layer {layer_idx} activations captured successfully:")
+                                logger.info(f"  Shape: {acts.shape}")
+                                logger.info(f"  Mean: {act_mean:.4f}, Std: {act_std:.4f}")
+                                logger.info(f"  Range: [{act_min:.4f}, {act_max:.4f}]")
+
+                                # Sanity check: Real activations should have reasonable statistics
+                                if act_std < 0.01 or act_std > 100:
+                                    logger.error(f"SUSPICIOUS: Layer {layer_idx} std={act_std:.4f} is unusual!")
+                                if abs(act_mean) > 50:
+                                    logger.error(f"SUSPICIOUS: Layer {layer_idx} mean={act_mean:.4f} is unusual!")
                         else:
                             # CRITICAL ERROR: No activations captured means hooks failed
                             logger.error(f"FATAL: No activations captured for layer {layer_idx}")
@@ -563,16 +593,39 @@ def train_sae_task(
 
             # Log metrics periodically
             if step % log_interval == 0:
+                # THROUGHPUT MONITORING: Check if training is proceeding at acceptable speed
+                if step >= 100:  # Check after 100 steps
+                    elapsed_time = time.time() - step_start_time
+                    actual_steps_per_min = (step / elapsed_time) * 60
+                    if actual_steps_per_min < steps_per_min_target:
+                        logger.error("=" * 70)
+                        logger.error(f"PERFORMANCE ALERT: Training is too slow!")
+                        logger.error(f"  Current: {actual_steps_per_min:.1f} steps/min")
+                        logger.error(f"  Target:  {steps_per_min_target} steps/min minimum")
+                        logger.error(f"  This is {steps_per_min_target/actual_steps_per_min:.1f}x slower than expected!")
+                        logger.error("=" * 70)
+
                 # GPU memory monitoring
                 gpu_memory_mb = None
                 if torch.cuda.is_available():
                     gpu_memory_allocated = torch.cuda.memory_allocated(device) / (1024 ** 2)  # MB
                     gpu_memory_reserved = torch.cuda.memory_reserved(device) / (1024 ** 2)  # MB
                     gpu_memory_mb = gpu_memory_allocated
-                    logger.info(
-                        f"Step {step}: avg_loss={avg_loss:.4f}, avg_sparsity={avg_sparsity:.4f}, "
-                        f"GPU memory: allocated={gpu_memory_allocated:.2f}MB"
-                    )
+
+                    # Calculate throughput
+                    if step >= 100:
+                        elapsed_time = time.time() - step_start_time
+                        actual_steps_per_min = (step / elapsed_time) * 60
+                        logger.info(
+                            f"Step {step}: avg_loss={avg_loss:.4f}, avg_sparsity={avg_sparsity:.4f}, "
+                            f"throughput={actual_steps_per_min:.1f} steps/min, "
+                            f"GPU memory: allocated={gpu_memory_allocated:.2f}MB"
+                        )
+                    else:
+                        logger.info(
+                            f"Step {step}: avg_loss={avg_loss:.4f}, avg_sparsity={avg_sparsity:.4f}, "
+                            f"GPU memory: allocated={gpu_memory_allocated:.2f}MB"
+                        )
 
                 # Log aggregated metrics (layer_idx=None)
                 self.log_metric(

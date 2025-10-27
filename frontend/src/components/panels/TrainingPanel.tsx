@@ -527,6 +527,7 @@ export const TrainingPanel: React.FC = () => {
                     onChange={(e) => updateConfig({ batch_size: parseInt(e.target.value) })}
                     min={1}
                     max={512}
+                    step={32}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
                 </div>

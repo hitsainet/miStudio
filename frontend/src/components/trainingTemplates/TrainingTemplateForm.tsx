@@ -474,6 +474,7 @@ export function TrainingTemplateForm({
                 value={batchSize}
                 onChange={(e) => setBatchSize(parseInt(e.target.value, 10))}
                 min="1"
+                step={32}
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 disabled={isSubmitting}
                 required

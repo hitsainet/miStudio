@@ -417,9 +417,10 @@ def train_sae_task(
                     layer_activations = {}
                     for layer_idx in training_layers:
                         # Find the activation for this layer
+                        # Key format is "layer_{idx}_{hook_type}" (e.g., "layer_9_residual")
                         layer_key = None
                         for key in hook_manager.activations.keys():
-                            if f"layer.{layer_idx}" in key or f"layers.{layer_idx}" in key:
+                            if f"layer_{layer_idx}_" in key:
                                 layer_key = key
                                 break
 
@@ -428,8 +429,14 @@ def train_sae_task(
                             # Average over sequence dimension to get (batch_size, hidden_dim)
                             layer_activations[layer_idx] = acts.mean(dim=1).detach()
                         else:
-                            logger.warning(f"No activations captured for layer {layer_idx}, using fallback")
-                            layer_activations[layer_idx] = torch.randn(batch_size, hp['hidden_dim']).to(device)
+                            # CRITICAL ERROR: No activations captured means hooks failed
+                            logger.error(f"FATAL: No activations captured for layer {layer_idx}")
+                            logger.error(f"Available keys: {list(hook_manager.activations.keys())}")
+                            logger.error(f"Expected key pattern: layer_{layer_idx}_*")
+                            raise RuntimeError(
+                                f"Failed to capture activations for layer {layer_idx}. "
+                                f"Hook registration failed. Available keys: {list(hook_manager.activations.keys())}"
+                            )
 
                 # Train all layers
                 layer_losses = {}

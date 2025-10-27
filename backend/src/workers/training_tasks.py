@@ -440,7 +440,8 @@ def train_sae_task(
                         if layer_key and hook_manager.activations[layer_key]:
                             acts = hook_manager.activations[layer_key][0]  # Shape: (batch_size, seq_len, hidden_dim)
                             # Average over sequence dimension to get (batch_size, hidden_dim)
-                            layer_activations[layer_idx] = acts.mean(dim=1).detach()
+                            # Move to correct device (activations are on CPU from hook)
+                            layer_activations[layer_idx] = acts.mean(dim=1).detach().to(device)
 
                             # VALIDATION: Check activation statistics on first step
                             if step == 1:

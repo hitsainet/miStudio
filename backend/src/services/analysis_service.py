@@ -83,7 +83,7 @@ class AnalysisService:
         cache_entry = await self._get_cached_analysis(feature_id, AnalysisType.LOGIT_LENS)
         if cache_entry:
             logger.info(f"Logit lens cache hit for feature {feature_id}")
-            return LogitLensResponse(**cache_entry.results)
+            return LogitLensResponse(**cache_entry.result)
 
         # Load feature and related models
         feature = await self._get_feature(feature_id)
@@ -160,7 +160,7 @@ class AnalysisService:
         cache_entry = await self._get_cached_analysis(feature_id, AnalysisType.CORRELATIONS)
         if cache_entry:
             logger.info(f"Correlations cache hit for feature {feature_id}")
-            return CorrelationsResponse(**cache_entry.results)
+            return CorrelationsResponse(**cache_entry.result)
 
         # Load feature
         feature = await self._get_feature(feature_id)
@@ -242,7 +242,7 @@ class AnalysisService:
         cache_entry = await self._get_cached_analysis(feature_id, AnalysisType.ABLATION)
         if cache_entry:
             logger.info(f"Ablation cache hit for feature {feature_id}")
-            return AblationResponse(**cache_entry.results)
+            return AblationResponse(**cache_entry.result)
 
         # Load feature
         feature = await self._get_feature(feature_id)

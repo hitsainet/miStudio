@@ -160,23 +160,32 @@
   - Mock: HuggingFace API, tokenizer, WebSocket
   - **Acceptance:** All progress steps verified, error handling tested
 
-- [ ] **HP-2.5: Integration Tests for WebSocket Emission Flows**
-  - File: `backend/tests/workers/test_websocket_emission_integration.py` (NEW)
-  - Test: `test_emit_training_progress_flow()` → database updated, WebSocket emitted
-  - Test: `test_emit_extraction_progress_flow()` → database updated, WebSocket emitted
-  - Test: `test_emit_model_progress_flow()` → database updated, WebSocket emitted
-  - Test: `test_emit_dataset_progress_flow()` → database updated, WebSocket emitted
-  - Use: Real WebSocket manager (test mode), real database (test DB)
-  - **Acceptance:** End-to-end emission flow verified for all job types
+- [x] **HP-2.5: Integration Tests for WebSocket Emission Flows** ✅
+  - File: `backend/tests/integration/test_websocket_emission_integration.py` (956 lines)
+  - Tests Implemented:
+    - Training progress flow (4 tests): creation, progress updates, completion, checkpoint creation
+    - Extraction progress flow (2 tests): progress updates, failure with retry params
+    - Model download progress flow (1 test): download with database state updates
+    - Dataset progress flow (2 tests): download progress, tokenization progress
+    - Error handling (2 tests): WebSocket failure graceful handling, non-200 status codes
+  - Coverage: End-to-end emission flows verified for all job types
+  - Test Results: 11/11 passing ✅
+  - **Completed:** 2025-10-28
 
-- [ ] **HP-2.6: Unit Tests for Error Classification Logic**
-  - File: `backend/tests/workers/test_error_classification.py` (NEW)
-  - Test: `test_classify_oom_error()` → error_type = "OOM"
-  - Test: `test_classify_validation_error()` → error_type = "VALIDATION"
-  - Test: `test_classify_timeout_error()` → error_type = "TIMEOUT"
-  - Test: `test_classify_unknown_error()` → error_type = "UNKNOWN"
-  - Test: `test_suggest_retry_params_for_oom()` → batch_size reduced
-  - **Acceptance:** All error types correctly classified, retry suggestions accurate
+- [x] **HP-2.6: Unit Tests for Error Classification Logic** ✅
+  - File: `backend/tests/unit/test_error_classification.py` (332 lines)
+  - Tests Implemented:
+    - OOM error classification (7 tests): exception type, string matching, batch size reduction
+    - VALIDATION error classification (3 tests): not found, not ready, case insensitivity
+    - EXTRACTION error classification (2 tests): generic errors, hook failures
+    - TIMEOUT error classification (3 tests): timeout detection, batch size reduction
+    - UNKNOWN error classification (3 tests): generic exceptions, ValueError, TypeError
+    - Retry parameter logic (3 tests): powers of two, odd numbers, non-resource errors
+    - Case insensitivity (3 tests): OOM, TIMEOUT, VALIDATION variants
+    - Edge cases (4 tests): empty message, multiline, very large batch, multiple indicators
+  - Coverage: All error types correctly classified, retry suggestions accurate
+  - Test Results: 26/26 passing ✅
+  - **Completed:** 2025-10-28
 
 ##### Frontend Unit Tests
 

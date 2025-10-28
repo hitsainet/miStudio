@@ -13,7 +13,7 @@
 import React, { useEffect, useState } from 'react';
 import { TokenHighlight } from './TokenHighlight';
 import { FeatureActivationExample } from '../../types/features';
-import { api } from '../../api/client';
+import { fetchAPI, buildQueryString } from '../../api/client';
 
 interface MaxActivatingExamplesProps {
   featureId: string;
@@ -37,11 +37,11 @@ export const MaxActivatingExamples: React.FC<MaxActivatingExamplesProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const response = await api.get<FeatureActivationExample[]>(
-          `/features/${featureId}/examples`,
-          { params: { limit } }
+        const query = buildQueryString({ limit });
+        const data = await fetchAPI<FeatureActivationExample[]>(
+          `/features/${featureId}/examples?${query}`
         );
-        setExamples(response.data);
+        setExamples(data);
       } catch (err) {
         console.error('Error fetching feature examples:', err);
         setError('Failed to load examples');
@@ -140,11 +140,11 @@ export const MaxActivatingExamplesCompact: React.FC<MaxActivatingExamplesProps> 
     const fetchExamples = async () => {
       try {
         setLoading(true);
-        const response = await api.get<FeatureActivationExample[]>(
-          `/features/${featureId}/examples`,
-          { params: { limit } }
+        const query = buildQueryString({ limit });
+        const data = await fetchAPI<FeatureActivationExample[]>(
+          `/features/${featureId}/examples?${query}`
         );
-        setExamples(response.data);
+        setExamples(data);
       } catch (err) {
         console.error('Error fetching feature examples:', err);
       } finally {

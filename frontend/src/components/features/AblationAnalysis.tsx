@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { fetchAPI } from '../../api/client';
 import { Loader2, Zap, AlertCircle } from 'lucide-react';
 
 interface AblationResponse {
@@ -69,13 +69,13 @@ export const AblationAnalysis: React.FC<AblationAnalysisProps> = ({ featureId })
       try {
         setLoading(true);
         setError(null);
-        const response = await api.get<AblationResponse>(
+        const data = await fetchAPI<AblationResponse>(
           `/features/${featureId}/ablation`
         );
-        setData(response.data);
+        setData(data);
       } catch (err: any) {
         console.error('Error fetching ablation:', err);
-        setError(err.response?.data?.detail || 'Failed to load ablation analysis');
+        setError(err.detail || err.message || 'Failed to load ablation analysis');
       } finally {
         setLoading(false);
       }

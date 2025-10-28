@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { fetchAPI } from '../../api/client';
 import { Loader2, TrendingUp } from 'lucide-react';
 
 interface CorrelatedFeature {
@@ -45,13 +45,13 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const response = await api.get<CorrelationsResponse>(
+        const data = await fetchAPI<CorrelationsResponse>(
           `/features/${featureId}/correlations`
         );
-        setData(response.data);
+        setData(data);
       } catch (err: any) {
         console.error('Error fetching correlations:', err);
-        setError(err.response?.data?.detail || 'Failed to load correlations analysis');
+        setError(err.detail || err.message || 'Failed to load correlations analysis');
       } finally {
         setLoading(false);
       }

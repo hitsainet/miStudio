@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { fetchAPI } from '../../api/client';
 import { Loader2 } from 'lucide-react';
 
 interface LogitLensResponse {
@@ -37,13 +37,13 @@ export const LogitLensView: React.FC<LogitLensViewProps> = ({ featureId }) => {
       try {
         setLoading(true);
         setError(null);
-        const response = await api.get<LogitLensResponse>(
+        const data = await fetchAPI<LogitLensResponse>(
           `/features/${featureId}/logit-lens`
         );
-        setData(response.data);
+        setData(data);
       } catch (err: any) {
         console.error('Error fetching logit lens:', err);
-        setError(err.response?.data?.detail || 'Failed to load logit lens analysis');
+        setError(err.detail || err.message || 'Failed to load logit lens analysis');
       } finally {
         setLoading(false);
       }

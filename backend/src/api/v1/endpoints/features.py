@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.deps import get_db
 from src.services.extraction_service import ExtractionService
 from src.services.feature_service import FeatureService
+from src.services.analysis_service import AnalysisService
 from src.schemas.extraction import (
     ExtractionConfigRequest,
     ExtractionStatusResponse,
@@ -23,7 +24,10 @@ from src.schemas.feature import (
     FeatureDetailResponse,
     FeatureResponse,
     FeatureUpdateRequest,
-    FeatureActivationExample
+    FeatureActivationExample,
+    LogitLensResponse,
+    CorrelationsResponse,
+    AblationResponse
 )
 
 
@@ -427,3 +431,123 @@ async def get_feature_examples(
     examples = await feature_service.get_feature_examples(feature_id, limit)
 
     return examples
+
+
+@router.get(
+    "/features/{feature_id}/logit-lens",
+    response_model=LogitLensResponse,
+    summary="Get logit lens analysis"
+)
+async def get_logit_lens(
+    feature_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get logit lens analysis for a feature.
+
+    Analyzes what the feature contributes to the model's output predictions
+    by passing a synthetic activation through the SAE decoder and model head.
+
+    Returns top predicted tokens and an interpretation of the feature's role.
+
+    Args:
+        feature_id: ID of the feature
+
+    Returns:
+        LogitLensResponse with top tokens, probabilities, and interpretation
+
+    Raises:
+        404: Feature not found
+        500: Analysis computation error
+    """
+    analysis_service = AnalysisService(db)
+
+    result = await analysis_service.calculate_logit_lens(feature_id)
+
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Feature {feature_id} not found"
+        )
+
+    return result
+
+
+@router.get(
+    "/features/{feature_id}/correlations",
+    response_model=CorrelationsResponse,
+    summary="Get feature correlations"
+)
+async def get_correlations(
+    feature_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get correlation analysis for a feature.
+
+    Finds features with similar activation patterns by computing
+    Pearson correlation coefficients on activation vectors.
+
+    Returns up to 10 features with correlation > 0.5.
+
+    Args:
+        feature_id: ID of the feature
+
+    Returns:
+        CorrelationsResponse with list of correlated features
+
+    Raises:
+        404: Feature not found
+        500: Analysis computation error
+    """
+    analysis_service = AnalysisService(db)
+
+    result = await analysis_service.calculate_correlations(feature_id)
+
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Feature {feature_id} not found"
+        )
+
+    return result
+
+
+@router.get(
+    "/features/{feature_id}/ablation",
+    response_model=AblationResponse,
+    summary="Get ablation analysis"
+)
+async def get_ablation(
+    feature_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get ablation analysis for a feature.
+
+    Measures the feature's importance by comparing model performance
+    with the feature active vs. ablated (set to zero).
+
+    Returns perplexity delta and normalized impact score (0-1).
+
+    Args:
+        feature_id: ID of the feature
+
+    Returns:
+        AblationResponse with perplexity metrics and impact score
+
+    Raises:
+        404: Feature not found
+        500: Analysis computation error
+    """
+    analysis_service = AnalysisService(db)
+
+    result = await analysis_service.calculate_ablation(feature_id)
+
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Feature {feature_id} not found"
+        )
+
+    return result

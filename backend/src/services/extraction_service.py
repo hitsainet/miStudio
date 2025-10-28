@@ -110,9 +110,54 @@ class ExtractionService:
         active_extraction = result.scalar_one_or_none()
 
         if active_extraction:
-            raise ValueError(
-                f"Training {training_id} already has an active extraction job: {active_extraction.id}"
-            )
+            # Verify Celery task is actually running
+            from src.core.celery_app import get_task_status
+            from datetime import timedelta
+
+            if active_extraction.celery_task_id:
+                task_status = get_task_status(active_extraction.celery_task_id)
+
+                # Check if task is genuinely active
+                if task_status['state'] in ['PENDING', 'STARTED', 'RETRY']:
+                    raise ValueError(
+                        f"Training {training_id} already has an active extraction job: "
+                        f"{active_extraction.id} (Celery task: {active_extraction.celery_task_id}, "
+                        f"state: {task_status['state']})"
+                    )
+                elif task_status['state'] in ['SUCCESS', 'FAILURE', 'REVOKED']:
+                    # Task finished but DB not updated - check staleness
+                    time_since_update = datetime.now(timezone.utc) - active_extraction.updated_at
+                    if time_since_update < timedelta(minutes=5):
+                        # Recent activity, task may still be committing results
+                        raise ValueError(
+                            f"Training {training_id} has a recently completed extraction task "
+                            f"that may still be finalizing: {active_extraction.id}"
+                        )
+                    else:
+                        # Stale - allow new extraction but log warning
+                        logger.warning(
+                            f"Found stale extraction {active_extraction.id} with finished "
+                            f"Celery task (state: {task_status['state']}), allowing new extraction"
+                        )
+                else:
+                    # Unknown state
+                    logger.warning(
+                        f"Extraction {active_extraction.id} has Celery task in unknown state: "
+                        f"{task_status['state']}, allowing new extraction"
+                    )
+            else:
+                # Legacy job without task_id - check staleness by timestamp
+                time_since_update = datetime.now(timezone.utc) - active_extraction.updated_at
+                if time_since_update < timedelta(hours=3):
+                    raise ValueError(
+                        f"Training {training_id} already has an active extraction job: "
+                        f"{active_extraction.id} (last updated {time_since_update} ago)"
+                    )
+                else:
+                    logger.warning(
+                        f"Found stale extraction {active_extraction.id} (no task_id, "
+                        f"last update {time_since_update} ago), allowing new extraction"
+                    )
 
         # Create extraction job record
         extraction_job = ExtractionJob(
@@ -136,7 +181,14 @@ class ExtractionService:
 
         # Enqueue Celery task for async extraction
         from src.workers.extraction_tasks import extract_features_task
-        extract_features_task.delay(training_id, config)
+        task_result = extract_features_task.delay(training_id, config)
+
+        # Store task ID in database for tracking
+        extraction_job.celery_task_id = task_result.id
+        await self.db.commit()
+        await self.db.refresh(extraction_job)
+
+        logger.info(f"Queued extraction task {task_result.id} for job {extraction_job.id}")
 
         return extraction_job
 
@@ -578,6 +630,21 @@ class ExtractionService:
         if not extraction_job:
             raise ValueError(f"No extraction job found for training {training_id}")
 
+        # Idempotency check: prevent re-running completed or failed extractions
+        if extraction_job.status == ExtractionStatus.COMPLETED.value:
+            logger.warning(
+                f"Extraction {extraction_job.id} already completed at {extraction_job.completed_at}. "
+                f"Returning existing statistics."
+            )
+            return extraction_job.statistics or {}
+
+        if extraction_job.status == ExtractionStatus.FAILED.value:
+            logger.warning(
+                f"Extraction {extraction_job.id} previously failed with error: {extraction_job.error_message}. "
+                f"Please create a new extraction job to retry."
+            )
+            return {}
+
         try:
             # Clear GPU memory before starting to avoid leaks from previous runs
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -715,6 +782,52 @@ class ExtractionService:
             )
             base_model.eval()
 
+            # Validate tokenizer/model vocabulary compatibility
+            # Get dataset tokenizer name from metadata
+            dataset_tokenizer_name = None
+            dataset_vocab_size = None
+            if dataset_record.metadata and isinstance(dataset_record.metadata, dict):
+                tokenization_info = dataset_record.metadata.get("tokenization", {})
+                dataset_tokenizer_name = tokenization_info.get("tokenizer_name")
+                dataset_vocab_size = tokenization_info.get("vocab_size")
+
+            # Get model vocabulary size
+            model_vocab_size = model_config.vocab_size if hasattr(model_config, "vocab_size") else tokenizer.vocab_size
+
+            # Check compatibility
+            if dataset_vocab_size and model_vocab_size:
+                # Allow some tolerance for special tokens, but flag major mismatches
+                vocab_size_diff = abs(dataset_vocab_size - model_vocab_size)
+                vocab_size_ratio = vocab_size_diff / model_vocab_size
+
+                if vocab_size_ratio > 0.1:  # More than 10% difference
+                    error_msg = (
+                        f"Tokenizer/model vocabulary mismatch detected:\n"
+                        f"  Dataset tokenizer: {dataset_tokenizer_name or 'unknown'} (vocab_size: {dataset_vocab_size})\n"
+                        f"  Model: {model_record.repo_id} (vocab_size: {model_vocab_size})\n"
+                        f"  Difference: {vocab_size_diff} tokens ({vocab_size_ratio*100:.1f}%)\n\n"
+                        f"This will cause 'index out of bounds' errors during feature extraction.\n"
+                        f"Please re-tokenize the dataset using the model's tokenizer ({model_record.repo_id})."
+                    )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif vocab_size_diff > 100:  # Minor difference, just warn
+                    logger.warning(
+                        f"Minor vocabulary size difference detected: "
+                        f"dataset={dataset_vocab_size}, model={model_vocab_size} (diff={vocab_size_diff})"
+                    )
+            else:
+                logger.warning(
+                    f"Could not validate vocabulary compatibility: "
+                    f"dataset_vocab_size={dataset_vocab_size}, model_vocab_size={model_vocab_size}"
+                )
+
+            logger.info(
+                f"Vocabulary compatibility check passed: "
+                f"dataset tokenizer={dataset_tokenizer_name or 'unknown'}, "
+                f"model vocab_size={model_vocab_size}"
+            )
+
             # Data structures for accumulating feature activations
             # feature_activations[neuron_idx] = heap of (max_activation, counter, example_dict)
             feature_activations = defaultdict(list)
@@ -805,7 +918,18 @@ class ExtractionService:
 
                         # Pad sequences to same length
                         max_length = max(len(ids) for ids in batch_input_ids)
-                        pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+                        # Ensure we have a valid pad token ID
+                        # LLaMA models don't have pad_token by default, so we explicitly set it
+                        if tokenizer.pad_token_id is None:
+                            if tokenizer.eos_token_id is not None:
+                                pad_token_id = tokenizer.eos_token_id
+                            else:
+                                # Fallback: use 0 (typically <unk> or <pad>)
+                                pad_token_id = 0
+                                logger.warning(f"Tokenizer has no pad_token_id or eos_token_id, using 0 as fallback")
+                        else:
+                            pad_token_id = tokenizer.pad_token_id
 
                         padded_input_ids = []
                         attention_masks = []
@@ -819,8 +943,17 @@ class ExtractionService:
                             attention_masks.append(mask)
 
                         # Convert to tensors
-                        input_ids_tensor = torch.tensor(padded_input_ids, device=device)
-                        attention_mask_tensor = torch.tensor(attention_masks, device=device)
+                        input_ids_tensor = torch.tensor(padded_input_ids, device=device, dtype=torch.long)
+                        attention_mask_tensor = torch.tensor(attention_masks, device=device, dtype=torch.long)
+
+                        # Debug: Log tensor shapes and values for first batch
+                        if batch_start == 0:
+                            logger.info(f"Debug - First batch tensor shapes:")
+                            logger.info(f"  input_ids_tensor: shape={input_ids_tensor.shape}, dtype={input_ids_tensor.dtype}")
+                            logger.info(f"  attention_mask_tensor: shape={attention_mask_tensor.shape}, dtype={attention_mask_tensor.dtype}")
+                            logger.info(f"  pad_token_id: {pad_token_id}")
+                            logger.info(f"  input_ids range: [{input_ids_tensor.min().item()}, {input_ids_tensor.max().item()}]")
+                            logger.info(f"  Sample first sequence: {input_ids_tensor[0][:10].tolist()}")
 
                         # Run model forward pass to capture activations
                         hook_manager.clear_activations()

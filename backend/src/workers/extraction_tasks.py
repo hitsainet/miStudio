@@ -15,7 +15,13 @@ from src.workers.base_task import DatabaseTask
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, base=DatabaseTask, name="extract_features")
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
+    name="extract_features",
+    max_retries=0,  # No automatic retries
+    autoretry_for=None,  # Explicit no auto-retry
+)
 def extract_features_task(
     self,
     training_id: str,
@@ -42,6 +48,39 @@ def extract_features_task(
 
     with self.get_db() as db:
         try:
+            # Pre-flight check: Verify extraction hasn't already completed
+            from src.models.extraction_job import ExtractionJob, ExtractionStatus
+            from sqlalchemy import desc
+            from datetime import datetime, timezone, timedelta
+
+            extraction_job = db.query(ExtractionJob).filter(
+                ExtractionJob.training_id == training_id
+            ).order_by(desc(ExtractionJob.created_at)).first()
+
+            if extraction_job:
+                if extraction_job.status == ExtractionStatus.COMPLETED.value:
+                    logger.info(
+                        f"Extraction {extraction_job.id} already completed at "
+                        f"{extraction_job.completed_at}, skipping re-execution"
+                    )
+                    return extraction_job.statistics or {}
+
+                if extraction_job.status == ExtractionStatus.EXTRACTING.value:
+                    # Check if it's been running for too long (> 3 hours = likely stuck)
+                    if extraction_job.updated_at:
+                        time_since_update = datetime.now(timezone.utc) - extraction_job.updated_at
+                        if time_since_update > timedelta(hours=3):
+                            logger.warning(
+                                f"Extraction {extraction_job.id} appears stuck "
+                                f"(no update for {time_since_update}), allowing restart"
+                            )
+                        else:
+                            logger.info(
+                                f"Extraction {extraction_job.id} is already in progress "
+                                f"(last update: {time_since_update} ago), skipping"
+                            )
+                            return {}
+
             extraction_service = ExtractionService(db)
 
             # Core extraction logic is delegated to service

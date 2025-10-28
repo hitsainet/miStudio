@@ -131,34 +131,45 @@
   - Mock: Database, WebSocket
   - **Acceptance:** 100% coverage of progress calculation logic, all edge cases tested
 
-- [ ] **HP-2.2: Unit Tests for Extraction Progress Calculation**
-  - File: `backend/tests/workers/test_extraction_progress.py` (NEW)
-  - Test: `test_extraction_progress_loading_phase()` → 0-10%
-  - Test: `test_extraction_progress_extracting_phase()` → 10-90% based on samples
-  - Test: `test_extraction_progress_saving_phase()` → 90-100%
-  - Test: `test_extraction_progress_samples_processed()` → accurate percentage
-  - Test: `test_extraction_progress_callback()` → callback invoked correctly
-  - Mock: Model loading, dataset loading, WebSocket
-  - **Acceptance:** 100% coverage of 3-phase progress formula
+- [x] **HP-2.2: Unit Tests for Extraction Progress Calculation** ✅
+  - File: `backend/tests/unit/test_extraction_progress.py` (279 lines)
+  - Tests Implemented (17 tests):
+    - Progress calculation for loading phase (0-10%)
+    - Progress calculation for extracting phase (10-90%)
+    - Progress calculation for saving phase (90-100%)
+    - Accurate samples processed percentage
+    - Callback invocation verification
+    - Progress callbacks with different sample counts
+    - Edge cases: zero samples, single sample, very large counts
+    - Progress emission via WebSocket
+  - Test Results: 17/17 passing ✅
+  - **Completed:** 2025-10-28
 
-- [ ] **HP-2.3: Unit Tests for Model Download Progress Monitor**
-  - File: `backend/tests/workers/test_model_download_progress.py` (NEW)
-  - Test: `test_progress_monitor_thread_start()` → thread starts successfully
-  - Test: `test_progress_monitor_calculates_percentage()` → accurate calculation
-  - Test: `test_progress_monitor_stops_on_completion()` → thread terminates
-  - Test: `test_progress_monitor_handles_missing_files()` → graceful error handling
-  - Test: `test_progress_monitor_emits_websocket_events()` → events emitted at 1% intervals
-  - Mock: File system, WebSocket
-  - **Acceptance:** Thread safety verified, progress calculation accurate
+- [x] **HP-2.3: Unit Tests for Model Download Progress Monitor** ✅
+  - File: `backend/tests/unit/test_model_download_progress.py` (420 lines)
+  - Tests Implemented (19 tests):
+    - Progress monitor thread lifecycle (start, stop)
+    - Accurate percentage calculation
+    - Thread termination on completion
+    - Graceful handling of missing files
+    - WebSocket event emission at 1% intervals
+    - Progress calculation for various file sizes
+    - Thread safety verification
+    - Concurrent monitoring scenarios
+  - Test Results: 19/19 passing ✅
+  - **Completed:** 2025-10-28
 
-- [ ] **HP-2.4: Unit Tests for Dataset Progress Steps**
-  - File: `backend/tests/workers/test_dataset_progress.py` (NEW)
-  - Test: `test_dataset_download_progress_steps()` → 0%, 10%, 70%, 90%, 100%
-  - Test: `test_dataset_tokenization_progress_steps()` → 0%, 10%, 20%, 40%, 80%, 95%, 100%
-  - Test: `test_dataset_progress_error_handling()` → status set to ERROR
-  - Test: `test_dataset_progress_websocket_emission()` → events emitted at each step
-  - Mock: HuggingFace API, tokenizer, WebSocket
-  - **Acceptance:** All progress steps verified, error handling tested
+- [x] **HP-2.4: Unit Tests for Dataset Progress Steps** ✅
+  - File: `backend/tests/unit/test_dataset_progress.py` (337 lines)
+  - Tests Implemented (26 tests):
+    - Download progress milestones (0%, 10%, 70%, 90%, 100%)
+    - Tokenization progress steps (0%, 10%, 20%, 40%, 80%, 95%, 100%)
+    - Error handling → status set to ERROR
+    - WebSocket emission at each step
+    - Progress calculation for streaming downloads
+    - Edge cases: empty datasets, single sample, interrupted downloads
+  - Test Results: 26/26 passing ✅
+  - **Completed:** 2025-10-28
 
 - [x] **HP-2.5: Integration Tests for WebSocket Emission Flows** ✅
   - File: `backend/tests/integration/test_websocket_emission_integration.py` (956 lines)

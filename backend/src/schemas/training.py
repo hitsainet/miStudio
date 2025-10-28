@@ -70,6 +70,7 @@ class TrainingHyperparameters(BaseModel):
     # Dead neuron handling
     dead_neuron_threshold: int = Field(1000, gt=0, description="Steps before a neuron is considered dead")
     resample_dead_neurons: bool = Field(True, description="Resample dead neurons during training")
+    resample_interval: int = Field(5000, gt=0, description="Resample dead neurons every N steps")
 
     @field_validator("training_layers")
     @classmethod

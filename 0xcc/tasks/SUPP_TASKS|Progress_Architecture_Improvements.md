@@ -116,27 +116,31 @@
 - Catch regressions early
 
 **Estimated Effort:** 16-20 hours
-**Status:** SUBSTANTIALLY COMPLETE - 8/10 sub-tasks complete (HP-2.2-HP-2.9 ✅)
+**Status:** NEARLY COMPLETE - 9/10 sub-tasks complete (HP-2.1-HP-2.9 ✅)
 **Backend Coverage:** 50.45% (target: 60%)
 **Backend Tests:** 683/690 passing (7 pre-existing failures)
 **Frontend Tests:** 760/769 passing (9 pre-existing failures)
 **Total Tests Passing:** 1,443/1,459 tests across backend + frontend
+**Test Code Volume:** 5,518 lines of comprehensive test coverage
 **Completed:** 2025-10-28
-**Remaining:** HP-2.1 (training progress calculation), HP-2.10 (final coverage report and gap analysis)
+**Remaining:** HP-2.10 only (final coverage report, gap analysis, Phase 2 planning)
 
 #### Sub-Tasks:
 
 ##### Backend Unit Tests
 
-- [ ] **HP-2.1: Unit Tests for Training Progress Calculation**
-  - File: `backend/tests/workers/test_training_progress.py` (NEW)
-  - Test: `test_calculate_training_progress_start()` → progress = 0
-  - Test: `test_calculate_training_progress_midpoint()` → progress = 50
-  - Test: `test_calculate_training_progress_complete()` → progress = 100
-  - Test: `test_calculate_training_progress_with_checkpoints()` → correct percentage
-  - Test: `test_training_progress_multi_layer()` → aggregated metrics correct
-  - Mock: Database, WebSocket
-  - **Acceptance:** 100% coverage of progress calculation logic, all edge cases tested
+- [x] **HP-2.1: Unit Tests for Training Progress Calculation** ✅
+  - File: `backend/tests/unit/test_training_tasks.py` (528 lines)
+  - Tests Implemented (20 tests):
+    - update_training_progress: basic metrics, progress calculation (step/total * 100)
+    - Progress milestones: start (0%), midpoint (50%), completion (100%)
+    - log_metric: metric storage with all fields (loss, L0, dead neurons, learning rate)
+    - checkpoint_training: checkpoint creation with best model tracking
+    - Vocabulary validation: tokenizer compatibility checks
+    - Error handling: OOM handling, training failures
+  - Coverage: Progress calculation logic, metric logging, checkpoint management
+  - Test Results: 20/20 passing ✅
+  - **Completed:** 2025-10-28
 
 - [x] **HP-2.2: Unit Tests for Extraction Progress Calculation** ✅
   - File: `backend/tests/unit/test_extraction_progress.py` (279 lines)

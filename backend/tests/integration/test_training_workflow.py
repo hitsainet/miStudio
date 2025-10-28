@@ -13,12 +13,13 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from src.models.training import TrainingStatus
 from src.models.model import ModelStatus, QuantizationFormat
 from src.models.dataset import DatasetStatus
-from src.schemas.training import TrainingCreate, TrainingHyperparameters, SAEArchitectureType
+from src.schemas.training import TrainingCreate, TrainingUpdate, TrainingHyperparameters, SAEArchitectureType
 from src.schemas.model import ModelDownloadRequest
 from src.schemas.dataset import DatasetCreate
 from src.services.training_service import TrainingService
 from src.services.model_service import ModelService
 from src.services.dataset_service import DatasetService
+from src.services.checkpoint_service import CheckpointService
 
 
 class TestTrainingWorkflow:
@@ -156,6 +157,165 @@ class TestTrainingWorkflow:
         # For service layer test, these are None initially
 
         # Cleanup
+        await TrainingService.delete_training(async_session, training.id)
+        await ModelService.delete_model(async_session, model.id)
+        await DatasetService.delete_dataset(async_session, dataset.id)
+        await async_session.commit()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_training_progress_and_metrics_tracking(self, async_session):
+        """
+        Test training progress updates and metrics tracking during training.
+
+        This test verifies Phase 20.2 requirements:
+        1. Training status transitions (PENDING → INITIALIZING → RUNNING → COMPLETED)
+        2. Progress tracking (0% → 100%)
+        3. Current metrics are updated on training record
+        4. Checkpoint creation works
+
+        Note: This is a simplified integration test that verifies service layer methods
+        for progress tracking work correctly. Full worker task testing with actual
+        training loop execution is deferred to HP-2 Phase 3 (see HP2_Phase3_Implementation_Plan.md).
+        """
+        # Step 1: Create test model and dataset
+        model_request = ModelDownloadRequest(
+            repo_id="test/training-progress-model",
+            quantization=QuantizationFormat.FP16,
+        )
+        model = await ModelService.initiate_model_download(async_session, model_request)
+        model.status = ModelStatus.READY.value
+        model.architecture = "gpt2"
+        model.params_count = 124000000
+        model.hidden_dim = 768
+        model.num_layers = 12
+        await async_session.commit()
+        await async_session.refresh(model)
+
+        dataset_data = DatasetCreate(
+            name="test-progress-dataset",
+            source="HuggingFace",
+            hf_repo_id="test/progress-dataset",
+            metadata={"splits": ["train"], "num_rows": 1000}
+        )
+        dataset = await DatasetService.create_dataset(async_session, dataset_data)
+        dataset.status = DatasetStatus.READY.value
+        await async_session.commit()
+        await async_session.refresh(dataset)
+
+        # Step 2: Create training job
+        hyperparameters = TrainingHyperparameters(
+            hidden_dim=768,
+            latent_dim=4096,
+            architecture_type=SAEArchitectureType.STANDARD,
+            training_layers=[0],
+            l1_alpha=0.001,
+            learning_rate=0.0003,
+            batch_size=128,
+            total_steps=100,  # Small number for testing
+            warmup_steps=10,
+            checkpoint_interval=25,  # Checkpoint every 25 steps
+            log_interval=10,  # Log every 10 steps
+        )
+
+        training_data = TrainingCreate(
+            model_id=model.id,
+            dataset_id=str(dataset.id),
+            extraction_id=None,
+            hyperparameters=hyperparameters
+        )
+
+        training = await TrainingService.create_training(async_session, training_data)
+        await async_session.commit()
+        await async_session.refresh(training)
+
+        # Verify initial status
+        assert training.status == TrainingStatus.PENDING.value
+        assert training.progress == 0.0
+        assert training.current_step == 0
+
+        # Step 3: Simulate training start
+        await TrainingService.start_training(async_session, training.id, "test-celery-task-123")
+        await async_session.commit()
+        await async_session.refresh(training)
+
+        assert training.status == TrainingStatus.INITIALIZING.value
+        assert training.started_at is not None
+
+        # Step 4: Simulate a single training progress update
+        step = 50
+        progress = (step / hyperparameters.total_steps) * 100.0
+        loss = 0.5
+        l0_sparsity = 0.06
+        dead_neurons = 50
+        learning_rate = 0.00025
+
+        # Update training using TrainingUpdate schema
+        update_data = TrainingUpdate(
+            status=TrainingStatus.RUNNING,
+            progress=progress,
+            current_step=step,
+            current_loss=loss,
+            current_l0_sparsity=l0_sparsity,
+            current_dead_neurons=dead_neurons,
+            current_learning_rate=learning_rate
+        )
+        training = await TrainingService.update_training(
+            async_session,
+            training.id,
+            update_data
+        )
+        await async_session.commit()
+        await async_session.refresh(training)
+
+        # Verify progress update
+        assert training.current_step == step
+        assert training.progress == progress
+        assert training.current_loss == loss
+        assert training.current_l0_sparsity == l0_sparsity
+        assert training.current_dead_neurons == dead_neurons
+        assert training.current_learning_rate == learning_rate
+        assert training.status == TrainingStatus.RUNNING.value
+
+        # Step 5: Test checkpoint creation
+        checkpoint = await CheckpointService.create_checkpoint(
+            async_session,
+            training_id=training.id,
+            step=step,
+            loss=loss,
+            l0_sparsity=l0_sparsity,
+            storage_path=f"/tmp/test_checkpoint_step_{step}.safetensors",
+            is_best=True,
+            extra_metadata={"test": True}
+        )
+        await async_session.commit()
+
+        assert checkpoint is not None
+        assert checkpoint.step == step
+        assert checkpoint.loss == loss
+        assert checkpoint.is_best is True
+
+        # Step 6: Mark training as completed
+        await TrainingService.mark_training_completed(async_session, training.id)
+        await async_session.commit()
+        await async_session.refresh(training)
+
+        assert training.status == TrainingStatus.COMPLETED.value
+        assert training.progress == 100.0
+        assert training.completed_at is not None
+
+        # Step 7: Verify checkpoint can be retrieved
+        checkpoints, total = await CheckpointService.list_checkpoints(async_session, training.id)
+        assert len(checkpoints) >= 1  # At least the one we created
+        assert total >= 1
+
+        # Find our checkpoint
+        our_checkpoint = next((c for c in checkpoints if c.step == step), None)
+        assert our_checkpoint is not None
+        assert our_checkpoint.is_best is True
+
+        # Cleanup
+        await CheckpointService.delete_checkpoint(async_session, checkpoint.id)
         await TrainingService.delete_training(async_session, training.id)
         await ModelService.delete_model(async_session, model.id)
         await DatasetService.delete_dataset(async_session, dataset.id)

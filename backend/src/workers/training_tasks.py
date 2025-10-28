@@ -9,6 +9,8 @@ import logging
 import traceback
 from pathlib import Path
 from typing import Optional, Dict, Any
+import json
+import numpy as np
 
 import torch
 import torch.optim as optim
@@ -326,37 +328,142 @@ def train_sae_task(
         step_start_time = time.time()
         steps_per_min_target = 100  # Minimum acceptable throughput
 
-        # Load dataset and base model for real activations
-        logger.info("Loading dataset and base model for activation extraction...")
-        with self.get_db() as db:
-            dataset_record = db.query(Dataset).filter(
-                Dataset.id == training.dataset_id
-            ).first()
-            if not dataset_record:
-                raise ValueError(f"Dataset {training.dataset_id} not found")
+        # Check if using cached activations or need to extract on-the-fly
+        use_cached_activations = training.extraction_id is not None
+        cached_activations = {}
+        dataset = None
+        base_model = None
+        tokenizer = None
+        architecture = None
+        hook_types = None
 
-            model_record = db.query(Model).filter(
-                Model.id == training.model_id
-            ).first()
-            if not model_record:
-                raise ValueError(f"Model {training.model_id} not found")
+        if use_cached_activations:
+            # Load cached activations from extraction
+            logger.info(f"Using cached activations from extraction: {training.extraction_id}")
+            from ..models.activation_extraction import ActivationExtraction
 
-        logger.info(f"Loading dataset from {dataset_record.tokenized_path}")
-        dataset = load_from_disk(dataset_record.tokenized_path)
+            with self.get_db() as db:
+                extraction = db.query(ActivationExtraction).filter(
+                    ActivationExtraction.id == training.extraction_id
+                ).first()
+                if not extraction:
+                    raise ValueError(f"Extraction {training.extraction_id} not found")
 
-        logger.info(f"Loading base model: {model_record.repo_id}")
-        base_model, tokenizer, model_config, metadata = load_model_from_hf(
-            repo_id=model_record.repo_id,
-            quant_format=QuantizationFormat(model_record.quantization),
-            cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
-            device_map=device
-        )
-        base_model.eval()
+                if extraction.status != "completed":
+                    raise ValueError(f"Extraction {training.extraction_id} is not completed (status: {extraction.status})")
 
-        architecture = model_record.architecture
-        hook_types = [HookType.RESIDUAL]  # Default to residual stream
+            extraction_path = Path(extraction.output_path)
+            logger.info(f"Loading activations from: {extraction_path}")
 
-        logger.info(f"Dataset: {len(dataset)} samples, Model: {model_record.repo_id}")
+            # Load metadata
+            metadata_path = extraction_path / "metadata.json"
+            with open(metadata_path, 'r') as f:
+                extraction_metadata = json.load(f)
+
+            logger.info(f"Extraction metadata: {extraction_metadata['num_samples_processed']} samples")
+
+            # Load activation files for each training layer
+            for layer_idx in training_layers:
+                activation_file = extraction_path / f"layer_{layer_idx}_residual.npy"
+                if not activation_file.exists():
+                    raise ValueError(
+                        f"Activation file not found for layer {layer_idx}: {activation_file}. "
+                        f"Available layers in extraction: {extraction_metadata['layer_indices']}"
+                    )
+
+                logger.info(f"Loading layer {layer_idx} activations from {activation_file}")
+                # Use memory-mapped loading for large files to avoid RAM exhaustion
+                # Shape: (num_samples, seq_len, hidden_dim)
+                layer_acts_mmap = np.load(activation_file, mmap_mode='r')
+                logger.info(f"  Memory-mapped shape: {layer_acts_mmap.shape}, dtype: {layer_acts_mmap.dtype}")
+
+                # Average over sequence dimension in chunks to save RAM
+                # (num_samples, seq_len, hidden_dim) -> (num_samples, hidden_dim)
+                num_samples, seq_len, hidden_dim = layer_acts_mmap.shape
+                chunk_size = 1000  # Process 1000 samples at a time
+                layer_acts_mean = np.zeros((num_samples, hidden_dim), dtype=np.float32)
+
+                logger.info(f"  Averaging over sequence dimension in chunks of {chunk_size}...")
+                for start_idx in range(0, num_samples, chunk_size):
+                    end_idx = min(start_idx + chunk_size, num_samples)
+                    chunk = layer_acts_mmap[start_idx:end_idx]  # Load chunk into RAM
+                    layer_acts_mean[start_idx:end_idx] = chunk.mean(axis=1).astype(np.float32)
+
+                # Convert to torch tensor and move to GPU
+                layer_acts_tensor = torch.from_numpy(layer_acts_mean).to(device)
+                cached_activations[layer_idx] = layer_acts_tensor
+                logger.info(f"  Loaded shape: {layer_acts_mmap.shape} -> averaged to {layer_acts_tensor.shape} on GPU")
+
+            num_samples = cached_activations[training_layers[0]].shape[0]
+            logger.info(f"Cached activations ready: {num_samples} samples across {len(training_layers)} layers (all on GPU)")
+
+        else:
+            # Load dataset and base model for on-the-fly activation extraction
+            logger.info("Loading dataset and base model for activation extraction...")
+            with self.get_db() as db:
+                dataset_record = db.query(Dataset).filter(
+                    Dataset.id == training.dataset_id
+                ).first()
+                if not dataset_record:
+                    raise ValueError(f"Dataset {training.dataset_id} not found")
+
+                model_record = db.query(Model).filter(
+                    Model.id == training.model_id
+                ).first()
+                if not model_record:
+                    raise ValueError(f"Model {training.model_id} not found")
+
+            logger.info(f"Loading dataset from {dataset_record.tokenized_path}")
+            dataset = load_from_disk(dataset_record.tokenized_path)
+
+            logger.info(f"Loading base model: {model_record.repo_id}")
+            base_model, tokenizer, model_config, metadata = load_model_from_hf(
+                repo_id=model_record.repo_id,
+                quant_format=QuantizationFormat(model_record.quantization),
+                cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
+                device_map=device
+            )
+            base_model.eval()
+
+            # Validate tokenizer/model vocabulary compatibility
+            dataset_tokenizer_name = None
+            dataset_vocab_size = None
+            if dataset_record.metadata and isinstance(dataset_record.metadata, dict):
+                tokenization_info = dataset_record.metadata.get("tokenization", {})
+                dataset_tokenizer_name = tokenization_info.get("tokenizer_name")
+                dataset_vocab_size = tokenization_info.get("vocab_size")
+
+            model_vocab_size = model_config.vocab_size if hasattr(model_config, "vocab_size") else tokenizer.vocab_size
+
+            if dataset_vocab_size and model_vocab_size:
+                vocab_size_diff = abs(dataset_vocab_size - model_vocab_size)
+                vocab_size_ratio = vocab_size_diff / model_vocab_size
+
+                if vocab_size_ratio > 0.1:  # More than 10% difference
+                    error_msg = (
+                        f"Tokenizer/model vocabulary mismatch:\n"
+                        f"  Dataset tokenizer: {dataset_tokenizer_name or 'unknown'} (vocab_size: {dataset_vocab_size})\n"
+                        f"  Model: {model_record.repo_id} (vocab_size: {model_vocab_size})\n"
+                        f"  Please re-tokenize the dataset using the model's tokenizer."
+                    )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif vocab_size_diff > 100:
+                    logger.warning(
+                        f"Minor vocabulary size difference: "
+                        f"dataset={dataset_vocab_size}, model={model_vocab_size}"
+                    )
+
+            logger.info(
+                f"Vocabulary check: dataset_tokenizer={dataset_tokenizer_name or 'unknown'}, "
+                f"model_vocab_size={model_vocab_size}"
+            )
+
+            architecture = model_record.architecture
+            hook_types = [HookType.RESIDUAL]  # Default to residual stream
+
+            num_samples = len(dataset)
+            logger.info(f"Dataset: {num_samples} samples, Model: {model_record.repo_id}")
         logger.info(f"Starting training loop: {total_steps} steps, batch_size={batch_size}")
 
         # Training loop
@@ -382,92 +489,122 @@ def train_sae_task(
                     logger.info("STEP 1 VALIDATION: Checking activation extraction...")
                     logger.info("=" * 70)
 
-                # Extract real activations from base model
-                # Sample random batch from dataset
-                batch_indices = torch.randint(0, len(dataset), (batch_size,)).tolist()
-                batch = dataset.select(batch_indices)
+                # Get activations for this training step
+                layer_activations = {}
 
-                # Get input_ids from batch
-                batch_input_ids = []
-                if "input_ids" in batch.column_names:
-                    for ids in batch["input_ids"]:
-                        if isinstance(ids, list):
-                            batch_input_ids.append(ids)
-                        else:
-                            batch_input_ids.append(ids.tolist() if hasattr(ids, 'tolist') else list(ids))
+                if use_cached_activations:
+                    # Sample from cached activations (already on GPU)
+                    batch_indices = torch.randint(0, num_samples, (batch_size,), device=device)
 
-                # Pad sequences to same length
-                max_length = min(max(len(ids) for ids in batch_input_ids), 512)
-                pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-
-                padded_input_ids = []
-                attention_masks = []
-
-                for input_ids in batch_input_ids:
-                    # Truncate if too long
-                    if len(input_ids) > max_length:
-                        input_ids = input_ids[:max_length]
-
-                    padding_length = max_length - len(input_ids)
-                    padded_ids = input_ids + [pad_token_id] * padding_length
-                    mask = [1] * len(input_ids) + [0] * padding_length
-
-                    padded_input_ids.append(padded_ids)
-                    attention_masks.append(mask)
-
-                # Convert to tensors
-                input_ids_tensor = torch.tensor(padded_input_ids, device=device)
-                attention_mask_tensor = torch.tensor(attention_masks, device=device)
-
-                # Extract activations using HookManager
-                with HookManager(base_model) as hook_manager:
-                    hook_manager.register_hooks(training_layers, hook_types, architecture)
-
-                    with torch.no_grad():
-                        _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
-
-                    # Get captured activations for each layer
-                    layer_activations = {}
                     for layer_idx in training_layers:
-                        # Find the activation for this layer
-                        # Key format is "layer_{idx}_{hook_type}" (e.g., "layer_9_residual")
-                        layer_key = None
-                        for key in hook_manager.activations.keys():
-                            if f"layer_{layer_idx}_" in key:
-                                layer_key = key
-                                break
+                        # Get cached activations: shape (num_samples, hidden_dim) already on GPU
+                        cached = cached_activations[layer_idx]
+                        # Sample batch directly on GPU - super fast!
+                        layer_activations[layer_idx] = cached[batch_indices]  # Shape: (batch_size, hidden_dim)
 
-                        if layer_key and hook_manager.activations[layer_key]:
-                            acts = hook_manager.activations[layer_key][0]  # Shape: (batch_size, seq_len, hidden_dim)
-                            # Average over sequence dimension to get (batch_size, hidden_dim)
-                            # Move to correct device (activations are on CPU from hook)
-                            layer_activations[layer_idx] = acts.mean(dim=1).detach().to(device)
+                        # VALIDATION: Check activation statistics on first step
+                        if step == 1:
+                            act_mean = cached.mean().item()
+                            act_std = cached.std().item()
+                            act_min = cached.min().item()
+                            act_max = cached.max().item()
+                            logger.info(f"Layer {layer_idx} cached activations sampled successfully:")
+                            logger.info(f"  Cached shape on GPU: {cached.shape}")
+                            logger.info(f"  Mean: {act_mean:.4f}, Std: {act_std:.4f}")
+                            logger.info(f"  Range: [{act_min:.4f}, {act_max:.4f}]")
 
-                            # VALIDATION: Check activation statistics on first step
-                            if step == 1:
-                                act_mean = acts.mean().item()
-                                act_std = acts.std().item()
-                                act_min = acts.min().item()
-                                act_max = acts.max().item()
-                                logger.info(f"Layer {layer_idx} activations captured successfully:")
-                                logger.info(f"  Shape: {acts.shape}")
-                                logger.info(f"  Mean: {act_mean:.4f}, Std: {act_std:.4f}")
-                                logger.info(f"  Range: [{act_min:.4f}, {act_max:.4f}]")
+                            # Sanity check
+                            if act_std < 0.01 or act_std > 100:
+                                logger.error(f"SUSPICIOUS: Layer {layer_idx} std={act_std:.4f} is unusual!")
+                            if abs(act_mean) > 50:
+                                logger.error(f"SUSPICIOUS: Layer {layer_idx} mean={act_mean:.4f} is unusual!")
 
-                                # Sanity check: Real activations should have reasonable statistics
-                                if act_std < 0.01 or act_std > 100:
-                                    logger.error(f"SUSPICIOUS: Layer {layer_idx} std={act_std:.4f} is unusual!")
-                                if abs(act_mean) > 50:
-                                    logger.error(f"SUSPICIOUS: Layer {layer_idx} mean={act_mean:.4f} is unusual!")
-                        else:
-                            # CRITICAL ERROR: No activations captured means hooks failed
-                            logger.error(f"FATAL: No activations captured for layer {layer_idx}")
-                            logger.error(f"Available keys: {list(hook_manager.activations.keys())}")
-                            logger.error(f"Expected key pattern: layer_{layer_idx}_*")
-                            raise RuntimeError(
-                                f"Failed to capture activations for layer {layer_idx}. "
-                                f"Hook registration failed. Available keys: {list(hook_manager.activations.keys())}"
-                            )
+                else:
+                    # Extract activations on-the-fly from base model
+                    # Sample random batch from dataset
+                    batch_indices = torch.randint(0, num_samples, (batch_size,)).tolist()
+                    batch = dataset.select(batch_indices)
+
+                    # Get input_ids from batch
+                    batch_input_ids = []
+                    if "input_ids" in batch.column_names:
+                        for ids in batch["input_ids"]:
+                            if isinstance(ids, list):
+                                batch_input_ids.append(ids)
+                            else:
+                                batch_input_ids.append(ids.tolist() if hasattr(ids, 'tolist') else list(ids))
+
+                    # Pad sequences to same length
+                    max_length = min(max(len(ids) for ids in batch_input_ids), 512)
+                    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+                    padded_input_ids = []
+                    attention_masks = []
+
+                    for input_ids in batch_input_ids:
+                        # Truncate if too long
+                        if len(input_ids) > max_length:
+                            input_ids = input_ids[:max_length]
+
+                        padding_length = max_length - len(input_ids)
+                        padded_ids = input_ids + [pad_token_id] * padding_length
+                        mask = [1] * len(input_ids) + [0] * padding_length
+
+                        padded_input_ids.append(padded_ids)
+                        attention_masks.append(mask)
+
+                    # Convert to tensors
+                    input_ids_tensor = torch.tensor(padded_input_ids, device=device)
+                    attention_mask_tensor = torch.tensor(attention_masks, device=device)
+
+                    # Extract activations using HookManager
+                    with HookManager(base_model) as hook_manager:
+                        hook_manager.register_hooks(training_layers, hook_types, architecture)
+
+                        with torch.no_grad():
+                            _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
+
+                        # Get captured activations for each layer
+                        for layer_idx in training_layers:
+                            # Find the activation for this layer
+                            # Key format is "layer_{idx}_{hook_type}" (e.g., "layer_9_residual")
+                            layer_key = None
+                            for key in hook_manager.activations.keys():
+                                if f"layer_{layer_idx}_" in key:
+                                    layer_key = key
+                                    break
+
+                            if layer_key and hook_manager.activations[layer_key]:
+                                acts = hook_manager.activations[layer_key][0]  # Shape: (batch_size, seq_len, hidden_dim)
+                                # Average over sequence dimension to get (batch_size, hidden_dim)
+                                # Move to correct device (activations are on CPU from hook)
+                                layer_activations[layer_idx] = acts.mean(dim=1).detach().to(device)
+
+                                # VALIDATION: Check activation statistics on first step
+                                if step == 1:
+                                    act_mean = acts.mean().item()
+                                    act_std = acts.std().item()
+                                    act_min = acts.min().item()
+                                    act_max = acts.max().item()
+                                    logger.info(f"Layer {layer_idx} activations captured successfully:")
+                                    logger.info(f"  Shape: {acts.shape}")
+                                    logger.info(f"  Mean: {act_mean:.4f}, Std: {act_std:.4f}")
+                                    logger.info(f"  Range: [{act_min:.4f}, {act_max:.4f}]")
+
+                                    # Sanity check: Real activations should have reasonable statistics
+                                    if act_std < 0.01 or act_std > 100:
+                                        logger.error(f"SUSPICIOUS: Layer {layer_idx} std={act_std:.4f} is unusual!")
+                                    if abs(act_mean) > 50:
+                                        logger.error(f"SUSPICIOUS: Layer {layer_idx} mean={act_mean:.4f} is unusual!")
+                            else:
+                                # CRITICAL ERROR: No activations captured means hooks failed
+                                logger.error(f"FATAL: No activations captured for layer {layer_idx}")
+                                logger.error(f"Available keys: {list(hook_manager.activations.keys())}")
+                                logger.error(f"Expected key pattern: layer_{layer_idx}_*")
+                                raise RuntimeError(
+                                    f"Failed to capture activations for layer {layer_idx}. "
+                                    f"Hook registration failed. Available keys: {list(hook_manager.activations.keys())}"
+                                )
 
                 # Train all layers
                 layer_losses = {}
@@ -676,6 +813,52 @@ def train_sae_task(
                 if quality_warnings:
                     for warning in quality_warnings:
                         logger.warning(warning)
+
+                # Dead neuron resampling (if enabled)
+                if hp.get('resample_dead_neurons', False):
+                    dead_neuron_threshold = hp.get('dead_neuron_threshold', 10000)
+                    resample_interval = hp.get('resample_interval', 5000)
+
+                    # Perform resampling at specified intervals after warmup
+                    if step > 0 and step % resample_interval == 0 and step >= hp.get('warmup_steps', 0):
+                        for layer_idx in training_layers:
+                            model = models[layer_idx]
+
+                            # Get current batch activations to identify dead neurons
+                            x = layer_activations[layer_idx]
+                            with torch.no_grad():
+                                z = model.encode(x)
+                                # Identify dead neurons (never activated in current batch)
+                                dead_mask = (z == 0).all(dim=0)  # [latent_dim]
+                                num_dead = dead_mask.sum().item()
+
+                                if num_dead > 0:
+                                    logger.info(f"Layer {layer_idx}: Resampling {num_dead} dead neurons at step {step}")
+
+                                    # Resample dead neurons by reinitializing to high-loss examples
+                                    # Strategy: Set encoder weights to point toward high-loss directions
+                                    with torch.no_grad():
+                                        # Get reconstruction loss per sample
+                                        x_reconstructed, _, losses_dict = model(x, return_loss=True)
+                                        reconstruction_errors = (x - x_reconstructed).pow(2).sum(dim=-1)  # [batch]
+
+                                        # Find samples with highest reconstruction error
+                                        topk_indices = torch.topk(reconstruction_errors, k=min(num_dead, x.size(0))).indices
+
+                                        # Resample dead neurons
+                                        dead_indices = torch.where(dead_mask)[0]
+                                        for i, dead_idx in enumerate(dead_indices[:len(topk_indices)]):
+                                            # Reinitialize encoder weights for this dead neuron
+                                            # Point it toward a high-loss input example
+                                            sample_idx = topk_indices[i]
+                                            model.encoder.weight[dead_idx] = x[sample_idx] * 0.1  # Small scale
+                                            model.encoder.bias[dead_idx] = 0.0
+
+                                            # Reinitialize decoder weights
+                                            if not model.tied_weights:
+                                                model.decoder.weight[:, dead_idx] = torch.randn_like(model.decoder.weight[:, dead_idx]) * 0.01
+
+                                        logger.info(f"  Resampled {min(num_dead, len(topk_indices))} neurons using high-loss examples")
 
                 # Emit training:progress WebSocket event
                 from ..workers.websocket_emitter import emit_training_progress

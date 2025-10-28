@@ -14,6 +14,7 @@ import { ProgressBar } from '../common/ProgressBar';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { API_BASE_URL } from '../../config/api';
 import { TokenizationPreview } from './TokenizationPreview';
+import { useModelsStore } from '../../stores/modelsStore';
 
 interface DatasetDetailModalProps {
   dataset: Dataset;
@@ -479,6 +480,7 @@ function StatisticsTab({ dataset }: { dataset: Dataset }) {
 
 // Tokenization Tab Component
 function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDatasetUpdate?: (updatedDataset: Dataset) => void }) {
+  const { models, fetchModels } = useModelsStore();
   const [tokenizerName, setTokenizerName] = useState('gpt2');
   const [maxLength, setMaxLength] = useState(512);
   const [stride, setStride] = useState(0);
@@ -491,6 +493,11 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
   const [success, setSuccess] = useState<string | null>(null);
   const [progress, setProgress] = useState(dataset.progress || 0);
   const [progressMessage, setProgressMessage] = useState('');
+
+  // Fetch models on mount
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
 
   // Check if dataset is already tokenized
   const isTokenized = dataset.metadata?.tokenization !== undefined;
@@ -587,16 +594,30 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
     return undefined;
   }, [isProcessing, dataset.id, subscribe, unsubscribe, onDatasetUpdate]);
 
+  // Build tokenizer options from available models + common tokenizers
   const commonTokenizers = [
-    { value: 'gpt2', label: 'GPT-2 (default)', description: 'OpenAI GPT-2 tokenizer' },
-    { value: 'gpt2-medium', label: 'GPT-2 Medium', description: '345M parameter model' },
-    { value: 'gpt2-large', label: 'GPT-2 Large', description: '774M parameter model' },
-    { value: 'bert-base-uncased', label: 'BERT Base Uncased', description: 'Google BERT base model' },
-    { value: 'bert-base-cased', label: 'BERT Base Cased', description: 'Case-sensitive BERT' },
-    { value: 'roberta-base', label: 'RoBERTa Base', description: 'Facebook RoBERTa model' },
-    { value: 'EleutherAI/gpt-neo-125M', label: 'GPT-Neo 125M', description: 'EleutherAI GPT-Neo' },
-    { value: 'EleutherAI/gpt-j-6B', label: 'GPT-J 6B', description: 'EleutherAI GPT-J' },
+    // Static common tokenizers
+    { value: 'gpt2', label: 'GPT-2 (default)', description: 'OpenAI GPT-2 tokenizer', category: 'Common' },
+    { value: 'gpt2-medium', label: 'GPT-2 Medium', description: '345M parameter model', category: 'Common' },
+    { value: 'gpt2-large', label: 'GPT-2 Large', description: '774M parameter model', category: 'Common' },
+    { value: 'bert-base-uncased', label: 'BERT Base Uncased', description: 'Google BERT base model', category: 'Common' },
+    { value: 'bert-base-cased', label: 'BERT Base Cased', description: 'Case-sensitive BERT', category: 'Common' },
+    { value: 'roberta-base', label: 'RoBERTa Base', description: 'Facebook RoBERTa model', category: 'Common' },
+    { value: 'EleutherAI/gpt-neo-125M', label: 'GPT-Neo 125M', description: 'EleutherAI GPT-Neo', category: 'Common' },
+    { value: 'EleutherAI/gpt-j-6B', label: 'GPT-J 6B', description: 'EleutherAI GPT-J', category: 'Common' },
   ];
+
+  // Add models from the system as tokenizer options
+  const modelTokenizers = models
+    .filter((m) => m.status === 'ready')
+    .map((m) => ({
+      value: m.repo_id,
+      label: m.name,
+      description: `${m.architecture} - vocab: ${m.architecture_config?.vocab_size?.toLocaleString() || 'unknown'}`,
+      category: 'Available Models',
+    }));
+
+  const allTokenizers = [...modelTokenizers, ...commonTokenizers];
 
   const handleTokenize = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -740,14 +761,25 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
               disabled={!canTokenize || isSubmitting}
               className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {commonTokenizers.map((tokenizer) => (
-                <option key={tokenizer.value} value={tokenizer.value}>
-                  {tokenizer.label} - {tokenizer.description}
-                </option>
-              ))}
+              {modelTokenizers.length > 0 && (
+                <optgroup label="Available Models in System">
+                  {modelTokenizers.map((tokenizer) => (
+                    <option key={tokenizer.value} value={tokenizer.value}>
+                      {tokenizer.label} - {tokenizer.description}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Common Tokenizers">
+                {commonTokenizers.map((tokenizer) => (
+                  <option key={tokenizer.value} value={tokenizer.value}>
+                    {tokenizer.label} - {tokenizer.description}
+                  </option>
+                ))}
+              </optgroup>
             </select>
             <p className="text-xs text-slate-500 mt-2">
-              Select a HuggingFace tokenizer. Common choices include GPT-2, BERT, and RoBERTa.
+              Select a tokenizer. Models from your system are shown first, followed by common tokenizers.
             </p>
           </div>
 

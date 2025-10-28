@@ -100,8 +100,35 @@ export const TrainingPanel: React.FC = () => {
     }
   }, [config.model_id, numLayers]);
 
+  // Check for tokenizer/model vocabulary mismatch
+  const selectedDataset = datasets.find((d) => d.id === config.dataset_id);
+  const vocabMismatch = useMemo(() => {
+    if (!selectedModel || !selectedDataset) return null;
+
+    const datasetTokenizerName = selectedDataset.metadata?.tokenization?.tokenizer_name;
+    const datasetVocabSize = selectedDataset.metadata?.tokenization?.vocab_size;
+    const modelVocabSize = selectedModel.architecture_config?.vocab_size;
+
+    if (!datasetVocabSize || !modelVocabSize) return null;
+
+    const vocabDiff = Math.abs(datasetVocabSize - modelVocabSize);
+    const vocabRatio = vocabDiff / modelVocabSize;
+
+    if (vocabRatio > 0.1) {
+      return {
+        datasetTokenizer: datasetTokenizerName || 'unknown',
+        datasetVocabSize,
+        modelVocabSize,
+        difference: vocabDiff,
+        ratio: vocabRatio,
+      };
+    }
+
+    return null;
+  }, [selectedModel, selectedDataset]);
+
   // Validation
-  const isFormValid = config.model_id && config.dataset_id && config.training_layers && config.training_layers.length > 0;
+  const isFormValid = config.model_id && config.dataset_id && config.training_layers && config.training_layers.length > 0 && !vocabMismatch;
 
   // Selection handlers
   const handleToggleSelection = (trainingId: string) => {
@@ -156,7 +183,7 @@ export const TrainingPanel: React.FC = () => {
       const request: TrainingCreateRequest = {
         model_id: config.model_id,
         dataset_id: config.dataset_id,
-        extraction_id: config.extraction_id,
+        ...(config.extraction_id && config.extraction_id.trim() !== '' && { extraction_id: config.extraction_id }),
         hyperparameters: {
           hidden_dim: config.hidden_dim,
           latent_dim: config.latent_dim,
@@ -281,6 +308,71 @@ export const TrainingPanel: React.FC = () => {
               </select>
             </div>
 
+          </div>
+
+          {/* Vocabulary Mismatch Warning */}
+          {vocabMismatch && (
+            <div className="mt-4 p-4 bg-amber-900/20 border border-amber-600/50 rounded-lg">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-amber-500 mb-2">
+                    Tokenizer/Model Vocabulary Mismatch
+                  </h4>
+                  <div className="text-sm text-slate-300 space-y-1">
+                    <p>
+                      The selected dataset was tokenized with <span className="font-mono text-amber-400">{vocabMismatch.datasetTokenizer}</span> (vocab: {vocabMismatch.datasetVocabSize.toLocaleString()}),
+                      but the selected model uses a vocabulary of {vocabMismatch.modelVocabSize.toLocaleString()} tokens.
+                    </p>
+                    <p className="text-amber-400 font-medium mt-2">
+                      This will cause "index out of bounds" errors during training or feature extraction.
+                    </p>
+                    <p className="mt-2">
+                      Please re-tokenize the dataset using the model's tokenizer (<span className="font-mono text-emerald-400">{selectedModel?.repo_id}</span>)
+                      in the Datasets panel before starting training.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Optional: Use Cached Activations */}
+          <div className="mt-4">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="use-cached-activations"
+                checked={!!config.extraction_id}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    // Set a placeholder to enable the checkbox, user will fill in the actual ID
+                    updateConfig({ extraction_id: '' });
+                  } else {
+                    updateConfig({ extraction_id: undefined });
+                  }
+                }}
+                className="mt-1 w-4 h-4 bg-slate-800 border border-slate-700 rounded focus:ring-2 focus:ring-emerald-500"
+              />
+              <div className="flex-1">
+                <label htmlFor="use-cached-activations" className="block text-sm font-medium text-slate-300 mb-1 cursor-pointer">
+                  Use Cached Activations (10-20x faster training)
+                </label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Use pre-extracted activations from an extraction job instead of extracting on-the-fly during training. This dramatically speeds up training but requires a completed extraction for the selected model and dataset.
+                </p>
+                {(config.extraction_id !== undefined) && (
+                  <input
+                    type="text"
+                    id="extraction-id"
+                    value={config.extraction_id || ''}
+                    onChange={(e) => updateConfig({ extraction_id: e.target.value || undefined })}
+                    placeholder="Enter extraction ID (e.g., ext_m_6d64e8d9_20251027_023246)"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                  />
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Training Layers Selection */}

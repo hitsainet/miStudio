@@ -270,6 +270,86 @@
 
 ---
 
+### Task HP-2 Phase 2: Service Layer Test Expansion
+
+**Goal:** Increase backend coverage from 50.45% to 60% (9.55% gap needed)
+
+**Impact:**
+- Higher confidence in service layer reliability
+- Comprehensive coverage of business logic
+- Better error handling verification
+- Easier refactoring with safety net
+
+**Estimated Effort:** 12-16 hours
+**Status:** 🔄 IN PROGRESS - Starting 2025-10-28
+**Target:** 60% backend coverage
+
+#### Sub-Tasks:
+
+- [ ] **HP-2.2.1: Expand training_service.py Test Coverage** (~4-5 hours)
+  - File: `backend/tests/unit/test_training_service.py` (EXPAND)
+  - Current Coverage: 22.42% (lines 23-28, 50-85, 102-105 not covered)
+  - Priority Tests to Add:
+    - `create_training()`: hyperparameter validation, duplicate handling
+    - `start_training()`: resource estimation integration, Celery task dispatch
+    - `pause_training()` / `resume_training()`: state management, idempotency
+    - `cancel_training()`: cleanup operations, checkpoint preservation
+    - `get_training_metrics()`: metric aggregation logic, time range filtering
+    - `validate_training_config()`: comprehensive validation checks
+    - Edge cases: invalid model_id, invalid dataset_id, insufficient resources
+  - **Acceptance:** 30 additional tests, coverage >70% for training_service.py
+
+- [ ] **HP-2.2.2: Expand model_service.py Test Coverage** (~3-4 hours)
+  - File: `backend/tests/unit/test_model_service.py` (EXPAND/CREATE)
+  - Current Coverage: 25.19%
+  - Priority Tests to Add:
+    - `download_model()`: HuggingFace API integration, progress tracking, storage
+    - `load_model_for_extraction()`: quantization options, memory management
+    - `get_model_info()`: metadata parsing, tokenizer compatibility checks
+    - `delete_model()`: file cleanup verification, database consistency
+    - `check_model_exists()`: filesystem vs database consistency
+    - Edge cases: network failures, corrupted downloads, disk full
+  - **Acceptance:** 25 additional tests, coverage >60% for model_service.py
+
+- [ ] **HP-2.2.3: Expand dataset_service.py Test Coverage** (~3-4 hours)
+  - File: `backend/tests/unit/test_dataset_service.py` (EXPAND/CREATE)
+  - Current Coverage: 20.63%
+  - Priority Tests to Add:
+    - `download_dataset()`: HuggingFace integration, streaming downloads, progress
+    - `tokenize_dataset()`: various tokenizer types, special tokens, vocab size
+    - `get_dataset_statistics()`: accurate token counts, sample counts
+    - `validate_dataset()`: format checking, required fields verification
+    - `delete_dataset()`: cleanup verification, database consistency
+    - Edge cases: large datasets, malformed data, tokenization failures
+  - **Acceptance:** 20 additional tests, coverage >55% for dataset_service.py
+
+- [ ] **HP-2.2.4: Expand Worker Task Internals Coverage** (~2-3 hours)
+  - Files: `backend/tests/unit/test_training_tasks.py`, `test_model_tasks.py`, `test_dataset_tasks.py`
+  - Current Coverage: 9-22% for worker task functions
+  - Priority Tests to Add:
+    - Training loop internals: batch processing, gradient accumulation, loss calculation
+    - Model loading edge cases: quantization errors, memory allocation failures
+    - Dataset processing edge cases: tokenization failures, file I/O errors
+    - Checkpoint management: save/load/restore operations
+    - Resource cleanup: temporary file deletion, GPU memory release
+  - **Acceptance:** 15 additional tests, coverage >40% for worker task files
+
+- [ ] **HP-2.2.5: Run Coverage Analysis and Verify 60% Target** (~1 hour)
+  - Run: `pytest --cov=src --cov-report=html --cov-report=term`
+  - Verify: Backend coverage >=60%
+  - Generate: Detailed coverage report with line-by-line analysis
+  - Document: Remaining gaps for future phases
+  - **Acceptance:** 60% coverage target achieved, documented in SUPP_TASKS
+
+- [ ] **HP-2.2.6: Document Phase 2 Completion and Update Task Lists** (~1 hour)
+  - Update: SUPP_TASKS|Progress_Architecture_Improvements.md with Phase 2 completion
+  - Update: 003_FTASKS|SAE_Training.md with test coverage achievement
+  - Create: Commit with all test additions and documentation updates
+  - Document: Test statistics (total tests, pass rate, coverage percentage)
+  - **Acceptance:** All task lists updated, commit created
+
+---
+
 ## 🟡 MEDIUM PRIORITY TASKS (Complete within 1 month)
 
 ### Task MP-1: Implement WebSocket Clustering

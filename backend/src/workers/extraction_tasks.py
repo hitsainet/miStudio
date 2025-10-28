@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
     base=DatabaseTask,
     name="extract_features",
     max_retries=0,  # No automatic retries
-    autoretry_for=None,  # Explicit no auto-retry
+    autoretry_for=(),  # Explicit no auto-retry (empty tuple)
 )
 def extract_features_task(
     self,

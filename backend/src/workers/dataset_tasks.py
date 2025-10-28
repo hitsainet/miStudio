@@ -101,10 +101,13 @@ def download_dataset_task(
             throttle_seconds=0.5  # Emit at most every 0.5 seconds
         )
 
-        # Patch tqdm in datasets library
-        import datasets.utils.file_utils
-        original_tqdm = datasets.utils.file_utils.tqdm
-        datasets.utils.file_utils.tqdm = TqdmWebSocket
+        # Patch tqdm at multiple locations where datasets might use it
+        import sys
+        from tqdm import tqdm as original_tqdm
+
+        # Save original tqdm
+        sys.modules['tqdm'].tqdm = TqdmWebSocket
+        sys.modules['tqdm.auto'].tqdm = TqdmWebSocket
 
         try:
             dataset = load_dataset(
@@ -117,7 +120,8 @@ def download_dataset_task(
             )
         finally:
             # Restore original tqdm regardless of success/failure
-            datasets.utils.file_utils.tqdm = original_tqdm
+            sys.modules['tqdm'].tqdm = original_tqdm
+            sys.modules['tqdm.auto'].tqdm = original_tqdm
 
         # Update progress: saving to disk
         emit_dataset_progress(

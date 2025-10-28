@@ -205,14 +205,17 @@
 
 ##### Frontend Unit Tests
 
-- [ ] **HP-2.7: Unit Tests for WebSocket Hook Subscription Logic**
-  - File: `frontend/src/hooks/useTrainingWebSocket.test.ts` (NEW)
-  - Test: `test_hook_subscribes_on_mount()` → subscription called
-  - Test: `test_hook_unsubscribes_on_unmount()` → unsubscription called
-  - Test: `test_hook_updates_store_on_message()` → store action invoked
-  - Test: `test_hook_resubscribes_on_training_id_change()` → old unsubscribed, new subscribed
-  - Mock: WebSocketClient, trainingsStore
-  - **Acceptance:** Hook lifecycle verified, store updates tested
+- [x] **HP-2.7: Unit Tests for WebSocket Hook Subscription Logic** ✅
+  - File: `frontend/src/hooks/useTrainingWebSocket.test.ts` (406 lines)
+  - Tests Implemented (17 tests):
+    - Event Handler Registration (3 tests): register on mount, register only once, cleanup on unmount
+    - Channel Subscription (5 tests): subscribe/unsubscribe, empty IDs, not connected, resubscribe on change
+    - Event Handlers (5 tests): progress, status_changed, completed, failed (with fallback), checkpoint
+    - Subscription Memoization (2 tests): same IDs different reference, different order
+    - Multiple Training IDs (1 test): handle 3+ trainings correctly
+  - Coverage: Hook lifecycle verified, store updates tested, memoization working
+  - Test Results: 17/17 passing ✅
+  - **Completed:** 2025-10-28
 
 - [ ] **HP-2.8: Expand trainingsStore Unit Tests**
   - File: `frontend/src/stores/trainingsStore.test.ts` (EXPAND)

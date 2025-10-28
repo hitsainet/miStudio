@@ -163,18 +163,18 @@ class TestTrainingWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_training_creation_with_extraction_id(self, async_session):
+    async def test_training_creation_without_extraction(self, async_session):
         """
-        Test training creation with pre-extracted activations.
+        Test training creation without pre-extracted activations.
 
         Verifies that:
-        1. Training can be created with extraction_id
-        2. Training skips activation extraction phase
-        3. Extraction ID is stored correctly
+        1. Training can be created without extraction_id
+        2. extraction_id defaults to None
+        3. Training will perform activation extraction during execution
         """
         # Create test model
         model_request = ModelDownloadRequest(
-            repo_id="test/model-with-extraction",
+            repo_id="test/model-no-extraction",
             quantization=QuantizationFormat.FP16,
         )
         model = await ModelService.initiate_model_download(async_session, model_request)
@@ -186,7 +186,7 @@ class TestTrainingWorkflow:
 
         # Create test dataset
         dataset_data = DatasetCreate(
-            name="test-dataset-extraction",
+            name="test-dataset-no-extraction",
             source="HuggingFace",
             hf_repo_id="test/dataset",
         )
@@ -195,7 +195,7 @@ class TestTrainingWorkflow:
         await async_session.commit()
         await async_session.refresh(dataset)
 
-        # Create training with extraction_id
+        # Create training without extraction_id
         hyperparameters = TrainingHyperparameters(
             hidden_dim=768,
             latent_dim=4096,
@@ -208,7 +208,7 @@ class TestTrainingWorkflow:
         training_data = TrainingCreate(
             model_id=model.id,
             dataset_id=str(dataset.id),  # Convert UUID to string
-            extraction_id="ext_m_test_extraction_123",  # Pre-extracted activations
+            extraction_id=None,  # No pre-extracted activations
             hyperparameters=hyperparameters
         )
 
@@ -216,8 +216,8 @@ class TestTrainingWorkflow:
         await async_session.commit()
         await async_session.refresh(training)
 
-        # Verify extraction_id is stored
-        assert training.extraction_id == "ext_m_test_extraction_123"
+        # Verify extraction_id is None
+        assert training.extraction_id is None
 
         # Cleanup
         await TrainingService.delete_training(async_session, training.id)
@@ -337,7 +337,7 @@ class TestTrainingWorkflow:
         # Test filter by dataset_id
         trainings, total = await TrainingService.list_trainings(
             async_session,
-            dataset_id=dataset.id
+            dataset_id=str(dataset.id)  # Convert UUID to string
         )
         assert total >= 3  # At least our 3 trainings
 

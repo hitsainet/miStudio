@@ -71,32 +71,33 @@ Recent training comparisons demonstrated:
 ## Tasks
 
 ### Phase 1: GPU Memory Cleanup (Quick Fix - Priority: High)
+✅ COMPLETE - Implemented in commits 12900b3, f6abcfa
 
-- [ ] 1.0 Add Explicit GPU Memory Cleanup to Training Tasks
-  - [ ] 1.1 Add cleanup helper function `cleanup_training_resources(models, optimizers, device)`
+- [x] 1.0 Add Explicit GPU Memory Cleanup to Training Tasks
+  - [x] 1.1 Add cleanup helper function `cleanup_training_resources(models, optimizers, device)`
     - Delete model references: `del models, optimizers`
     - Clear CUDA cache if available: `torch.cuda.empty_cache()`
     - Log memory before/after for monitoring
     - File: `backend/src/workers/training_tasks.py`
 
-  - [ ] 1.2 Call cleanup in training completion path
+  - [x] 1.2 Call cleanup in training completion path
     - Location: After line 602 (after training:completed event emission)
     - Log: "Cleaning up GPU memory: {before}MB → {after}MB"
     - Verify models/optimizers are out of scope
     - File: `backend/src/workers/training_tasks.py` (lines 603-610)
 
-  - [ ] 1.3 Call cleanup in exception handler (training failure)
+  - [x] 1.3 Call cleanup in exception handler (training failure)
     - Location: After line 623 (after training:failed event emission)
     - Ensure cleanup happens before raising exception
     - Use try-except to prevent cleanup failures from masking original error
     - File: `backend/src/workers/training_tasks.py` (lines 610-636)
 
-  - [ ] 1.4 Add cleanup to OOM recovery path
+  - [x] 1.4 Add cleanup to OOM recovery path
     - Location: After line 411 (after reducing batch size)
     - Already has `torch.cuda.empty_cache()` but add model deletion if needed
     - File: `backend/src/workers/training_tasks.py` (lines 404-421)
 
-  - [ ] 1.5 Test GPU cleanup effectiveness
+  - [x] 1.5 Test GPU cleanup effectiveness
     - Create test: Start training → Complete → Check GPU memory released
     - Create test: Start training → Fail → Check GPU memory released
     - Verify memory released within 1 second of training end

@@ -288,7 +288,7 @@
   - [x] 17.10 Add connection status indicator in TrainingPanel header (Live/Disconnected badge with pulse animation)
   - [ ] 17.11 Test WebSocket subscription: verify events received and state updated correctly (requires backend)
 
-- [x] 18.0 Phase 18: Memory Optimization and OOM Handling
+- [x] 18.0 Phase 18: Memory Optimization and OOM Handling ✅ COMPLETE - Implemented in commits fac8d98, e3ef56a, 05a7eea, 12900b3
   - [x] 18.1 Add dynamic batch size reduction in training loop on OOM error (TDD lines 1028-1033)
   - [x] 18.2 Implement gradient accumulation when batch_size < 64 to maintain effective batch size (TDD line 1194)
   - [x] 18.3 Add GPU cache clearing: `torch.cuda.empty_cache()` after every training step (TID line 239)
@@ -296,22 +296,23 @@
   - [x] 18.5 Add memory budget validation before training start: estimate model + SAE + activations + gradients + optimizer state (TDD lines 1575-1587)
   - [x] 18.6 Show OOM error message in UI with actionable suggestions: "Reduce batch size or expansion factor" (TDD lines 768-776)
   - [x] 18.7 Add retry count tracking: increment on OOM, stop after 3 retries (training table has retry_count field)
-  - [ ] 18.8 Test OOM handling: simulate OOM error, verify batch_size reduced, training continues
+  - [x] 18.8 Test OOM handling: simulate OOM error, verify batch_size reduced, training continues
   - [x] 18.9 Add ghost gradient penalty to reduce dead neurons (TDD line 339, Mock UI lines 1797-1814)
-  - [ ] 18.10 Test ghost gradient penalty: verify dead neuron count decreases with penalty enabled
+  - [x] 18.10 Test ghost gradient penalty: verify dead neuron count decreases with penalty enabled
 
-- [x] 19.0 Phase 19: Testing - Unit Tests (✅ COMPLETED: 254 tests across backend + frontend)
-  - [x] 19.1 Write unit tests for `SparseAutoencoder` forward pass: verify output shapes, no NaN values (✅ 26 tests in test_sparse_autoencoder.py)
-  - [x] 19.2 Write unit tests for SAE loss calculation: verify reconstruction loss + L1 penalty (✅ Included in 26 SAE tests)
-  - [x] 19.3 Write unit tests for `HyperparametersSchema` validation: valid config, invalid ranges (✅ 39 tests in test_training_schemas.py)
-  - [x] 19.4 Write unit tests for `TrainingService.create_training()`: verify DB record created, Celery task enqueued (✅ 20 tests in test_training_service.py)
-  - [x] 19.5 Write unit tests for `TrainingService.pause_training()`: verify Redis signal set, status updated (✅ Covered in TrainingService tests)
-  - [x] 19.6 Write unit tests for `CheckpointService.save_checkpoint()`: verify safetensors file saved, DB record created (✅ 27 tests in test_checkpoint_service.py)
-  - [x] 19.7 Write unit tests for `CheckpointService.enforce_retention_policy()`: verify correct checkpoints kept/deleted (✅ Covered in CheckpointService tests)
-  - [x] 19.8 Write unit tests for frontend `trainingsStore`: verify API calls, state updates (✅ 50 tests in trainingsStore.test.ts)
-  - [x] 19.9 Write unit tests for `TrainingPanel` component: form validation, button disabled states (✅ 37 tests in TrainingPanel.test.tsx)
-  - [x] 19.10 Write unit tests for `TrainingCard` component: status badge rendering, metrics display (✅ 41 tests in TrainingCard.test.tsx)
-  - [x] 19.11 Achieve >70% unit test coverage for backend services and frontend components (✅ Comprehensive test coverage achieved)
+- [x] 19.0 Phase 19: Testing - Unit Tests ✅ COMPLETE - 254 tests implemented across backend + frontend
+  - [x] 19.1 Write unit tests for `SparseAutoencoder` forward pass: verify output shapes, no NaN values (26 tests)
+  - [x] 19.2 Write unit tests for SAE loss calculation: verify reconstruction loss + L1 penalty (Included in 26 SAE tests)
+  - [x] 19.3 Write unit tests for `HyperparametersSchema` validation: valid config, invalid ranges (39 tests)
+  - [x] 19.4 Write unit tests for `TrainingService.create_training()`: verify DB record created, Celery task enqueued (20 tests)
+  - [x] 19.5 Write unit tests for `TrainingService.pause_training()`: verify Redis signal set, status updated (Covered in TrainingService tests)
+  - [x] 19.6 Write unit tests for `CheckpointService.save_checkpoint()`: verify safetensors file saved, DB record created (27 tests)
+  - [x] 19.7 Write unit tests for `CheckpointService.enforce_retention_policy()`: verify correct checkpoints kept/deleted (Covered in CheckpointService tests)
+  - [x] 19.8 Write unit tests for frontend `trainingsStore`: verify API calls, state updates (50 tests)
+  - [x] 19.9 Write unit tests for `TrainingPanel` component: form validation, button disabled states (37 tests)
+  - [x] 19.10 Write unit tests for `TrainingCard` component: status badge rendering, metrics display (41 tests)
+  - [x] 19.11 Write unit tests for `useTrainingWebSocket` hook: verify channel subscriptions, event handling (33 tests)
+  - [x] 19.12 Achieve >70% unit test coverage for backend services and frontend components (Comprehensive test coverage achieved)
 
 - [ ] 20.0 Phase 20: Testing - Integration and E2E Tests
   - [ ] 20.1 Write integration test: POST /api/trainings → verify training created, Celery task enqueued (TDD lines 1257-1277)
@@ -336,6 +337,7 @@
 **TID Reference:** 003_FTID|SAE_Training.md (Section 8)
 **Mock UI Reference:** Lines 1628-1842 (TrainingPanel)
 **Completed:** 2025-10-21
+**Commit Reference:** Implemented in commit 1315062
 
 - [x] 21.0 Backend Infrastructure for Training Templates
   - [x] 21.1 Create database migration for training_templates table (09d85441a622_create_training_templates_table.py)
@@ -424,6 +426,7 @@
 **TDD Reference:** 003_FTDD|SAE_Training.md (Section 11 - Multi-Layer Training Architecture)
 **TID Reference:** 003_FTID|SAE_Training.md (Section 9)
 **Mock UI Reference:** Lines 1628-1842 (TrainingPanel with layer selector)
+**Commit Reference:** Implemented in commits 64207ff, 96582c3, 37e8e73
 
 - [x] 26.0 Update Database Schema for Multi-Layer Training
   - [x] 26.1 Update trainings table hyperparameters JSONB: change trainingLayer (single int) to trainingLayers (array of ints)

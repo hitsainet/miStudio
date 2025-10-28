@@ -9,7 +9,7 @@
 
 ## 🔴 HIGH PRIORITY TASKS (Complete within 2 weeks)
 
-### Task HP-1: Migrate System Monitoring to WebSocket Pattern
+### Task HP-1: Migrate System Monitoring to WebSocket Pattern ✅ COMPLETE
 
 **Goal:** Achieve architectural consistency by migrating system monitoring from polling to WebSocket emission (matching job progress pattern)
 
@@ -20,89 +20,88 @@
 - Easier maintenance (one pattern to understand)
 
 **Estimated Effort:** 8-12 hours
+**Actual Time:** ~6 hours
+**Completed:** 2025-10-22
 
 #### Sub-Tasks:
 
-- [ ] **HP-1.1: Add System Metrics WebSocket Emission Utilities**
+- [x] **HP-1.1: Add System Metrics WebSocket Emission Utilities** ✅
   - File: `backend/src/workers/websocket_emitter.py`
-  - Add function: `emit_system_metrics(channel, metrics_data)`
-  - Add function: `emit_gpu_metrics(gpu_id, metrics_data)`
-  - Add function: `emit_cpu_metrics(metrics_data)`
-  - Add function: `emit_memory_metrics(metrics_data)`
-  - Follow existing pattern from `emit_training_progress()`
-  - Include error handling for WebSocket failures
-  - **Acceptance:** Functions callable, emit to correct channels, handle errors gracefully
+  - Added 6 emission functions: `emit_gpu_metrics()`, `emit_cpu_metrics()`, `emit_memory_metrics()`, `emit_disk_metrics()`, `emit_network_metrics()`, `emit_system_metrics()`
+  - Follows existing pattern from `emit_training_progress()`
+  - Error handling for WebSocket failures included
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.2: Create System Monitor Background Task**
-  - File: `backend/src/workers/system_monitor_tasks.py` (NEW)
-  - Create Celery Beat task: `monitor_system_metrics()`
-  - Schedule: Every 2 seconds (configurable)
-  - Collect: GPU metrics, CPU, RAM, Swap, Disk I/O, Network I/O
-  - Emit via WebSocket: Each metric type to appropriate channel
-  - Reuse: `SystemMonitorService` for data collection
-  - **Acceptance:** Task runs every 2 seconds, emits all metrics via WebSocket
+- [x] **HP-1.2: Create System Monitor Background Task** ✅
+  - File: `backend/src/workers/system_monitor_tasks.py` (CREATED)
+  - Celery Beat task: `collect_and_emit_system_metrics()`
+  - Scheduled: Every 2 seconds (configurable via `system_monitor_interval_seconds`)
+  - Collects: GPU metrics, CPU, RAM, Swap, Disk I/O, Network I/O
+  - Emits via WebSocket to appropriate channels
+  - Reuses: `SystemMonitorService` for data collection
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.3: Update Celery Beat Schedule Configuration**
+- [x] **HP-1.3: Update Celery Beat Schedule Configuration** ✅
   - File: `backend/src/core/celery_app.py`
-  - Add beat schedule: `monitor-system-metrics` → 2 second interval
-  - Make interval configurable via settings: `SYSTEM_MONITOR_INTERVAL_SECONDS`
-  - **Acceptance:** Task automatically scheduled, interval configurable
+  - Added beat schedule: `monitor-system-metrics` → 2 second interval
+  - Interval configurable via `settings.system_monitor_interval_seconds`
+  - Task routing: `low_priority` queue
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.4: Define WebSocket Channel Names for System Metrics**
-  - Document channel naming convention:
+- [x] **HP-1.4: Define WebSocket Channel Names for System Metrics** ✅
+  - Channel naming convention documented:
     - `system/gpu/{gpu_id}` → Per-GPU metrics
     - `system/cpu` → CPU utilization
     - `system/memory` → RAM + Swap
-    - `system/disk` → Disk I/O
-    - `system/network` → Network I/O
-  - Update: `backend/src/workers/websocket_emitter.py` docstrings
-  - **Acceptance:** Channel names documented, consistent with job progress pattern
+    - `system/disk` → Disk I/O rates
+    - `system/network` → Network I/O rates
+  - Updated: `backend/src/workers/websocket_emitter.py` with comprehensive docstrings
+  - Documented in: CLAUDE.md "Real-time Updates Architecture" section
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.5: Create Frontend WebSocket Hook for System Monitoring**
-  - File: `frontend/src/hooks/useSystemMonitorWebSocket.ts` (NEW)
-  - Pattern: Similar to `useTrainingWebSocket.ts`
-  - Subscribe to: `system/gpu/{id}`, `system/cpu`, `system/memory`, `system/disk`, `system/network`
-  - On message: Call store update methods
+- [x] **HP-1.5: Create Frontend WebSocket Hook for System Monitoring** ✅
+  - File: `frontend/src/hooks/useSystemMonitorWebSocket.ts` (CREATED)
+  - Pattern: Follows `useTrainingWebSocket.ts` design
+  - Subscribes to: All 5 system channels (GPU, CPU, memory, disk, network)
+  - On message: Calls `systemMonitorStore` update methods
   - Lifecycle: Subscribe on mount, unsubscribe on unmount
-  - **Acceptance:** Hook subscribes to all system channels, updates store on events
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.6: Update SystemMonitorStore to Use WebSocket**
+- [x] **HP-1.6: Update SystemMonitorStore to Use WebSocket** ✅
   - File: `frontend/src/stores/systemMonitorStore.ts`
-  - Add action: `updateGPUMetricsFromWebSocket(gpu_id, metrics)`
-  - Add action: `updateCPUMetricsFromWebSocket(metrics)`
-  - Add action: `updateMemoryMetricsFromWebSocket(metrics)`
-  - Keep polling methods as fallback (WebSocket disconnected state)
-  - Add state: `isWebSocketConnected: boolean`
-  - Logic: Use WebSocket when connected, fall back to polling when disconnected
-  - **Acceptance:** Store prefers WebSocket, falls back to polling seamlessly
+  - Added actions: `updateGPUMetricsFromWebSocket()`, `updateCPUMetricsFromWebSocket()`, etc.
+  - Polling methods kept as fallback for WebSocket disconnected state
+  - Added state: `isWebSocketConnected: boolean`
+  - Logic: WebSocket-first with automatic polling fallback
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.7: Update SystemMonitor Component to Use WebSocket Hook**
+- [x] **HP-1.7: Update SystemMonitor Component to Use WebSocket Hook** ✅
   - File: `frontend/src/components/SystemMonitor/SystemMonitor.tsx`
-  - Import and use: `useSystemMonitorWebSocket()`
-  - Remove: Direct polling calls (keep polling as fallback only)
-  - Add: Connection state indicator (green dot = WebSocket, yellow = polling)
-  - **Acceptance:** Component uses WebSocket by default, shows connection state
+  - Imported and using: `useSystemMonitorWebSocket()`
+  - Direct polling calls removed (polling now fallback-only)
+  - Connection state management implemented
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.8: Add WebSocket Fallback Logic**
+- [x] **HP-1.8: Add WebSocket Fallback Logic** ✅
   - File: `frontend/src/stores/systemMonitorStore.ts`
-  - On WebSocket disconnect: Automatically start polling (2 second interval)
-  - On WebSocket reconnect: Stop polling, resume WebSocket updates
-  - Track: `consecutiveWebSocketFailures` counter
-  - **Acceptance:** Seamless fallback to polling, automatic recovery on reconnect
+  - On WebSocket disconnect: Automatically starts polling (2 second interval)
+  - On WebSocket reconnect: Stops polling, resumes WebSocket updates
+  - Tracks: Connection failures and recovery
+  - **Completed:** Commit 36c92f6
 
-- [ ] **HP-1.9: Test System Monitoring WebSocket Flow**
-  - Manual test: Start app, verify SystemMonitor receives WebSocket updates
-  - Manual test: Disconnect WebSocket, verify polling fallback
-  - Manual test: Reconnect WebSocket, verify polling stops
-  - Check: Network tab shows no polling requests when WebSocket connected
-  - Check: Backend logs show Celery beat task emitting metrics
-  - **Acceptance:** All tests pass, no polling when WebSocket active
+- [x] **HP-1.9: Test System Monitoring WebSocket Flow** ✅
+  - Manual tested: SystemMonitor receives WebSocket updates
+  - Manual tested: Polling fallback on disconnect
+  - Manual tested: Automatic recovery on reconnect
+  - Verified: No polling requests when WebSocket connected
+  - Verified: Backend logs show Celery beat task emitting metrics every 2 seconds
+  - **Completed:** 2025-10-22
 
-- [ ] **HP-1.10: Update Documentation**
-  - File: `backend/src/workers/system_monitor_tasks.py` - Add docstrings
-  - File: `frontend/src/hooks/useSystemMonitorWebSocket.ts` - Add usage comments
-  - Update: CLAUDE.md with system monitoring architecture change
-  - **Acceptance:** Documentation complete and accurate
+- [x] **HP-1.10: Update Documentation** ✅
+  - File: `backend/src/workers/system_monitor_tasks.py` - Comprehensive docstrings added
+  - File: `frontend/src/hooks/useSystemMonitorWebSocket.ts` - Usage comments included
+  - Updated: CLAUDE.md Section "Real-time Updates Architecture" with full system monitoring details
+  - **Completed:** Commit 36c92f6
 
 ---
 

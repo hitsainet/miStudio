@@ -256,6 +256,7 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
   - Test on Jetson Orin Nano hardware
 
 ### Milestone 2: Enhanced Monitoring (Week 3-4) - P1
+✅ COMPLETE - Phase 4 tasks implemented in commits 75c517b, c39fc82, a35d13b, 36c92f6
 
 #### Backend: Historical Data & Advanced Metrics
 
@@ -290,11 +291,11 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
 
 #### Frontend: Charts & Advanced Visualizations
 
-- [ ] **M2.6: Install Chart Dependencies**
+- [x] **M2.6: Install Chart Dependencies**
   - Install recharts: `npm install recharts`
   - Verify D3.js available if needed
 
-- [ ] **M2.7: Create Time-Series Chart Component**
+- [x] **M2.7: Create Time-Series Chart Component**
   - File: `frontend/src/components/SystemMonitor/MetricsChart.tsx`
   - Generic chart component accepting time-series data
   - Support multiple series (utilization, memory, temp)
@@ -302,7 +303,7 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
   - Responsive sizing
   - Hover tooltips with exact values
 
-- [ ] **M2.8: Create Historical Metrics Panel**
+- [x] **M2.8: Create Historical Metrics Panel**
   - File: `frontend/src/components/SystemMonitor/HistoricalMetricsPanel.tsx`
   - Display: GPU utilization chart (last 1h/6h/24h)
   - Display: GPU memory chart
@@ -310,7 +311,7 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
   - Time range selector: 1h, 6h, 24h buttons
   - Auto-refresh every 5 seconds
 
-- [ ] **M2.9: Create Hardware Metrics Panel**
+- [x] **M2.9: Create Hardware Metrics Panel**
   - File: `frontend/src/components/SystemMonitor/HardwareMetricsPanel.tsx`
   - Display: GPU clock speed (MHz)
   - Display: Memory clock speed (MHz)
@@ -318,38 +319,39 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
   - Display: Encoder/decoder utilization
   - Progress bars and numeric values
 
-- [ ] **M2.10: Create GPU Processes Panel**
+- [x] **M2.10: Create GPU Processes Panel**
   - File: `frontend/src/components/SystemMonitor/GPUProcessesPanel.tsx`
   - Table: PID, Process Name, GPU Memory, GPU Utilization
   - Show "X active" process count
   - Sort by GPU memory usage (descending)
   - Refresh every 2 seconds
 
-- [ ] **M2.11: Update Store for Historical Data**
+- [x] **M2.11: Update Store for Historical Data**
   - Add state: historical metrics, time range
   - Action: `fetchHistoricalMetrics(gpuId, timeRange)`
   - Action: `setTimeRange('1h' | '6h' | '24h')`
   - Action: `fetchGPUProcesses(gpuId)`
 
-- [ ] **M2.12: Update System Monitor Page**
+- [x] **M2.12: Update System Monitor Page**
   - Add HistoricalMetricsPanel below current metrics
   - Add HardwareMetricsPanel to right column
   - Add GPUProcessesPanel below GPU metrics
   - Update layout to accommodate new panels
 
-- [ ] **M2.13: Add Storage Metrics Display**
+- [x] **M2.13: Add Storage Metrics Display**
   - File: `frontend/src/components/SystemMonitor/StoragePanel.tsx`
   - Display: / mount point usage
   - Display: /data/ mount point usage (if separate)
   - Progress bars with used/total GB and percentage
 
-- [ ] **M2.14: Test Historical Data Collection**
+- [x] **M2.14: Test Historical Data Collection**
   - Verify Celery beat task runs every 1 second
   - Check database for metric accumulation
   - Test data pruning after 24 hours
   - Verify chart updates with real historical data
 
 ### Milestone 3: Multi-GPU Support (Week 5-6) - P1
+✅ COMPLETE - Phase 5 tasks implemented in commits 75c517b, c39fc82, a35d13b, 36c92f6
 
 #### Backend: Multi-GPU APIs
 
@@ -365,61 +367,62 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
 
 #### Frontend: Multi-GPU UI
 
-- [ ] **M3.3: Add View Mode Selector**
+- [x] **M3.3: Add View Mode Selector**
   - File: `frontend/src/components/SystemMonitor/ViewModeSelector.tsx`
   - Toggle: "Single GPU" vs "Compare GPUs"
   - Store selected mode in systemMonitorStore
   - Disable "Compare" if only 1 GPU available
 
-- [ ] **M3.4: Create Multi-GPU Comparison View**
+- [x] **M3.4: Create Multi-GPU Comparison View**
   - File: `frontend/src/components/SystemMonitor/MultiGPUComparisonPanel.tsx`
   - Side-by-side display of all GPU metrics
   - Same metrics as single view but in grid layout
   - Highlight highest/lowest values for easy comparison
 
-- [ ] **M3.5: Create GPU Selector Dropdown**
+- [x] **M3.5: Create GPU Selector Dropdown**
   - File: `frontend/src/components/SystemMonitor/GPUSelector.tsx`
   - Dropdown: List all available GPUs
   - Display: "GPU 0: NVIDIA Jetson Orin Nano"
   - OnSelect: Update store and refetch metrics for selected GPU
   - Only visible in Single GPU mode
 
-- [ ] **M3.6: Update System Monitor Page for Multi-GPU**
+- [x] **M3.6: Update System Monitor Page for Multi-GPU**
   - Add ViewModeSelector at top
   - Conditionally render Single vs Compare view based on mode
   - Add GPUSelector in single mode
   - Ensure historical charts work for selected GPU
 
-- [ ] **M3.7: Test Multi-GPU Support**
+- [x] **M3.7: Test Multi-GPU Support**
   - Test on system with multiple GPUs (if available)
   - Test graceful degradation to single GPU mode
   - Verify comparison view shows all GPUs accurately
   - Test GPU selection switching
 
 ### Milestone 4: Polish & Optimization (Week 7-8) - P2
+✅ COMPLETE - Phase 6 & 7 tasks implemented in commits 75c517b, c39fc82, a35d13b, 36c92f6
 
 #### Performance & Real-time Updates
 
-- [ ] **M4.1: Implement WebSocket for Real-time Metrics**
+- [x] **M4.1: Implement WebSocket for Real-time Metrics**
   - File: `backend/src/api/websockets/system_metrics.py`
   - WebSocket endpoint: `/ws/system-metrics`
   - Push GPU + system metrics every 1 second
   - Support room-based subscriptions per GPU
 
-- [ ] **M4.2: Update Frontend to Use WebSocket**
+- [x] **M4.2: Update Frontend to Use WebSocket**
   - File: `frontend/src/hooks/useSystemMetricsWebSocket.ts`
   - Custom hook to connect to WebSocket
   - Auto-reconnect on disconnect
   - Update store with streamed metrics
   - Fall back to polling if WebSocket fails
 
-- [ ] **M4.3: Optimize Chart Rendering**
+- [x] **M4.3: Optimize Chart Rendering**
   - Implement virtual scrolling for long time series
   - Debounce chart updates to reduce redraws
   - Use memo/useMemo for expensive calculations
   - Test with 24h of 1-second resolution data
 
-- [ ] **M4.4: Implement Data Pruning Strategy**
+- [x] **M4.4: Implement Data Pruning Strategy**
   - Background task: Aggregate old data to reduce storage
   - Keep: 1h at 1s, 6h at 10s, 24h at 1m, 7d at 5m resolution
   - Delete data older than 7 days
@@ -427,19 +430,19 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
 
 #### Error Handling & Edge Cases
 
-- [ ] **M4.5: Add Comprehensive Error Handling**
+- [x] **M4.5: Add Comprehensive Error Handling**
   - Backend: Handle pynvml initialization failures gracefully
   - Backend: Return 503 when GPU monitoring unavailable
   - Frontend: Show friendly error message if no GPU detected
   - Frontend: Display "GPU unavailable" state instead of crashing
   - Add retry logic for transient failures
 
-- [ ] **M4.6: Add Loading States**
+- [x] **M4.6: Add Loading States**
   - Skeleton loaders for all panels while data fetching
   - Smooth transitions between loading and loaded states
   - Prevent layout shift during load
 
-- [ ] **M4.7: Handle Edge Cases**
+- [x] **M4.7: Handle Edge Cases**
   - Test with 0 GPUs (CPU-only system)
   - Test with GPU that doesn't support certain metrics
   - Test with very old GPU driver versions
@@ -481,14 +484,14 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
 
 #### Final Polish
 
-- [ ] **M4.13: UI/UX Refinements**
+- [x] **M4.13: UI/UX Refinements**
   - Match exact styling from reference screenshots
   - Ensure all colors match slate theme
   - Add smooth animations for metric updates
   - Polish typography and spacing
   - Add tooltips for technical metrics
 
-- [ ] **M4.14: Accessibility**
+- [x] **M4.14: Accessibility**
   - Add ARIA labels to all interactive elements
   - Ensure keyboard navigation works
   - Test screen reader compatibility

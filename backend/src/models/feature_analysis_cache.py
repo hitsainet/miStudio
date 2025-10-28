@@ -7,8 +7,8 @@ This module defines the SQLAlchemy model for caching expensive analysis results.
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, BigInteger, String, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, BigInteger, String, DateTime, ForeignKey, Enum as SQLAEnum
+from sqlalchemy.dialects.postgresql import JSONB, ENUM as PostgreSQLEnum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -20,6 +20,14 @@ class AnalysisType(str, Enum):
     LOGIT_LENS = "logit_lens"  # Logit lens analysis: top predicted tokens
     CORRELATIONS = "correlations"  # Correlation with other features
     ABLATION = "ablation"  # Ablation impact on model performance
+
+
+# Create the PostgreSQL ENUM type
+analysis_type_enum = PostgreSQLEnum(
+    'logit_lens', 'correlations', 'ablation',
+    name='analysis_type_enum',
+    create_type=False  # Type already exists from migration
+)
 
 
 class FeatureAnalysisCache(Base):
@@ -40,7 +48,7 @@ class FeatureAnalysisCache(Base):
         nullable=False,
         index=True
     )
-    analysis_type = Column(String(50), nullable=False, index=True)
+    analysis_type = Column(analysis_type_enum, nullable=False, index=True)
 
     # Analysis results
     result = Column(JSONB, nullable=False)

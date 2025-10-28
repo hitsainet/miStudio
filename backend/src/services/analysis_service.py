@@ -328,11 +328,13 @@ class AnalysisService:
         results: Dict[str, Any]
     ) -> None:
         """Cache analysis results."""
+        now = datetime.now(timezone.utc)
         cache_entry = FeatureAnalysisCache(
             feature_id=feature_id,
             analysis_type=analysis_type,
-            results=results,
-            computed_at=datetime.now(timezone.utc)
+            result=results,  # Column is named 'result' not 'results'
+            computed_at=now,
+            expires_at=now + timedelta(days=self.CACHE_EXPIRY_DAYS)
         )
 
         self.db.add(cache_entry)

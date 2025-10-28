@@ -21,6 +21,7 @@ from ..services.dataset_service import DatasetService
 from ..services.tokenization_service import TokenizationService
 from .base_task import DatabaseTask
 from .websocket_emitter import emit_dataset_progress
+from .tqdm_websocket_bridge import create_tqdm_websocket_callback
 
 
 @celery_app.task(
@@ -91,14 +92,32 @@ def download_dataset_task(
             },
         )
 
-        dataset = load_dataset(
-            repo_id,
-            name=config,
-            split=split,
-            cache_dir=str(data_dir),
-            token=access_token,
-            trust_remote_code=True,
+        # Monkey-patch tqdm to emit WebSocket progress during download
+        # Maps HuggingFace's tqdm (0-100%) to our progress range (10-70%)
+        TqdmWebSocket = create_tqdm_websocket_callback(
+            dataset_id=dataset_id,
+            base_progress=10.0,
+            progress_range=60.0,  # 10% → 70%
+            throttle_seconds=0.5  # Emit at most every 0.5 seconds
         )
+
+        # Patch tqdm in datasets library
+        import datasets.utils.file_utils
+        original_tqdm = datasets.utils.file_utils.tqdm
+        datasets.utils.file_utils.tqdm = TqdmWebSocket
+
+        try:
+            dataset = load_dataset(
+                repo_id,
+                name=config,
+                split=split,
+                cache_dir=str(data_dir),
+                token=access_token,
+                trust_remote_code=True,
+            )
+        finally:
+            # Restore original tqdm regardless of success/failure
+            datasets.utils.file_utils.tqdm = original_tqdm
 
         # Update progress: saving to disk
         emit_dataset_progress(

@@ -13,6 +13,9 @@ import { X, Save, Star, Info, Activity, GitBranch, Zap } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { FeatureDetail } from '../../types/features';
 import { TokenHighlight } from './TokenHighlight';
+import { LogitLensView } from './LogitLensView';
+import { FeatureCorrelations } from './FeatureCorrelations';
+import { AblationAnalysis } from './AblationAnalysis';
 
 interface FeatureDetailModalProps {
   featureId: string;
@@ -371,39 +374,21 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
           {activeTab === 'logit-lens' && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-white mb-4">Logit Lens Analysis</h3>
-              <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-6 text-center">
-                <Info className="w-12 h-12 text-blue-400 mx-auto mb-3" />
-                <p className="text-blue-300 mb-2">Logit lens analysis coming soon</p>
-                <p className="text-sm text-slate-400">
-                  This will show the most likely tokens predicted when this feature activates.
-                </p>
-              </div>
+              <LogitLensView featureId={featureId} />
             </div>
           )}
 
           {activeTab === 'correlations' && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-white mb-4">Feature Correlations</h3>
-              <div className="bg-purple-900/20 border border-purple-700/30 rounded-lg p-6 text-center">
-                <GitBranch className="w-12 h-12 text-purple-400 mx-auto mb-3" />
-                <p className="text-purple-300 mb-2">Correlation analysis coming soon</p>
-                <p className="text-sm text-slate-400">
-                  This will show other features that activate in similar contexts.
-                </p>
-              </div>
+              <FeatureCorrelations featureId={featureId} />
             </div>
           )}
 
           {activeTab === 'ablation' && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-white mb-4">Ablation Analysis</h3>
-              <div className="bg-orange-900/20 border border-orange-700/30 rounded-lg p-6 text-center">
-                <Zap className="w-12 h-12 text-orange-400 mx-auto mb-3" />
-                <p className="text-orange-300 mb-2">Ablation analysis coming soon</p>
-                <p className="text-sm text-slate-400">
-                  This will show the impact of removing this feature on model performance.
-                </p>
-              </div>
+              <AblationAnalysis featureId={featureId} />
             </div>
           )}
         </div>

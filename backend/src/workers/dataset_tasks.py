@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
-from datasets import load_dataset
+# NOTE: Do NOT import load_dataset at module level!
+# It must be imported inside the task function AFTER patching tqdm
+# Otherwise, datasets will import tqdm before we can patch it
 from sqlalchemy.orm import Session
 
 from ..core.celery_app import celery_app
@@ -108,6 +110,9 @@ def download_dataset_task(
         # Save original tqdm
         sys.modules['tqdm'].tqdm = TqdmWebSocket
         sys.modules['tqdm.auto'].tqdm = TqdmWebSocket
+
+        # NOW import load_dataset - it will use our patched tqdm
+        from datasets import load_dataset
 
         try:
             dataset = load_dataset(

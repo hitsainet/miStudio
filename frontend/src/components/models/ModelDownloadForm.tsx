@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Download, Eye } from 'lucide-react';
 import { QuantizationFormat } from '../../types/model';
 import { ModelPreviewModal } from './ModelPreviewModal';
+import { COMPONENTS } from '../../config/brand';
 
 interface ModelDownloadFormProps {
   onDownload: (repoId: string, quantization: string, accessToken?: string, trustRemoteCode?: boolean) => Promise<void>;
@@ -120,7 +121,7 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
   };
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6 space-y-4">
+    <div className={`${COMPONENTS.card.base} p-6 space-y-4`}>
       <div className="grid grid-cols-2 gap-4">
         {/* HuggingFace Repository Input */}
         <div>
@@ -217,7 +218,7 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
           type="button"
           onClick={handlePreview}
           disabled={!hfModelRepo || isSubmitting}
-          className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
+          className={`py-3 flex items-center justify-center gap-2 ${COMPONENTS.button.secondary}`}
         >
           <Eye className="w-5 h-5" />
           Preview
@@ -226,7 +227,7 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
           type="button"
           onClick={handleSubmit}
           disabled={!hfModelRepo || isSubmitting}
-          className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
+          className={`py-3 flex items-center justify-center gap-2 ${COMPONENTS.button.primary}`}
         >
           {isSubmitting ? (
             <>

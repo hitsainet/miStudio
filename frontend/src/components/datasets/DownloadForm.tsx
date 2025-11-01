@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { Download, Eye } from 'lucide-react';
 import { validateHfRepoId } from '../../utils/validators';
 import { DatasetPreviewModal } from './DatasetPreviewModal';
+import { COMPONENTS } from '../../config/brand';
 
 interface DownloadFormProps {
   onDownload: (repoId: string, accessToken?: string, split?: string, config?: string) => Promise<void>;
@@ -98,7 +99,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
   return (
     <form
       onSubmit={handleSubmit}
-      className={`bg-slate-900/50 border border-slate-800 rounded-lg p-6 ${className}`}
+      className={`${COMPONENTS.card.base} p-6 ${className}`}
     >
       <h2 className="text-lg font-semibold text-slate-100 mb-4">
         Download from HuggingFace
@@ -200,7 +201,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
             type="button"
             onClick={handlePreview}
             disabled={isSubmitting || !hfRepo}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium rounded transition-colors"
+            className={`flex items-center justify-center gap-2 ${COMPONENTS.button.secondary}`}
           >
             <Eye className="w-4 h-4" />
             Preview
@@ -208,7 +209,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
           <button
             type="submit"
             disabled={isSubmitting || !hfRepo}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium rounded transition-colors"
+            className={`flex items-center justify-center gap-2 ${COMPONENTS.button.primary}`}
           >
             <Download className="w-4 h-4" />
             {isSubmitting ? 'Downloading...' : 'Download'}

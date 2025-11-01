@@ -75,10 +75,15 @@ class FeatureService:
 
             # Subquery to check if any activation tokens match
             # Uses jsonb_array_elements_text to expand the tokens array and search within it
-            token_match = select(1).select_from(FeatureActivation).where(
-                FeatureActivation.feature_id == Feature.id
-            ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
+            # We need to use a LATERAL join pattern by selecting from the set-returning function
+            token_subquery = (
+                select(func.jsonb_array_elements_text(FeatureActivation.tokens).label('token'))
+                .select_from(FeatureActivation)
+                .where(FeatureActivation.feature_id == Feature.id)
+                .subquery()
+            )
+            token_match = select(1).select_from(token_subquery).where(
+                token_subquery.c.token.ilike(search_pattern)
             ).exists()
 
             query = query.where(
@@ -99,10 +104,14 @@ class FeatureService:
             search_pattern = f'%{search_params.search}%'
 
             # Same token search subquery for count
-            token_match = select(1).select_from(FeatureActivation).where(
-                FeatureActivation.feature_id == Feature.id
-            ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
+            token_subquery = (
+                select(func.jsonb_array_elements_text(FeatureActivation.tokens).label('token'))
+                .select_from(FeatureActivation)
+                .where(FeatureActivation.feature_id == Feature.id)
+                .subquery()
+            )
+            token_match = select(1).select_from(token_subquery).where(
+                token_subquery.c.token.ilike(search_pattern)
             ).exists()
 
             count_query = count_query.where(
@@ -242,10 +251,14 @@ class FeatureService:
             search_pattern = f'%{search_params.search}%'
 
             # Subquery to check if any activation tokens match
-            token_match = select(1).select_from(FeatureActivation).where(
-                FeatureActivation.feature_id == Feature.id
-            ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
+            token_subquery = (
+                select(func.jsonb_array_elements_text(FeatureActivation.tokens).label('token'))
+                .select_from(FeatureActivation)
+                .where(FeatureActivation.feature_id == Feature.id)
+                .subquery()
+            )
+            token_match = select(1).select_from(token_subquery).where(
+                token_subquery.c.token.ilike(search_pattern)
             ).exists()
 
             query = query.where(
@@ -266,10 +279,14 @@ class FeatureService:
             search_pattern = f'%{search_params.search}%'
 
             # Same token search subquery for count
-            token_match = select(1).select_from(FeatureActivation).where(
-                FeatureActivation.feature_id == Feature.id
-            ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
+            token_subquery = (
+                select(func.jsonb_array_elements_text(FeatureActivation.tokens).label('token'))
+                .select_from(FeatureActivation)
+                .where(FeatureActivation.feature_id == Feature.id)
+                .subquery()
+            )
+            token_match = select(1).select_from(token_subquery).where(
+                token_subquery.c.token.ilike(search_pattern)
             ).exists()
 
             count_query = count_query.where(

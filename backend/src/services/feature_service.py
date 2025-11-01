@@ -68,13 +68,24 @@ class FeatureService:
 
         # Task 9.4: Apply search filter if specified
         if search_params.search:
-            # Use ILIKE for substring matching (case-insensitive)
-            # This allows searching for partial matches in feature names and descriptions
+            # Use ILIKE for substring matching (case-insensitive) in:
+            # 1. Feature name and description
+            # 2. Activation tokens (from feature_activations.tokens JSONB array)
             search_pattern = f'%{search_params.search}%'
+
+            # Subquery to check if any activation tokens match
+            # Uses jsonb_array_elements_text to expand the tokens array and search within it
+            token_match = select(1).select_from(FeatureActivation).where(
+                FeatureActivation.feature_id == Feature.id
+            ).where(
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+            ).exists()
+
             query = query.where(
                 or_(
                     Feature.name.ilike(search_pattern),
-                    Feature.description.ilike(search_pattern)
+                    Feature.description.ilike(search_pattern),
+                    token_match
                 )
             )
 
@@ -86,10 +97,19 @@ class FeatureService:
         count_query = select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
         if search_params.search:
             search_pattern = f'%{search_params.search}%'
+
+            # Same token search subquery for count
+            token_match = select(1).select_from(FeatureActivation).where(
+                FeatureActivation.feature_id == Feature.id
+            ).where(
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+            ).exists()
+
             count_query = count_query.where(
                 or_(
                     Feature.name.ilike(search_pattern),
-                    Feature.description.ilike(search_pattern)
+                    Feature.description.ilike(search_pattern),
+                    token_match
                 )
             )
         if search_params.is_favorite is not None:
@@ -220,10 +240,19 @@ class FeatureService:
         # Apply search filter if specified
         if search_params.search:
             search_pattern = f'%{search_params.search}%'
+
+            # Subquery to check if any activation tokens match
+            token_match = select(1).select_from(FeatureActivation).where(
+                FeatureActivation.feature_id == Feature.id
+            ).where(
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+            ).exists()
+
             query = query.where(
                 or_(
                     Feature.name.ilike(search_pattern),
-                    Feature.description.ilike(search_pattern)
+                    Feature.description.ilike(search_pattern),
+                    token_match
                 )
             )
 
@@ -235,10 +264,19 @@ class FeatureService:
         count_query = select(func.count()).select_from(Feature).where(Feature.extraction_job_id == extraction_job_id)
         if search_params.search:
             search_pattern = f'%{search_params.search}%'
+
+            # Same token search subquery for count
+            token_match = select(1).select_from(FeatureActivation).where(
+                FeatureActivation.feature_id == Feature.id
+            ).where(
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+            ).exists()
+
             count_query = count_query.where(
                 or_(
                     Feature.name.ilike(search_pattern),
-                    Feature.description.ilike(search_pattern)
+                    Feature.description.ilike(search_pattern),
+                    token_match
                 )
             )
         if search_params.is_favorite is not None:

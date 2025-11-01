@@ -10,6 +10,7 @@ import { Zap, Filter } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { ExtractionJobCard } from '../features/ExtractionJobCard';
+import { COMPONENTS } from '../../config/brand';
 
 export const ExtractionsPanel: React.FC = () => {
   const {
@@ -51,23 +52,20 @@ export const ExtractionsPanel: React.FC = () => {
   };
 
   return (
-    <div className="max-w-[80%] mx-auto px-6 py-6">
+    <div className="max-w-[80%] mx-auto px-6 py-8">
       {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Zap className="w-8 h-8 text-emerald-400" />
-          <div>
-            <h2 className="text-2xl font-bold text-white">Feature Extractions</h2>
-            <p className="text-sm text-slate-400">View and manage all feature extraction jobs</p>
-          </div>
-        </div>
+      <div className="mb-8">
+        <h1 className={`text-2xl font-semibold ${COMPONENTS.text.primary} mb-2`}>Extractions</h1>
+        <p className={COMPONENTS.text.secondary}>
+          View and manage all feature extraction jobs
+        </p>
       </div>
 
       {/* Filters */}
-      <div className="mb-6 bg-slate-900/50 rounded-lg p-4 border border-slate-800">
+      <div className={`mb-6 ${COMPONENTS.card.base} p-4`}>
         <div className="flex items-center gap-3">
-          <Filter className="w-5 h-5 text-slate-400" />
-          <span className="text-sm font-medium text-slate-300">Filter by status:</span>
+          <Filter className={`w-5 h-5 ${COMPONENTS.text.secondary}`} />
+          <span className={`text-sm font-medium ${COMPONENTS.text.primary}`}>Filter by status:</span>
           <div className="flex gap-2">
             {['queued', 'extracting', 'completed', 'failed'].map((status) => (
               <button
@@ -75,8 +73,8 @@ export const ExtractionsPanel: React.FC = () => {
                 onClick={() => toggleStatusFilter(status)}
                 className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                   statusFilter.includes(status)
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                    ? 'bg-emerald-600 dark:bg-emerald-500 text-white'
+                    : `${COMPONENTS.button.secondary}`
                 }`}
               >
                 {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -86,7 +84,7 @@ export const ExtractionsPanel: React.FC = () => {
           {statusFilter.length > 0 && (
             <button
               onClick={() => setStatusFilter([])}
-              className="ml-auto text-sm text-slate-400 hover:text-slate-300"
+              className={`ml-auto text-sm ${COMPONENTS.text.secondary} hover:text-slate-300 dark:hover:text-slate-200`}
             >
               Clear filters
             </button>
@@ -97,18 +95,18 @@ export const ExtractionsPanel: React.FC = () => {
       {/* Loading State */}
       {isLoadingExtractions && (
         <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400"></div>
-          <p className="mt-4 text-slate-400">Loading extractions...</p>
+          <div className={COMPONENTS.spinner}></div>
+          <p className={`mt-4 ${COMPONENTS.text.secondary}`}>Loading extractions...</p>
         </div>
       )}
 
       {/* Error State */}
       {extractionsError && (
-        <div className="bg-red-900/20 border border-red-700 rounded-lg p-6 text-center">
-          <p className="text-red-400">{extractionsError}</p>
+        <div className="bg-red-500/10 dark:bg-red-500/20 border border-red-500/30 dark:border-red-500/40 rounded-lg p-6 text-center">
+          <p className="text-red-400 dark:text-red-300">{extractionsError}</p>
           <button
             onClick={() => fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined)}
-            className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded transition-colors"
+            className={`mt-4 ${COMPONENTS.button.secondary}`}
           >
             Retry
           </button>
@@ -120,9 +118,9 @@ export const ExtractionsPanel: React.FC = () => {
         <>
           {allExtractions.length === 0 ? (
             <div className="text-center py-12">
-              <Zap className="w-16 h-16 text-slate-700 mx-auto mb-4" />
-              <p className="text-slate-400 text-lg mb-2">No extraction jobs found</p>
-              <p className="text-slate-500 text-sm">
+              <Zap className={`w-16 h-16 ${COMPONENTS.text.muted} mx-auto mb-4`} />
+              <p className={`${COMPONENTS.text.secondary} text-lg mb-2`}>No extraction jobs found</p>
+              <p className={`${COMPONENTS.text.muted} text-sm`}>
                 {statusFilter.length > 0
                   ? 'Try removing some filters'
                   : 'Start a feature extraction from a completed training'}
@@ -132,7 +130,7 @@ export const ExtractionsPanel: React.FC = () => {
             <>
               {/* Stats */}
               {extractionsMetadata && (
-                <div className="mb-4 text-sm text-slate-400">
+                <div className={`mb-4 text-sm ${COMPONENTS.text.secondary}`}>
                   Showing {allExtractions.length} of {extractionsMetadata.total} extraction{extractionsMetadata.total !== 1 ? 's' : ''}
                 </div>
               )}

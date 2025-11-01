@@ -162,9 +162,9 @@ export const RADIUS = {
 export const COMPONENTS = {
   // Card variants
   card: {
-    base: 'bg-slate-900/50 dark:bg-white/90 border border-slate-800 dark:border-slate-200 rounded-lg',
-    elevated: 'bg-slate-900 dark:bg-white border border-slate-700 dark:border-slate-300 rounded-lg shadow-lg',
-    interactive: 'bg-slate-900/50 dark:bg-white/90 border border-slate-800 dark:border-slate-200 rounded-lg hover:border-slate-700 dark:hover:border-slate-400 transition-colors cursor-pointer',
+    base: 'bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg',
+    elevated: 'bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg',
+    interactive: 'bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:border-slate-400 dark:hover:border-slate-600 transition-colors cursor-pointer',
   },
 
   // Button variants
@@ -229,10 +229,10 @@ export const COMPONENTS = {
   },
 
   surface: {
-    base: 'bg-white/90 dark:bg-slate-900/50',
-    elevated: 'bg-white dark:bg-slate-900',
-    card: 'bg-slate-100 dark:bg-slate-800/50',
-    hover: 'hover:bg-slate-200/50 dark:hover:bg-slate-800/30',
+    base: 'bg-slate-50 dark:bg-slate-900',
+    elevated: 'bg-white dark:bg-slate-800',
+    card: 'bg-slate-200 dark:bg-slate-800',
+    hover: 'hover:bg-slate-300 dark:hover:bg-slate-700',
   },
 
   border: {
@@ -242,7 +242,7 @@ export const COMPONENTS = {
   },
 
   stat: {
-    container: 'bg-slate-100 dark:bg-slate-800/50 rounded p-3',
+    container: 'bg-slate-300 dark:bg-slate-700 rounded p-3',
     label: 'text-xs text-slate-600 dark:text-slate-400 mb-1',
     value: 'text-lg font-bold',
   },

@@ -76,6 +76,9 @@ def emit_progress(
         # Use configured WebSocket emit URL (supports both local and Docker deployments)
         api_url = settings.websocket_emit_url
 
+        # DEBUG: Print to see if function is called
+        print(f"[EMIT DEBUG] Attempting to emit {event} to {channel}")
+
         # Prepare payload
         payload = {
             "channel": channel,
@@ -93,9 +96,11 @@ def emit_progress(
 
             # Log result
             if response.status_code == 200:
+                print(f"[EMIT DEBUG] Success: {event} to {channel}")
                 logger.debug(f"WebSocket emit: {event} to {channel} - Success")
                 return True
             else:
+                print(f"[EMIT DEBUG] Failed with status {response.status_code}: {event} to {channel}")
                 logger.warning(
                     f"WebSocket emit: {event} to {channel} - "
                     f"Failed with status {response.status_code}"
@@ -103,10 +108,12 @@ def emit_progress(
                 return False
 
     except httpx.TimeoutException:
+        print(f"[EMIT DEBUG] Timeout: {event} to {channel}")
         logger.warning(f"WebSocket emit timeout: {event} to {channel}")
         return False
 
     except Exception as e:
+        print(f"[EMIT DEBUG] Exception: {e}")
         logger.error(f"Failed to emit WebSocket event: {e}", exc_info=True)
         return False
 
@@ -120,7 +127,7 @@ def emit_dataset_progress(
     Emit progress update for a dataset operation.
 
     Convenience function that automatically constructs the channel name
-    for dataset progress updates.
+    for dataset progress updates and adds namespace prefix to event names.
 
     Args:
         dataset_id: Dataset UUID or ID
@@ -144,7 +151,9 @@ def emit_dataset_progress(
         True
     """
     channel = f"datasets/{dataset_id}/progress"
-    return emit_progress(channel, event, data)
+    # Add namespace prefix to event name for proper WebSocket routing
+    namespaced_event = f"dataset:{event}"
+    return emit_progress(channel, namespaced_event, data)
 
 
 def emit_model_progress(
@@ -156,7 +165,7 @@ def emit_model_progress(
     Emit progress update for a model operation.
 
     Convenience function that automatically constructs the channel name
-    for model progress updates.
+    for model progress updates and adds namespace prefix to event names.
 
     Args:
         model_id: Model ID
@@ -180,7 +189,9 @@ def emit_model_progress(
         True
     """
     channel = f"models/{model_id}/progress"
-    return emit_progress(channel, event, data)
+    # Add namespace prefix to event name for proper WebSocket routing
+    namespaced_event = f"model:{event}"
+    return emit_progress(channel, namespaced_event, data)
 
 
 def emit_extraction_progress(
@@ -225,7 +236,8 @@ def emit_extraction_progress(
         "status": status,
         "message": message,
     }
-    return emit_progress(channel, "progress", data)
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "extraction:progress", data)
 
 
 def emit_extraction_failed(
@@ -274,7 +286,8 @@ def emit_extraction_failed(
         "retry_available": True,
         "cancel_available": True,
     }
-    return emit_progress(channel, "failed", data)
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "extraction:failed", data)
 
 
 def emit_training_progress(
@@ -404,7 +417,8 @@ def emit_gpu_metrics(
         True
     """
     channel = f"system/gpu/{gpu_id}"
-    return emit_progress(channel, "metrics", metrics)
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "system:metrics", metrics)
 
 
 def emit_cpu_metrics(
@@ -437,7 +451,8 @@ def emit_cpu_metrics(
         True
     """
     channel = "system/cpu"
-    return emit_progress(channel, "metrics", metrics)
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "system:metrics", metrics)
 
 
 def emit_memory_metrics(
@@ -473,7 +488,8 @@ def emit_memory_metrics(
         True
     """
     channel = "system/memory"
-    return emit_progress(channel, "metrics", metrics)
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "system:metrics", metrics)
 
 
 def emit_disk_metrics(
@@ -505,7 +521,8 @@ def emit_disk_metrics(
         True
     """
     channel = "system/disk"
-    return emit_progress(channel, "metrics", metrics)
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "system:metrics", metrics)
 
 
 def emit_network_metrics(
@@ -537,7 +554,8 @@ def emit_network_metrics(
         True
     """
     channel = "system/network"
-    return emit_progress(channel, "metrics", metrics)
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "system:metrics", metrics)
 
 
 def emit_system_metrics(

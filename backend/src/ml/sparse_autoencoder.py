@@ -46,6 +46,7 @@ class SparseAutoencoder(nn.Module):
         tied_weights: bool = False,
         init_scale: float = 0.1,
         ghost_gradient_penalty: float = 0.0,
+        normalize_activations: str = 'constant_norm_rescale',
     ):
         super().__init__()
 
@@ -54,6 +55,7 @@ class SparseAutoencoder(nn.Module):
         self.l1_alpha = l1_alpha
         self.tied_weights = tied_weights
         self.ghost_gradient_penalty = ghost_gradient_penalty
+        self.normalize_activations = normalize_activations
 
         # Encoder: x → z
         self.encoder = nn.Linear(hidden_dim, latent_dim, bias=True)
@@ -80,6 +82,45 @@ class SparseAutoencoder(nn.Module):
             nn.init.zeros_(self.decoder.bias)
 
         nn.init.zeros_(self.decoder_bias)
+
+    def normalize(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Normalize activations according to specified method.
+
+        Args:
+            x: Input activations [batch, hidden_dim]
+
+        Returns:
+            x_normalized: Normalized activations
+            norm_coeff: Normalization coefficients for denormalization
+        """
+        if self.normalize_activations == 'constant_norm_rescale':
+            # SAELens standard: E(||x||) = sqrt(hidden_dim)
+            import math
+            norm_coeff = math.sqrt(self.hidden_dim) / x.norm(dim=-1, keepdim=True)
+            x_normalized = x * norm_coeff
+            return x_normalized, norm_coeff
+        elif self.normalize_activations == 'none':
+            # No normalization
+            return x, torch.ones_like(x[:, :1])
+        else:
+            raise ValueError(f"Unknown normalization method: {self.normalize_activations}")
+
+    def denormalize(self, x: torch.Tensor, norm_coeff: torch.Tensor) -> torch.Tensor:
+        """
+        Denormalize activations.
+
+        Args:
+            x: Normalized activations [batch, hidden_dim]
+            norm_coeff: Normalization coefficients from normalize()
+
+        Returns:
+            x_denormalized: Original scale activations
+        """
+        if self.normalize_activations == 'constant_norm_rescale':
+            return x / norm_coeff
+        else:
+            return x
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -124,15 +165,21 @@ class SparseAutoencoder(nn.Module):
             return_loss: Whether to compute and return loss components
 
         Returns:
-            x_reconstructed: Reconstructed activations [batch, hidden_dim]
+            x_reconstructed: Reconstructed activations [batch, hidden_dim] (denormalized)
             z: Latent activations [batch, latent_dim]
             losses: Dictionary of loss components if return_loss=True, else empty dict
         """
-        # Encode
-        z = self.encode(x)
+        # Normalize inputs
+        x_normalized, norm_coeff = self.normalize(x)
 
-        # Decode
-        x_reconstructed = self.decode(z)
+        # Encode
+        z = self.encode(x_normalized)
+
+        # Decode (still normalized)
+        x_reconstructed_norm = self.decode(z)
+
+        # Denormalize output
+        x_reconstructed = self.denormalize(x_reconstructed_norm, norm_coeff)
 
         # Compute losses
         losses = {}
@@ -140,10 +187,10 @@ class SparseAutoencoder(nn.Module):
             # Reconstruction loss (MSE)
             loss_reconstruction = F.mse_loss(x_reconstructed, x, reduction='mean')
 
-            # L1 sparsity penalty
-            # Sum across features (latent_dim), then average across batch
-            # This makes penalty proportional to number of active features
-            l1_penalty = z.abs().sum(dim=-1).mean()
+            # L1 sparsity penalty (SAELens standard)
+            # Mean across both features and batch
+            # This normalizes penalty by number of features, making l1_alpha transferable
+            l1_penalty = z.abs().mean()
 
             # L0 sparsity (fraction of active features)
             l0_sparsity = (z > 0).float().mean()
@@ -383,10 +430,10 @@ class Transcoder(nn.Module):
             # Reconstruction loss (how well do we predict layer j from layer i?)
             loss_reconstruction = F.mse_loss(x_transcoded, x_target, reduction='mean')
 
-            # L1 sparsity penalty
-            # Sum across features (latent_dim), then average across batch
-            # This makes penalty proportional to number of active features
-            l1_penalty = z.abs().sum(dim=-1).mean()
+            # L1 sparsity penalty (SAELens standard)
+            # Mean across both features and batch
+            # This normalizes penalty by number of features, making l1_alpha transferable
+            l1_penalty = z.abs().mean()
 
             # L0 sparsity
             l0_sparsity = (z > 0).float().mean()

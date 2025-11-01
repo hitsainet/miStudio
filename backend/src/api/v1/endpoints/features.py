@@ -301,6 +301,51 @@ async def list_features(
 
 
 @router.get(
+    "/extractions/{extraction_id}/features",
+    response_model=FeatureListResponse,
+    summary="List and search features for an extraction"
+)
+async def list_extraction_features(
+    extraction_id: str,
+    search: str = Query(None, max_length=500, description="Full-text search query"),
+    sort_by: str = Query("activation_freq", regex="^(activation_freq|interpretability|feature_id)$"),
+    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    is_favorite: bool = Query(None, description="Filter by favorite status"),
+    limit: int = Query(50, ge=1, le=500, description="Page size"),
+    offset: int = Query(0, ge=0, description="Page offset"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List and search features for a specific extraction job with filtering, sorting, and pagination.
+
+    Args:
+        extraction_id: ID of the extraction job
+        search: Full-text search query on feature name and description
+        sort_by: Sort field (activation_freq, interpretability, feature_id)
+        sort_order: Sort order (asc, desc)
+        is_favorite: Filter by favorite status (None = all)
+        limit: Maximum number of results (1-500)
+        offset: Number of results to skip
+
+    Returns:
+        FeatureListResponse with features, pagination info, and statistics
+    """
+    feature_service = FeatureService(db)
+
+    # Build search params
+    search_params = FeatureSearchRequest(
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        is_favorite=is_favorite,
+        limit=limit,
+        offset=offset
+    )
+
+    return await feature_service.list_features_by_extraction(extraction_id, search_params)
+
+
+@router.get(
     "/features/{feature_id}",
     response_model=FeatureDetailResponse,
     summary="Get feature details"

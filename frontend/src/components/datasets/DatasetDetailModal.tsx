@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, FileText, BarChart, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, FileText, BarChart, Zap, ChevronLeft, ChevronRight, AlertCircle, Trash2 } from 'lucide-react';
 import { Dataset } from '../../types/dataset';
 import { formatFileSize, formatDateTime } from '../../utils/formatters';
 import { StatusBadge } from '../common/StatusBadge';
@@ -502,7 +502,9 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
   // Check if dataset is already tokenized
   const isTokenized = dataset.metadata?.tokenization !== undefined;
   const isProcessing = dataset.status === 'processing';
-  const canTokenize = dataset.status === 'ready' && !isProcessing;
+  const isError = dataset.status === 'error';
+  // Allow tokenization for both READY and ERROR status (ERROR allows retry)
+  const canTokenize = (dataset.status === 'ready' || dataset.status === 'error') && !isProcessing;
 
   // Initialize progress from dataset when component mounts or dataset changes
   useEffect(() => {
@@ -666,6 +668,44 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
     }
   };
 
+  const handleClearTokenization = async () => {
+    if (!confirm('Clear tokenization data? This will remove tokenized files but keep the raw dataset. You can re-tokenize afterwards.')) {
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/datasets/${dataset.id}/tokenization`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to clear tokenization');
+      }
+
+      const updatedDataset = await response.json();
+
+      // Notify parent component of the update
+      onDatasetUpdate?.(updatedDataset);
+
+      setSuccess('Tokenization cleared successfully');
+      setProgress(0);
+      setProgressMessage('');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to clear tokenization';
+      setError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (isProcessing) {
     return (
       <div className="text-center py-12 max-w-2xl mx-auto">
@@ -742,10 +782,66 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
         </div>
       )}
 
+      {/* Error Status */}
+      {isError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-500/20 rounded">
+              <AlertCircle className="w-5 h-5 text-red-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-red-400 mb-2">
+                Tokenization Failed
+              </h3>
+              {dataset.error_message && (
+                <p className="text-slate-300 text-sm mb-3">
+                  {dataset.error_message}
+                </p>
+              )}
+              <p className="text-slate-400 text-sm">
+                You can retry with the same or different settings below, or clear the error to start fresh.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Tokenization Button - Show for tokenized or error datasets */}
+      {(isTokenized || isError) && (
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleClearTokenization}
+            disabled={isSubmitting}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-slate-200 font-medium rounded transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear Tokenization
+          </button>
+          {isTokenized && (
+            <p className="text-sm text-slate-500 flex items-center">
+              This will remove tokenized files but keep the raw dataset
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Success/Error Messages */}
+      {success && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4">
+          <p className="text-emerald-400 text-sm">{success}</p>
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+
       {/* Tokenization Form */}
       <form onSubmit={handleTokenize} className="bg-slate-800/50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-slate-100 mb-4">
-          {isTokenized ? 'Re-tokenize Dataset' : 'Tokenize Dataset'}
+          {isTokenized ? 'Re-tokenize Dataset' : isError ? 'Retry Tokenization' : 'Tokenize Dataset'}
         </h3>
 
         <div className="space-y-6">

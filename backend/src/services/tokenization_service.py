@@ -338,9 +338,10 @@ class TokenizationService:
     @staticmethod
     def calculate_statistics(tokenized_dataset: HFDataset) -> Dict[str, Any]:
         """
-        Calculate statistics for a tokenized dataset using NumPy vectorization.
+        Calculate statistics for a tokenized dataset using batched processing.
 
-        Performance: ~10x faster than Python loop for datasets with 1M+ samples.
+        Processes dataset in 10K sample batches to avoid OOM on large datasets.
+        Memory-efficient: uses ~200MB per batch instead of loading all samples.
 
         Args:
             tokenized_dataset: Tokenized HuggingFace dataset
@@ -366,21 +367,44 @@ class TokenizationService:
                 "Dataset must contain at least one sample."
             )
 
-        # Extract input_ids and vectorize with NumPy
+        # Process dataset in batches to avoid loading all into memory
+        # Critical for large datasets (8M+ samples) to prevent OOM
         try:
-            input_ids = tokenized_dataset["input_ids"]
+            batch_size = 10000  # Process 10K samples at a time (~200MB per batch)
+            total_samples = len(tokenized_dataset)
 
-            # Vectorized calculation using NumPy (10x faster for large datasets)
-            seq_lengths = np.array([len(ids) for ids in input_ids])
+            # Initialize accumulators
+            seq_lengths_list = []
+            unique_tokens = set()
+
+            # Process in batches
+            print(f"Calculating statistics for {total_samples:,} samples in batches of {batch_size:,}...")
+            for start_idx in range(0, total_samples, batch_size):
+                end_idx = min(start_idx + batch_size, total_samples)
+                batch = tokenized_dataset[start_idx:end_idx]["input_ids"]
+
+                # Calculate lengths for this batch
+                batch_lengths = [len(ids) for ids in batch]
+                seq_lengths_list.extend(batch_lengths)
+
+                # Update unique tokens for this batch
+                for ids in batch:
+                    unique_tokens.update(ids)
+
+                # Progress indicator
+                if (start_idx // batch_size) % 10 == 0:
+                    pct = (end_idx / total_samples) * 100
+                    print(f"  Statistics progress: {pct:.1f}% ({end_idx:,}/{total_samples:,})")
+
+            # Convert to numpy array for statistical calculations
+            seq_lengths = np.array(seq_lengths_list)
 
             # Calculate median sequence length
             median_seq_length = float(np.median(seq_lengths))
 
-            # Calculate vocabulary size (unique tokens across entire dataset)
-            unique_tokens = set()
-            for ids in input_ids:
-                unique_tokens.update(ids)
+            # Vocabulary size from accumulated unique tokens
             vocab_size = len(unique_tokens)
+            print(f"Statistics complete: {len(seq_lengths):,} samples, vocab size: {vocab_size:,}")
 
             # Calculate length distribution with bucketing
             # Buckets: 0-100, 100-200, 200-400, 400-600, 600-800, 800-1000, 1000+

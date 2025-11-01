@@ -52,6 +52,9 @@ interface FeaturesStoreState {
   // Features by training ID
   featuresByTraining: Record<string, Feature[]>;
 
+  // Features by extraction ID
+  featuresByExtraction: Record<string, Feature[]>;
+
   // Feature list metadata (pagination, statistics)
   featureListMetadata: Record<string, {
     total: number;
@@ -93,6 +96,7 @@ interface FeaturesStoreState {
   getExtractionStatus: (trainingId: string) => Promise<void>;
   fetchAllExtractions: (statusFilter?: string[], limit?: number, offset?: number) => Promise<void>;
   fetchFeatures: (trainingId: string, filters?: FeatureSearchRequest) => Promise<void>;
+  fetchExtractionFeatures: (extractionId: string, filters?: FeatureSearchRequest) => Promise<void>;
   fetchFeatureDetail: (featureId: string) => Promise<void>;
   fetchFeatureExamples: (featureId: string, limit?: number) => Promise<void>;
   updateFeature: (featureId: string, updates: FeatureUpdateRequest) => Promise<void>;
@@ -115,6 +119,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
   allExtractions: [],
   extractionsMetadata: null,
   featuresByTraining: {},
+  featuresByExtraction: {},
   featureListMetadata: {},
   selectedFeature: null,
   featureExamples: [],
@@ -301,6 +306,48 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
       }));
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch features';
+      set({ featuresError: errorMessage, isLoadingFeatures: false });
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch features for a specific extraction with optional filters.
+   */
+  fetchExtractionFeatures: async (extractionId: string, filters?: FeatureSearchRequest) => {
+    set({ isLoadingFeatures: true, featuresError: null });
+
+    try {
+      // Use provided filters or stored filters
+      const searchFilters = filters || get().searchFilters[extractionId] || {};
+
+      const response = await axios.get<FeatureListResponse>(
+        `/api/v1/extractions/${extractionId}/features`,
+        { params: searchFilters }
+      );
+
+      set((state) => ({
+        featuresByExtraction: {
+          ...state.featuresByExtraction,
+          [extractionId]: response.data.features,
+        },
+        featureListMetadata: {
+          ...state.featureListMetadata,
+          [extractionId]: {
+            total: response.data.total,
+            limit: response.data.limit,
+            offset: response.data.offset,
+            statistics: response.data.statistics,
+          },
+        },
+        searchFilters: {
+          ...state.searchFilters,
+          [extractionId]: searchFilters,
+        },
+        isLoadingFeatures: false,
+      }));
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch extraction features';
       set({ featuresError: errorMessage, isLoadingFeatures: false });
       throw error;
     }

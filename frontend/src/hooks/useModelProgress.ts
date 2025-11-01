@@ -199,10 +199,10 @@ export function useAllModelsProgress() {
       }
     };
 
-    // Subscribe to the event types (these are global, but only room members receive them)
-    subscribe('progress', handleProgress);
-    subscribe('completed', handleCompleted);
-    subscribe('error', handleError);
+    // Subscribe to the event types with namespace prefixes for proper WebSocket routing
+    subscribe('model:progress', handleProgress);
+    subscribe('model:completed', handleCompleted);
+    subscribe('model:error', handleError);
 
     // Subscribe to each active model's progress channel (joins the rooms)
     activeModels.forEach((model) => {
@@ -219,15 +219,15 @@ export function useAllModelsProgress() {
       console.log(`[useAllModelsProgress] Subscribed to extraction channel for model: ${model.id}`);
     });
 
-    // Subscribe to 'failed' event for extraction failures
-    subscribe('failed', handleExtractionFailed);
+    // Subscribe to 'extraction:failed' event for extraction failures
+    subscribe('extraction:failed', handleExtractionFailed);
 
     return () => {
       // Unsubscribe from event handlers
-      unsubscribe('progress', handleProgress);
-      unsubscribe('completed', handleCompleted);
-      unsubscribe('error', handleError);
-      unsubscribe('failed', handleExtractionFailed);
+      unsubscribe('model:progress', handleProgress);
+      unsubscribe('model:completed', handleCompleted);
+      unsubscribe('model:error', handleError);
+      unsubscribe('extraction:failed', handleExtractionFailed);
 
       // Leave all progress rooms
       activeModels.forEach((model) => {

@@ -22,7 +22,7 @@ export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCar
   // Normalize status to string for consistent comparisons
   const statusString = String(dataset.status).toLowerCase();
 
-  const isClickable = statusString === 'ready';
+  const isClickable = statusString === 'ready' || statusString === 'error';
   const showProgress = statusString === 'downloading' || statusString === 'processing';
   const isTokenized = dataset.metadata?.tokenization !== undefined;
   const isActive = statusString === 'downloading' || statusString === 'processing';

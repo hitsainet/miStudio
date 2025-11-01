@@ -191,6 +191,147 @@ class FeatureService:
             statistics=statistics
         )
 
+    async def list_features_by_extraction(
+        self,
+        extraction_job_id: str,
+        search_params: FeatureSearchRequest
+    ) -> FeatureListResponse:
+        """
+        List features for a specific extraction job with search, filtering, sorting, and pagination.
+
+        Args:
+            extraction_job_id: ID of the extraction job to list features for
+            search_params: Search parameters (search query, filters, sort, pagination)
+
+        Returns:
+            FeatureListResponse with features, pagination info, and statistics
+        """
+        # Build base query with extraction_job_id filter
+        query = select(Feature).where(Feature.extraction_job_id == extraction_job_id)
+
+        # Apply full-text search filter if specified
+        if search_params.search:
+            search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
+            search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
+            query = query.where(search_vector.op('@@')(search_query))
+
+        # Apply is_favorite filter if specified
+        if search_params.is_favorite is not None:
+            query = query.where(Feature.is_favorite == search_params.is_favorite)
+
+        # Get total count before pagination
+        count_query = select(func.count()).select_from(Feature).where(Feature.extraction_job_id == extraction_job_id)
+        if search_params.search:
+            search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
+            search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
+            count_query = count_query.where(search_vector.op('@@')(search_query))
+        if search_params.is_favorite is not None:
+            count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
+
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar_one()
+
+        # Apply sorting
+        if search_params.sort_by == "activation_freq":
+            sort_column = Feature.activation_frequency
+        elif search_params.sort_by == "interpretability":
+            sort_column = Feature.interpretability_score
+        else:  # "feature_id"
+            sort_column = Feature.id
+
+        if search_params.sort_order == "asc":
+            query = query.order_by(asc(sort_column))
+        else:  # "desc"
+            query = query.order_by(desc(sort_column))
+
+        # Apply pagination
+        query = query.limit(search_params.limit).offset(search_params.offset)
+
+        # Execute query to get features
+        result = await self.db.execute(query)
+        features = result.scalars().all()
+
+        # For each feature, include one example_context
+        feature_responses = []
+        for feature in features:
+            # Get first max-activating example
+            example_query = (
+                select(FeatureActivation)
+                .where(FeatureActivation.feature_id == feature.id)
+                .order_by(desc(FeatureActivation.max_activation))
+                .limit(1)
+            )
+            example_result = await self.db.execute(example_query)
+            example = example_result.scalar_one_or_none()
+
+            example_context = None
+            if example:
+                example_context = FeatureActivationExample(
+                    tokens=example.tokens,
+                    activations=example.activations,
+                    max_activation=example.max_activation,
+                    sample_index=example.sample_index
+                )
+
+            feature_response = FeatureResponse(
+                id=feature.id,
+                training_id=feature.training_id,
+                extraction_job_id=feature.extraction_job_id,
+                neuron_index=feature.neuron_index,
+                name=feature.name,
+                description=feature.description,
+                label_source=feature.label_source,
+                activation_frequency=feature.activation_frequency,
+                interpretability_score=feature.interpretability_score,
+                max_activation=feature.max_activation,
+                mean_activation=feature.mean_activation,
+                is_favorite=feature.is_favorite,
+                notes=feature.notes,
+                created_at=feature.created_at,
+                updated_at=feature.updated_at,
+                example_context=example_context
+            )
+            feature_responses.append(feature_response)
+
+        # Calculate statistics
+        # Total features
+        total_features_query = select(func.count()).select_from(Feature).where(Feature.extraction_job_id == extraction_job_id)
+        total_features_result = await self.db.execute(total_features_query)
+        total_features = total_features_result.scalar_one()
+
+        # Interpretable percentage (interpretability_score > 0.5)
+        interpretable_count_query = (
+            select(func.count())
+            .select_from(Feature)
+            .where(Feature.extraction_job_id == extraction_job_id, Feature.interpretability_score > 0.5)
+        )
+        interpretable_count_result = await self.db.execute(interpretable_count_query)
+        interpretable_count = interpretable_count_result.scalar_one()
+        interpretable_percentage = (interpretable_count / total_features * 100) if total_features > 0 else 0.0
+
+        # Average activation frequency
+        avg_activation_freq_query = (
+            select(func.avg(Feature.activation_frequency))
+            .where(Feature.extraction_job_id == extraction_job_id)
+        )
+        avg_activation_freq_result = await self.db.execute(avg_activation_freq_query)
+        avg_activation_freq_value = avg_activation_freq_result.scalar_one_or_none()
+        avg_activation_frequency = float(avg_activation_freq_value) if avg_activation_freq_value else 0.0
+
+        statistics = FeatureStatistics(
+            total_features=total_features,
+            interpretable_percentage=interpretable_percentage,
+            avg_activation_frequency=avg_activation_frequency
+        )
+
+        return FeatureListResponse(
+            features=feature_responses,
+            total=total,
+            limit=search_params.limit,
+            offset=search_params.offset,
+            statistics=statistics
+        )
+
     async def get_feature_detail(self, feature_id: str) -> Optional[FeatureDetailResponse]:
         """
         Get detailed information about a feature.

@@ -137,7 +137,7 @@ export const useDatasetsStore = create<DatasetsState>()(
               return status !== 'downloading' && status !== 'processing';
             },
             interval: 500,
-            maxPolls: 50,
+            maxPolls: 1200,  // 10 minutes at 500ms intervals (increased from 50 to accommodate large dataset downloads)
             resourceId: newDataset.id,
             resourceType: 'dataset',
           });

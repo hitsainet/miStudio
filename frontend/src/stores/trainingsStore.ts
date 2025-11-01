@@ -52,6 +52,7 @@ export interface TrainingConfig {
   // Sparsity
   l1_alpha: number;
   target_l0?: number;
+  normalize_activations?: string;
 
   // Training
   learning_rate: number;
@@ -156,9 +157,10 @@ const defaultConfig: TrainingConfig = {
   // Layer configuration - default to layer 0 (single-layer training)
   training_layers: [0],
 
-  // Sparsity - research-calibrated L1 penalty (formula: 0.01 / sqrt(latent_dim / 8192))
-  l1_alpha: 0.01, // For latent_dim=8192, produces optimal L0≈4% (monosemantic features)
+  // Sparsity - SAELens-compatible normalization (constant_norm_rescale) + standard l1_coefficient
+  l1_alpha: 5.0, // SAELens standard coefficient (Anthropic range: 1.0-10.0) with .mean() L1 penalty
   target_l0: 0.05, // 5% activation rate
+  normalize_activations: 'constant_norm_rescale', // SAELens standard normalization
 
   // Training - optimized defaults for RTX 3080 Ti (12GB VRAM)
   learning_rate: 0.0003,

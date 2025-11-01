@@ -129,6 +129,31 @@ class TqdmWebSocketCallback(tqdm_original):
                     # Don't let WebSocket errors break the download
                     logger.warning(f"Failed to emit progress via WebSocket: {e}")
 
+                # Update database progress (throttled same as WebSocket)
+                try:
+                    from uuid import UUID
+                    from ..db.session import get_db
+                    from ..models.dataset import Dataset
+
+                    # Create a new database session for this update
+                    db_gen = get_db()
+                    db = next(db_gen)
+                    try:
+                        dataset_uuid = UUID(self.dataset_id)
+                        dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                        if dataset_obj:
+                            dataset_obj.progress = mapped_progress / 100.0  # Store as 0.0-1.0 fraction
+                            db.commit()
+                    finally:
+                        # Always close the database session
+                        try:
+                            next(db_gen)
+                        except StopIteration:
+                            pass
+                except Exception as e:
+                    # Don't let database errors break the download
+                    logger.warning(f"Failed to update database progress: {e}")
+
         return result
 
     def close(self):

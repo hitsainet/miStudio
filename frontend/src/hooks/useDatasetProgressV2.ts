@@ -71,10 +71,10 @@ export function useGlobalDatasetProgress() {
       }
     };
 
-    // Register event handlers
-    on('progress', handleProgress);
-    on('completed', handleCompleted);
-    on('error', handleError);
+    // Register event handlers with namespace prefix for proper WebSocket routing
+    on('dataset:progress', handleProgress);
+    on('dataset:completed', handleCompleted);
+    on('dataset:error', handleError);
 
     handlersRegisteredRef.current = true;
 
@@ -83,9 +83,9 @@ export function useGlobalDatasetProgress() {
     // Cleanup
     return () => {
       console.log('[Progress] Cleaning up global event handlers');
-      off('progress', handleProgress);
-      off('completed', handleCompleted);
-      off('error', handleError);
+      off('dataset:progress', handleProgress);
+      off('dataset:completed', handleCompleted);
+      off('dataset:error', handleError);
       handlersRegisteredRef.current = false;
     };
   }, [on, off, updateDatasetProgress, updateDatasetStatus, fetchDatasets]);

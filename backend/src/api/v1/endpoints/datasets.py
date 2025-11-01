@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from transformers import AutoTokenizer
 
 from ....core.deps import get_db
+from ....core.celery_app import celery_app
 from ....models.dataset import DatasetStatus
 from ....schemas.dataset import (
     DatasetCreate,
@@ -147,6 +148,117 @@ async def get_dataset(
     return dataset
 
 
+@router.get("/{dataset_id}/task-status")
+async def get_dataset_task_status(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get Celery task status for a dataset operation (download/tokenization).
+
+    This endpoint queries the Celery task state from Redis to provide
+    real-time progress updates for long-running operations.
+
+    Args:
+        dataset_id: Dataset UUID
+        db: Database session
+
+    Returns:
+        Task status with progress information
+
+    Raises:
+        HTTPException: If dataset not found
+    """
+    # Get dataset to retrieve task_id
+    dataset = await DatasetService.get_dataset(db, dataset_id)
+
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} not found"
+        )
+
+    # Check if dataset has an active task
+    # Handle metadata as dict (already parsed by SQLAlchemy JSONB type)
+    metadata = dataset.extra_metadata if isinstance(dataset.extra_metadata, dict) else {}
+    task_id = metadata.get('task_id') if metadata else None
+
+    if not task_id:
+        # No active task - return status based on dataset state
+        if dataset.status == DatasetStatus.READY:
+            return {
+                "state": "SUCCESS",
+                "progress": 100.0,
+                "status": "Complete",
+                "task_id": None
+            }
+        elif dataset.status == DatasetStatus.ERROR:
+            return {
+                "state": "FAILURE",
+                "progress": 0.0,
+                "status": dataset.error_message or "Error occurred",
+                "task_id": None
+            }
+        else:
+            # Use database progress as fallback
+            return {
+                "state": "PROGRESS",
+                "progress": dataset.progress or 0.0,
+                "status": f"Status: {dataset.status}",
+                "task_id": None
+            }
+
+    # Query Celery for task status
+    task = celery_app.AsyncResult(task_id)
+
+    if task.state == 'PENDING':
+        # Task is waiting to start
+        response = {
+            "state": task.state,
+            "progress": 0.0,
+            "status": "Waiting to start...",
+            "task_id": task_id
+        }
+    elif task.state == 'PROGRESS':
+        # Task is running with progress updates
+        info = task.info or {}
+        response = {
+            "state": task.state,
+            "progress": info.get('percent', 0.0),
+            "status": info.get('status', 'Processing...'),
+            "current": info.get('current', 0),
+            "total": info.get('total', 100),
+            "task_id": task_id
+        }
+    elif task.state == 'SUCCESS':
+        # Task completed successfully
+        info = task.info or {}
+        response = {
+            "state": task.state,
+            "progress": 100.0,
+            "status": info.get('status', 'Complete'),
+            "task_id": task_id
+        }
+    elif task.state == 'FAILURE':
+        # Task failed
+        response = {
+            "state": task.state,
+            "progress": 0.0,
+            "status": f"Error: {str(task.info)}",
+            "task_id": task_id
+        }
+    else:
+        # Unknown state
+        response = {
+            "state": task.state,
+            "progress": dataset.progress or 0.0,
+            "status": f"State: {task.state}",
+            "task_id": task_id
+        }
+
+    return response
+
+
 @router.patch("/{dataset_id}", response_model=DatasetResponse)
 async def update_dataset(
     dataset_id: UUID,
@@ -269,13 +381,20 @@ async def download_dataset(
 
     # Queue download job with Celery
     from ....workers.dataset_tasks import download_dataset_task
-    download_dataset_task.delay(
+    task = download_dataset_task.delay(
         dataset_id=str(dataset.id),
         repo_id=request.repo_id,
         access_token=request.access_token,
         split=request.split,
         config=request.config
     )
+
+    # Store task_id in dataset metadata for progress tracking
+    metadata = dataset.extra_metadata or {}
+    metadata['task_id'] = task.id
+    metadata['task_type'] = 'download'
+    updates = DatasetUpdate(metadata=metadata)
+    dataset = await DatasetService.update_dataset(db, dataset.id, updates)
 
     return dataset
 
@@ -319,10 +438,11 @@ async def tokenize_dataset(
             detail="Dataset is already being processed. Please wait for the current operation to complete."
         )
 
-    if dataset.status != DatasetStatus.READY:
+    # Allow READY or ERROR status (ERROR allows retry after failure)
+    if dataset.status not in [DatasetStatus.READY, DatasetStatus.ERROR]:
         raise HTTPException(
             status_code=400,
-            detail=f"Dataset must be in 'ready' status for tokenization (current: {dataset.status})"
+            detail=f"Dataset must be in 'ready' or 'error' status for tokenization (current: {dataset.status})"
         )
 
     if not dataset.raw_path:
@@ -330,6 +450,17 @@ async def tokenize_dataset(
             status_code=400,
             detail="Dataset has no raw_path - cannot tokenize"
         )
+
+    # Auto-clear existing tokenization before starting new job
+    # This handles both ERROR status (failed tokenization) and already-tokenized datasets
+    if dataset.status == DatasetStatus.ERROR or dataset.tokenized_path:
+        logger.info(f"Auto-clearing existing tokenization for dataset {dataset_id} before re-tokenization")
+        dataset = await DatasetService.clear_tokenization(db, dataset_id)
+        if not dataset:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to clear existing tokenization"
+            )
 
     # Update status to processing
     updates = DatasetUpdate(
@@ -340,7 +471,7 @@ async def tokenize_dataset(
 
     # Queue tokenization job with Celery
     from ....workers.dataset_tasks import tokenize_dataset_task
-    tokenize_dataset_task.delay(
+    task = tokenize_dataset_task.delay(
         dataset_id=str(dataset_id),
         tokenizer_name=request.tokenizer_name,
         max_length=request.max_length,
@@ -351,7 +482,62 @@ async def tokenize_dataset(
         return_attention_mask=request.return_attention_mask,
     )
 
+    # Store task_id in dataset metadata for progress tracking
+    metadata = dataset.extra_metadata or {}
+    metadata['task_id'] = task.id
+    metadata['task_type'] = 'tokenization'
+    updates = DatasetUpdate(metadata=metadata)
+    dataset = await DatasetService.update_dataset(db, dataset_id, updates)
+
     return dataset
+
+
+@router.delete("/{dataset_id}/tokenization", response_model=DatasetResponse)
+async def clear_tokenization(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Clear tokenization data from a dataset.
+
+    This endpoint removes all tokenization-related data (tokenized files, metadata)
+    while keeping the raw dataset intact. Resets the dataset to READY status.
+
+    Args:
+        dataset_id: Dataset UUID
+        db: Database session
+
+    Returns:
+        Updated dataset with tokenization cleared
+
+    Raises:
+        HTTPException: If dataset not found or cannot be cleared
+    """
+    # Get dataset
+    dataset = await DatasetService.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} not found"
+        )
+
+    # Check if dataset is currently processing
+    if dataset.status == DatasetStatus.PROCESSING:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot clear tokenization while dataset is processing. Cancel the job first."
+        )
+
+    # Clear tokenization
+    try:
+        dataset = await DatasetService.clear_tokenization(db, dataset_id)
+        return dataset
+    except Exception as e:
+        logger.error(f"Failed to clear tokenization for dataset {dataset_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear tokenization: {str(e)}"
+        )
 
 
 @router.delete("/{dataset_id}/cancel", status_code=200)

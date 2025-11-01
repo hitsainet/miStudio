@@ -150,7 +150,7 @@ export const useModelsStore = create<ModelsState>()(
               return status !== 'downloading' && status !== 'loading' && status !== 'quantizing';
             },
             interval: 500,
-            maxPolls: 360, // 3 minutes timeout for model downloads
+            maxPolls: 1200, // 10 minutes timeout for model downloads (increased from 360 to match dataset timeout)
             resourceId: newModel.id,
             resourceType: 'model',
           });

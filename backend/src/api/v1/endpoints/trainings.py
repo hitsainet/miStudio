@@ -173,7 +173,11 @@ async def delete_training(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Delete a training job.
+    Delete a training job and queue background file cleanup.
+
+    This endpoint:
+    1. Deletes the database record
+    2. Queues a background Celery task to delete training files
 
     Args:
         training_id: Training job ID
@@ -182,9 +186,19 @@ async def delete_training(
     Raises:
         HTTPException: If training not found
     """
-    success = await TrainingService.delete_training(db, training_id)
-    if not success:
+    deletion_info = await TrainingService.delete_training(db, training_id)
+    if not deletion_info:
         raise HTTPException(status_code=404, detail=f"Training not found: {training_id}")
+
+    # Queue background file cleanup task
+    training_dir = deletion_info.get("training_dir")
+    if training_dir:
+        from ....workers.training_tasks import delete_training_files
+        delete_training_files.delay(
+            training_id=training_id,
+            training_dir=training_dir
+        )
+        logger.info(f"Queued file cleanup for training {training_id}: {training_dir}")
 
 
 @router.post("/{training_id}/control", response_model=TrainingControlResponse)

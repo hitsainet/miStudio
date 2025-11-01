@@ -20,10 +20,13 @@ class TrainingValidator:
         """
         Calculate recommended l1_alpha based on latent dimension.
 
-        Formula: l1_alpha = 0.01 / sqrt(latent_dim / 8192)
+        Formula: l1_alpha = 5.0 / sqrt(latent_dim / 8192)
 
-        This formula is calibrated to research best practices (Anthropic, OpenAI).
-        Larger SAEs need proportionally smaller penalties to avoid killing all features.
+        This formula is calibrated to SAELens standard with activation normalization
+        and .mean() L1 penalty (not .sum(dim=-1).mean()).
+
+        With normalization + .mean(), the L1 penalty is normalized by the number of features,
+        so we need much larger coefficients than the old .sum() method.
 
         Args:
             latent_dim: SAE latent dimension (width)
@@ -32,17 +35,17 @@ class TrainingValidator:
             Recommended l1_alpha value
 
         Examples:
-            latent_dim=8192  → l1_alpha = 0.010000
-            latent_dim=16384 → l1_alpha = 0.007071
-            latent_dim=32768 → l1_alpha = 0.005000
+            latent_dim=8192  → l1_alpha = 5.000000
+            latent_dim=16384 → l1_alpha = 3.535534
+            latent_dim=32768 → l1_alpha = 2.500000
 
         Reference:
-            Typical research values: 0.0001 - 0.01
-            - Small SAEs (2k-4k):  l1_alpha = 0.01
-            - Medium SAEs (~8k):   l1_alpha = 0.001 - 0.005
-            - Large SAEs (16k+):   l1_alpha = 0.0001 - 0.001
+            SAELens standard values with normalization: 1.0 - 10.0
+            - Small SAEs (2k-4k):  l1_alpha = 7-10
+            - Medium SAEs (~8k):   l1_alpha = 3-7
+            - Large SAEs (16k+):   l1_alpha = 1-3
         """
-        return 0.01 / math.sqrt(latent_dim / 8192.0)
+        return 5.0 / math.sqrt(latent_dim / 8192.0)
 
     @staticmethod
     def validate_sparsity_config(

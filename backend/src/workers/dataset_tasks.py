@@ -338,15 +338,15 @@ def tokenize_dataset_task(
                 status=DatasetStatus.PROCESSING.value,
             )
 
-        emit_dataset_progress(
-            dataset_id,
-            "progress",
-            {
-                "dataset_id": dataset_id,
-                "progress": 0.0,
-                "status": "processing",
-                "message": "Starting tokenization...",
-            },
+        # Update Celery task state: Starting
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 0,
+                'total': 100,
+                'percent': 0.0,
+                'status': 'Starting tokenization...'
+            }
         )
 
         # Get dataset from database to retrieve raw_path
@@ -358,32 +358,42 @@ def tokenize_dataset_task(
                 raise ValueError(f"Dataset {dataset_id} has no raw_path")
             raw_path = dataset_obj.raw_path
 
-        # Emit progress: 10%
-        emit_dataset_progress(
-            dataset_id,
-            "progress",
-            {
-                "dataset_id": dataset_id,
-                "progress": 10.0,
-                "status": "processing",
-                "message": "Loading tokenizer...",
-            },
+            # Update database progress
+            dataset_obj.progress = 0.0
+            dataset_obj.status = DatasetStatus.PROCESSING
+            db.commit()
+
+        # Update Celery task state: Loading tokenizer
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 10,
+                'total': 100,
+                'percent': 10.0,
+                'status': 'Loading tokenizer...'
+            }
         )
 
         # Load tokenizer
         tokenizer = TokenizationService.load_tokenizer(tokenizer_name)
 
-        # Emit progress: 20%
-        emit_dataset_progress(
-            dataset_id,
-            "progress",
-            {
-                "dataset_id": dataset_id,
-                "progress": 20.0,
-                "status": "processing",
-                "message": "Loading dataset...",
-            },
+        # Update Celery task state: Loading dataset
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 20,
+                'total': 100,
+                'percent': 20.0,
+                'status': 'Loading dataset...'
+            }
         )
+
+        # Update database progress
+        with self.get_db() as db:
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+            if dataset_obj:
+                dataset_obj.progress = 20.0
+                db.commit()
 
         # Load dataset from disk
         dataset = TokenizationService.load_dataset_from_disk(raw_path)
@@ -400,16 +410,21 @@ def tokenize_dataset_task(
                 dataset = dataset[first_split]
 
         # Analyze dataset schema to determine best text column
-        emit_dataset_progress(
-            dataset_id,
-            "progress",
-            {
-                "dataset_id": dataset_id,
-                "progress": 30.0,
-                "status": "processing",
-                "message": "Analyzing dataset schema...",
-            },
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 30,
+                'total': 100,
+                'percent': 30.0,
+                'status': 'Analyzing dataset schema...'
+            }
         )
+
+        with self.get_db() as db:
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+            if dataset_obj:
+                dataset_obj.progress = 30.0
+                db.commit()
 
         schema_info = TokenizationService.analyze_dataset_schema(dataset)
 
@@ -431,31 +446,22 @@ def tokenize_dataset_task(
         print(f"  All columns: {schema_info['all_columns']}")
         print(f"  Is multi-column: {schema_info['is_multi_column']}")
 
-        # Emit progress: 40%
-        emit_dataset_progress(
-            dataset_id,
-            "progress",
-            {
-                "dataset_id": dataset_id,
-                "progress": 40.0,
-                "status": "processing",
-                "message": f"Tokenizing {len(dataset)} samples using column '{text_column}'...",
-            },
+        # Update Celery task state: Starting tokenization
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 40,
+                'total': 100,
+                'percent': 40.0,
+                'status': f'Tokenizing {len(dataset):,} samples using column \'{text_column}\'...'
+            }
         )
 
-        # Define progress callback for tokenization
-        def tokenization_progress(progress_pct: float, message: str):
-            """Report tokenization progress."""
-            emit_dataset_progress(
-                dataset_id,
-                "progress",
-                {
-                    "dataset_id": dataset_id,
-                    "progress": progress_pct,
-                    "status": "processing",
-                    "message": message,
-                },
-            )
+        with self.get_db() as db:
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+            if dataset_obj:
+                dataset_obj.progress = 40.0
+                db.commit()
 
         # Map truncation strategy to tokenizer parameter
         truncation_config = {
@@ -466,36 +472,71 @@ def tokenize_dataset_task(
         }
         truncation_param = truncation_config.get(truncation, True)
 
-        # Tokenize dataset with progress tracking
-        tokenized_dataset = TokenizationService.tokenize_dataset(
-            dataset=dataset,
-            tokenizer=tokenizer,
-            text_column=text_column,
-            max_length=max_length,
-            stride=stride,
-            truncation=truncation_param,  # Use dynamic truncation strategy from request
-            padding=padding,  # Use dynamic padding strategy from request
-            add_special_tokens=add_special_tokens,
-            return_attention_mask=return_attention_mask,
-            batch_size=1000,
-            progress_callback=tokenization_progress,
-            num_proc=1,  # Force single-process mode for progress tracking
+        # Tokenize dataset using multiprocessing (avoids OOM on large datasets)
+        # Note: progress_callback removed because it doesn't work with multiprocessing
+        # Progress is tracked via Celery task state updates at milestones
+        try:
+            tokenized_dataset = TokenizationService.tokenize_dataset(
+                dataset=dataset,
+                tokenizer=tokenizer,
+                text_column=text_column,
+                max_length=max_length,
+                stride=stride,
+                truncation=truncation_param,  # Use dynamic truncation strategy from request
+                padding=padding,  # Use dynamic padding strategy from request
+                add_special_tokens=add_special_tokens,
+                return_attention_mask=return_attention_mask,
+                batch_size=1000,
+                progress_callback=None,  # Disabled for multiprocessing
+                num_proc=None,  # Auto-detect CPU cores for parallel processing (prevents OOM)
+            )
+
+            # Force cleanup of input dataset to prevent multiprocessing cleanup issues
+            del dataset
+
+            # Force garbage collection to clean up multiprocessing resources
+            import gc
+            gc.collect()
+
+        except SystemExit as e:
+            # HuggingFace datasets sometimes raises SystemExit during multiprocessing cleanup
+            # This is a known issue - if tokenization completed, we can safely continue
+            print(f"Warning: SystemExit during tokenization cleanup (exit code: {e.code})")
+            print("Tokenization likely completed successfully, continuing...")
+            # Re-raise if this happened during actual tokenization (exit code != -241)
+            if e.code != -241:
+                raise
+
+        # Update Celery task state: Calculating statistics
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 80,
+                'total': 100,
+                'percent': 80.0,
+                'status': 'Calculating statistics...'
+            }
         )
 
-        # Emit progress: 80%
-        emit_dataset_progress(
-            dataset_id,
-            "progress",
-            {
-                "dataset_id": dataset_id,
-                "progress": 80.0,
-                "status": "processing",
-                "message": "Calculating statistics...",
-            },
-        )
+        with self.get_db() as db:
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+            if dataset_obj:
+                dataset_obj.progress = 80.0
+                db.commit()
 
         # Calculate statistics
         stats = TokenizationService.calculate_statistics(tokenized_dataset)
+
+        # Update Celery task state: Saving dataset
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 90,
+                'total': 100,
+                'percent': 90.0,
+                'status': 'Saving tokenized dataset...'
+            }
+        )
 
         # Save tokenized dataset
         tokenized_path = Path(raw_path).parent / f"{Path(raw_path).name}_tokenized"
@@ -504,17 +545,23 @@ def tokenize_dataset_task(
             tokenized_path,
         )
 
-        # Emit progress: 95%
-        emit_dataset_progress(
-            dataset_id,
-            "progress",
-            {
-                "dataset_id": dataset_id,
-                "progress": 95.0,
-                "status": "processing",
-                "message": "Saving results...",
-            },
+        # Update Celery task state: Finalizing
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 95,
+                'total': 100,
+                'percent': 95.0,
+                'status': 'Finalizing...'
+            }
         )
+
+        with self.get_db() as db:
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+            if dataset_obj:
+                dataset_obj.progress = 95.0
+                db.commit()
+
 
         # Update dataset with tokenization results
         with self.get_db() as db:
@@ -563,6 +610,18 @@ def tokenize_dataset_task(
 
                 db.commit()
                 db.refresh(dataset_obj)
+
+                # Update Celery task state: Complete
+                self.update_state(
+                    state='SUCCESS',
+                    meta={
+                        'current': 100,
+                        'total': 100,
+                        'percent': 100.0,
+                        'status': 'Tokenization complete',
+                        'statistics': stats
+                    }
+                )
 
                 # Only emit "completed" event after successful database commit
                 emit_dataset_progress(

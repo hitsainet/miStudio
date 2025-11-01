@@ -259,6 +259,7 @@ def train_sae_task(
                 latent_dim=hp['latent_dim'],
                 l1_alpha=hp['l1_alpha'],
                 ghost_gradient_penalty=hp.get('ghost_gradient_penalty', 0.0),
+                normalize_activations=hp.get('normalize_activations', 'constant_norm_rescale'),
             ).to(device)
             models[layer_idx] = model
 
@@ -458,6 +459,28 @@ def train_sae_task(
                 f"Vocabulary check: dataset_tokenizer={dataset_tokenizer_name or 'unknown'}, "
                 f"model_vocab_size={model_vocab_size}"
             )
+
+            # Extract actual hidden dimension from model config
+            # Override user-provided hidden_dim to match the actual model
+            actual_hidden_dim = getattr(model_config, 'hidden_size', None)
+            if actual_hidden_dim is None:
+                # Try alternative attribute names
+                actual_hidden_dim = getattr(model_config, 'd_model', None)
+
+            if actual_hidden_dim is not None:
+                if hp['hidden_dim'] != actual_hidden_dim:
+                    logger.warning(
+                        f"User-provided hidden_dim ({hp['hidden_dim']}) does not match "
+                        f"model's actual hidden dimension ({actual_hidden_dim}). "
+                        f"Using model's actual dimension."
+                    )
+                    hp['hidden_dim'] = actual_hidden_dim
+                logger.info(f"Model hidden dimension: {actual_hidden_dim}")
+            else:
+                logger.warning(
+                    f"Could not auto-detect model's hidden dimension. "
+                    f"Using user-provided value: {hp['hidden_dim']}"
+                )
 
             architecture = model_record.architecture
             hook_types = [HookType.RESIDUAL]  # Default to residual stream
@@ -1057,3 +1080,68 @@ def resume_training_task(training_id: str, checkpoint_id: Optional[str] = None) 
     # This would load the latest (or specified) checkpoint and continue training
     logger.info(f"Resume training not yet implemented: {training_id}")
     return {"status": "not_implemented"}
+
+
+@get_celery_app().task(name="src.workers.training_tasks.delete_training_files")
+def delete_training_files(training_id: str, training_dir: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Delete training files from disk after database deletion.
+
+    This task runs in the background to clean up training files without
+    blocking the API response.
+
+    Args:
+        training_id: Training job ID
+        training_dir: Path to training directory to delete
+
+    Returns:
+        Dictionary with deletion results
+    """
+    import shutil
+    from pathlib import Path
+
+    logger.info(f"Starting file cleanup for training: {training_id}")
+    deleted_files = []
+    errors = []
+
+    try:
+        # Delete training directory
+        if training_dir and Path(training_dir).exists():
+            try:
+                shutil.rmtree(training_dir)
+                deleted_files.append(training_dir)
+                logger.info(f"Deleted training directory: {training_dir}")
+            except Exception as e:
+                error_msg = f"Failed to delete training directory {training_dir}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+        elif training_dir:
+            logger.warning(f"Training directory does not exist: {training_dir}")
+        else:
+            error_msg = "No training directory path provided"
+            logger.error(error_msg)
+            errors.append(error_msg)
+
+        result = {
+            "training_id": training_id,
+            "deleted_files": deleted_files,
+            "errors": errors,
+        }
+
+        if deleted_files:
+            logger.info(f"Successfully deleted {len(deleted_files)} paths for training {training_id}")
+        if errors:
+            logger.error(f"Encountered {len(errors)} errors during cleanup for training {training_id}")
+
+        return result
+
+    except Exception as e:
+        error_msg = f"Failed to delete files for training {training_id}: {str(e)}"
+        logger.error(error_msg)
+        errors.append(error_msg)
+
+        return {
+            "training_id": training_id,
+            "deleted_files": deleted_files,
+            "errors": errors,
+        }

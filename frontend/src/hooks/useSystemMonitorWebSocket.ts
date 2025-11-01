@@ -87,8 +87,8 @@ export const useSystemMonitorWebSocket = (gpuIds: number[] = []) => {
       }
     };
 
-    // Register event handlers
-    on('metrics', handleMetrics);
+    // Register event handlers with namespace prefix for proper WebSocket routing
+    on('system:metrics', handleMetrics);
 
     handlersRegisteredRef.current = true;
     console.log('[System Monitor WS] Event handlers registered');
@@ -96,7 +96,7 @@ export const useSystemMonitorWebSocket = (gpuIds: number[] = []) => {
     // Cleanup
     return () => {
       console.log('[System Monitor WS] Cleaning up event handlers');
-      off('metrics', handleMetrics);
+      off('system:metrics', handleMetrics);
       handlersRegisteredRef.current = false;
     };
   }, [on, off, setGPUMetrics, updateSystemMetrics]);

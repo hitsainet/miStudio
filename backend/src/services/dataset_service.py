@@ -296,6 +296,82 @@ class DatasetService:
         }
 
     @staticmethod
+    async def clear_tokenization(
+        db: AsyncSession,
+        dataset_id: UUID
+    ) -> Optional[Dataset]:
+        """
+        Clear tokenization data from a dataset while keeping raw data intact.
+
+        This method:
+        1. Deletes tokenized files from disk (if they exist)
+        2. Clears tokenization-related database fields
+        3. Removes tokenization metadata
+        4. Resets status to READY
+
+        Args:
+            db: Database session
+            dataset_id: Dataset UUID
+
+        Returns:
+            Updated dataset object, or None if not found
+        """
+        from pathlib import Path
+        import shutil
+
+        result = await db.execute(
+            select(Dataset).where(Dataset.id == dataset_id)
+        )
+        db_dataset = result.scalar_one_or_none()
+
+        if not db_dataset:
+            return None
+
+        # Delete tokenized files from disk if they exist
+        if db_dataset.tokenized_path:
+            tokenized_path = Path(db_dataset.tokenized_path)
+            if tokenized_path.exists():
+                try:
+                    if tokenized_path.is_dir():
+                        shutil.rmtree(tokenized_path)
+                    else:
+                        tokenized_path.unlink()
+                    logger.info(f"Deleted tokenized files at {tokenized_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete tokenized files at {tokenized_path}: {e}")
+
+        # Clear tokenization-related fields
+        db_dataset.tokenized_path = None
+        db_dataset.num_tokens = None
+        db_dataset.avg_seq_length = None
+        db_dataset.vocab_size = None
+
+        # Remove tokenization metadata
+        if db_dataset.extra_metadata and 'tokenization' in db_dataset.extra_metadata:
+            metadata = dict(db_dataset.extra_metadata)  # Create mutable copy
+            del metadata['tokenization']
+            db_dataset.extra_metadata = metadata
+
+        # Clear task_id from metadata if it exists
+        if db_dataset.extra_metadata and 'task_id' in db_dataset.extra_metadata:
+            metadata = dict(db_dataset.extra_metadata)  # Create mutable copy
+            del metadata['task_id']
+            if 'task_type' in metadata:
+                del metadata['task_type']
+            db_dataset.extra_metadata = metadata
+
+        # Reset status and progress
+        db_dataset.status = DatasetStatus.READY
+        db_dataset.progress = 0.0
+        db_dataset.error_message = None
+
+        # Commit changes
+        await db.commit()
+        await db.refresh(db_dataset)
+
+        return db_dataset
+
+    @staticmethod
     async def get_dataset_by_repo_id(
         db: AsyncSession,
         repo_id: str

@@ -191,6 +191,7 @@ export const TrainingPanel: React.FC = () => {
           training_layers: config.training_layers || [0],
           l1_alpha: config.l1_alpha,
           target_l0: config.target_l0,
+          normalize_activations: config.normalize_activations || 'constant_norm_rescale',
           learning_rate: config.learning_rate,
           batch_size: config.batch_size,
           total_steps: config.total_steps,
@@ -582,6 +583,25 @@ export const TrainingPanel: React.FC = () => {
                     step={0.001}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
+                </div>
+
+                {/* Normalize Activations */}
+                <div>
+                  <HyperparameterLabel
+                    paramName="normalize_activations"
+                    label="Activation Normalization"
+                    htmlFor="normalize-activations"
+                    className="mb-2"
+                  />
+                  <select
+                    id="normalize-activations"
+                    value={config.normalize_activations ?? 'constant_norm_rescale'}
+                    onChange={(e) => updateConfig({ normalize_activations: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  >
+                    <option value="constant_norm_rescale">Constant Norm Rescale (SAELens)</option>
+                    <option value="none">None</option>
+                  </select>
                 </div>
 
                 {/* Learning Rate */}

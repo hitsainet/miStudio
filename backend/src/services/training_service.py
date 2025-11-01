@@ -193,25 +193,47 @@ class TrainingService:
     async def delete_training(
         db: AsyncSession,
         training_id: str
-    ) -> bool:
+    ) -> Optional[Dict[str, Any]]:
         """
-        Delete a training job.
+        Delete a training job from database and return file paths for background cleanup.
+
+        This method:
+        1. Deletes the database record
+        2. Returns training directory path for the caller to queue background deletion
 
         Args:
             db: Database session
             training_id: Training job ID
 
         Returns:
-            True if deleted, False if not found
+            Dictionary with deletion info, or None if not found
         """
         db_training = await TrainingService.get_training(db, training_id)
         if not db_training:
-            return False
+            return None
 
+        # Capture training directory path before deletion
+        # Training directory structure: /data/trainings/{training_id}/
+        # checkpoint_dir is: /data/trainings/{training_id}/checkpoints/
+        from pathlib import Path
+        from ..core.config import settings
+
+        if db_training.checkpoint_dir:
+            # Extract training dir from checkpoint_dir
+            training_dir = str(Path(db_training.checkpoint_dir).parent)
+        else:
+            # Construct training dir if checkpoint_dir was never set
+            training_dir = str(settings.data_dir / "trainings" / training_id)
+
+        # Delete database record
         await db.delete(db_training)
         await db.commit()
 
-        return True
+        return {
+            "deleted": True,
+            "training_id": training_id,
+            "training_dir": training_dir,
+        }
 
     @staticmethod
     async def start_training(

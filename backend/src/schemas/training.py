@@ -43,14 +43,18 @@ class TrainingHyperparameters(BaseModel):
     l1_alpha: float = Field(
         ...,
         gt=0.00001,
-        le=0.1,
-        description="L1 sparsity penalty coefficient (typically 0.0001-0.01 for 8k-16k latent dims)"
+        le=100.0,
+        description="L1 sparsity penalty coefficient (SAELens standard: 1.0-10.0 with activation normalization)"
     )
     target_l0: Optional[float] = Field(
         None,
         gt=0,
         le=0.2,
         description="Target L0 sparsity (fraction of active features, typically 0.01-0.05)"
+    )
+    normalize_activations: Optional[str] = Field(
+        "constant_norm_rescale",
+        description="Activation normalization method: 'constant_norm_rescale' (SAELens standard) or 'none'"
     )
 
     # Training
@@ -92,6 +96,8 @@ class TrainingHyperparameters(BaseModel):
                 "architecture_type": "standard",
                 "training_layers": [0, 6, 12],
                 "l1_alpha": 0.001,
+                "target_l0": 0.05,
+                "normalize_activations": "constant_norm_rescale",
                 "learning_rate": 0.0003,
                 "batch_size": 4096,
                 "total_steps": 100000,

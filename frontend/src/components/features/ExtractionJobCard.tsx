@@ -314,13 +314,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
         <div className="grid grid-cols-3 gap-3 mb-4">
           <div className={COMPONENTS.stat.container}>
             <div className={COMPONENTS.stat.label}>Features Found</div>
-            <div className="text-lg font-bold text-emerald-400 dark:text-emerald-500">
+            <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
               {extraction.statistics.total_features?.toLocaleString() || 'N/A'}
             </div>
           </div>
           <div className={COMPONENTS.stat.container}>
             <div className={COMPONENTS.stat.label}>Interpretable</div>
-            <div className="text-lg font-bold text-blue-400 dark:text-blue-500">
+            <div className="text-lg font-bold text-blue-600 dark:text-blue-400">
               {extraction.statistics.interpretable_count !== undefined && extraction.statistics.total_features
                 ? `${((extraction.statistics.interpretable_count / extraction.statistics.total_features) * 100).toFixed(1)}%`
                 : 'N/A'}
@@ -328,7 +328,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           </div>
           <div className={COMPONENTS.stat.container}>
             <div className={COMPONENTS.stat.label}>Activation Rate</div>
-            <div className="text-lg font-bold text-purple-400 dark:text-purple-500">
+            <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
               {extraction.statistics.avg_activation_frequency !== undefined
                 ? `${(extraction.statistics.avg_activation_frequency * 100).toFixed(2)}%`
                 : 'N/A'}
@@ -360,9 +360,9 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
       {/* Expandable Features List (only for completed extractions) */}
       {isExpanded && isCompleted && (
-        <div className="mt-6 pt-6 border-t border-slate-800 dark:border-slate-700 space-y-4">
+        <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800 space-y-4">
           <h4 className={`text-lg font-semibold ${COMPONENTS.text.heading} flex items-center gap-2`}>
-            <Zap className="w-5 h-5 text-emerald-400 dark:text-emerald-500" />
+            <Zap className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             Discovered Features
             {metadata && (
               <span className={`text-sm ${COMPONENTS.text.secondary} font-normal`}>
@@ -381,7 +381,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search features..."
-                className={`w-full pl-10 pr-4 py-2 bg-slate-800 dark:bg-slate-700 border ${COMPONENTS.border.default} rounded ${COMPONENTS.text.primary} placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-400`}
+                className={`w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border ${COMPONENTS.border.default} rounded ${COMPONENTS.text.primary} placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-emerald-600 dark:focus:border-emerald-400`}
               />
             </div>
 
@@ -389,7 +389,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             <select
               value={filters.sort_by || 'activation_freq'}
               onChange={(e) => handleSortChange(e.target.value as any)}
-              className={`px-3 py-2 bg-slate-800 dark:bg-slate-700 border ${COMPONENTS.border.default} rounded ${COMPONENTS.text.primary} focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-400`}
+              className={`px-3 py-2 bg-slate-100 dark:bg-slate-800 border ${COMPONENTS.border.default} rounded ${COMPONENTS.text.primary} focus:outline-none focus:border-emerald-600 dark:focus:border-emerald-400`}
             >
               <option value="activation_freq">Activation Freq</option>
               <option value="interpretability">Interpretability</option>

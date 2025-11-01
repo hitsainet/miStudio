@@ -73,7 +73,7 @@ export const ExtractionsPanel: React.FC = () => {
                 onClick={() => toggleStatusFilter(status)}
                 className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                   statusFilter.includes(status)
-                    ? 'bg-emerald-600 dark:bg-emerald-500 text-white'
+                    ? 'bg-emerald-600 dark:bg-emerald-400 text-white'
                     : `${COMPONENTS.button.secondary}`
                 }`}
               >

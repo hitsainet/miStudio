@@ -222,28 +222,28 @@ export const COMPONENTS = {
 
   // Theme utility classes
   text: {
-    primary: 'text-slate-100 dark:text-slate-900',
-    secondary: 'text-slate-400 dark:text-slate-600',
+    primary: 'text-slate-900 dark:text-slate-100',
+    secondary: 'text-slate-600 dark:text-slate-400',
     muted: 'text-slate-500 dark:text-slate-500',
-    heading: 'text-slate-100 dark:text-slate-900',
+    heading: 'text-slate-900 dark:text-slate-100',
   },
 
   surface: {
-    base: 'bg-slate-900/50 dark:bg-white/90',
-    elevated: 'bg-slate-900 dark:bg-white',
-    card: 'bg-slate-800/50 dark:bg-slate-100',
-    hover: 'hover:bg-slate-800/30 dark:hover:bg-slate-200/50',
+    base: 'bg-white/90 dark:bg-slate-900/50',
+    elevated: 'bg-white dark:bg-slate-900',
+    card: 'bg-slate-100 dark:bg-slate-800/50',
+    hover: 'hover:bg-slate-200/50 dark:hover:bg-slate-800/30',
   },
 
   border: {
-    default: 'border-slate-800 dark:border-slate-200',
-    muted: 'border-slate-700 dark:border-slate-300',
-    hover: 'hover:border-slate-700 dark:hover:border-slate-400',
+    default: 'border-slate-200 dark:border-slate-800',
+    muted: 'border-slate-300 dark:border-slate-700',
+    hover: 'hover:border-slate-400 dark:hover:border-slate-700',
   },
 
   stat: {
-    container: 'bg-slate-800/50 dark:bg-slate-100 rounded p-3',
-    label: 'text-xs text-slate-400 dark:text-slate-600 mb-1',
+    container: 'bg-slate-100 dark:bg-slate-800/50 rounded p-3',
+    label: 'text-xs text-slate-600 dark:text-slate-400 mb-1',
     value: 'text-lg font-bold',
   },
 } as const;

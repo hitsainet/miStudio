@@ -71,6 +71,7 @@ export interface TrainingConfig {
   // Dead neuron handling
   dead_neuron_threshold?: number;
   resample_dead_neurons?: boolean;
+  resample_interval?: number;
 }
 
 /**
@@ -158,12 +159,12 @@ const defaultConfig: TrainingConfig = {
   training_layers: [0],
 
   // Sparsity - SAELens-compatible normalization (constant_norm_rescale) + standard l1_coefficient
-  l1_alpha: 5.0, // SAELens standard coefficient (Anthropic range: 1.0-10.0) with .mean() L1 penalty
+  l1_alpha: 0.045, // Empirically tuned: LOWER l1 = WEAKER penalty = MORE activation → closer to 5% target
   target_l0: 0.05, // 5% activation rate
   normalize_activations: 'constant_norm_rescale', // SAELens standard normalization
 
   // Training - optimized defaults for RTX 3080 Ti (12GB VRAM)
-  learning_rate: 0.0003,
+  learning_rate: 0.0001,
   batch_size: 64, // Increased from 32 for 2x throughput (uses ~8.5GB VRAM)
   total_steps: 100000,
   warmup_steps: 10000,
@@ -179,6 +180,7 @@ const defaultConfig: TrainingConfig = {
   // Dead neuron handling
   dead_neuron_threshold: 10000,
   resample_dead_neurons: true,
+  resample_interval: 15000, // 15K optimal: gives neurons time to stabilize (10K too frequent → thrashing)
 };
 
 /**

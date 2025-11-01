@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc, func, or_, select
+from sqlalchemy import desc, asc, func, or_, select, String
 from sqlalchemy.sql import text
 
 from src.models.feature import Feature, LabelSource
@@ -78,7 +78,7 @@ class FeatureService:
             token_match = select(1).select_from(FeatureActivation).where(
                 FeatureActivation.feature_id == Feature.id
             ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
             ).exists()
 
             query = query.where(
@@ -102,7 +102,7 @@ class FeatureService:
             token_match = select(1).select_from(FeatureActivation).where(
                 FeatureActivation.feature_id == Feature.id
             ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
             ).exists()
 
             count_query = count_query.where(
@@ -245,7 +245,7 @@ class FeatureService:
             token_match = select(1).select_from(FeatureActivation).where(
                 FeatureActivation.feature_id == Feature.id
             ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
             ).exists()
 
             query = query.where(
@@ -269,7 +269,7 @@ class FeatureService:
             token_match = select(1).select_from(FeatureActivation).where(
                 FeatureActivation.feature_id == Feature.id
             ).where(
-                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(text).ilike(search_pattern)
+                func.jsonb_array_elements_text(FeatureActivation.tokens).cast(String).ilike(search_pattern)
             ).exists()
 
             count_query = count_query.where(

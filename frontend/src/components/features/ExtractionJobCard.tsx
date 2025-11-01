@@ -555,85 +555,41 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
         </div>
       )}
 
-      {/* Training Job Information */}
-      {training && (
-        <div className={`mt-4 pt-4 border-t ${COMPONENTS.border.default}`}>
-          <details className="text-sm">
-            <summary className={`cursor-pointer ${COMPONENTS.text.secondary} hover:text-slate-300 dark:hover:text-slate-200 transition-colors`}>
-              Training Job Information
-            </summary>
-            <div className={`mt-3 space-y-3 ${COMPONENTS.text.secondary}`}>
-              {/* Training Job ID */}
-              <div>
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Training Job</div>
-                <div className={`font-mono text-xs ${COMPONENTS.text.primary}`}>{training.id}</div>
-              </div>
-
-              {/* SAE Architecture */}
-              <div>
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">SAE Architecture</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-xs">Type:</span> <span className={`${COMPONENTS.text.primary} capitalize`}>{training.hyperparameters.architecture_type}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs">Hidden Dim:</span> <span className={COMPONENTS.text.primary}>{training.hyperparameters.hidden_dim.toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs">Latent Dim:</span> <span className={COMPONENTS.text.primary}>{training.hyperparameters.latent_dim.toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs">Expansion:</span> <span className={COMPONENTS.text.primary}>{(training.hyperparameters.latent_dim / training.hyperparameters.hidden_dim).toFixed(1)}x</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Training Layers */}
-              <div>
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Training Layers</div>
-                <div className={COMPONENTS.text.primary}>{training.hyperparameters.training_layers.join(', ')}</div>
-              </div>
-
-              {/* Key Hyperparameters */}
-              <div>
-                <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Key Hyperparameters</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-xs">L1 Alpha:</span> <span className={COMPONENTS.text.primary}>{training.hyperparameters.l1_alpha}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs">Learning Rate:</span> <span className={COMPONENTS.text.primary}>{training.hyperparameters.learning_rate}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs">Batch Size:</span> <span className={COMPONENTS.text.primary}>{training.hyperparameters.batch_size}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs">Total Steps:</span> <span className={COMPONENTS.text.primary}>{training.hyperparameters.total_steps.toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Target L0 (if available) */}
-              {training.hyperparameters.target_l0 !== undefined && (
-                <div>
-                  <span className="text-xs">Target L0 Sparsity:</span> <span className={COMPONENTS.text.primary}>{(training.hyperparameters.target_l0 * 100).toFixed(1)}%</span>
-                </div>
-              )}
-            </div>
-          </details>
-        </div>
-      )}
-
-      {/* Configuration Details */}
+      {/* Job Details */}
       <div className={`mt-4 pt-4 border-t ${COMPONENTS.border.default}`}>
         <details className="text-sm">
           <summary className={`cursor-pointer ${COMPONENTS.text.secondary} hover:text-slate-300 dark:hover:text-slate-200 transition-colors`}>
-            Extraction Configuration
+            Job Details
           </summary>
-          <div className={`mt-2 space-y-1 ${COMPONENTS.text.secondary}`}>
-            <div>Evaluation Samples: <span className={COMPONENTS.text.primary}>{extraction.config.evaluation_samples?.toLocaleString() || 'N/A'}</span></div>
-            <div>Top-K Examples: <span className={COMPONENTS.text.primary}>{extraction.config.top_k_examples || 'N/A'}</span></div>
-            <div className={`text-xs ${COMPONENTS.text.muted} mt-2`}>Extraction ID: {extraction.id}</div>
+          <div className={`mt-2 ${COMPONENTS.text.secondary}`}>
+            {/* Combined compact grid layout */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {/* Training Information */}
+              {training && (
+                <>
+                  <div className="col-span-2 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-1 mb-1">Training Job</div>
+                  <div>Training ID: <span className={`${COMPONENTS.text.primary} font-mono`}>{training.id}</span></div>
+                  <div>Architecture: <span className={`${COMPONENTS.text.primary} capitalize`}>{training.hyperparameters.architecture_type}</span></div>
+                  <div>Hidden Dim: <span className={COMPONENTS.text.primary}>{training.hyperparameters.hidden_dim.toLocaleString()}</span></div>
+                  <div>Latent Dim: <span className={COMPONENTS.text.primary}>{training.hyperparameters.latent_dim.toLocaleString()}</span></div>
+                  <div>Expansion: <span className={COMPONENTS.text.primary}>{(training.hyperparameters.latent_dim / training.hyperparameters.hidden_dim).toFixed(1)}x</span></div>
+                  <div>Layers: <span className={COMPONENTS.text.primary}>{training.hyperparameters.training_layers.join(', ')}</span></div>
+                  <div>L1 Alpha: <span className={COMPONENTS.text.primary}>{training.hyperparameters.l1_alpha}</span></div>
+                  <div>Learning Rate: <span className={COMPONENTS.text.primary}>{training.hyperparameters.learning_rate}</span></div>
+                  <div>Batch Size: <span className={COMPONENTS.text.primary}>{training.hyperparameters.batch_size}</span></div>
+                  <div>Total Steps: <span className={COMPONENTS.text.primary}>{training.hyperparameters.total_steps.toLocaleString()}</span></div>
+                  {training.hyperparameters.target_l0 !== undefined && (
+                    <div>Target L0: <span className={COMPONENTS.text.primary}>{(training.hyperparameters.target_l0 * 100).toFixed(1)}%</span></div>
+                  )}
+                </>
+              )}
+
+              {/* Extraction Configuration */}
+              <div className="col-span-2 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Extraction</div>
+              <div>Extraction ID: <span className={`${COMPONENTS.text.primary} font-mono`}>{extraction.id}</span></div>
+              <div>Eval Samples: <span className={COMPONENTS.text.primary}>{extraction.config.evaluation_samples?.toLocaleString() || 'N/A'}</span></div>
+              <div className="col-span-2">Top-K Examples: <span className={COMPONENTS.text.primary}>{extraction.config.top_k_examples || 'N/A'}</span></div>
+            </div>
           </div>
         </details>
       </div>

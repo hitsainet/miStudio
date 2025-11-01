@@ -248,7 +248,6 @@ export const TrainingPanel: React.FC = () => {
           log_interval: config.log_interval,
           dead_neuron_threshold: config.dead_neuron_threshold,
           resample_dead_neurons: config.resample_dead_neurons,
-          resample_interval: config.resample_interval,
         },
       };
 

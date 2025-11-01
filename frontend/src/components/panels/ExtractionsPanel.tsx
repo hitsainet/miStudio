@@ -22,7 +22,7 @@ export const ExtractionsPanel: React.FC = () => {
     deleteExtraction,
   } = useFeaturesStore();
 
-  const { trainings, fetchTrainings } = useTrainingsStore();
+  const { fetchTrainings } = useTrainingsStore();
 
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
 

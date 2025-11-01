@@ -68,10 +68,10 @@ class FeatureService:
 
         # Task 9.4: Apply full-text search filter if specified
         if search_params.search:
-            # Use PostgreSQL full-text search with to_tsquery
+            # Use PostgreSQL full-text search with plainto_tsquery (handles special characters safely)
             # The GIN index on (to_tsvector('english', name || ' ' || description)) handles this efficiently
             search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
+            search_query = func.plainto_tsquery('english', search_params.search)
             query = query.where(search_vector.op('@@')(search_query))
 
         # Task 9.5: Apply is_favorite filter if specified
@@ -82,7 +82,7 @@ class FeatureService:
         count_query = select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
         if search_params.search:
             search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
+            search_query = func.plainto_tsquery('english', search_params.search)
             count_query = count_query.where(search_vector.op('@@')(search_query))
         if search_params.is_favorite is not None:
             count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
@@ -212,7 +212,7 @@ class FeatureService:
         # Apply full-text search filter if specified
         if search_params.search:
             search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
+            search_query = func.plainto_tsquery('english', search_params.search)
             query = query.where(search_vector.op('@@')(search_query))
 
         # Apply is_favorite filter if specified
@@ -223,7 +223,7 @@ class FeatureService:
         count_query = select(func.count()).select_from(Feature).where(Feature.extraction_job_id == extraction_job_id)
         if search_params.search:
             search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.to_tsquery('english', func.replace(search_params.search, ' ', ' & '))
+            search_query = func.plainto_tsquery('english', search_params.search)
             count_query = count_query.where(search_vector.op('@@')(search_query))
         if search_params.is_favorite is not None:
             count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)

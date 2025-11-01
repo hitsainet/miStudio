@@ -207,7 +207,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
         );
       default:
         return (
-          <span className={`${baseClasses} bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300`}>
+          <span className={`${baseClasses} bg-slate-800 text-slate-300`}>
             Unknown
           </span>
         );
@@ -217,14 +217,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const progress = (extraction.progress || 0) * 100;
 
   return (
-    <div className={`${COMPONENTS.card.base} p-6 hover:border-slate-400 dark:hover:border-slate-700 transition-colors`}>
+    <div className={`${COMPONENTS.card.base} p-6 hover:border-slate-700 transition-colors`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-3 flex-1">
           <Zap className="w-6 h-6 text-emerald-400 flex-shrink-0 mt-1" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100 truncate">
+              <h3 className={`font-semibold text-lg ${COMPONENTS.text.heading} truncate">
                 {extraction.model_name || 'Unknown Model'} - {extraction.dataset_name || 'Unknown Dataset'}
               </h3>
               {getStatusBadge()}
@@ -239,7 +239,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 </button>
               )}
             </div>
-            <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+            <div className={`text-sm ${COMPONENTS.text.secondary} space-y-1">
               <p>Started {formatDistanceToNow(new Date(extraction.created_at), { addSuffix: true })}</p>
               {extraction.completed_at && (
                 <>
@@ -291,7 +291,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {isActive && extraction.progress !== null && extraction.progress !== undefined && (
         <div className="mb-4">
           <div className="flex items-center justify-between text-sm mb-2">
-            <span className="text-slate-600 dark:text-slate-400">
+            <span className="text-slate-400">
               {extraction.features_extracted !== null && extraction.total_features !== null
                 ? `${extraction.features_extracted.toLocaleString()} / ${extraction.total_features.toLocaleString()} features`
                 : 'Processing...'}
@@ -300,7 +300,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               {progress.toFixed(1)}%
             </span>
           </div>
-          <div className="h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+          <div className={COMPONENTS.progress.container}>
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
               style={{ width: `${progress}%` }}
@@ -312,22 +312,22 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {/* Statistics for Completed */}
       {isCompleted && extraction.statistics && (
         <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="bg-slate-100 dark:bg-slate-800/50 rounded p-3">
-            <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Features Found</div>
+          <div className={COMPONENTS.stat.container}>
+            <div className={COMPONENTS.stat.label}>Features Found</div>
             <div className="text-lg font-bold text-emerald-400">
               {extraction.statistics.total_features?.toLocaleString() || 'N/A'}
             </div>
           </div>
-          <div className="bg-slate-100 dark:bg-slate-800/50 rounded p-3">
-            <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Interpretable</div>
+          <div className={COMPONENTS.stat.container}>
+            <div className={COMPONENTS.stat.label}>Interpretable</div>
             <div className="text-lg font-bold text-blue-400">
               {extraction.statistics.interpretable_count !== undefined && extraction.statistics.total_features
                 ? `${((extraction.statistics.interpretable_count / extraction.statistics.total_features) * 100).toFixed(1)}%`
                 : 'N/A'}
             </div>
           </div>
-          <div className="bg-slate-100 dark:bg-slate-800/50 rounded p-3">
-            <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Activation Rate</div>
+          <div className={COMPONENTS.stat.container}>
+            <div className={COMPONENTS.stat.label}>Activation Rate</div>
             <div className="text-lg font-bold text-purple-400">
               {extraction.statistics.avg_activation_frequency !== undefined
                 ? `${(extraction.statistics.avg_activation_frequency * 100).toFixed(2)}%`
@@ -361,11 +361,11 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {/* Expandable Features List (only for completed extractions) */}
       {isExpanded && isCompleted && (
         <div className="mt-6 pt-6 border-t border-slate-800 space-y-4">
-          <h4 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+          <h4 className={`text-lg font-semibold ${COMPONENTS.text.heading} flex items-center gap-2">
             <Zap className="w-5 h-5 text-emerald-400" />
             Discovered Features
             {metadata && (
-              <span className="text-sm text-slate-600 dark:text-slate-400 font-normal">
+              <span className={`text-sm ${COMPONENTS.text.secondary} font-normal">
                 ({metadata.total.toLocaleString()} total)
               </span>
             )}
@@ -375,13 +375,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           <div className="flex gap-3">
             {/* Search Input */}
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-600 dark:text-slate-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search features..."
-                className="w-full pl-10 pr-4 py-2 bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                className={COMPONENTS.input.default.replace('px-4', 'pl-10 pr-4')}
               />
             </div>
 
@@ -389,7 +389,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             <select
               value={filters.sort_by || 'activation_freq'}
               onChange={(e) => handleSortChange(e.target.value as any)}
-              className="px-3 py-2 bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
             >
               <option value="activation_freq">Activation Freq</option>
               <option value="interpretability">Interpretability</option>
@@ -399,7 +399,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             {/* Sort Order Toggle */}
             <button
               onClick={handleSortOrderToggle}
-              className={`border border-slate-300 dark:border-slate-700 ${COMPONENTS.button.secondary}`}
+              className={`border border-slate-700 ${COMPONENTS.button.secondary}`}
               title={filters.sort_order === 'desc' ? 'Descending' : 'Ascending'}
             >
               <ArrowUpDown
@@ -422,29 +422,29 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           </div>
 
           {/* Feature Table */}
-          <div className="bg-slate-100 dark:bg-slate-800/50 rounded-lg overflow-hidden">
+          <div className="bg-slate-800/50 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-slate-200 dark:bg-slate-800">
+                <thead className="bg-slate-800">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400 uppercase">ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400 uppercase">Label</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400 uppercase">Example Context</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400 uppercase">Activation Freq</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400 uppercase">Interpretability</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400 uppercase">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">ID</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Label</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Example Context</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Activation Freq</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Interpretability</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoadingFeatures ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-slate-600 dark:text-slate-400">
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                         Loading features...
                       </td>
                     </tr>
                   ) : features.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-slate-600 dark:text-slate-400">
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                         No features match your search
                       </td>
                     </tr>
@@ -453,15 +453,15 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                       <tr
                         key={feature.id}
                         onClick={() => setSelectedFeatureId(feature.id)}
-                        className="border-t border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:bg-slate-800/30 cursor-pointer"
+                        className="border-t border-slate-700 hover:bg-slate-800/30 cursor-pointer"
                       >
                         <td className="px-4 py-3">
-                          <span className="font-mono text-sm text-slate-600 dark:text-slate-400">
+                          <span className="font-mono text-sm text-slate-400">
                             #{feature.neuron_index}
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-sm text-slate-900 dark:text-white">{feature.name}</span>
+                          <span className="text-sm text-white">{feature.name}</span>
                         </td>
                         <td className="px-4 py-3">
                           {feature.example_context && (
@@ -507,8 +507,8 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
           {/* Pagination */}
           {features.length > 0 && metadata && (
-            <div className="flex items-center justify-between border-t border-slate-300 dark:border-slate-700 pt-4">
-              <div className="text-sm text-slate-600 dark:text-slate-400">
+            <div className="flex items-center justify-between border-t border-slate-700 pt-4">
+              <div className={`text-sm ${COMPONENTS.text.secondary}">
                 Showing {features.length} of {metadata.total} features
               </div>
               <div className="flex gap-2">
@@ -541,12 +541,12 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {/* Configuration Details */}
       <div className="mt-4 pt-4 border-t border-slate-800">
         <details className="text-sm">
-          <summary className="cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:text-slate-300 transition-colors">
+          <summary className="cursor-pointer text-slate-400 hover:text-slate-300 transition-colors">
             Configuration
           </summary>
-          <div className="mt-2 space-y-1 text-slate-600 dark:text-slate-400">
-            <div>Evaluation Samples: <span className="text-slate-900 dark:text-white">{extraction.config.evaluation_samples?.toLocaleString() || 'N/A'}</span></div>
-            <div>Top-K Examples: <span className="text-slate-900 dark:text-white">{extraction.config.top_k_examples || 'N/A'}</span></div>
+          <div className="mt-2 space-y-1 text-slate-400">
+            <div>Evaluation Samples: <span className="text-white">{extraction.config.evaluation_samples?.toLocaleString() || 'N/A'}</span></div>
+            <div>Top-K Examples: <span className="text-white">{extraction.config.top_k_examples || 'N/A'}</span></div>
             <div className="text-xs text-slate-500 mt-2">ID: {extraction.id}</div>
           </div>
         </details>

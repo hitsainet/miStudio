@@ -219,6 +219,33 @@ export const COMPONENTS = {
     title: 'text-slate-400 dark:text-slate-600 text-lg',
     subtitle: 'text-slate-500 dark:text-slate-500 mt-2',
   },
+
+  // Theme utility classes
+  text: {
+    primary: 'text-slate-100 dark:text-slate-900',
+    secondary: 'text-slate-400 dark:text-slate-600',
+    muted: 'text-slate-500 dark:text-slate-500',
+    heading: 'text-slate-100 dark:text-slate-900',
+  },
+
+  surface: {
+    base: 'bg-slate-900/50 dark:bg-white/90',
+    elevated: 'bg-slate-900 dark:bg-white',
+    card: 'bg-slate-800/50 dark:bg-slate-100',
+    hover: 'hover:bg-slate-800/30 dark:hover:bg-slate-200/50',
+  },
+
+  border: {
+    default: 'border-slate-800 dark:border-slate-200',
+    muted: 'border-slate-700 dark:border-slate-300',
+    hover: 'hover:border-slate-700 dark:hover:border-slate-400',
+  },
+
+  stat: {
+    container: 'bg-slate-800/50 dark:bg-slate-100 rounded p-3',
+    label: 'text-xs text-slate-400 dark:text-slate-600 mb-1',
+    value: 'text-lg font-bold',
+  },
 } as const;
 
 /**

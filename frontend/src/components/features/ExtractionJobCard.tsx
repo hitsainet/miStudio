@@ -224,7 +224,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           <Zap className="w-6 h-6 text-emerald-400 flex-shrink-0 mt-1" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className={`font-semibold text-lg ${COMPONENTS.text.heading} truncate">
+              <h3 className="font-semibold text-lg text-slate-100 truncate">
                 {extraction.model_name || 'Unknown Model'} - {extraction.dataset_name || 'Unknown Dataset'}
               </h3>
               {getStatusBadge()}
@@ -232,14 +232,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               {isCompleted && (
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className={`${COMPONENTS.button.icon} ml-auto`}
+                  className={`p-1 rounded ml-auto ${COMPONENTS.button.ghost}`}
                   title={isExpanded ? 'Collapse features' : 'Expand features'}
                 >
                   {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                 </button>
               )}
             </div>
-            <div className={`text-sm ${COMPONENTS.text.secondary} space-y-1">
+            <div className="text-sm text-slate-400 space-y-1">
               <p>Started {formatDistanceToNow(new Date(extraction.created_at), { addSuffix: true })}</p>
               {extraction.completed_at && (
                 <>
@@ -264,7 +264,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onCancel();
                 }
               }}
-              className={COMPONENTS.button.icon}
+              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
               title="Cancel extraction"
             >
               <XCircle className="w-5 h-5" />
@@ -278,7 +278,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onDelete();
                 }
               }}
-              className={COMPONENTS.button.icon}
+              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
               title="Delete extraction"
             >
               <Trash2 className="w-5 h-5" />
@@ -300,7 +300,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               {progress.toFixed(1)}%
             </span>
           </div>
-          <div className={COMPONENTS.progress.container}>
+          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
               style={{ width: `${progress}%` }}
@@ -312,22 +312,22 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {/* Statistics for Completed */}
       {isCompleted && extraction.statistics && (
         <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className={COMPONENTS.stat.container}>
-            <div className={COMPONENTS.stat.label}>Features Found</div>
+          <div className="bg-slate-800/50 rounded p-3">
+            <div className="text-xs text-slate-400 mb-1">Features Found</div>
             <div className="text-lg font-bold text-emerald-400">
               {extraction.statistics.total_features?.toLocaleString() || 'N/A'}
             </div>
           </div>
-          <div className={COMPONENTS.stat.container}>
-            <div className={COMPONENTS.stat.label}>Interpretable</div>
+          <div className="bg-slate-800/50 rounded p-3">
+            <div className="text-xs text-slate-400 mb-1">Interpretable</div>
             <div className="text-lg font-bold text-blue-400">
               {extraction.statistics.interpretable_count !== undefined && extraction.statistics.total_features
                 ? `${((extraction.statistics.interpretable_count / extraction.statistics.total_features) * 100).toFixed(1)}%`
                 : 'N/A'}
             </div>
           </div>
-          <div className={COMPONENTS.stat.container}>
-            <div className={COMPONENTS.stat.label}>Activation Rate</div>
+          <div className="bg-slate-800/50 rounded p-3">
+            <div className="text-xs text-slate-400 mb-1">Activation Rate</div>
             <div className="text-lg font-bold text-purple-400">
               {extraction.statistics.avg_activation_frequency !== undefined
                 ? `${(extraction.statistics.avg_activation_frequency * 100).toFixed(2)}%`
@@ -361,11 +361,11 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {/* Expandable Features List (only for completed extractions) */}
       {isExpanded && isCompleted && (
         <div className="mt-6 pt-6 border-t border-slate-800 space-y-4">
-          <h4 className={`text-lg font-semibold ${COMPONENTS.text.heading} flex items-center gap-2">
+          <h4 className="text-lg font-semibold text-white flex items-center gap-2">
             <Zap className="w-5 h-5 text-emerald-400" />
             Discovered Features
             {metadata && (
-              <span className={`text-sm ${COMPONENTS.text.secondary} font-normal">
+              <span className="text-sm text-slate-400 font-normal">
                 ({metadata.total.toLocaleString()} total)
               </span>
             )}
@@ -381,7 +381,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search features..."
-                className={COMPONENTS.input.default.replace('px-4', 'pl-10 pr-4')}
+                className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
 
@@ -486,7 +486,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                         <td className="px-4 py-3">
                           <button
                             onClick={(e) => handleToggleFavorite(feature.id, feature.is_favorite, e)}
-                            className={COMPONENTS.button.icon}
+                            className={`p-1 rounded ${COMPONENTS.button.ghost}`}
                           >
                             <Star
                               className={`w-4 h-4 ${
@@ -508,7 +508,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           {/* Pagination */}
           {features.length > 0 && metadata && (
             <div className="flex items-center justify-between border-t border-slate-700 pt-4">
-              <div className={`text-sm ${COMPONENTS.text.secondary}">
+              <div className="text-sm text-slate-400">
                 Showing {features.length} of {metadata.total} features
               </div>
               <div className="flex gap-2">

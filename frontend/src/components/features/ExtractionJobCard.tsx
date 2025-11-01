@@ -232,7 +232,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               {isCompleted && (
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className={`p-1 rounded ml-auto ${COMPONENTS.button.ghost}`}
+                  className={`${COMPONENTS.button.icon} ml-auto`}
                   title={isExpanded ? 'Collapse features' : 'Expand features'}
                 >
                   {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -264,7 +264,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onCancel();
                 }
               }}
-              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
+              className={`${COMPONENTS.button.icon}`}
               title="Cancel extraction"
             >
               <XCircle className="w-5 h-5" />
@@ -278,7 +278,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onDelete();
                 }
               }}
-              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
+              className={`${COMPONENTS.button.icon}`}
               title="Delete extraction"
             >
               <Trash2 className="w-5 h-5" />
@@ -486,7 +486,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                         <td className="px-4 py-3">
                           <button
                             onClick={(e) => handleToggleFavorite(feature.id, feature.is_favorite, e)}
-                            className={`p-1 rounded ${COMPONENTS.button.ghost}`}
+                            className={COMPONENTS.button.icon}
                           >
                             <Star
                               className={`w-4 h-4 ${

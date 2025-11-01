@@ -249,6 +249,23 @@ export function SystemMonitor() {
                 </div>
               </div>
             </div>
+
+            {/* Disk Usage */}
+            {diskUsage && diskUsage.length > 0 && diskUsage.map((disk) => (
+              <div key={disk.mount_point} className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+                <div className="text-sm text-slate-400 mb-2">{disk.mount_point}</div>
+                <div className="text-3xl font-bold text-slate-100 mb-1">{disk.percent.toFixed(1)}%</div>
+                <div className="text-xs text-slate-400 mb-2">
+                  {disk.used_gb.toFixed(1)} / {disk.total_gb.toFixed(1)} GB
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-2">
+                  <div
+                    className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(disk.percent, 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -427,30 +444,6 @@ export function SystemMonitor() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <UtilizationChart data={historicalData} />
             <MemoryUsageChart data={historicalData} />
-          </div>
-        </div>
-      )}
-
-      {/* Disk Usage - Full Width */}
-      {diskUsage && diskUsage.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-100">Disk Usage</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {diskUsage.map((disk) => (
-              <div key={disk.mount_point} className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-                <div className="text-sm text-slate-400 mb-2">{disk.mount_point}</div>
-                <div className="text-2xl font-bold text-slate-100 mb-1">{disk.percent.toFixed(1)}%</div>
-                <div className="text-xs text-slate-400 mb-2">
-                  {disk.used_gb.toFixed(1)} / {disk.total_gb.toFixed(1)} GB
-                </div>
-                <div className="w-full bg-slate-800 rounded-full h-2">
-                  <div
-                    className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.min(disk.percent, 100)}%` }}
-                  ></div>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}

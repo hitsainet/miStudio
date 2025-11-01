@@ -207,7 +207,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
         );
       default:
         return (
-          <span className={`${baseClasses} bg-slate-800 text-slate-300`}>
+          <span className={`${baseClasses} bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300`}>
             Unknown
           </span>
         );
@@ -217,14 +217,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const progress = (extraction.progress || 0) * 100;
 
   return (
-    <div className={`${COMPONENTS.card.base} p-6 hover:border-slate-700 transition-colors`}>
+    <div className={`${COMPONENTS.card.base} p-6 ${COMPONENTS.border.hover} transition-colors`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-3 flex-1">
           <Zap className="w-6 h-6 text-emerald-400 flex-shrink-0 mt-1" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold text-lg text-slate-100 truncate">
+              <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100 truncate">
                 {extraction.model_name || 'Unknown Model'} - {extraction.dataset_name || 'Unknown Dataset'}
               </h3>
               {getStatusBadge()}
@@ -239,7 +239,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 </button>
               )}
             </div>
-            <div className="text-sm text-slate-400 space-y-1">
+            <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
               <p>Started {formatDistanceToNow(new Date(extraction.created_at), { addSuffix: true })}</p>
               {extraction.completed_at && (
                 <>
@@ -291,7 +291,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {isActive && extraction.progress !== null && extraction.progress !== undefined && (
         <div className="mb-4">
           <div className="flex items-center justify-between text-sm mb-2">
-            <span className="text-slate-400">
+            <span className="text-slate-600 dark:text-slate-400">
               {extraction.features_extracted !== null && extraction.total_features !== null
                 ? `${extraction.features_extracted.toLocaleString()} / ${extraction.total_features.toLocaleString()} features`
                 : 'Processing...'}
@@ -300,7 +300,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               {progress.toFixed(1)}%
             </span>
           </div>
-          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className={COMPONENTS.progress.container}>
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
               style={{ width: `${progress}%` }}

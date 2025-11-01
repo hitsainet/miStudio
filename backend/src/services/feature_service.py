@@ -74,10 +74,11 @@ class FeatureService:
             search_pattern = f'%{search_params.search}%'
 
             # Subquery to check if any activation tokens match
-            # Convert JSONB array to text and search within it
+            # Join FeatureActivation with Feature to filter by training_id
             token_subquery = (
                 select(FeatureActivation.feature_id)
-                .where(FeatureActivation.training_id == training_id)
+                .join(Feature, FeatureActivation.feature_id == Feature.id)
+                .where(Feature.training_id == training_id)
                 .where(func.cast(FeatureActivation.tokens, String).ilike(search_pattern))
             )
 
@@ -101,7 +102,8 @@ class FeatureService:
             # Same token search subquery for count
             token_subquery = (
                 select(FeatureActivation.feature_id)
-                .where(FeatureActivation.training_id == training_id)
+                .join(Feature, FeatureActivation.feature_id == Feature.id)
+                .where(Feature.training_id == training_id)
                 .where(func.cast(FeatureActivation.tokens, String).ilike(search_pattern))
             )
 
@@ -242,10 +244,11 @@ class FeatureService:
             search_pattern = f'%{search_params.search}%'
 
             # Subquery to check if any activation tokens match
-            # Convert JSONB array to text and search within it
+            # Join FeatureActivation with Feature to filter by extraction_job_id
             token_subquery = (
                 select(FeatureActivation.feature_id)
-                .where(FeatureActivation.extraction_job_id == extraction_job_id)
+                .join(Feature, FeatureActivation.feature_id == Feature.id)
+                .where(Feature.extraction_job_id == extraction_job_id)
                 .where(func.cast(FeatureActivation.tokens, String).ilike(search_pattern))
             )
 
@@ -269,7 +272,8 @@ class FeatureService:
             # Same token search subquery for count
             token_subquery = (
                 select(FeatureActivation.feature_id)
-                .where(FeatureActivation.extraction_job_id == extraction_job_id)
+                .join(Feature, FeatureActivation.feature_id == Feature.id)
+                .where(Feature.extraction_job_id == extraction_job_id)
                 .where(func.cast(FeatureActivation.tokens, String).ilike(search_pattern))
             )
 

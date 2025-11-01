@@ -179,44 +179,115 @@ export function SystemMonitor() {
           </div>
         )}
 
-      {/* GPU Section */}
-      {gpuAvailable && gpuMetrics && gpuInfo ? (
-        viewMode === 'single' ? (
-        <div className="space-y-4">
-          {/* GPU Header */}
-          <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-            <h2 className="text-lg font-semibold text-slate-100 mb-2">GPU Information</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="text-slate-600 dark:text-slate-400">Device</div>
-                <div className="text-slate-100 font-medium">{gpuInfo.name}</div>
+      {/* Main Layout: System Resources (Left) + GPU Information (Right) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* LEFT COLUMN: System Resources */}
+        {systemMetrics && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-slate-100">System Resources</h2>
+
+            {/* CPU */}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+              <div className="text-sm text-slate-400 mb-2">CPU Utilization</div>
+              <div className="text-3xl font-bold text-slate-100 mb-1">
+                {systemMetrics.cpu.percent.toFixed(1)}%
               </div>
-              <div>
-                <div className="text-slate-600 dark:text-slate-400">Driver</div>
-                <div className="text-slate-100 font-medium">{gpuInfo.driver_version}</div>
+              <div className="text-xs text-slate-400 mb-2">{systemMetrics.cpu.count} cores</div>
+              <div className="w-full bg-slate-800 rounded-full h-2">
+                <div
+                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(systemMetrics.cpu.percent, 100)}%` }}
+                ></div>
               </div>
-              <div>
-                <div className="text-slate-600 dark:text-slate-400">CUDA</div>
-                <div className="text-slate-100 font-medium">{gpuInfo.cuda_version}</div>
+            </div>
+
+            {/* RAM */}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+              <div className="text-sm text-slate-400 mb-2">RAM Usage</div>
+              <div className="text-3xl font-bold text-slate-100 mb-1">
+                {systemMetrics.ram.used_percent.toFixed(1)}%
               </div>
-              <div>
-                <div className="text-slate-600 dark:text-slate-400">Memory</div>
-                <div className="text-slate-100 font-medium">{gpuInfo.total_memory_gb} GB</div>
+              <div className="text-xs text-slate-400 mb-2">
+                {systemMetrics.ram.used_gb.toFixed(1)} / {systemMetrics.ram.total_gb.toFixed(1)} GB
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-2">
+                <div
+                  className="bg-cyan-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(systemMetrics.ram.used_percent, 100)}%` }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Swap */}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+              <div className="text-sm text-slate-400 mb-2">Swap Usage</div>
+              <div className="text-3xl font-bold text-slate-100 mb-1">
+                {systemMetrics.swap.used_percent.toFixed(1)}%
+              </div>
+              <div className="text-xs text-slate-400 mb-2">
+                {systemMetrics.swap.used_gb.toFixed(1)} / {systemMetrics.swap.total_gb.toFixed(1)} GB
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-2">
+                <div
+                  className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(systemMetrics.swap.used_percent, 100)}%` }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Disk I/O */}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+              <div className="text-sm text-slate-400 mb-2">Disk I/O</div>
+              <div className="text-sm text-slate-100">
+                <div className="flex justify-between mb-1">
+                  <span className="text-slate-600 dark:text-slate-400">Read:</span>
+                  <span>{systemMetrics.disk_io.read_mb.toFixed(0)} MB</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600 dark:text-slate-400">Write:</span>
+                  <span>{systemMetrics.disk_io.write_mb.toFixed(0)} MB</span>
+                </div>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Critical Warnings */}
-          {(gpuMetrics.temperature > 85 || gpuMetrics.memory.used_percent > 95 || gpuMetrics.utilization.gpu > 95) && (
-            <div className="flex flex-wrap gap-3">
-              <MetricWarning type="temperature" value={gpuMetrics.temperature} />
-              <MetricWarning type="memory" value={gpuMetrics.memory.used_percent} />
-              <MetricWarning type="utilization" value={gpuMetrics.utilization.gpu} />
+        {/* RIGHT COLUMN: GPU Information */}
+        {gpuAvailable && gpuMetrics && gpuInfo && viewMode === 'single' ? (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-slate-100">GPU Information</h2>
+
+            {/* GPU Device Info */}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">Device</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.name}</div>
+                </div>
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">Driver</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.driver_version}</div>
+                </div>
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">CUDA</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.cuda_version}</div>
+                </div>
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">Memory</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.total_memory_gb} GB</div>
+                </div>
+              </div>
             </div>
-          )}
 
-          {/* GPU Metrics Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Critical Warnings */}
+            {(gpuMetrics.temperature > 85 || gpuMetrics.memory.used_percent > 95 || gpuMetrics.utilization.gpu > 95) && (
+              <div className="flex flex-wrap gap-3">
+                <MetricWarning type="temperature" value={gpuMetrics.temperature} />
+                <MetricWarning type="memory" value={gpuMetrics.memory.used_percent} />
+                <MetricWarning type="utilization" value={gpuMetrics.utilization.gpu} />
+              </div>
+            )}
+
             {/* GPU Utilization */}
             <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
               <div className="text-sm text-slate-400 mb-2">GPU Utilization</div>
@@ -285,153 +356,82 @@ export function SystemMonitor() {
               </div>
             </div>
           </div>
-
-          {/* GPU Processes */}
-          {gpuProcesses && gpuProcesses.length > 0 && (
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-              <h3 className="text-lg font-semibold text-slate-100 mb-3">
-                GPU Processes ({gpuProcesses.length} active)
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-slate-400 border-b border-slate-800">
-                    <tr>
-                      <th className="text-left py-2 px-2">PID</th>
-                      <th className="text-left py-2 px-2">Process</th>
-                      <th className="text-right py-2 px-2">GPU Memory</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-slate-100">
-                    {gpuProcesses.slice(0, 10).map((proc) => (
-                      <tr key={proc.pid} className="border-b border-slate-800/50">
-                        <td className="py-2 px-2">{proc.pid}</td>
-                        <td className="py-2 px-2 font-mono text-xs">{proc.process_name}</td>
-                        <td className="py-2 px-2 text-right">{proc.gpu_memory_used_mb.toFixed(0)} MB</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Historical Trends - Last Hour */}
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-slate-100">Historical Trends (Last Hour)</h2>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <UtilizationChart data={historicalData} />
-              <MemoryUsageChart data={historicalData} />
+        ) : gpuAvailable && !gpuMetrics ? (
+          <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+            <div className="text-slate-400 text-center">
+              GPU monitoring not available. Ensure NVIDIA GPU and drivers are installed.
             </div>
           </div>
-        </div>
-        ) : (
-          // Comparison View
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-100">GPU Comparison</h2>
-              {gpuList && gpuList.gpus.length > 4 && (
-                <span className="text-sm text-slate-600 dark:text-slate-400">
-                  {gpuList.gpus.length} GPUs detected - Scroll to view all
-                </span>
-              )}
-            </div>
-            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${
-              gpuList && gpuList.gpus.length > 6 ? 'max-h-[800px] overflow-y-auto pr-2' : ''
-            }`}>
-              {gpuList?.gpus.map((gpu) => (
-                <GPUCard
-                  key={gpu.gpu_id}
-                  gpuId={gpu.gpu_id}
-                  metrics={gpuMetrics}
-                  info={gpuInfo}
-                />
-              ))}
-            </div>
-          </div>
-        )
-      ) : (
+        ) : null}
+      </div>
+
+      {/* GPU Processes - Full Width */}
+      {gpuAvailable && gpuMetrics && gpuInfo && viewMode === 'single' && gpuProcesses && gpuProcesses.length > 0 && (
         <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-          <div className="text-slate-400 text-center">
-            GPU monitoring not available. Ensure NVIDIA GPU and drivers are installed.
+          <h3 className="text-lg font-semibold text-slate-100 mb-3">
+            GPU Processes ({gpuProcesses.length} active)
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="text-left py-2 px-2">PID</th>
+                  <th className="text-left py-2 px-2">Process</th>
+                  <th className="text-right py-2 px-2">GPU Memory</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-100">
+                {gpuProcesses.slice(0, 10).map((proc) => (
+                  <tr key={proc.pid} className="border-b border-slate-800/50">
+                    <td className="py-2 px-2">{proc.pid}</td>
+                    <td className="py-2 px-2 font-mono text-xs">{proc.process_name}</td>
+                    <td className="py-2 px-2 text-right">{proc.gpu_memory_used_mb.toFixed(0)} MB</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* System Metrics Section */}
-      {systemMetrics && (
+      {/* GPU Comparison View (when multiple GPUs) */}
+      {gpuAvailable && viewMode === 'comparison' && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-100">System Resources</h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* CPU */}
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-              <div className="text-sm text-slate-400 mb-2">CPU Utilization</div>
-              <div className="text-3xl font-bold text-slate-100 mb-1">
-                {systemMetrics.cpu.percent.toFixed(1)}%
-              </div>
-              <div className="text-xs text-slate-400 mb-2">{systemMetrics.cpu.count} cores</div>
-              <div className="w-full bg-slate-800 rounded-full h-2">
-                <div
-                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(systemMetrics.cpu.percent, 100)}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* RAM */}
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-              <div className="text-sm text-slate-400 mb-2">RAM Usage</div>
-              <div className="text-3xl font-bold text-slate-100 mb-1">
-                {systemMetrics.ram.used_percent.toFixed(1)}%
-              </div>
-              <div className="text-xs text-slate-400 mb-2">
-                {systemMetrics.ram.used_gb.toFixed(1)} / {systemMetrics.ram.total_gb.toFixed(1)} GB
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2">
-                <div
-                  className="bg-cyan-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(systemMetrics.ram.used_percent, 100)}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Swap */}
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-              <div className="text-sm text-slate-400 mb-2">Swap Usage</div>
-              <div className="text-3xl font-bold text-slate-100 mb-1">
-                {systemMetrics.swap.used_percent.toFixed(1)}%
-              </div>
-              <div className="text-xs text-slate-400 mb-2">
-                {systemMetrics.swap.used_gb.toFixed(1)} / {systemMetrics.swap.total_gb.toFixed(1)} GB
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2">
-                <div
-                  className="bg-orange-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(systemMetrics.swap.used_percent, 100)}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Disk I/O */}
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-              <div className="text-sm text-slate-400 mb-2">Disk I/O</div>
-              <div className="text-sm text-slate-100">
-                <div className="flex justify-between mb-1">
-                  <span className="text-slate-600 dark:text-slate-400">Read:</span>
-                  <span>{systemMetrics.disk_io.read_mb.toFixed(0)} MB</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Write:</span>
-                  <span>{systemMetrics.disk_io.write_mb.toFixed(0)} MB</span>
-                </div>
-              </div>
-            </div>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-100">GPU Comparison</h2>
+            {gpuList && gpuList.gpus.length > 4 && (
+              <span className="text-sm text-slate-600 dark:text-slate-400">
+                {gpuList.gpus.length} GPUs detected - Scroll to view all
+              </span>
+            )}
+          </div>
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${
+            gpuList && gpuList.gpus.length > 6 ? 'max-h-[800px] overflow-y-auto pr-2' : ''
+          }`}>
+            {gpuList?.gpus.map((gpu) => (
+              <GPUCard
+                key={gpu.gpu_id}
+                gpuId={gpu.gpu_id}
+                metrics={gpuMetrics}
+                info={gpuInfo}
+              />
+            ))}
           </div>
         </div>
       )}
 
-      {/* Disk Usage Section */}
+      {/* Historical Trends - Full Width */}
+      {gpuAvailable && gpuMetrics && gpuInfo && viewMode === 'single' && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-slate-100">Historical Trends (Last Hour)</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <UtilizationChart data={historicalData} />
+            <MemoryUsageChart data={historicalData} />
+          </div>
+        </div>
+      )}
+
+      {/* Disk Usage - Full Width */}
       {diskUsage && diskUsage.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-slate-100">Disk Usage</h2>

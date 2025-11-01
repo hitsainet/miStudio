@@ -45,6 +45,11 @@ export interface Extraction {
   statistics?: Record<string, ExtractionStatistics>;
   error_message?: string;
   progress?: number;
+  can_delete?: boolean;
+  used_by_trainings?: Array<{
+    training_id: string;
+    status: string;
+  }>;
 }
 
 interface ExtractionListModalProps {

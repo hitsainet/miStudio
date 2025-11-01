@@ -60,7 +60,7 @@ export const ExtractionsPanel: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6">
+    <div className="max-w-[80%] mx-auto px-6 py-6">
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-2">

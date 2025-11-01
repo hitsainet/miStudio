@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Trash2, Calendar, Database, AlertCircle, Loader2 } from 'lucide-react';
+import { Trash2, Calendar, Database, AlertCircle, Loader2, Lock, Info } from 'lucide-react';
 import { Model } from '../../types/model';
 import { getModelExtractions } from '../../api/models';
 import { Extraction } from './ExtractionListModal';
@@ -43,9 +43,13 @@ export function DeleteExtractionsModal({
       const fetchedExtractions = data.extractions || [];
       setExtractions(fetchedExtractions);
 
-      // Select all by default
-      const allIds = new Set(fetchedExtractions.map((e: Extraction) => e.extraction_id));
-      setSelectedIds(allIds);
+      // Select only deletable extractions by default
+      const deletableIds = new Set(
+        fetchedExtractions
+          .filter((e: Extraction) => e.can_delete !== false)
+          .map((e: Extraction) => e.extraction_id)
+      );
+      setSelectedIds(deletableIds);
     } catch (err) {
       console.error('[DeleteExtractionsModal] Failed to fetch:', err);
       setError(err instanceof Error ? err.message : 'Failed to load extractions');
@@ -74,24 +78,30 @@ export function DeleteExtractionsModal({
     return extraction.samples_processed ?? extraction.num_samples_processed ?? 0;
   };
 
-  const toggleSelection = (extractionId: string) => {
+  const toggleSelection = (extraction: Extraction) => {
+    // Don't allow selecting non-deletable extractions
+    if (extraction.can_delete === false) {
+      return;
+    }
+
     const newSelected = new Set(selectedIds);
-    if (newSelected.has(extractionId)) {
-      newSelected.delete(extractionId);
+    if (newSelected.has(extraction.extraction_id)) {
+      newSelected.delete(extraction.extraction_id);
     } else {
-      newSelected.add(extractionId);
+      newSelected.add(extraction.extraction_id);
     }
     setSelectedIds(newSelected);
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === extractions.length) {
+    const deletableExtractions = extractions.filter(e => e.can_delete !== false);
+    if (selectedIds.size === deletableExtractions.length) {
       // Deselect all
       setSelectedIds(new Set());
     } else {
-      // Select all
-      const allIds = new Set(extractions.map(e => e.extraction_id));
-      setSelectedIds(allIds);
+      // Select all deletable extractions only
+      const deletableIds = new Set(deletableExtractions.map(e => e.extraction_id));
+      setSelectedIds(deletableIds);
     }
   };
 
@@ -210,12 +220,12 @@ export function DeleteExtractionsModal({
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={selectedIds.size === extractions.length}
+                    checked={selectedIds.size === extractions.filter(e => e.can_delete !== false).length && selectedIds.size > 0}
                     onChange={toggleSelectAll}
                     className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900 cursor-pointer"
                   />
                   <span className="text-slate-100 font-medium">
-                    Select All ({extractions.length} extractions)
+                    Select All Deletable ({extractions.filter(e => e.can_delete !== false).length} of {extractions.length} extractions)
                   </span>
                 </label>
                 <div className="text-slate-400 text-sm">
@@ -225,46 +235,78 @@ export function DeleteExtractionsModal({
 
               {/* Extraction List */}
               <div className="space-y-3">
-                {extractions.map((extraction) => (
-                  <label
-                    key={extraction.extraction_id}
-                    className={`flex items-start gap-4 bg-slate-800/50 border rounded-lg p-4 cursor-pointer transition-colors ${
-                      selectedIds.has(extraction.extraction_id)
-                        ? 'border-red-500/50 bg-red-900/10'
-                        : 'border-slate-700 hover:border-slate-600'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(extraction.extraction_id)}
-                      onChange={() => toggleSelection(extraction.extraction_id)}
-                      className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900 cursor-pointer mt-0.5 flex-shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="text-sm font-mono text-slate-100 truncate">
-                          {extraction.extraction_id}
-                        </h3>
-                        <span className={`text-xs px-2 py-1 rounded ${getStatusColor(extraction.status)}`}>
-                          {extraction.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          <span>{formatDate(extraction.created_at)}</span>
+                {extractions.map((extraction) => {
+                  const isDeletable = extraction.can_delete !== false;
+                  const isSelected = selectedIds.has(extraction.extraction_id);
+
+                  return (
+                    <div
+                      key={extraction.extraction_id}
+                      className={`flex items-start gap-4 bg-slate-800/50 border rounded-lg p-4 transition-colors ${
+                        !isDeletable
+                          ? 'border-slate-700/50 opacity-75'
+                          : isSelected
+                          ? 'border-red-500/50 bg-red-900/10 cursor-pointer'
+                          : 'border-slate-700 hover:border-slate-600 cursor-pointer'
+                      }`}
+                      onClick={() => isDeletable && toggleSelection(extraction)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        disabled={!isDeletable}
+                        className={`w-5 h-5 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900 mt-0.5 flex-shrink-0 ${
+                          isDeletable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+                        }`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          {!isDeletable && (
+                            <Lock className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                          )}
+                          <h3 className="text-sm font-mono text-slate-100 truncate">
+                            {extraction.extraction_id}
+                          </h3>
+                          <span className={`text-xs px-2 py-1 rounded ${getStatusColor(extraction.status)}`}>
+                            {extraction.status}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Database className="w-3 h-3" />
-                          <span>{getSamplesProcessed(extraction).toLocaleString()} samples</span>
+                        <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            <span>{formatDate(extraction.created_at)}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Database className="w-3 h-3" />
+                            <span>{getSamplesProcessed(extraction).toLocaleString()} samples</span>
+                          </div>
+                          <div>
+                            <span>Size: {getTotalSize(extraction)}</span>
+                          </div>
                         </div>
-                        <div>
-                          <span>Size: {getTotalSize(extraction)}</span>
-                        </div>
+                        {!isDeletable && extraction.used_by_trainings && extraction.used_by_trainings.length > 0 && (
+                          <div className="mt-2 flex items-start gap-2 text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-800/30 rounded px-3 py-2">
+                            <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-medium mb-1">Cannot delete: In use by training job(s)</p>
+                              <ul className="list-disc list-inside space-y-0.5 text-yellow-400/80">
+                                {extraction.used_by_trainings.map((training) => (
+                                  <li key={training.training_id}>
+                                    {training.training_id} ({training.status})
+                                  </li>
+                                ))}
+                              </ul>
+                              <p className="mt-2 text-yellow-400/70">
+                                Delete the training job(s) first to enable deletion of this extraction.
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </label>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

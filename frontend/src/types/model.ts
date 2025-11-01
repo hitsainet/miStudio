@@ -132,6 +132,8 @@ export interface ActivationExtractionConfig {
   max_samples: number;
   /** Batch size for processing */
   batch_size?: number;
+  /** GPU micro-batch size for memory efficiency (defaults to batch_size if not specified) */
+  micro_batch_size?: number;
   /** Top K examples to save per feature */
   top_k_examples?: number;
 }

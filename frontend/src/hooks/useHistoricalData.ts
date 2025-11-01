@@ -24,24 +24,24 @@ interface HistoricalDataOptions {
   aggregationInterval?: number; // in seconds
 }
 
+// Time range configurations (in milliseconds) - moved outside component to prevent recreation
+const TIME_RANGE_CONFIG = {
+  '1h': 60 * 60 * 1000,      // 1 hour
+  '6h': 6 * 60 * 60 * 1000,   // 6 hours
+  '24h': 24 * 60 * 60 * 1000, // 24 hours
+} as const;
+
+// Aggregation intervals for different time ranges - moved outside component to prevent recreation
+const AGGREGATION_INTERVALS = {
+  '1h': 1000,        // 1 second (no aggregation)
+  '6h': 5000,        // 5 seconds
+  '24h': 15000,      // 15 seconds
+} as const;
+
 export function useHistoricalData(_options: HistoricalDataOptions = {}) {
   const [data, setData] = useState<MultiSeriesDataPoint[]>([]);
   const timeRange: TimeRange = '1h'; // Fixed to 1 hour
   const lastPruneTime = useRef<number>(Date.now());
-
-  // Time range configurations (in milliseconds)
-  const timeRangeConfig = {
-    '1h': 60 * 60 * 1000,      // 1 hour
-    '6h': 6 * 60 * 60 * 1000,   // 6 hours
-    '24h': 24 * 60 * 60 * 1000, // 24 hours
-  };
-
-  // Aggregation intervals for different time ranges
-  const aggregationIntervals = {
-    '1h': 1000,        // 1 second (no aggregation)
-    '6h': 5000,        // 5 seconds
-    '24h': 15000,      // 15 seconds
-  };
 
   /**
    * Add a new data point to the time series
@@ -62,21 +62,21 @@ export function useHistoricalData(_options: HistoricalDataOptions = {}) {
       const now = Date.now();
       if (now - lastPruneTime.current > 60000) {
         lastPruneTime.current = now;
-        const cutoffTime = now - timeRangeConfig['1h']; // Keep 1h max
+        const cutoffTime = now - TIME_RANGE_CONFIG['1h']; // Keep 1h max
         return updatedData.filter((point) => point.timestamp > cutoffTime);
       }
 
       return updatedData;
     });
-  }, [timeRangeConfig]);
+  }, []); // No dependencies - uses only refs and constants
 
   /**
    * Get aggregated data for the selected time range
    */
   const getAggregatedData = useCallback(() => {
     const now = Date.now();
-    const cutoffTime = now - timeRangeConfig[timeRange];
-    const interval = aggregationIntervals[timeRange];
+    const cutoffTime = now - TIME_RANGE_CONFIG[timeRange];
+    const interval = AGGREGATION_INTERVALS[timeRange];
 
     // Filter data within time range
     const filteredData = data.filter((point) => point.timestamp > cutoffTime);
@@ -114,7 +114,7 @@ export function useHistoricalData(_options: HistoricalDataOptions = {}) {
 
     // Sort by timestamp
     return aggregated.sort((a, b) => a.timestamp - b.timestamp);
-  }, [data, timeRange, timeRangeConfig, aggregationIntervals]);
+  }, [data, timeRange]); // Only depends on data and timeRange (constant)
 
   /**
    * Get data for a specific series

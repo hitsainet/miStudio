@@ -12,6 +12,7 @@ import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fn
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
+import { COMPONENTS } from '../../config/brand';
 
 interface ExtractionJobCardProps {
   extraction: ExtractionStatusResponse;
@@ -216,7 +217,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const progress = (extraction.progress || 0) * 100;
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6 hover:border-slate-700 transition-colors">
+    <div className={`${COMPONENTS.card.base} p-6 hover:border-slate-700 transition-colors`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-3 flex-1">
@@ -231,7 +232,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               {isCompleted && (
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded transition-colors ml-auto"
+                  className={`p-1 rounded ml-auto ${COMPONENTS.button.ghost}`}
                   title={isExpanded ? 'Collapse features' : 'Expand features'}
                 >
                   {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -263,7 +264,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onCancel();
                 }
               }}
-              className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
               title="Cancel extraction"
             >
               <XCircle className="w-5 h-5" />
@@ -277,7 +278,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onDelete();
                 }
               }}
-              className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
               title="Delete extraction"
             >
               <Trash2 className="w-5 h-5" />
@@ -349,7 +350,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           {onRetry && (
             <button
               onClick={onRetry}
-              className="mt-3 w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded transition-colors text-sm"
+              className={`mt-3 w-full text-sm ${COMPONENTS.button.secondary}`}
             >
               Retry Extraction
             </button>
@@ -398,7 +399,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             {/* Sort Order Toggle */}
             <button
               onClick={handleSortOrderToggle}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white hover:bg-slate-700 transition-colors"
+              className={`border border-slate-700 ${COMPONENTS.button.secondary}`}
               title={filters.sort_order === 'desc' ? 'Descending' : 'Ascending'}
             >
               <ArrowUpDown
@@ -409,10 +410,10 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             {/* Favorites Filter */}
             <button
               onClick={handleFavoriteFilterToggle}
-              className={`px-3 py-2 border rounded transition-colors ${
+              className={`border rounded transition-colors ${
                 filters.is_favorite
-                  ? 'bg-yellow-600/20 border-yellow-600 text-yellow-400'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                  ? 'bg-yellow-600/20 border-yellow-600 text-yellow-400 px-3 py-2'
+                  : COMPONENTS.button.secondary
               }`}
               title="Filter favorites"
             >
@@ -485,7 +486,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                         <td className="px-4 py-3">
                           <button
                             onClick={(e) => handleToggleFavorite(feature.id, feature.is_favorite, e)}
-                            className="p-1 hover:bg-slate-700 rounded transition-colors"
+                            className={`p-1 rounded ${COMPONENTS.button.ghost}`}
                           >
                             <Star
                               className={`w-4 h-4 ${
@@ -514,14 +515,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 <button
                   onClick={handlePreviousPage}
                   disabled={filters.offset === 0}
-                  className="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-sm text-white rounded transition-colors"
+                  className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
                 >
                   Previous
                 </button>
                 <button
                   onClick={handleNextPage}
                   disabled={filters.offset! + filters.limit! >= metadata.total}
-                  className="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-sm text-white rounded transition-colors"
+                  className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
                 >
                   Next
                 </button>

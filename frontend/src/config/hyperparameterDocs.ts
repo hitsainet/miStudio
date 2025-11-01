@@ -520,10 +520,52 @@ export const HYPERPARAMETER_DOCS: Record<string, HyperparameterDoc> = {
       'Monitor dead neuron count in training metrics',
       'If >50% dead: decrease l1_alpha immediately',
     ],
-    relatedParams: ['dead_neuron_threshold', 'l1_alpha'],
+    relatedParams: ['dead_neuron_threshold', 'l1_alpha', 'resample_interval'],
     warnings: [
       'Resampling cannot fix catastrophic "race to zero"',
       'If all neurons dying: l1_alpha is dangerously high',
+    ],
+  },
+
+  resample_interval: {
+    name: 'Resample Interval',
+    purpose: 'How often (in training steps) to check for and resample dead neurons. Balances responsiveness vs stability.',
+    description:
+      'Dead neurons are re-initialized every resample_interval steps if they remain dead for dead_neuron_threshold steps. Too frequent: instability from constant resampling. Too infrequent: dead neurons waste capacity for longer.',
+    examples: [
+      {
+        value: 2500,
+        effect: 'Aggressive: Frequent resampling',
+        useCase: 'High l1_alpha, many neurons dying',
+      },
+      {
+        value: 5000,
+        effect: 'Balanced: Good trade-off (default)',
+        useCase: 'Most training scenarios',
+      },
+      {
+        value: 10000,
+        effect: 'Conservative: Rare resampling',
+        useCase: 'Low learning_rate, stable training',
+      },
+      {
+        value: 15000,
+        effect: 'Very conservative: Maximum stability',
+        useCase: 'Fine-tuning, avoiding disruption',
+      },
+    ],
+    recommendations: [
+      'Default: 5000 steps',
+      'If sparsity oscillates wildly: increase interval (10k-15k)',
+      'If too many dead neurons accumulate: decrease interval (2.5k)',
+      'Should be >> dead_neuron_threshold for stability',
+      'Pair with lower learning_rate if increasing interval',
+    ],
+    relatedParams: ['resample_dead_neurons', 'dead_neuron_threshold', 'learning_rate'],
+    warnings: [
+      'Too frequent resampling + high learning_rate = wild oscillations',
+      'Newly resampled neurons need time to stabilize',
+      'Resampling disrupts training dynamics temporarily',
     ],
   },
 

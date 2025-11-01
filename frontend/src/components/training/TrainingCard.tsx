@@ -510,7 +510,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               <button
                 type="button"
                 onClick={() => setShowMetrics(!showMetrics)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary}`}
               >
                 <Activity className="w-4 h-4" />
                 <span>{showMetrics ? 'Hide' : 'Show'} Live Metrics</span>
@@ -521,7 +521,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               <button
                 type="button"
                 onClick={() => setShowCheckpoints(!showCheckpoints)}
-                className={`px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} ${
                   training.status === TrainingStatus.RUNNING ? '' : (training.status === TrainingStatus.COMPLETED ? '' : 'col-span-2')
                 }`}
               >
@@ -534,7 +534,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               <button
                 type="button"
                 onClick={() => setShowFeatures(!showFeatures)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary}`}
               >
                 <Zap className="w-4 h-4" />
                 <span>{showFeatures ? 'Hide' : 'Discover'} Features</span>
@@ -798,7 +798,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 type="button"
                 onClick={handleResume}
                 disabled={isControlling}
-                className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.primary}`}
               >
                 {isControlling ? (
                   <Loader className="w-4 h-4 animate-spin" />

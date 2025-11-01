@@ -41,7 +41,7 @@ function AppContent() {
       {/* Sticky Header + Navigation Container */}
       <div className="sticky top-0 z-50">
         <header className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm">
-          <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="max-w-[80%] mx-auto px-6 py-4">
             <h1 className="text-xl font-semibold">MechInterp Studio</h1>
             <p className="text-sm text-slate-400">Edge AI Feature Discovery Platform</p>
           </div>
@@ -49,7 +49,7 @@ function AppContent() {
 
         {/* Navigation Tabs */}
         <nav className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-6">
+        <div className="max-w-[80%] mx-auto px-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-1">
             <button
@@ -133,7 +133,7 @@ function AppContent() {
             </div>
 
             {/* Compact GPU Status - Right aligned */}
-            <CompactGPUStatus />
+            <CompactGPUStatus onClickMonitor={() => setActivePanel('system')} />
           </div>
         </div>
         </nav>

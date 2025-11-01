@@ -32,6 +32,8 @@ export interface ExtractionTemplate {
   max_samples: number;
   /** Batch size for processing (default: 32) */
   batch_size: number;
+  /** GPU micro-batch size for memory efficiency (defaults to batch_size if not specified) */
+  micro_batch_size?: number;
   /** Number of top examples to save per feature (default: 10) */
   top_k_examples: number;
   /** Whether this template is marked as favorite */
@@ -61,6 +63,8 @@ export interface ExtractionTemplateCreate {
   max_samples?: number;
   /** Batch size for processing (default: 32) */
   batch_size?: number;
+  /** GPU micro-batch size for memory efficiency (defaults to batch_size if not specified) */
+  micro_batch_size?: number;
   /** Number of top examples to save per feature (default: 10) */
   top_k_examples?: number;
   /** Whether this template is marked as favorite (default: false) */
@@ -86,6 +90,8 @@ export interface ExtractionTemplateUpdate {
   max_samples?: number;
   /** Batch size for processing */
   batch_size?: number;
+  /** GPU micro-batch size for memory efficiency */
+  micro_batch_size?: number;
   /** Number of top examples to save per feature */
   top_k_examples?: number;
   /** Whether this template is marked as favorite */

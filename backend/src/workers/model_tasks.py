@@ -588,6 +588,7 @@ def extract_activations(
     hook_types: List[str],
     max_samples: int,
     batch_size: int = 8,
+    micro_batch_size: Optional[int] = None,
     extraction_id: Optional[str] = None,
 ):
     """
@@ -608,6 +609,7 @@ def extract_activations(
         hook_types: List of hook types ('residual', 'mlp', 'attention')
         max_samples: Maximum number of samples to process
         batch_size: Batch size for processing (default: 8)
+        micro_batch_size: GPU micro-batch size for memory efficiency (defaults to batch_size)
         extraction_id: Optional extraction ID (generated if not provided)
 
     Returns:
@@ -725,6 +727,7 @@ def extract_activations(
                         hook_types=hook_types,
                         max_samples=max_samples,
                         batch_size=batch_size,
+                        micro_batch_size=micro_batch_size,
                         celery_task_id=self.request.id,
                     )
                     logger.info(f"Created database record for extraction {extraction_id}")
@@ -808,6 +811,7 @@ def extract_activations(
                 hook_types=hook_types,
                 max_samples=max_samples,
                 batch_size=batch_size,
+                micro_batch_size=micro_batch_size,
                 extraction_id=extraction_id,
                 progress_callback=on_extraction_progress,
             )
@@ -905,6 +909,7 @@ def extract_activations(
                         "hook_types": hook_types,
                         "max_samples": max_samples,
                         "batch_size": new_batch_size,
+                        "micro_batch_size": micro_batch_size,
                         "extraction_id": extraction_id,
                     }
                 )
@@ -993,6 +998,7 @@ def extract_activations(
                     "hook_types": hook_types,
                     "max_samples": max_samples,
                     "batch_size": batch_size,
+                    "micro_batch_size": micro_batch_size,
                     "extraction_id": extraction_id,  # Preserve extraction_id
                 }
             )

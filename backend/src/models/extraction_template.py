@@ -35,6 +35,7 @@ class ExtractionTemplate(Base):
     hook_types = Column(ARRAY(String(50)), nullable=False)  # e.g., ["residual", "mlp", "attention"]
     max_samples = Column(Integer, nullable=False)  # Maximum samples to process
     batch_size = Column(Integer, nullable=False)  # Processing batch size
+    micro_batch_size = Column(Integer, nullable=True)  # GPU micro-batch size for memory efficiency
     top_k_examples = Column(Integer, nullable=False)  # Number of top activating examples
 
     # User preferences

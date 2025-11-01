@@ -11,6 +11,7 @@
 
 import { Cpu, CheckCircle, Loader, Activity, AlertCircle, Trash2, X, History } from 'lucide-react';
 import { Model, ModelStatus } from '../../types/model';
+import { COMPONENTS } from '../../config/brand';
 
 interface ModelCardProps {
   model: Model;
@@ -131,7 +132,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
   };
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6 hover:border-slate-700 transition-colors">
+    <div className={`${COMPONENTS.card.base} p-6 hover:border-slate-700 transition-colors`}>
       <div className="flex items-center justify-between">
         {/* Model Info */}
         <div
@@ -160,7 +161,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
               <button
                 type="button"
                 onClick={handleExtract}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors text-white"
+                className={`text-sm ${COMPONENTS.button.primary}`}
               >
                 Extract Activations
               </button>
@@ -171,7 +172,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
                     e.stopPropagation();
                     onViewExtractions();
                   }}
-                  className="p-2 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                  className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
                   title="View extraction history"
                 >
                   <History className="w-5 h-5" />
@@ -184,7 +185,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
             <button
               type="button"
               onClick={handleCancel}
-              className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
               title="Cancel download"
             >
               <Trash2 className="w-5 h-5" />
@@ -195,7 +196,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
             <button
               type="button"
               onClick={handleDelete}
-              className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
               title="Delete model"
             >
               <Trash2 className="w-4 h-4" />

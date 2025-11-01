@@ -16,7 +16,7 @@ export function TemplatesPanel() {
   const [activeTemplateType, setActiveTemplateType] = useState<TemplateType>('extraction');
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-[80%] mx-auto px-6 py-8">
       {/* Sub-tabs for template types */}
       <div className="mb-6">
         <div className="border-b border-slate-800">

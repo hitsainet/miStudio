@@ -524,8 +524,29 @@ def tokenize_dataset_task(
                 dataset_obj.progress = 80.0
                 db.commit()
 
-        # Calculate statistics
-        stats = TokenizationService.calculate_statistics(tokenized_dataset)
+        # Define callback for statistics calculation progress (80-90% range)
+        def stats_progress_callback(pct: float):
+            """Update database with statistics calculation progress (maps 0-100% to 80-90%)"""
+            try:
+                mapped_progress = 80.0 + (pct / 100.0 * 10.0)  # Map 0-100% to 80-90%
+                print(f"[STATS CALLBACK] Called with pct={pct:.1f}%, mapped to {mapped_progress:.1f}%")
+                with self.get_db() as db:
+                    dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                    if dataset_obj:
+                        old_progress = dataset_obj.progress
+                        dataset_obj.progress = mapped_progress
+                        db.commit()
+                        print(f"[STATS CALLBACK] Updated progress from {old_progress} to {mapped_progress}")
+                    else:
+                        print(f"[STATS CALLBACK] ERROR: Dataset {dataset_uuid} not found")
+            except Exception as e:
+                print(f"[STATS CALLBACK] EXCEPTION: {e}")
+
+        # Calculate statistics with progress callback
+        stats = TokenizationService.calculate_statistics(
+            tokenized_dataset,
+            progress_callback=stats_progress_callback
+        )
 
         # Update Celery task state: Saving dataset
         self.update_state(

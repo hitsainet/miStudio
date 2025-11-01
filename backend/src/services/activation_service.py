@@ -104,6 +104,7 @@ class ActivationService:
         hook_types: List[str],
         max_samples: int,
         batch_size: int = 8,
+        micro_batch_size: Optional[int] = None,
         extraction_id: Optional[str] = None,
         progress_callback: Optional[callable] = None,
     ) -> Dict[str, Any]:
@@ -120,6 +121,7 @@ class ActivationService:
             hook_types: List of hook types ('residual', 'mlp', 'attention')
             max_samples: Maximum number of samples to process
             batch_size: Batch size for processing
+            micro_batch_size: GPU micro-batch size for memory efficiency (defaults to batch_size)
             extraction_id: Optional extraction ID (generated if not provided)
             progress_callback: Optional callback function(samples_processed, total_samples)
 
@@ -132,10 +134,15 @@ class ActivationService:
         if extraction_id is None:
             extraction_id = f"ext_{model_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+        # Default micro_batch_size to batch_size if not specified
+        if micro_batch_size is None:
+            micro_batch_size = batch_size
+            logger.info(f"micro_batch_size not specified, defaulting to batch_size={batch_size}")
+
         logger.info(
             f"Starting activation extraction: {extraction_id} "
             f"(model={model_id}, layers={layer_indices}, hooks={hook_types}, "
-            f"max_samples={max_samples}, batch_size={batch_size})"
+            f"max_samples={max_samples}, batch_size={batch_size}, micro_batch_size={micro_batch_size})"
         )
 
         # Create output directory
@@ -173,6 +180,7 @@ class ActivationService:
                 layer_indices,
                 hook_type_enums,
                 batch_size,
+                micro_batch_size,
                 progress_callback,
                 output_dir=output_dir,
                 extraction_id=extraction_id,
@@ -184,6 +192,14 @@ class ActivationService:
 
             # Log GPU memory after extraction
             self._log_gpu_memory("after_extraction")
+
+            # CRITICAL: Clean up GPU memory immediately after extraction completes
+            # Model and hooks are no longer needed for saving/statistics phases
+            # This frees ~8-10 GB of GPU memory that would otherwise sit idle
+            logger.info(f"Cleaning up GPU memory after extraction (model no longer needed)")
+            if model is not None:
+                self._cleanup_model(model)
+                model = None  # Mark as cleaned up to avoid double cleanup in finally block
 
             # Save activations to disk
             logger.info(f"Saving activations to {output_dir}")
@@ -405,6 +421,7 @@ class ActivationService:
         layer_indices: List[int],
         hook_types: List[HookType],
         batch_size: int,
+        micro_batch_size: int,
         progress_callback: Optional[callable] = None,
         output_dir: Optional[Path] = None,
         extraction_id: Optional[str] = None,
@@ -414,7 +431,11 @@ class ActivationService:
         created_at: Optional[str] = None,
     ) -> Dict[str, np.ndarray]:
         """
-        Run activation extraction with hooks using batched inference.
+        Run activation extraction with hooks using micro-batched inference.
+
+        This method uses a two-level batching strategy:
+        1. Outer loop: Process dataset in chunks of batch_size (for progress reporting)
+        2. Inner loop: Split each batch into micro-batches of micro_batch_size (for GPU memory)
 
         Args:
             model: PyTorch model
@@ -423,7 +444,8 @@ class ActivationService:
             architecture: Model architecture
             layer_indices: Layers to hook
             hook_types: Types of hooks to register
-            batch_size: Batch size for processing (1, 8, 16, 32, 64, 128, 256, 512)
+            batch_size: Logical batch size for progress tracking (1, 8, 16, 32, 64, 128, 256, 512)
+            micro_batch_size: GPU micro-batch size for memory efficiency (must be <= batch_size)
             progress_callback: Optional callback function(samples_processed, total_samples)
             output_dir: Optional output directory for incremental metadata
             extraction_id: Optional extraction ID for metadata
@@ -551,16 +573,49 @@ class ActivationService:
                         attention_mask = [1] * len(input_ids) + [0] * padding_length
                         attention_masks.append(attention_mask)
 
-                    # Convert to tensors and move to device
-                    input_ids_tensor = torch.tensor(padded_input_ids, dtype=torch.long).to(model.device)
-                    attention_mask_tensor = torch.tensor(attention_masks, dtype=torch.long).to(model.device)
+                    # MICRO-BATCHING: Split batch into micro-batches for GPU memory efficiency
+                    # This allows large logical batch sizes while keeping GPU memory usage low
+                    micro_batch_activations = {}  # Accumulate activations from all micro-batches
 
-                    # Run forward pass (hooks will capture activations)
-                    _ = model(input_ids_tensor, attention_mask=attention_mask_tensor)
+                    for micro_batch_start in range(0, len(padded_input_ids), micro_batch_size):
+                        micro_batch_end = min(micro_batch_start + micro_batch_size, len(padded_input_ids))
+
+                        # Get micro-batch slices
+                        micro_input_ids = padded_input_ids[micro_batch_start:micro_batch_end]
+                        micro_attention_masks = attention_masks[micro_batch_start:micro_batch_end]
+
+                        logger.debug(
+                            f"Processing micro-batch {micro_batch_start}-{micro_batch_end} "
+                            f"of batch {batch_start}-{batch_end} "
+                            f"(micro_batch_size={micro_batch_size})"
+                        )
+
+                        # Convert to tensors and move to device
+                        input_ids_tensor = torch.tensor(micro_input_ids, dtype=torch.long).to(model.device)
+                        attention_mask_tensor = torch.tensor(micro_attention_masks, dtype=torch.long).to(model.device)
+
+                        # Run forward pass (hooks will capture activations for this micro-batch)
+                        _ = model(input_ids_tensor, attention_mask=attention_mask_tensor)
+
+                        # Get activations from this micro-batch
+                        current_micro_activations = hook_manager.get_activations_as_numpy()
+
+                        # Accumulate activations from this micro-batch
+                        for layer_name, activation_array in current_micro_activations.items():
+                            if layer_name not in micro_batch_activations:
+                                micro_batch_activations[layer_name] = []
+                            micro_batch_activations[layer_name].append(activation_array)
+
+                        # Clear hooks to free GPU memory before next micro-batch
+                        hook_manager.clear_activations()
+
+                    # Concatenate all micro-batch activations into single batch
+                    # This happens in CPU/RAM, not GPU
+                    batch_activations = {}
+                    for layer_name, activation_list in micro_batch_activations.items():
+                        batch_activations[layer_name] = np.concatenate(activation_list, axis=0)
 
                     # CRITICAL FIX: Save batch activations to disk immediately to prevent memory accumulation
-                    # Get current batch activations and save incrementally
-                    batch_activations = hook_manager.get_activations_as_numpy()
 
                     # Save each layer's batch to a temporary file
                     for layer_name, activation_array in batch_activations.items():
@@ -587,8 +642,7 @@ class ActivationService:
                         accumulated_files[layer_name].append(temp_file_path)
                         logger.debug(f"Saved batch activation for {layer_name}: {activation_array.shape}")
 
-                    # Clear activations from hook manager to free memory
-                    hook_manager.clear_activations()
+                    # Note: Activations already cleared after each micro-batch for memory efficiency
 
                     samples_processed = batch_end
 

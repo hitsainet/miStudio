@@ -30,6 +30,7 @@ class ExtractionDatabaseService:
         hook_types: List[str],
         max_samples: int,
         batch_size: int,
+        micro_batch_size: Optional[int] = None,
         celery_task_id: Optional[str] = None,
     ) -> ActivationExtraction:
         """
@@ -44,6 +45,7 @@ class ExtractionDatabaseService:
             hook_types: List of hook types
             max_samples: Maximum samples to process
             batch_size: Batch size for processing
+            micro_batch_size: GPU micro-batch size for memory efficiency
             celery_task_id: Optional Celery task ID
 
         Returns:
@@ -61,6 +63,7 @@ class ExtractionDatabaseService:
             hook_types=hook_types,
             max_samples=max_samples,
             batch_size=batch_size,
+            micro_batch_size=micro_batch_size,
             status=ExtractionStatus.QUEUED,
             progress=0.0,
             samples_processed=0,

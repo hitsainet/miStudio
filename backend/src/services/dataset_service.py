@@ -5,6 +5,7 @@ This module contains the DatasetService class which handles all
 dataset-related business logic and database operations.
 """
 
+import logging
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, UTC
@@ -15,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.dataset import Dataset, DatasetStatus
 from ..schemas.dataset import DatasetCreate, DatasetUpdate
+
+logger = logging.getLogger(__name__)
 
 
 def deep_merge_metadata(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:

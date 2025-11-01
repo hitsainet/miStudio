@@ -421,6 +421,7 @@ async def extract_model_activations(
             hook_types=request.hook_types,
             max_samples=request.max_samples,
             batch_size=request.batch_size or 8,
+            micro_batch_size=request.micro_batch_size,
         )
 
         # Emit immediate progress update to show job has started
@@ -686,6 +687,40 @@ async def list_model_extractions(
         reverse=True
     )
 
+    # Check deletion eligibility for each extraction
+    # Query trainings table to find which extractions are in use
+    with get_sync_db() as sync_db:
+        from ....models.training import Training
+
+        # Get all extraction IDs
+        extraction_ids = [ext["extraction_id"] for ext in extractions]
+
+        # Query trainings that reference these extractions
+        trainings_using_extractions = sync_db.query(
+            Training.extraction_id,
+            Training.id,
+            Training.status
+        ).filter(
+            Training.extraction_id.in_(extraction_ids)
+        ).all()
+
+        # Build a map: extraction_id -> list of training info
+        extraction_usage_map = {}
+        for training in trainings_using_extractions:
+            if training.extraction_id not in extraction_usage_map:
+                extraction_usage_map[training.extraction_id] = []
+            extraction_usage_map[training.extraction_id].append({
+                "training_id": training.id,
+                "status": training.status
+            })
+
+        # Add deletion eligibility to each extraction
+        for extraction in extractions:
+            ext_id = extraction["extraction_id"]
+            used_by_trainings = extraction_usage_map.get(ext_id, [])
+            extraction["can_delete"] = len(used_by_trainings) == 0
+            extraction["used_by_trainings"] = used_by_trainings
+
     return {
         "model_id": model_id,
         "model_name": model.name,
@@ -848,6 +883,7 @@ async def retry_extraction(
 
     # Copy parameters from original extraction, applying overrides
     batch_size = request.batch_size if request.batch_size is not None else original_extraction.batch_size
+    micro_batch_size = request.micro_batch_size if request.micro_batch_size is not None else original_extraction.micro_batch_size
     max_samples = request.max_samples if request.max_samples is not None else original_extraction.max_samples
 
     try:
@@ -863,6 +899,7 @@ async def retry_extraction(
             hook_types=original_extraction.hook_types,
             max_samples=max_samples,
             batch_size=batch_size,
+            micro_batch_size=micro_batch_size,
         )
 
         logger.info(

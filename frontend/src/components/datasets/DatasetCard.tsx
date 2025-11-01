@@ -10,6 +10,7 @@ import { Dataset } from '../../types/dataset';
 import { StatusBadge } from '../common/StatusBadge';
 import { ProgressBar } from '../common/ProgressBar';
 import { formatFileSize } from '../../utils/formatters';
+import { COMPONENTS } from '../../config/brand';
 
 interface DatasetCardProps {
   dataset: Dataset;
@@ -64,7 +65,7 @@ export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCar
 
   return (
     <div
-      className={`bg-slate-900/50 border border-slate-800 rounded-lg p-6 transition-all ${
+      className={`${COMPONENTS.card.base} p-6 transition-all ${
         isClickable
           ? 'cursor-pointer hover:bg-slate-900/70 hover:border-slate-700'
           : 'cursor-default'
@@ -94,19 +95,19 @@ export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCar
               {isActive && onCancel && (
                 <button
                   onClick={handleCancel}
-                  className="ml-2 p-1.5 hover:bg-red-500/10 rounded transition-colors group"
+                  className={`ml-2 p-1.5 rounded ${COMPONENTS.button.ghost}`}
                   title="Cancel operation"
                 >
-                  <X className="w-4 h-4 text-slate-500 group-hover:text-red-400 transition-colors" />
+                  <X className="w-4 h-4" />
                 </button>
               )}
               {!isActive && onDelete && (
                 <button
                   onClick={handleDelete}
-                  className="ml-2 p-1.5 hover:bg-red-500/10 rounded transition-colors group"
+                  className={`ml-2 p-1.5 rounded ${COMPONENTS.button.ghost}`}
                   title="Delete dataset"
                 >
-                  <Trash2 className="w-4 h-4 text-slate-500 group-hover:text-red-400 transition-colors" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
             </div>

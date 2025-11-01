@@ -336,7 +336,10 @@ class TokenizationService:
         return tokenized_dataset
 
     @staticmethod
-    def calculate_statistics(tokenized_dataset: HFDataset) -> Dict[str, Any]:
+    def calculate_statistics(
+        tokenized_dataset: HFDataset,
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> Dict[str, Any]:
         """
         Calculate statistics for a tokenized dataset using batched processing.
 
@@ -345,6 +348,7 @@ class TokenizationService:
 
         Args:
             tokenized_dataset: Tokenized HuggingFace dataset
+            progress_callback: Optional callback function called with progress percent (0-100)
 
         Returns:
             Dictionary with statistics:
@@ -391,9 +395,13 @@ class TokenizationService:
                 for ids in batch:
                     unique_tokens.update(ids)
 
-                # Progress indicator
+                # Progress callback and indicator
+                pct = (end_idx / total_samples) * 100
+                if progress_callback:
+                    progress_callback(pct)
+
+                # Log every 10th batch
                 if (start_idx // batch_size) % 10 == 0:
-                    pct = (end_idx / total_samples) * 100
                     print(f"  Statistics progress: {pct:.1f}% ({end_idx:,}/{total_samples:,})")
 
             # Convert to numpy array for statistical calculations

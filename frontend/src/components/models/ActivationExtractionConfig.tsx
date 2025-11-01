@@ -39,6 +39,7 @@ export function ActivationExtractionConfig({
   const [selectedLayers, setSelectedLayers] = useState<number[]>([0, 5, 11]);
   const [hookTypes, setHookTypes] = useState<('residual' | 'mlp' | 'attention')[]>(['residual']);
   const [batchSize, setBatchSize] = useState(32);
+  const [microBatchSize, setMicroBatchSize] = useState<number | ''>(8); // GPU micro-batch size for memory efficiency
   const [maxSamples, setMaxSamples] = useState(1000);
   const [topKExamples, setTopKExamples] = useState(10);
   const [extracting, setExtracting] = useState(false);
@@ -91,12 +92,14 @@ export function ActivationExtractionConfig({
     // Only fetch if we have valid configuration
     if (!selectedDataset || selectedLayers.length === 0 || hookTypes.length === 0) {
       setResourceEstimates(null);
+      setValidationError(null);
       return;
     }
 
     // Debounce the estimate fetch
     const timeoutId = setTimeout(async () => {
       setLoadingEstimates(true);
+      setValidationError(null); // Clear any previous errors
       try {
         const config: ExtractionConfig = {
           dataset_id: selectedDataset,
@@ -104,14 +107,34 @@ export function ActivationExtractionConfig({
           hook_types: hookTypes,
           max_samples: maxSamples,
           batch_size: batchSize,
+          micro_batch_size: microBatchSize === '' ? undefined : microBatchSize,
           top_k_examples: topKExamples,
         };
 
         const result = await estimateExtractionResources(model.id, config);
+        console.log('[ActivationExtractionConfig] Resource estimates received:', result);
         setResourceEstimates(result.estimates);
       } catch (error) {
         console.error('[ActivationExtractionConfig] Failed to fetch resource estimates:', error);
-        // Don't show error to user - estimates are optional
+
+        // Extract meaningful error message from API error
+        if (error && typeof error === 'object') {
+          let errorMessage = 'Failed to calculate resource estimates';
+
+          // Check for Pydantic validation errors (status 422)
+          if ('detail' in error && Array.isArray((error as any).detail) && (error as any).detail.length > 0) {
+            const firstError = (error as any).detail[0];
+            if (firstError.msg) {
+              errorMessage = firstError.msg;
+            }
+          }
+          // Check for standard error message
+          else if ('message' in error && typeof (error as any).message === 'string') {
+            errorMessage = (error as any).message;
+          }
+
+          setValidationError(errorMessage);
+        }
         setResourceEstimates(null);
       } finally {
         setLoadingEstimates(false);
@@ -130,6 +153,7 @@ export function ActivationExtractionConfig({
       setSelectedLayers([0, 5, 11]);
       setHookTypes(['residual']);
       setBatchSize(32);
+      setMicroBatchSize(8);
       setMaxSamples(1000);
       setTopKExamples(10);
       return;
@@ -140,6 +164,7 @@ export function ActivationExtractionConfig({
       setSelectedLayers([...template.layer_indices]);
       setHookTypes([...template.hook_types] as any);
       setBatchSize(template.batch_size);
+      setMicroBatchSize(template.micro_batch_size || 8);
       setMaxSamples(template.max_samples);
       setTopKExamples(template.top_k_examples);
     }
@@ -190,8 +215,8 @@ export function ActivationExtractionConfig({
       return false;
     }
 
-    if (maxSamples < 1 || maxSamples > 100000) {
-      setValidationError('Max samples must be between 1 and 100,000');
+    if (maxSamples < 1 || maxSamples > 1000000) {
+      setValidationError('Max samples must be between 1 and 1,000,000');
       return false;
     }
 
@@ -238,6 +263,7 @@ export function ActivationExtractionConfig({
         hook_types: hookTypes,
         max_samples: maxSamples,
         batch_size: batchSize,
+        micro_batch_size: microBatchSize === '' ? undefined : microBatchSize,
         top_k_examples: topKExamples,
         is_favorite: false,
       });
@@ -275,6 +301,7 @@ export function ActivationExtractionConfig({
         hook_types: hookTypes,
         max_samples: maxSamples,
         batch_size: batchSize,
+        micro_batch_size: microBatchSize === '' ? undefined : microBatchSize,
         top_k_examples: topKExamples,
       };
 
@@ -471,6 +498,23 @@ export function ActivationExtractionConfig({
               />
             </div>
             <div>
+              <label htmlFor="extraction-micro-batch-size" className="block text-sm font-medium text-slate-300 mb-2">
+                Micro-Batch Size
+                <span className="text-xs text-slate-500 ml-2">(GPU memory)</span>
+              </label>
+              <input
+                id="extraction-micro-batch-size"
+                type="number"
+                min="1"
+                max="256"
+                value={microBatchSize}
+                onChange={(e) => setMicroBatchSize(parseInt(e.target.value) || 1)}
+                disabled={extracting}
+                placeholder="Auto (same as batch)"
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              />
+            </div>
+            <div>
               <label htmlFor="extraction-max-samples" className="block text-sm font-medium text-slate-300 mb-2">
                 Max Samples
               </label>
@@ -478,7 +522,7 @@ export function ActivationExtractionConfig({
                 id="extraction-max-samples"
                 type="number"
                 min="1"
-                max="100000"
+                max="1000000"
                 value={maxSamples}
                 onChange={(e) => setMaxSamples(parseInt(e.target.value) || 1)}
                 disabled={extracting}
@@ -512,7 +556,7 @@ export function ActivationExtractionConfig({
                   <li>• Will extract from {selectedLayers.length} layer(s)</li>
                   <li>• Using {hookTypes.length} hook type(s): {hookTypes.join(', ')}</li>
                   <li>• Processing up to {maxSamples.toLocaleString()} samples</li>
-                  <li>• Batch size: {batchSize}</li>
+                  <li>• Batch size: {batchSize} (micro-batch: {microBatchSize || 'auto'})</li>
                 </ul>
               </div>
 
@@ -692,7 +736,7 @@ export function ActivationExtractionConfig({
                 <ul className="space-y-1 text-slate-400">
                   <li>• Layers: {selectedLayers.join(', ')}</li>
                   <li>• Hook Types: {hookTypes.join(', ')}</li>
-                  <li>• Batch Size: {batchSize}</li>
+                  <li>• Batch Size: {batchSize} (micro-batch: {microBatchSize || 'auto'})</li>
                   <li>• Max Samples: {maxSamples.toLocaleString()}</li>
                   <li>• Top K Examples: {topKExamples}</li>
                 </ul>

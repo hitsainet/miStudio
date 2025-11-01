@@ -106,8 +106,9 @@ class ActivationExtractionRequest(BaseModel):
     dataset_id: str = Field(..., min_length=1, description="Dataset ID (UUID format)")
     layer_indices: List[int] = Field(..., min_length=1, description="List of layer indices to extract from (e.g., [0, 5, 11])")
     hook_types: List[str] = Field(..., min_length=1, description="List of hook types (residual, mlp, attention)")
-    max_samples: int = Field(..., ge=1, le=100000, description="Maximum number of samples to process")
+    max_samples: int = Field(..., ge=1, le=1000000, description="Maximum number of samples to process")
     batch_size: Optional[int] = Field(8, ge=1, le=512, description="Batch size for processing (1, 8, 16, 32, 64, 128, 256, 512)")
+    micro_batch_size: Optional[int] = Field(None, ge=1, le=512, description="GPU micro-batch size for memory efficiency (defaults to batch_size if not specified)")
     top_k_examples: Optional[int] = Field(10, ge=1, le=100, description="Number of top activating examples to save")
 
     @field_validator("hook_types")
@@ -131,6 +132,21 @@ class ActivationExtractionRequest(BaseModel):
         if v not in valid_sizes:
             raise ValueError(
                 f"Batch size must be one of: {valid_sizes}. "
+                f"Got: {v}. Use powers of 2 for optimal GPU performance."
+            )
+        return v
+
+    @field_validator("micro_batch_size")
+    @classmethod
+    def validate_micro_batch_size(cls, v: Optional[int]) -> Optional[int]:
+        """Validate micro_batch_size is a power of 2 or 1."""
+        if v is None:
+            return v
+        # Allow 1 or powers of 2 up to 512
+        valid_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+        if v not in valid_sizes:
+            raise ValueError(
+                f"Micro-batch size must be one of: {valid_sizes}. "
                 f"Got: {v}. Use powers of 2 for optimal GPU performance."
             )
         return v
@@ -240,7 +256,8 @@ class ExtractionRetryRequest(BaseModel):
     """Schema for extraction retry request."""
 
     batch_size: Optional[int] = Field(None, ge=1, le=512, description="Override batch size for retry")
-    max_samples: Optional[int] = Field(None, ge=1, le=100000, description="Override max samples for retry")
+    micro_batch_size: Optional[int] = Field(None, ge=1, le=512, description="Override micro-batch size for retry")
+    max_samples: Optional[int] = Field(None, ge=1, le=1000000, description="Override max samples for retry")
 
     @field_validator("batch_size")
     @classmethod
@@ -252,6 +269,20 @@ class ExtractionRetryRequest(BaseModel):
         if v not in valid_sizes:
             raise ValueError(
                 f"Batch size must be one of: {valid_sizes}. "
+                f"Use powers of 2 for optimal GPU performance."
+            )
+        return v
+
+    @field_validator("micro_batch_size")
+    @classmethod
+    def validate_micro_batch_size(cls, v: Optional[int]) -> Optional[int]:
+        """Validate micro_batch_size is a power of 2 or 1."""
+        if v is None:
+            return v
+        valid_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+        if v not in valid_sizes:
+            raise ValueError(
+                f"Micro-batch size must be one of: {valid_sizes}. "
                 f"Use powers of 2 for optimal GPU performance."
             )
         return v

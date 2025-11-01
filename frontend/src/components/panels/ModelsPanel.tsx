@@ -158,7 +158,7 @@ export function ModelsPanel() {
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-[80%] mx-auto px-6 py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-semibold text-slate-100 mb-2">Models</h1>

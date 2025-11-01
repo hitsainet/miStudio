@@ -131,6 +131,51 @@ class TrainingTask(DatabaseTask):
             db.add(metric)
             db.commit()
 
+    def after_return(self, status, retval, task_id, args, kwargs, einfo):
+        """
+        Hook called after task returns (success, failure, or revocation).
+
+        CRITICAL: This ensures GPU memory cleanup even when task is cancelled/revoked.
+        Without this, cancelled training jobs leave models in GPU memory.
+
+        Args:
+            status: Task state ('SUCCESS', 'FAILURE', 'REVOKED', etc.)
+            retval: Return value (or exception if failed)
+            task_id: Task ID
+            args: Task positional arguments
+            kwargs: Task keyword arguments
+            einfo: Exception info (if failed)
+        """
+        logger.info(f"Task {self.name}[{task_id}] after_return: status={status}")
+
+        # Force GPU cleanup on task exit (especially important for REVOKED tasks)
+        try:
+            import gc
+            import torch
+
+            logger.info("Forcing GPU memory cleanup after task return...")
+
+            # Force garbage collection to clean up any lingering references
+            gc.collect()
+
+            # Clear CUDA cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+                # Log memory after cleanup
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / (1024**2)  # MB
+                    reserved = torch.cuda.memory_reserved() / (1024**2)    # MB
+                    logger.info(f"GPU memory after cleanup: {allocated:.1f}MB allocated, {reserved:.1f}MB reserved")
+
+            logger.info("GPU memory cleanup completed in after_return")
+
+        except Exception as cleanup_error:
+            logger.warning(f"Error during after_return GPU cleanup: {cleanup_error}")
+
+        # Call parent's after_return
+        super().after_return(status, retval, task_id, args, kwargs, einfo)
+
 
 @get_celery_app().task(base=TrainingTask, bind=True, name="train_sae")
 def train_sae_task(

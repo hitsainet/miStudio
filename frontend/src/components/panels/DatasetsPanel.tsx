@@ -55,12 +55,12 @@ export function DatasetsPanel() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="">
       <div className="max-w-[80%] mx-auto px-6 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-slate-100 mb-2">Datasets</h1>
-          <p className="text-slate-400">
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 mb-2">Datasets</h1>
+          <p className="text-slate-600 dark:text-slate-400">
             Manage training datasets from HuggingFace or local sources
           </p>
         </div>

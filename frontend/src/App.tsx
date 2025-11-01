@@ -58,7 +58,7 @@ function AppContent() {
     <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Sticky Header + Navigation Container */}
       <div className="sticky top-0 z-50">
-        <header className="border-b border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <header className="border-b border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950">
           <div className="max-w-[80%] mx-auto px-6 py-4">
             <div className="flex items-center gap-3">
               <img
@@ -83,7 +83,7 @@ function AppContent() {
         </header>
 
         {/* Navigation Tabs */}
-        <nav className="border-b border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <nav className="border-b border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950">
         <div className="max-w-[80%] mx-auto px-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-1">

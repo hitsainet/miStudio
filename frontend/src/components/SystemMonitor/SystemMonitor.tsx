@@ -126,8 +126,8 @@ export function SystemMonitor() {
           <div className="flex items-center gap-3">
             <Activity className="w-8 h-8 text-emerald-400" />
             <div>
-              <h1 className="text-2xl font-bold text-slate-100">System Monitor</h1>
-              <p className="text-sm text-slate-400">
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">System Monitor</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
                 Real-time GPU and system resource monitoring
               </p>
             </div>
@@ -188,19 +188,19 @@ export function SystemMonitor() {
             <h2 className="text-lg font-semibold text-slate-100 mb-2">GPU Information</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <div className="text-slate-400">Device</div>
+                <div className="text-slate-600 dark:text-slate-400">Device</div>
                 <div className="text-slate-100 font-medium">{gpuInfo.name}</div>
               </div>
               <div>
-                <div className="text-slate-400">Driver</div>
+                <div className="text-slate-600 dark:text-slate-400">Driver</div>
                 <div className="text-slate-100 font-medium">{gpuInfo.driver_version}</div>
               </div>
               <div>
-                <div className="text-slate-400">CUDA</div>
+                <div className="text-slate-600 dark:text-slate-400">CUDA</div>
                 <div className="text-slate-100 font-medium">{gpuInfo.cuda_version}</div>
               </div>
               <div>
-                <div className="text-slate-400">Memory</div>
+                <div className="text-slate-600 dark:text-slate-400">Memory</div>
                 <div className="text-slate-100 font-medium">{gpuInfo.total_memory_gb} GB</div>
               </div>
             </div>
@@ -331,7 +331,7 @@ export function SystemMonitor() {
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-100">GPU Comparison</h2>
               {gpuList && gpuList.gpus.length > 4 && (
-                <span className="text-sm text-slate-400">
+                <span className="text-sm text-slate-600 dark:text-slate-400">
                   {gpuList.gpus.length} GPUs detected - Scroll to view all
                 </span>
               )}
@@ -418,11 +418,11 @@ export function SystemMonitor() {
               <div className="text-sm text-slate-400 mb-2">Disk I/O</div>
               <div className="text-sm text-slate-100">
                 <div className="flex justify-between mb-1">
-                  <span className="text-slate-400">Read:</span>
+                  <span className="text-slate-600 dark:text-slate-400">Read:</span>
                   <span>{systemMetrics.disk_io.read_mb.toFixed(0)} MB</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Write:</span>
+                  <span className="text-slate-600 dark:text-slate-400">Write:</span>
                   <span>{systemMetrics.disk_io.write_mb.toFixed(0)} MB</span>
                 </div>
               </div>

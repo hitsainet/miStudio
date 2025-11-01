@@ -264,7 +264,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onCancel();
                 }
               }}
-              className={`${COMPONENTS.button.icon}`}
+              className={COMPONENTS.button.icon}
               title="Cancel extraction"
             >
               <XCircle className="w-5 h-5" />
@@ -278,7 +278,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   onDelete();
                 }
               }}
-              className={`${COMPONENTS.button.icon}`}
+              className={COMPONENTS.button.icon}
               title="Delete extraction"
             >
               <Trash2 className="w-5 h-5" />

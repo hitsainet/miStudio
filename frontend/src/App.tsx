@@ -58,7 +58,7 @@ function AppContent() {
     <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Sticky Header + Navigation Container */}
       <div className="sticky top-0 z-50">
-        <header className="border-b border-slate-300 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
+        <header className="border-b border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900">
           <div className="max-w-[80%] mx-auto px-6 py-4">
             <div className="flex items-center gap-3">
               <img
@@ -83,7 +83,7 @@ function AppContent() {
         </header>
 
         {/* Navigation Tabs */}
-        <nav className="border-b border-slate-300 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
+        <nav className="border-b border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900">
         <div className="max-w-[80%] mx-auto px-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-1">
@@ -91,20 +91,20 @@ function AppContent() {
               onClick={() => setActivePanel('datasets')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'datasets'
-                  ? 'text-emerald-600 dark:text-emerald-600 dark:text-emerald-400'
+                  ? 'text-emerald-600 dark:text-emerald-400'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
               Datasets
               {activePanel === 'datasets' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-600 dark:bg-emerald-400"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>
             <button
               onClick={() => setActivePanel('models')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'models'
-                  ? 'text-emerald-600 dark:text-emerald-600 dark:text-emerald-400'
+                  ? 'text-emerald-600 dark:text-emerald-400'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >

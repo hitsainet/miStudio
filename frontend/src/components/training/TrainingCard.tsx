@@ -39,6 +39,7 @@ import type { Training } from '../../types/training';
 import type { Model } from '../../types/model';
 import type { Dataset } from '../../types/dataset';
 import { FeaturesPanel } from '../features/FeaturesPanel';
+import { COMPONENTS } from '../../config/brand';
 
 interface TrainingCardProps {
   training: Training;
@@ -311,7 +312,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   };
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6 space-y-4">
+    <div className={`${COMPONENTS.card.base} p-6 space-y-4`}>
       {/* Header Section */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

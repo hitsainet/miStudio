@@ -37,6 +37,7 @@ import type { TrainingCreateRequest } from '../../types/training';
 import { TrainingCard } from '../training/TrainingCard';
 import { estimateMultilayerTrainingMemory, formatMemorySize } from '../../utils/memoryEstimation';
 import { HyperparameterLabel, HyperparameterTooltip } from '../common/HyperparameterTooltip';
+import { COMPONENTS } from '../../config/brand';
 
 export const TrainingPanel: React.FC = () => {
   // Store state
@@ -99,6 +100,52 @@ export const TrainingPanel: React.FC = () => {
       updateConfig({ training_layers: [0] });
     }
   }, [config.model_id, numLayers]);
+
+  // Autodiscover hidden dimension from extraction metadata
+  useEffect(() => {
+    const autodiscoverHiddenDim = async () => {
+      if (!config.extraction_id || config.extraction_id.trim() === '') return;
+      if (!config.model_id) return;
+
+      try {
+        // Extract model_id from extraction_id format: ext_m_{uuid}_{timestamp}
+        const extractionModelId = config.extraction_id.match(/ext_(m_[^_]+)/)?.[1];
+        if (!extractionModelId || extractionModelId !== config.model_id) {
+          console.warn('Extraction ID model mismatch');
+          return;
+        }
+
+        // Fetch extraction metadata
+        const response = await fetch(`/api/v1/models/${config.model_id}/extractions`);
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const extraction = data.extractions?.find((e: any) => e.extraction_id === config.extraction_id);
+
+        if (extraction?.statistics) {
+          // Find first layer with statistics and extract hidden_dim from shape
+          const layerNames = Object.keys(extraction.statistics);
+          if (layerNames.length > 0) {
+            const firstLayerStats = extraction.statistics[layerNames[0]];
+            if (firstLayerStats?.shape && Array.isArray(firstLayerStats.shape) && firstLayerStats.shape.length === 3) {
+              // Shape format: [n_samples, seq_len, hidden_dim]
+              const hiddenDim = firstLayerStats.shape[2];
+
+              // Only update if different from current value
+              if (hiddenDim !== config.hidden_dim) {
+                console.log(`[TrainingPanel] Autodiscovered hidden_dim=${hiddenDim} from extraction ${config.extraction_id}`);
+                updateConfig({ hidden_dim: hiddenDim });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to autodiscover hidden dimension:', error);
+      }
+    };
+
+    autodiscoverHiddenDim();
+  }, [config.extraction_id, config.model_id]);
 
   // Check for tokenizer/model vocabulary mismatch
   const selectedDataset = datasets.find((d) => d.id === config.dataset_id);
@@ -202,6 +249,7 @@ export const TrainingPanel: React.FC = () => {
           log_interval: config.log_interval,
           dead_neuron_threshold: config.dead_neuron_threshold,
           resample_dead_neurons: config.resample_dead_neurons,
+          resample_interval: config.resample_interval,
         },
       };
 
@@ -226,7 +274,7 @@ export const TrainingPanel: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-[80%] mx-auto px-6 py-8 space-y-6">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between">
@@ -390,14 +438,14 @@ export const TrainingPanel: React.FC = () => {
                       const allLayers = Array.from({ length: numLayers }, (_, i) => i);
                       updateConfig({ training_layers: allLayers });
                     }}
-                    className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                    className={`px-3 py-1 text-xs ${COMPONENTS.button.secondary}`}
                   >
                     Select All
                   </button>
                   <button
                     type="button"
                     onClick={() => updateConfig({ training_layers: [] })}
-                    className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                    className={`px-3 py-1 text-xs ${COMPONENTS.button.secondary}`}
                   >
                     Deselect All
                   </button>
@@ -523,6 +571,12 @@ export const TrainingPanel: React.FC = () => {
                     max={8192}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
                   />
+                  {config.extraction_id && (
+                    <p className="mt-1 text-xs text-emerald-400 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" />
+                      Auto-detected from extraction activations
+                    </p>
+                  )}
                 </div>
 
                 {/* Latent Dimension */}
@@ -788,6 +842,28 @@ export const TrainingPanel: React.FC = () => {
                   />
                 </div>
 
+                {/* Resample Interval */}
+                <div>
+                  <HyperparameterLabel
+                    paramName="resample_interval"
+                    label="Resample Interval"
+                    htmlFor="resample-interval"
+                    className="mb-2"
+                  />
+                  <input
+                    id="resample-interval"
+                    type="number"
+                    value={config.resample_interval ?? 5000}
+                    onChange={(e) =>
+                      updateConfig({ resample_interval: parseInt(e.target.value) })
+                    }
+                    min={1000}
+                    max={50000}
+                    step={1000}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+
                 {/* Resample Dead Neurons */}
                 <div className="col-span-2">
                   <div className="flex items-center gap-2">
@@ -816,7 +892,7 @@ export const TrainingPanel: React.FC = () => {
             <button
               onClick={handleStartTraining}
               disabled={!isFormValid || isStarting}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-md transition-colors"
+              className={`w-full flex items-center justify-center gap-2 py-3 ${COMPONENTS.button.primary}`}
             >
               {isStarting ? (
                 <>
@@ -855,7 +931,7 @@ export const TrainingPanel: React.FC = () => {
                 <button
                   onClick={handleDeleteSelected}
                   disabled={isDeleting}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-md transition-colors"
+                  className={`flex items-center gap-2 text-sm ${COMPONENTS.button.danger}`}
                 >
                   {isDeleting ? (
                     <Loader size={16} className="animate-spin" />

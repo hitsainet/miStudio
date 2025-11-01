@@ -619,8 +619,6 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
       category: 'Available Models',
     }));
 
-  const allTokenizers = [...modelTokenizers, ...commonTokenizers];
-
   const handleTokenize = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);

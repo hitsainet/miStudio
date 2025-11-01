@@ -37,16 +37,7 @@ export const ExtractionsPanel: React.FC = () => {
     fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);
   }, [statusFilter]);
 
-  // Helper to get training name from training ID
-  const getTrainingName = (trainingId: string): string => {
-    const training = trainings.find((t) => t.id === trainingId);
-    if (!training) return trainingId;
-
-    // Build a descriptive name from training metadata
-    const dataset = training.dataset_name || 'Unknown Dataset';
-    const model = training.model_name || 'Unknown Model';
-    return `${model} - ${dataset}`;
-  };
+  // Note: Extraction already includes model_name and dataset_name, so we don't need to look up training
 
   // Toggle status filter
   const toggleStatusFilter = (status: string) => {
@@ -152,7 +143,6 @@ export const ExtractionsPanel: React.FC = () => {
                   <ExtractionJobCard
                     key={extraction.id}
                     extraction={extraction}
-                    trainingName={getTrainingName(extraction.training_id)}
                     onCancel={async () => {
                       await cancelExtraction(extraction.training_id);
                       // Refresh list after cancellation

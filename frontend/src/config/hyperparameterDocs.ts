@@ -503,12 +503,12 @@ export const HYPERPARAMETER_DOCS: Record<string, HyperparameterDoc> = {
       'When enabled, neurons that remain dead for dead_neuron_threshold steps are re-initialized with new random weights. This can help recover capacity but is not a substitute for proper l1_alpha tuning.',
     examples: [
       {
-        value: true,
+        value: 'true',
         effect: 'Enabled: Periodically revive dead neurons (default)',
         useCase: 'Most training scenarios',
       },
       {
-        value: false,
+        value: 'false',
         effect: 'Disabled: Let dead neurons stay dead',
         useCase: 'Studying neuron death patterns, research',
       },

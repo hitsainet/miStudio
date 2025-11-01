@@ -54,35 +54,39 @@ export const useSystemMonitorWebSocket = (gpuIds: number[] = []) => {
       else if (data.percent !== undefined && data.count !== undefined) {
         console.log('[System Monitor WS] CPU metrics update');
         updateSystemMetrics({
-          cpu_percent: data.percent,
-          cpu_count: data.count,
+          cpu: { percent: data.percent, count: data.count },
         });
       }
       // Memory metrics (has both ram and swap)
       else if (data.ram !== undefined && data.swap !== undefined) {
         console.log('[System Monitor WS] Memory metrics update');
         updateSystemMetrics({
-          ram_used: data.ram.used,
-          ram_total: data.ram.total,
-          ram_available: data.ram.available,
-          swap_used: data.swap.used,
-          swap_total: data.swap.total,
+          ram: data.ram,
+          swap: data.swap,
         });
       }
       // Disk I/O metrics
       else if (data.read_bytes !== undefined && data.write_bytes !== undefined) {
         console.log('[System Monitor WS] Disk I/O metrics update');
         updateSystemMetrics({
-          disk_read_bytes: data.read_bytes,
-          disk_write_bytes: data.write_bytes,
+          disk_io: {
+            read_bytes: data.read_bytes,
+            write_bytes: data.write_bytes,
+            read_mb: data.read_bytes / (1024 * 1024),
+            write_mb: data.write_bytes / (1024 * 1024),
+          },
         });
       }
       // Network I/O metrics
       else if (data.sent_bytes !== undefined && data.recv_bytes !== undefined) {
         console.log('[System Monitor WS] Network I/O metrics update');
         updateSystemMetrics({
-          network_sent_bytes: data.sent_bytes,
-          network_recv_bytes: data.recv_bytes,
+          network_io: {
+            sent_bytes: data.sent_bytes,
+            recv_bytes: data.recv_bytes,
+            sent_mb: data.sent_bytes / (1024 * 1024),
+            recv_mb: data.recv_bytes / (1024 * 1024),
+          },
         });
       }
     };

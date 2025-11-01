@@ -9,7 +9,7 @@
  * - Click to view architecture details
  */
 
-import { Cpu, CheckCircle, Loader, Activity, AlertCircle, Trash2, X, History } from 'lucide-react';
+import { Cpu, CheckCircle, Loader, Activity, AlertCircle, Trash2, History } from 'lucide-react';
 import { Model, ModelStatus } from '../../types/model';
 import { COMPONENTS } from '../../config/brand';
 

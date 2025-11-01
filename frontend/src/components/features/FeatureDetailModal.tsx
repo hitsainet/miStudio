@@ -11,7 +11,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, Save, Star, Info, Activity, GitBranch, Zap } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
-import { FeatureDetail } from '../../types/features';
 import { TokenHighlight } from './TokenHighlight';
 import { LogitLensView } from './LogitLensView';
 import { FeatureCorrelations } from './FeatureCorrelations';
@@ -27,7 +26,7 @@ type TabType = 'examples' | 'logit-lens' | 'correlations' | 'ablation';
 
 export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
   featureId,
-  trainingId,
+  trainingId: _trainingId,
   onClose,
 }) => {
   const {

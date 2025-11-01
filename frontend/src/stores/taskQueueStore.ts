@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand';
-import { TaskQueueEntry, TaskQueueStatus, RetryRequest } from '../types/taskQueue';
+import { TaskQueueEntry, RetryRequest } from '../types/taskQueue';
 import * as taskQueueApi from '../api/taskQueue';
 
 interface TaskQueueState {

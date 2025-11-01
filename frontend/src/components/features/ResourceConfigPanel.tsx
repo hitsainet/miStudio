@@ -45,7 +45,7 @@ export const ResourceConfigPanel: React.FC<ResourceConfigPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Debounce timer for API calls
-  const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+  const [debounceTimer, setDebounceTimer] = useState<number | null>(null);
 
   /**
    * Fetch resource estimate from backend.
@@ -229,7 +229,7 @@ export const ResourceConfigPanel: React.FC<ResourceConfigPanelProps> = ({
     );
   }
 
-  const { system_resources, recommended_settings, current_settings, resource_estimates } = estimate;
+  const { system_resources, recommended_settings, current_settings: _current_settings, resource_estimates } = estimate;
   const hasErrors = resource_estimates.errors.length > 0;
   const hasWarnings = resource_estimates.warnings.length > 0;
 

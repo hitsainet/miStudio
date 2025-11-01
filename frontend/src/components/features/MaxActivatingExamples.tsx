@@ -113,7 +113,7 @@ export const MaxActivatingExamples: React.FC<MaxActivatingExamplesProps> = ({
             />
 
             {/* Sample Index (optional debugging info) */}
-            {process.env.NODE_ENV === 'development' && (
+            {import.meta.env.DEV && (
               <div className="text-xs text-slate-500">
                 Sample index: {example.sample_index}
               </div>

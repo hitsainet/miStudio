@@ -7,7 +7,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Info, X, AlertTriangle, Lightbulb, TrendingUp } from 'lucide-react';
-import { getHyperparameterDoc, HyperparameterDoc } from '../../config/hyperparameterDocs';
+import { getHyperparameterDoc } from '../../config/hyperparameterDocs';
 
 interface HyperparameterTooltipProps {
   paramName: string;

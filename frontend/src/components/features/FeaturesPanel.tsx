@@ -13,9 +13,8 @@
 import React, { useEffect, useState } from 'react';
 import { Zap, Search, ArrowUpDown, Star, XCircle, Trash2 } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
-import { useTrainingsStore } from '../../stores/trainingsStore';
 import type { Training } from '../../types/training';
-import type { Feature, FeatureSearchRequest } from '../../types/features';
+import type { FeatureSearchRequest } from '../../types/features';
 import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
 import { ResourceConfigPanel } from './ResourceConfigPanel';
@@ -57,7 +56,7 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
 
   // Local state for search
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+  const [searchDebounceTimer, setSearchDebounceTimer] = useState<number | null>(null);
 
   // Local state for feature detail modal
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);

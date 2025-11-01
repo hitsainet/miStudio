@@ -124,7 +124,7 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700/50">
-            {data.correlated_features.map((feature, index) => {
+            {data.correlated_features.map((feature) => {
               const correlationPercent = (feature.correlation * 100).toFixed(1);
               const barWidth = Math.max(5, feature.correlation * 100);
 

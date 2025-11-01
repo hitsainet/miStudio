@@ -55,10 +55,10 @@ function AppContent() {
   }, [ws]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Sticky Header + Navigation Container */}
       <div className="sticky top-0 z-50">
-        <header className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm">
+        <header className="border-b border-slate-300 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
           <div className="max-w-[80%] mx-auto px-6 py-4">
             <div className="flex items-center gap-3">
               <img
@@ -67,8 +67,8 @@ function AppContent() {
                 className="w-8 h-8"
               />
               <div className="flex-1">
-                <h1 className="text-xl font-semibold">MechInterp Studio</h1>
-                <p className="text-sm text-slate-400">Edge AI Feature Discovery Platform</p>
+                <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">MechInterp Studio</h1>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Edge AI Feature Discovery Platform</p>
               </div>
               <button
                 onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -83,7 +83,7 @@ function AppContent() {
         </header>
 
         {/* Navigation Tabs */}
-        <nav className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm">
+        <nav className="border-b border-slate-300 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
         <div className="max-w-[80%] mx-auto px-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-1">
@@ -91,78 +91,78 @@ function AppContent() {
               onClick={() => setActivePanel('datasets')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'datasets'
-                  ? 'text-emerald-400'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-emerald-600 dark:text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
               Datasets
               {activePanel === 'datasets' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>
             <button
               onClick={() => setActivePanel('models')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'models'
-                  ? 'text-emerald-400'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-emerald-600 dark:text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
               Models
               {activePanel === 'models' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>
             <button
               onClick={() => setActivePanel('training')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'training'
-                  ? 'text-emerald-400'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
               Training
               {activePanel === 'training' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>
             <button
               onClick={() => setActivePanel('extractions')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'extractions'
-                  ? 'text-emerald-400'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
               Extractions
               {activePanel === 'extractions' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>
             <button
               onClick={() => setActivePanel('templates')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'templates'
-                  ? 'text-emerald-400'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
               Templates
               {activePanel === 'templates' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>
             <button
               onClick={() => setActivePanel('system')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'system'
-                  ? 'text-emerald-400'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
               Monitor
               {activePanel === 'system' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>
             </div>

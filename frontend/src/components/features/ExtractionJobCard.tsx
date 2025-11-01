@@ -563,12 +563,12 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           </summary>
           <div className={`mt-2 ${COMPONENTS.text.secondary}`}>
             {/* Combined compact grid layout */}
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm">
               {/* Training Information */}
               {training && (
                 <>
-                  <div className="col-span-2 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-1 mb-1">Training Job</div>
-                  <div>Training ID: <span className={`${COMPONENTS.text.primary} font-mono`}>{training.id}</span></div>
+                  <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-1 mb-1">Training Job</div>
+                  <div className="col-span-3">Training ID: <span className={`${COMPONENTS.text.primary} font-mono text-xs`}>{training.id}</span></div>
                   <div>Architecture: <span className={`${COMPONENTS.text.primary} capitalize`}>{training.hyperparameters.architecture_type}</span></div>
                   <div>Hidden Dim: <span className={COMPONENTS.text.primary}>{training.hyperparameters.hidden_dim.toLocaleString()}</span></div>
                   <div>Latent Dim: <span className={COMPONENTS.text.primary}>{training.hyperparameters.latent_dim.toLocaleString()}</span></div>
@@ -581,12 +581,15 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   {training.hyperparameters.target_l0 !== undefined && (
                     <div>Target L0: <span className={COMPONENTS.text.primary}>{(training.hyperparameters.target_l0 * 100).toFixed(1)}%</span></div>
                   )}
+                  {training.current_l0_sparsity !== null && training.current_l0_sparsity !== undefined && (
+                    <div>Actual L0: <span className={COMPONENTS.text.primary}>{(training.current_l0_sparsity * 100).toFixed(1)}%</span></div>
+                  )}
                 </>
               )}
 
               {/* Extraction Configuration */}
-              <div className="col-span-2 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Extraction</div>
-              <div>Extraction ID: <span className={`${COMPONENTS.text.primary} font-mono`}>{extraction.id}</span></div>
+              <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Extraction</div>
+              <div className="col-span-3">Extraction ID: <span className={`${COMPONENTS.text.primary} font-mono text-xs`}>{extraction.id}</span></div>
               <div>Eval Samples: <span className={COMPONENTS.text.primary}>{extraction.config.evaluation_samples?.toLocaleString() || 'N/A'}</span></div>
               <div className="col-span-2">Top-K Examples: <span className={COMPONENTS.text.primary}>{extraction.config.top_k_examples || 'N/A'}</span></div>
             </div>

@@ -235,21 +235,6 @@ export function SystemMonitor() {
               </div>
             </div>
 
-            {/* Disk I/O */}
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-              <div className="text-sm text-slate-400 mb-2">Disk I/O</div>
-              <div className="text-sm text-slate-100">
-                <div className="flex justify-between mb-1">
-                  <span className="text-slate-600 dark:text-slate-400">Read:</span>
-                  <span>{systemMetrics.disk_io.read_mb.toFixed(0)} MB</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Write:</span>
-                  <span>{systemMetrics.disk_io.write_mb.toFixed(0)} MB</span>
-                </div>
-              </div>
-            </div>
-
             {/* Disk Usage */}
             {diskUsage && diskUsage.length > 0 && diskUsage.map((disk) => (
               <div key={disk.mount_point} className="bg-slate-900 rounded-lg p-4 border border-slate-800">
@@ -266,6 +251,21 @@ export function SystemMonitor() {
                 </div>
               </div>
             ))}
+
+            {/* Disk I/O */}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+              <div className="text-sm text-slate-400 mb-2">Disk I/O</div>
+              <div className="text-sm text-slate-100">
+                <div className="flex justify-between mb-1">
+                  <span className="text-slate-600 dark:text-slate-400">Read:</span>
+                  <span>{systemMetrics.disk_io.read_mb.toFixed(0)} MB</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600 dark:text-slate-400">Write:</span>
+                  <span>{systemMetrics.disk_io.write_mb.toFixed(0)} MB</span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -273,28 +273,6 @@ export function SystemMonitor() {
         {gpuAvailable && gpuMetrics && gpuInfo && viewMode === 'single' ? (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-slate-100">GPU Information</h2>
-
-            {/* GPU Device Info */}
-            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-slate-600 dark:text-slate-400">Device</div>
-                  <div className="text-slate-100 font-medium">{gpuInfo.name}</div>
-                </div>
-                <div>
-                  <div className="text-slate-600 dark:text-slate-400">Driver</div>
-                  <div className="text-slate-100 font-medium">{gpuInfo.driver_version}</div>
-                </div>
-                <div>
-                  <div className="text-slate-600 dark:text-slate-400">CUDA</div>
-                  <div className="text-slate-100 font-medium">{gpuInfo.cuda_version}</div>
-                </div>
-                <div>
-                  <div className="text-slate-600 dark:text-slate-400">Memory</div>
-                  <div className="text-slate-100 font-medium">{gpuInfo.total_memory_gb} GB</div>
-                </div>
-              </div>
-            </div>
 
             {/* Critical Warnings */}
             {(gpuMetrics.temperature > 85 || gpuMetrics.memory.used_percent > 95 || gpuMetrics.utilization.gpu > 95) && (
@@ -370,6 +348,28 @@ export function SystemMonitor() {
                   className="bg-yellow-500 h-2 rounded-full transition-all duration-300"
                   style={{ width: `${Math.min(gpuMetrics.power.usage_percent, 100)}%` }}
                 ></div>
+              </div>
+            </div>
+
+            {/* GPU Device Info */}
+            <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">Device</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.name}</div>
+                </div>
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">Driver</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.driver_version}</div>
+                </div>
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">CUDA</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.cuda_version}</div>
+                </div>
+                <div>
+                  <div className="text-slate-600 dark:text-slate-400">Memory</div>
+                  <div className="text-slate-100 font-medium">{gpuInfo.total_memory_gb} GB</div>
+                </div>
               </div>
             </div>
           </div>

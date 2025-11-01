@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Sun, Moon } from 'lucide-react';
 import { DatasetsPanel } from './components/panels/DatasetsPanel';
 import { ModelsPanel } from './components/panels/ModelsPanel';
 import { TemplatesPanel } from './components/panels/TemplatesPanel';
@@ -9,6 +10,7 @@ import { CompactGPUStatus } from './components/SystemMonitor/CompactGPUStatus';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
 import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
+import { COMPONENTS } from './config/brand';
 
 type ActivePanel = 'datasets' | 'models' | 'training' | 'extractions' | 'templates' | 'system';
 
@@ -20,6 +22,12 @@ function AppContent() {
     return (saved === 'models' || saved === 'datasets' || saved === 'training' || saved === 'extractions' || saved === 'templates' || saved === 'system') ? saved : 'datasets';
   });
 
+  // Theme state management - default to dark mode
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('theme');
+    return saved === 'light' ? 'light' : 'dark';
+  });
+
   // Set up global dataset progress tracking
   useGlobalDatasetProgress();
 
@@ -27,6 +35,16 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem('activePanel', activePanel);
   }, [activePanel]);
+
+  // Apply theme class to document and persist to localStorage
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   // Wire up the subscription callback so the store can subscribe proactively
   useEffect(() => {
@@ -48,10 +66,18 @@ function AppContent() {
                 alt="MechInterp Studio"
                 className="w-8 h-8"
               />
-              <div>
+              <div className="flex-1">
                 <h1 className="text-xl font-semibold">MechInterp Studio</h1>
                 <p className="text-sm text-slate-400">Edge AI Feature Discovery Platform</p>
               </div>
+              <button
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className={COMPONENTS.button.icon}
+                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </button>
             </div>
           </div>
         </header>

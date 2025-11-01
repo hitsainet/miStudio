@@ -162,62 +162,62 @@ export const RADIUS = {
 export const COMPONENTS = {
   // Card variants
   card: {
-    base: 'bg-slate-900/50 border border-slate-800 rounded-lg',
-    elevated: 'bg-slate-900 border border-slate-700 rounded-lg shadow-lg',
-    interactive: 'bg-slate-900/50 border border-slate-800 rounded-lg hover:border-slate-700 transition-colors cursor-pointer',
+    base: 'bg-slate-900/50 dark:bg-white/90 border border-slate-800 dark:border-slate-200 rounded-lg',
+    elevated: 'bg-slate-900 dark:bg-white border border-slate-700 dark:border-slate-300 rounded-lg shadow-lg',
+    interactive: 'bg-slate-900/50 dark:bg-white/90 border border-slate-800 dark:border-slate-200 rounded-lg hover:border-slate-700 dark:hover:border-slate-400 transition-colors cursor-pointer',
   },
 
   // Button variants
   button: {
-    primary: 'px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium rounded transition-colors',
-    secondary: 'px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:cursor-not-allowed text-slate-300 disabled:text-slate-600 font-medium rounded transition-colors',
-    ghost: 'px-4 py-2 hover:bg-slate-800 text-slate-400 hover:text-slate-300 rounded transition-colors',
-    danger: 'px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-medium rounded transition-colors',
-    icon: 'p-2 hover:bg-slate-800 text-slate-400 hover:text-slate-300 rounded transition-colors',
+    primary: 'px-4 py-2 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 disabled:bg-slate-700 dark:disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded transition-colors',
+    secondary: 'px-4 py-2 bg-slate-800 hover:bg-slate-700 dark:bg-slate-100 dark:hover:bg-slate-200 disabled:bg-slate-900 dark:disabled:bg-slate-50 disabled:cursor-not-allowed text-slate-300 dark:text-slate-700 disabled:text-slate-600 dark:disabled:text-slate-400 font-medium rounded transition-colors',
+    ghost: 'px-4 py-2 hover:bg-slate-800 dark:hover:bg-slate-100 text-slate-400 dark:text-slate-600 hover:text-slate-300 dark:hover:text-slate-700 rounded transition-colors',
+    danger: 'px-4 py-2 bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 disabled:bg-slate-700 dark:disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded transition-colors',
+    icon: 'p-2 hover:bg-slate-800 dark:hover:bg-slate-100 text-slate-400 dark:text-slate-600 hover:text-slate-300 dark:hover:text-slate-700 rounded transition-colors',
   },
 
   // Input variants
   input: {
-    default: 'w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent',
-    error: 'w-full px-4 py-2 bg-slate-800 border border-red-500 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent',
-    textarea: 'w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent resize-none',
+    default: 'w-full px-4 py-2 bg-slate-800 dark:bg-white border border-slate-700 dark:border-slate-300 rounded text-slate-100 dark:text-slate-900 placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent',
+    error: 'w-full px-4 py-2 bg-slate-800 dark:bg-white border border-red-500 rounded text-slate-100 dark:text-slate-900 placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent',
+    textarea: 'w-full px-4 py-2 bg-slate-800 dark:bg-white border border-slate-700 dark:border-slate-300 rounded text-slate-100 dark:text-slate-900 placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent resize-none',
   },
 
   // Badge variants (for status indicators)
   badge: {
     default: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border',
-    success: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-    warning: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    error: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-red-500/20 text-red-400 border-red-500/30',
-    info: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-blue-500/20 text-blue-400 border-blue-500/30',
+    success: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-emerald-500/20 dark:bg-emerald-100 text-emerald-400 dark:text-emerald-700 border-emerald-500/30 dark:border-emerald-300',
+    warning: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-yellow-500/20 dark:bg-yellow-100 text-yellow-400 dark:text-yellow-700 border-yellow-500/30 dark:border-yellow-300',
+    error: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-red-500/20 dark:bg-red-100 text-red-400 dark:text-red-700 border-red-500/30 dark:border-red-300',
+    info: 'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border bg-blue-500/20 dark:bg-blue-100 text-blue-400 dark:text-blue-700 border-blue-500/30 dark:border-blue-300',
   },
 
   // Progress bar
   progress: {
-    container: 'w-full h-2 bg-slate-800 rounded-full overflow-hidden',
+    container: 'w-full h-2 bg-slate-800 dark:bg-slate-200 rounded-full overflow-hidden',
     bar: 'h-full bg-emerald-500 rounded-full transition-all duration-300 ease-out',
-    percentage: 'text-right text-xs text-slate-400',
+    percentage: 'text-right text-xs text-slate-400 dark:text-slate-600',
   },
 
   // Modal/Dialog
   modal: {
-    overlay: 'fixed inset-0 bg-black/50 backdrop-blur-sm z-40',
+    overlay: 'fixed inset-0 bg-black/50 dark:bg-black/30 backdrop-blur-sm z-40',
     container: 'fixed inset-0 z-50 flex items-center justify-center p-4',
-    content: 'bg-slate-900 border border-slate-800 rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden',
-    header: 'flex items-center justify-between p-6 border-b border-slate-800',
+    content: 'bg-slate-900 dark:bg-white border border-slate-800 dark:border-slate-200 rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden',
+    header: 'flex items-center justify-between p-6 border-b border-slate-800 dark:border-slate-200',
     body: 'p-6 overflow-y-auto',
-    footer: 'flex items-center justify-end gap-3 p-6 border-t border-slate-800',
+    footer: 'flex items-center justify-end gap-3 p-6 border-t border-slate-800 dark:border-slate-200',
   },
 
   // Loading spinner
-  spinner: 'inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-700 border-t-emerald-500',
+  spinner: 'inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-700 dark:border-slate-200 border-t-emerald-500',
 
   // Empty state
   emptyState: {
     container: 'text-center py-12',
-    icon: 'inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-800 mb-4',
-    title: 'text-slate-400 text-lg',
-    subtitle: 'text-slate-500 mt-2',
+    icon: 'inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-800 dark:bg-slate-100 mb-4',
+    title: 'text-slate-400 dark:text-slate-600 text-lg',
+    subtitle: 'text-slate-500 dark:text-slate-500 mt-2',
   },
 } as const;
 

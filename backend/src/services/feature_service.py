@@ -66,13 +66,17 @@ class FeatureService:
         # Task 9.3: Build base query with training_id filter
         query = select(Feature).where(Feature.training_id == training_id)
 
-        # Task 9.4: Apply full-text search filter if specified
+        # Task 9.4: Apply search filter if specified
         if search_params.search:
-            # Use PostgreSQL full-text search with plainto_tsquery (handles special characters safely)
-            # The GIN index on (to_tsvector('english', name || ' ' || description)) handles this efficiently
-            search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.plainto_tsquery('english', search_params.search)
-            query = query.where(search_vector.op('@@')(search_query))
+            # Use ILIKE for substring matching (case-insensitive)
+            # This allows searching for partial matches in feature names and descriptions
+            search_pattern = f'%{search_params.search}%'
+            query = query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
 
         # Task 9.5: Apply is_favorite filter if specified
         if search_params.is_favorite is not None:
@@ -81,9 +85,13 @@ class FeatureService:
         # Get total count before pagination
         count_query = select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
         if search_params.search:
-            search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.plainto_tsquery('english', search_params.search)
-            count_query = count_query.where(search_vector.op('@@')(search_query))
+            search_pattern = f'%{search_params.search}%'
+            count_query = count_query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
         if search_params.is_favorite is not None:
             count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
 
@@ -209,11 +217,15 @@ class FeatureService:
         # Build base query with extraction_job_id filter
         query = select(Feature).where(Feature.extraction_job_id == extraction_job_id)
 
-        # Apply full-text search filter if specified
+        # Apply search filter if specified
         if search_params.search:
-            search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.plainto_tsquery('english', search_params.search)
-            query = query.where(search_vector.op('@@')(search_query))
+            search_pattern = f'%{search_params.search}%'
+            query = query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
 
         # Apply is_favorite filter if specified
         if search_params.is_favorite is not None:
@@ -222,9 +234,13 @@ class FeatureService:
         # Get total count before pagination
         count_query = select(func.count()).select_from(Feature).where(Feature.extraction_job_id == extraction_job_id)
         if search_params.search:
-            search_vector = func.to_tsvector('english', Feature.name + ' ' + func.coalesce(Feature.description, ''))
-            search_query = func.plainto_tsquery('english', search_params.search)
-            count_query = count_query.where(search_vector.op('@@')(search_query))
+            search_pattern = f'%{search_params.search}%'
+            count_query = count_query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
         if search_params.is_favorite is not None:
             count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
 

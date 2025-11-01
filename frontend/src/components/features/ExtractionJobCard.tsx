@@ -8,7 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star } from 'lucide-react';
 import type { ExtractionStatusResponse, FeatureSearchRequest } from '../../types/features';
-import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns';
+import { format, formatDuration, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
@@ -166,11 +166,12 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
     const duration = intervalToDuration({ start: startTime, end: endTime });
 
-    return formatDuration(duration, {
-      format: ['hours', 'minutes', 'seconds'],
-      zero: false,
-      delimiter: ', '
-    }) || 'Less than a second';
+    const parts = [];
+    if (duration.hours) parts.push(`${duration.hours} ${duration.hours === 1 ? 'hour' : 'hours'}`);
+    if (duration.minutes) parts.push(`${duration.minutes} ${duration.minutes === 1 ? 'minute' : 'minutes'}`);
+    if (duration.seconds !== undefined) parts.push(`${duration.seconds} ${duration.seconds === 1 ? 'second' : 'seconds'}`);
+
+    return parts.length > 0 ? parts.join(', ') : 'Less than a second';
   };
 
   const getStatusBadge = () => {
@@ -240,10 +241,10 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               )}
             </div>
             <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
-              <p>Started {formatDistanceToNow(new Date(extraction.created_at), { addSuffix: true })}</p>
+              <p>Started: {format(new Date(extraction.created_at), 'MMM d, yyyy • h:mm:ss a')}</p>
               {extraction.completed_at && (
                 <>
-                  <p>Completed {formatDistanceToNow(new Date(extraction.completed_at), { addSuffix: true })}</p>
+                  <p>Completed: {format(new Date(extraction.completed_at), 'MMM d, yyyy • h:mm:ss a')}</p>
                   <p className="text-emerald-400 font-medium">Elapsed: {getElapsedTime()}</p>
                 </>
               )}

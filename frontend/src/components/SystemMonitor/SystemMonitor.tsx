@@ -161,24 +161,6 @@ export function SystemMonitor() {
           />
         )}
 
-        {/* GPU Controls (only shown if GPU available) */}
-        {gpuAvailable && gpuList && gpuList.gpus.length > 0 && (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              {viewMode === 'single' && (
-                <GPUSelector
-                  gpus={gpuList.gpus}
-                  selected={selectedGPU}
-                  onChange={setSelectedGPU}
-                />
-              )}
-            </div>
-            {gpuList.gpus.length > 1 && (
-              <ViewModeToggle mode={viewMode} onChange={setViewMode} />
-            )}
-          </div>
-        )}
-
       {/* Main Layout: System Resources (Left) + GPU Information (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LEFT COLUMN: System Resources */}
@@ -272,7 +254,21 @@ export function SystemMonitor() {
         {/* RIGHT COLUMN: GPU Information */}
         {gpuAvailable && gpuMetrics && gpuInfo && viewMode === 'single' ? (
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-slate-100">GPU Information</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-100">GPU Information</h2>
+              <div className="flex items-center gap-2">
+                {gpuList && viewMode === 'single' && gpuList.gpus.length > 0 && (
+                  <GPUSelector
+                    gpus={gpuList.gpus}
+                    selected={selectedGPU}
+                    onChange={setSelectedGPU}
+                  />
+                )}
+                {gpuList && gpuList.gpus.length > 1 && (
+                  <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+                )}
+              </div>
+            </div>
 
             {/* Critical Warnings */}
             {(gpuMetrics.temperature > 85 || gpuMetrics.memory.used_percent > 95 || gpuMetrics.utilization.gpu > 95) && (
@@ -415,11 +411,16 @@ export function SystemMonitor() {
       {gpuAvailable && viewMode === 'comparison' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-100">GPU Comparison</h2>
-            {gpuList && gpuList.gpus.length > 4 && (
-              <span className="text-sm text-slate-600 dark:text-slate-400">
-                {gpuList.gpus.length} GPUs detected - Scroll to view all
-              </span>
+            <div className="flex items-center gap-4">
+              <h2 className="text-lg font-semibold text-slate-100">GPU Comparison</h2>
+              {gpuList && gpuList.gpus.length > 4 && (
+                <span className="text-sm text-slate-600 dark:text-slate-400">
+                  {gpuList.gpus.length} GPUs detected - Scroll to view all
+                </span>
+              )}
+            </div>
+            {gpuList && gpuList.gpus.length > 1 && (
+              <ViewModeToggle mode={viewMode} onChange={setViewMode} />
             )}
           </div>
           <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${

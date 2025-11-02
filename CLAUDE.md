@@ -48,7 +48,7 @@ sudo bash -c 'echo "127.0.0.1  mistudio.mcslab.io" >> /etc/hosts'
 ```
 
 ### Service Status Check
-```bash
+```bashPlease
 # Check all services:
 docker ps  # Should show: mistudio-postgres, mistudio-redis, mistudio-nginx
 lsof -i :8000  # Backend should be running

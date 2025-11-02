@@ -5,10 +5,91 @@
 **TDD Reference:** 004_FTDD|Feature_Discovery.md
 **TID Reference:** 004_FTID|Feature_Discovery.md
 **Mock UI Reference:** Lines 2159-2584 (FeaturesPanel), Lines 2587-2725 (FeatureDetailModal), Lines 2728-2800+ (MaxActivatingExamples)
-**Status:** ⚠️ 60% COMPLETE - Core extraction working, analysis features missing
+**Status:** ⚠️ 60% COMPLETE - Core extraction working, **CRITICAL ANALYSIS FEATURES MISSING**
 **Created:** 2025-10-06
 **Last Audited:** 2025-10-28
+**Last Updated:** 2025-11-01
 **Completion:** 165/282 tasks (58.5%) - See audit: 0xcc/docs/Feature_Discovery_Audit_2025-10-28.md
+
+**🚨 CRITICAL GAPS:**
+- ❌ **AnalysisService** (Phases 7-8): Logit lens, correlations, ablation NOT IMPLEMENTED
+- ❌ **MaxActivatingExamples** (Phase 19): Token highlighting component NOT IMPLEMENTED
+- ❌ **Analysis Tab Components** (Phase 20): LogitLensView, FeatureCorrelations, AblationAnalysis NOT IMPLEMENTED
+- **Impact:** Users can extract features but **cannot interpret them** (main value missing)
+- **Effort to Complete:** 55 tasks, 12-17 hours
+
+---
+
+## Recent Enhancements (Completed October-November 2025)
+
+### ✅ Extraction Card UX Improvements (NOT in original task list)
+
+**Status:** ✅ **COMPLETE** (2025-10-31 to 2025-11-01)
+
+**Enhancement 1: Training Job Context Display** (commit e9b52ba)
+- Shows SAE architecture (standard/gated/jumprelu)
+- Shows hyperparameters (hidden_dim, latent_dim, expansion ratio, layers, L1 alpha, learning rate, batch size, total steps)
+- Shows target L0 vs actual L0 achieved
+- Integrates with `trainingsStore` to fetch training details
+
+**Enhancement 2: Compact 3-Column Layout** (commit 4c851a1)
+- Combined "Training Job Information" and "Extraction Configuration" into single "Job Details" section
+- Reduced footprint with text-xs sizing, gap-x-4 gap-y-1 spacing
+- Better information density for extraction status display
+
+**Enhancement 3: Actual L0 Result Display** (commit 83998b1)
+- Added display of `training.current_l0_sparsity` as "Actual L0: X.X%"
+- Compares target sparsity vs achieved sparsity
+- 3-column grid layout for optimal space usage
+- Font increased from text-xs to text-sm for readability
+
+**Files Modified:**
+- `frontend/src/components/features/ExtractionJobCard.tsx` (enhanced with training context)
+- `frontend/src/stores/trainingsStore.ts` (used for training lookup)
+
+**User Impact:** Users can now understand:
+- Which SAE architecture was used
+- What hyperparameters were used
+- What sparsity level was achieved vs targeted
+- Which layers were trained
+
+---
+
+### ✅ Feature Search Enhancements (NOT in original task list)
+
+**Status:** ✅ **COMPLETE** (2025-10-28 to 2025-10-31)
+
+**Enhancement 1: Activation Token Search** (commit 4d875ea)
+- Search by specific tokens that activate features
+- JSONB query on `feature_activations` table
+- Find features that fire on particular words/phrases
+- Example: Search "not" finds negation features
+
+**Enhancement 2: ILIKE Substring Search** (commit 86265c9)
+- Replaced full-text search with simpler ILIKE `%pattern%`
+- Better for partial matching (e.g., "nega" matches "negation")
+- Handles special characters correctly (no query parser errors)
+- More intuitive for users (no boolean operator knowledge needed)
+
+**Enhancement 3: Plain Text Query Handling** (commit 31694ce)
+- Use `plainto_tsquery` instead of `to_tsquery` for full-text fallback
+- Handles user input without requiring search operators
+- More forgiving search experience
+- Prevents query syntax errors
+
+**Bug Fixes:**
+- Fixed token search subquery to properly join with Feature table (commit fb98f67)
+- Fixed set-returning function handling in WHERE clause (commits 0abca65, 33fc2d3)
+- Fixed JSONB cast type from Text to String (commit 1cfdc19)
+
+**Files Modified:**
+- `backend/src/services/feature_service.py` (search logic enhanced)
+- `backend/src/api/v1/endpoints/features.py` (query parameter handling)
+
+**User Impact:** Users can now:
+- Search for features by activation tokens (e.g., "the", "not", "code")
+- Use simpler search queries (no special operators needed)
+- Get more relevant search results with partial matching
 
 ---
 

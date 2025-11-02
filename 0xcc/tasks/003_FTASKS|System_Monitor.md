@@ -2,10 +2,11 @@
 
 **Feature Number:** 003 (documented as 006 in PRD/TDD/TID)
 **Feature Name:** System Monitor (GPU Monitoring Dashboard)
-**Status:** ✅ Complete - Frontend Implementation Finished
+**Status:** ✅ Complete - Frontend Implementation Finished + **Post-Completion UX Enhancements**
 **Created:** 2025-10-16
-**Last Updated:** 2025-10-18
+**Last Updated:** 2025-11-01
 **Completed:** 2025-10-18
+**Enhanced:** 2025-10-31 (Layout reorganization for better UX)
 
 ## Overview
 
@@ -103,6 +104,64 @@ Real-time GPU and system resource monitoring dashboard for miStudio. Provides co
 - `006_FTDD|System_Monitor.md` - Technical Design Doc (35k characters)
 - `006_FTID|System_Monitor.md` - Implementation Guide (25k characters)
 - `ICON_BUTTONS_AUDIT.md` - Accessibility audit
+
+---
+
+## Post-Completion UX Enhancements (October-November 2025)
+
+### ✅ Layout Reorganization for Better Visual Comparison
+
+**Status:** ✅ **COMPLETE** (2025-10-31 to 2025-11-01)
+**Impact:** **HIGH** - Significant improvement in metric comparison UX
+
+**Enhancement 1: Intelligent Left/Right Grid Layout** (commit 5014bad)
+- **LEFT Column**: System Resources
+  - CPU Utilization
+  - RAM Usage
+  - Swap Usage
+  - Disk Usage (moved up from bottom)
+  - Disk I/O (moved down from top)
+- **RIGHT Column**: GPU Information
+  - GPU Utilization
+  - GPU Memory
+  - GPU Temperature
+  - GPU Power
+  - GPU Device Info (moved down from top)
+- **Result**: Related metrics easy to compare side-by-side
+
+**Enhancement 2: Horizontal Metric Alignment** (commit 08f4115)
+- **Row 1**: CPU Utilization | GPU Utilization (easy comparison)
+- **Row 2**: RAM Usage | GPU Memory (memory comparison)
+- **Row 3**: Swap Usage | GPU Temperature (thermal monitoring)
+- **Row 4**: Disk Usage | GPU Power (power and storage)
+- **Row 5**: Disk I/O | GPU Device Info (I/O and hardware info)
+- **Result**: Visual scanning makes resource correlation obvious
+
+**Enhancement 3: Disk Metrics Grouping** (commit cf95d78)
+- Moved Disk Usage next to Disk I/O
+- Logical grouping for storage monitoring
+- **Result**: All disk-related metrics in one area
+
+**Enhancement 4: GPU Controls in Header** (commit 08f4115)
+- Moved GPU Selector and ViewModeToggle into GPU Information header
+- Eliminated vertical misalignment caused by standalone controls
+- **Result**: Clean alignment, no spacing issues
+
+**Files Modified:**
+- `frontend/src/components/SystemMonitor/SystemMonitor.tsx` (complete layout restructure)
+
+**User Impact:**
+- **Before**: Metrics randomly positioned, hard to compare related resources
+- **After**: Intelligent grouping makes it obvious when GPU and CPU are both loaded, or when RAM and VRAM are both constrained
+- **Visual Correlation**: Users can immediately see resource bottlenecks
+
+**Design Rationale:**
+- System resources (CPU/RAM/Swap/Disk) logically grouped on left
+- GPU metrics (Utilization/Memory/Temp/Power) logically grouped on right
+- Horizontal alignment enables instant visual comparison
+- Full-width sections (GPU Processes, Historical Trends, Operations) remain below
+
+---
 
 ### Remaining Work (Optional)
 

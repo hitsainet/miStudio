@@ -11,6 +11,8 @@ import numpy as np
 from datasets import load_from_disk, Dataset as HFDataset
 from transformers import AutoTokenizer
 
+from ..utils.text_cleaning import TextCleaner, get_standard_cleaner
+
 logger = logging.getLogger(__name__)
 
 
@@ -193,6 +195,8 @@ class TokenizationService:
         batch_size: int = 1000,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         num_proc: Optional[int] = None,
+        text_cleaner: Optional[TextCleaner] = None,
+        enable_cleaning: bool = True,
     ) -> HFDataset:
         """
         Tokenize a dataset using the provided tokenizer.
@@ -212,11 +216,22 @@ class TokenizationService:
             progress_callback: Optional callback function(progress_pct, message) for progress updates
                               Note: Progress tracking only works in single-process mode (num_proc=1)
             num_proc: Number of processes for parallel processing (None = auto, 1 = single-process)
+            text_cleaner: Optional TextCleaner instance for preprocessing text
+            enable_cleaning: Whether to enable text cleaning (default: True)
 
         Returns:
             Tokenized dataset with 'input_ids', 'attention_mask', etc.
         """
         total_samples = len(dataset)
+
+        # Initialize text cleaner if enabled
+        if enable_cleaning and text_cleaner is None:
+            text_cleaner = get_standard_cleaner()
+            logger.info("Using standard text cleaner for preprocessing")
+        elif enable_cleaning:
+            logger.info(f"Using provided text cleaner for preprocessing")
+        else:
+            logger.info("Text cleaning disabled")
 
         # Determine which columns to remove (keep 'split' if it exists)
         columns_to_remove = [col for col in dataset.column_names if col != "split"]
@@ -247,6 +262,19 @@ class TokenizationService:
                 """Tokenize a batch of examples and report progress."""
                 nonlocal processed_samples, current_batch
 
+                # Clean text if enabled
+                if enable_cleaning and text_cleaner:
+                    texts = examples[text_column]
+                    cleaned_texts = []
+                    for text in texts:
+                        cleaned = text_cleaner.clean(text)
+                        # If text is filtered out (too short), keep original to maintain batch size
+                        # The short texts will just produce fewer meaningful tokens
+                        cleaned_texts.append(cleaned if cleaned is not None else "")
+                    texts_to_tokenize = cleaned_texts
+                else:
+                    texts_to_tokenize = examples[text_column]
+
                 kwargs = {
                     "max_length": max_length,
                     "truncation": truncation,
@@ -260,7 +288,7 @@ class TokenizationService:
                     kwargs["return_overflowing_tokens"] = return_overflowing_tokens
 
                 result = tokenizer(
-                    examples[text_column],
+                    texts_to_tokenize,
                     **kwargs
                 )
 

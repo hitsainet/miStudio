@@ -56,7 +56,7 @@ lsof -i :3000  # Frontend should be running
 pgrep -f celery  # Celery worker should be running
 
 # Access points:
-# - Main app: http://mistudio.mcslab.io
+# - Main app: http://mistudio.mcslab.ioplease
 # - Frontend direct: http://localhost:3000
 # - Backend direct: http://localhost:8000
 # - API docs: http://localhost:8000/docs

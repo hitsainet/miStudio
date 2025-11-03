@@ -14,6 +14,7 @@ from uuid import UUID
 # It must be imported inside the task function AFTER patching tqdm
 # Otherwise, datasets will import tqdm before we can patch it
 from sqlalchemy.orm import Session
+import redis
 
 from ..core.celery_app import celery_app
 from ..core.config import settings
@@ -24,6 +25,29 @@ from ..services.tokenization_service import TokenizationService
 from .base_task import DatabaseTask
 from .websocket_emitter import emit_dataset_progress
 from .tqdm_websocket_bridge import create_tqdm_websocket_callback
+
+
+def release_redis_lock(dataset_id: str, redis_client: redis.Redis = None) -> None:
+    """
+    Release Redis distributed lock for a dataset operation.
+
+    Args:
+        dataset_id: Dataset UUID
+        redis_client: Redis client (will create if None)
+    """
+    try:
+        if redis_client is None:
+            redis_url = str(settings.redis_url)
+            redis_client = redis.from_url(redis_url, decode_responses=True)
+
+        lock_key = f"tokenization_lock:{dataset_id}"
+        deleted = redis_client.delete(lock_key)
+        if deleted:
+            print(f"[LOCK] Released tokenization lock for dataset {dataset_id}")
+        else:
+            print(f"[LOCK] No lock found for dataset {dataset_id} (may have expired)")
+    except Exception as e:
+        print(f"[LOCK] Warning: Failed to release lock for dataset {dataset_id}: {e}")
 
 
 @celery_app.task(
@@ -111,7 +135,14 @@ def download_dataset_task(
         sys.modules['tqdm'].tqdm = TqdmWebSocket
         sys.modules['tqdm.auto'].tqdm = TqdmWebSocket
 
-        # NOW import load_dataset - it will use our patched tqdm
+        # Configure HuggingFace Hub timeouts BEFORE importing load_dataset
+        # Default is 10 seconds which is too short for large datasets
+        import huggingface_hub.constants
+        huggingface_hub.constants.DEFAULT_DOWNLOAD_TIMEOUT = 300  # 5 minutes
+        huggingface_hub.constants.DEFAULT_REQUEST_TIMEOUT = 300  # 5 minutes
+        huggingface_hub.constants.DEFAULT_ETAG_TIMEOUT = 300  # 5 minutes
+
+        # NOW import load_dataset - it will use our patched tqdm and extended timeouts
         from datasets import load_dataset
 
         try:
@@ -142,6 +173,30 @@ def download_dataset_task(
 
         # Save dataset to our organized location
         dataset.save_to_disk(str(raw_path))
+
+        # Optional: Clean up temporary download cache
+        if settings.auto_cleanup_after_download:
+            import shutil
+            import logging
+            logger = logging.getLogger(__name__)
+
+            try:
+                # Clean up downloads cache (temporary download chunks)
+                downloads_dir = data_dir / "downloads"
+                if downloads_dir.exists():
+                    downloads_size = sum(f.stat().st_size for f in downloads_dir.rglob('*') if f.is_file())
+                    shutil.rmtree(downloads_dir)
+                    logger.info(f"Cleaned up downloads cache: {downloads_dir} ({downloads_size / 1024**3:.2f} GB)")
+
+                # Clean up HF cache format (vietgpt___openwebtext_en vs vietgpt_openwebtext_en)
+                hf_cache_dir = data_dir / repo_id.replace("/", "___")
+                if hf_cache_dir.exists() and hf_cache_dir != raw_path:
+                    hf_cache_size = sum(f.stat().st_size for f in hf_cache_dir.rglob('*') if f.is_file())
+                    shutil.rmtree(hf_cache_dir)
+                    logger.info(f"Cleaned up HF cache: {hf_cache_dir} ({hf_cache_size / 1024**3:.2f} GB)")
+
+            except Exception as e:
+                logger.warning(f"Cleanup failed (non-critical): {e}")
 
         # Update progress
         emit_dataset_progress(
@@ -308,6 +363,7 @@ def tokenize_dataset_task(
     truncation: str = "longest_first",
     add_special_tokens: bool = True,
     return_attention_mask: bool = True,
+    enable_cleaning: bool = True,
 ):
     """
     Tokenize dataset using specified tokenizer.
@@ -321,12 +377,32 @@ def tokenize_dataset_task(
         truncation: Truncation strategy ('longest_first', 'only_first', 'only_second', or 'do_not_truncate')
         add_special_tokens: Add special tokens (BOS, EOS, PAD, etc.)
         return_attention_mask: Return attention mask
+        enable_cleaning: Enable text cleaning (removes HTML tags, control characters, excessive punctuation, normalizes Unicode)
 
     Returns:
         dict: Tokenization result with statistics
     """
     try:
         dataset_uuid = UUID(dataset_id)
+
+        # Task-level deduplication guard: Check if already successfully tokenized
+        # This prevents duplicate/late tasks from overwriting successful results
+        with self.get_db() as db:
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+            if not dataset_obj:
+                raise ValueError(f"Dataset {dataset_id} not found")
+
+            # If already successfully tokenized, skip this duplicate task
+            if (dataset_obj.status == DatasetStatus.READY and
+                dataset_obj.tokenized_path and
+                Path(dataset_obj.tokenized_path).exists()):
+                print(f"[DEDUP] Dataset {dataset_id} already tokenized at {dataset_obj.tokenized_path}, skipping duplicate task")
+                return {
+                    'dataset_id': dataset_id,
+                    'status': 'skipped',
+                    'reason': 'already_tokenized',
+                    'tokenized_path': dataset_obj.tokenized_path
+                }
 
         # Update status to processing
         with self.get_db() as db:
@@ -472,9 +548,25 @@ def tokenize_dataset_task(
         }
         truncation_param = truncation_config.get(truncation, True)
 
+        # Monkey-patch tqdm to emit WebSocket progress during tokenization
+        # Maps HuggingFace's tqdm (0-100%) to our progress range (40-80%)
+        TqdmTokenization = create_tqdm_websocket_callback(
+            dataset_id=dataset_id,
+            base_progress=40.0,
+            progress_range=40.0,  # 40% → 80%
+            throttle_seconds=0.5  # Emit at most every 0.5 seconds OR every 10%
+        )
+
+        # Patch tqdm at multiple locations where datasets might use it
+        import sys
+        from tqdm import tqdm as original_tqdm
+
+        # Save original tqdm
+        sys.modules['tqdm'].tqdm = TqdmTokenization
+        sys.modules['tqdm.auto'].tqdm = TqdmTokenization
+
         # Tokenize dataset using multiprocessing (avoids OOM on large datasets)
-        # Note: progress_callback removed because it doesn't work with multiprocessing
-        # Progress is tracked via Celery task state updates at milestones
+        # Progress is now tracked via tqdm WebSocket bridge
         try:
             tokenized_dataset = TokenizationService.tokenize_dataset(
                 dataset=dataset,
@@ -486,26 +578,25 @@ def tokenize_dataset_task(
                 padding=padding,  # Use dynamic padding strategy from request
                 add_special_tokens=add_special_tokens,
                 return_attention_mask=return_attention_mask,
+                enable_cleaning=enable_cleaning,
                 batch_size=1000,
-                progress_callback=None,  # Disabled for multiprocessing
+                progress_callback=None,  # Disabled for multiprocessing (using tqdm bridge instead)
                 num_proc=None,  # Auto-detect CPU cores for parallel processing (prevents OOM)
             )
+        finally:
+            # Always restore original tqdm regardless of success/failure
+            sys.modules['tqdm'].tqdm = original_tqdm
+            sys.modules['tqdm.auto'].tqdm = original_tqdm
 
-            # Force cleanup of input dataset to prevent multiprocessing cleanup issues
+        # Force cleanup of input dataset to prevent multiprocessing cleanup issues
+        try:
             del dataset
+        except:
+            pass
 
-            # Force garbage collection to clean up multiprocessing resources
-            import gc
-            gc.collect()
-
-        except SystemExit as e:
-            # HuggingFace datasets sometimes raises SystemExit during multiprocessing cleanup
-            # This is a known issue - if tokenization completed, we can safely continue
-            print(f"Warning: SystemExit during tokenization cleanup (exit code: {e.code})")
-            print("Tokenization likely completed successfully, continuing...")
-            # Re-raise if this happened during actual tokenization (exit code != -241)
-            if e.code != -241:
-                raise
+        # Force garbage collection to clean up multiprocessing resources
+        import gc
+        gc.collect()
 
         # Update Celery task state: Calculating statistics
         self.update_state(
@@ -657,6 +748,9 @@ def tokenize_dataset_task(
                     },
                 )
 
+                # Release Redis distributed lock on success
+                release_redis_lock(dataset_id)
+
             except Exception as commit_error:
                 # Rollback transaction on failure
                 db.rollback()
@@ -707,6 +801,9 @@ def tokenize_dataset_task(
                 "message": error_message,
             },
         )
+
+        # Release Redis distributed lock on error
+        release_redis_lock(dataset_id)
 
         # Save failure state to task_queue for manual retry
         try:
@@ -908,6 +1005,50 @@ def delete_dataset_files(dataset_id: str, raw_path: Optional[str] = None, tokeni
                 logger.info(f"Deleted tokenized dataset files: {tokenized_path}")
             except Exception as e:
                 error_msg = f"Failed to delete tokenized dataset files {tokenized_path}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+        # Clean up HuggingFace cache directories and lock files
+        # These are created during download but not tracked in the database
+        from pathlib import Path
+        import glob
+
+        if raw_path:
+            try:
+                data_dir = Path(raw_path).parent
+                dataset_name = Path(raw_path).name
+
+                # Pattern 1: HuggingFace cache format (triple underscore)
+                # e.g., "vietgpt_openwebtext_en" -> "vietgpt___openwebtext_en"
+                hf_cache_name = dataset_name.replace('_', '___', 1)  # Replace first underscore with triple
+                hf_cache_path = data_dir / hf_cache_name
+
+                if hf_cache_path.exists() and hf_cache_path != Path(raw_path):
+                    try:
+                        shutil.rmtree(hf_cache_path)
+                        deleted_files.append(str(hf_cache_path))
+                        logger.info(f"Deleted HuggingFace cache: {hf_cache_path}")
+                    except Exception as e:
+                        error_msg = f"Failed to delete HuggingFace cache {hf_cache_path}: {str(e)}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+
+                # Pattern 2: Lock files
+                # e.g., "data_datasets_vietgpt___openwebtext_en_default_*.lock"
+                lock_pattern = str(data_dir / f"data_datasets_{hf_cache_name}_*.lock")
+                lock_files = glob.glob(lock_pattern)
+                for lock_file in lock_files:
+                    try:
+                        os.remove(lock_file)
+                        deleted_files.append(lock_file)
+                        logger.info(f"Deleted lock file: {lock_file}")
+                    except Exception as e:
+                        error_msg = f"Failed to delete lock file {lock_file}: {str(e)}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+
+            except Exception as e:
+                error_msg = f"Failed during HF cache cleanup: {str(e)}"
                 logger.error(error_msg)
                 errors.append(error_msg)
 

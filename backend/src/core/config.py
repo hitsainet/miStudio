@@ -90,6 +90,12 @@ class Settings(BaseSettings):
         description="HuggingFace cache directory (same as HF_HOME)",
     )
 
+    # Dataset Configuration
+    auto_cleanup_after_download: bool = Field(
+        default=True,
+        description="Automatically cleanup HuggingFace cache and downloads after dataset download"
+    )
+
     # WebSocket Configuration
     websocket_ping_interval: int = Field(
         default=30, ge=10, le=300, description="WebSocket ping interval in seconds"

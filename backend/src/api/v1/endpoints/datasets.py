@@ -12,9 +12,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from transformers import AutoTokenizer
+import redis
 
 from ....core.deps import get_db
 from ....core.celery_app import celery_app
+from ....core.config import settings
 from ....models.dataset import DatasetStatus
 from ....schemas.dataset import (
     DatasetCreate,
@@ -32,6 +34,17 @@ from ....services.dataset_service import DatasetService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+
+# Initialize Redis client for distributed locking
+_redis_client = None
+
+def get_redis_client() -> redis.Redis:
+    """Get Redis client for distributed locking."""
+    global _redis_client
+    if _redis_client is None:
+        redis_url = str(settings.redis_url)
+        _redis_client = redis.from_url(redis_url, decode_responses=True)
+    return _redis_client
 
 
 @router.post("", response_model=DatasetResponse, status_code=201)
@@ -430,66 +443,100 @@ async def tokenize_dataset(
             detail=f"Dataset {dataset_id} not found"
         )
 
-    # Check if dataset is ready for tokenization
-    # Prevent duplicate requests while processing
-    if dataset.status == DatasetStatus.PROCESSING:
+    # Distributed lock: Prevent concurrent tokenization requests
+    # This prevents race conditions where two requests arrive simultaneously
+    redis_client = get_redis_client()
+    lock_key = f"tokenization_lock:{dataset_id}"
+    lock_timeout = 3600  # 1 hour - max expected tokenization time
+
+    # Try to acquire lock (SET if Not eXists with EXpiration)
+    if not redis_client.set(lock_key, "locked", nx=True, ex=lock_timeout):
         raise HTTPException(
             status_code=409,
-            detail="Dataset is already being processed. Please wait for the current operation to complete."
+            detail="Tokenization already in progress for this dataset. Please wait for the current operation to complete."
         )
 
-    # Allow READY or ERROR status (ERROR allows retry after failure)
-    if dataset.status not in [DatasetStatus.READY, DatasetStatus.ERROR]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Dataset must be in 'ready' or 'error' status for tokenization (current: {dataset.status})"
-        )
-
-    if not dataset.raw_path:
-        raise HTTPException(
-            status_code=400,
-            detail="Dataset has no raw_path - cannot tokenize"
-        )
-
-    # Auto-clear existing tokenization before starting new job
-    # This handles both ERROR status (failed tokenization) and already-tokenized datasets
-    if dataset.status == DatasetStatus.ERROR or dataset.tokenized_path:
-        logger.info(f"Auto-clearing existing tokenization for dataset {dataset_id} before re-tokenization")
-        dataset = await DatasetService.clear_tokenization(db, dataset_id)
-        if not dataset:
+    try:
+        # Check if dataset is ready for tokenization
+        # Prevent duplicate requests while processing
+        if dataset.status == DatasetStatus.PROCESSING:
+            redis_client.delete(lock_key)  # Release lock
             raise HTTPException(
-                status_code=500,
-                detail="Failed to clear existing tokenization"
+                status_code=409,
+                detail="Dataset is already being processed. Please wait for the current operation to complete."
             )
 
-    # Update status to processing
-    updates = DatasetUpdate(
-        status=DatasetStatus.PROCESSING.value,
-        progress=0.0,
-    )
-    dataset = await DatasetService.update_dataset(db, dataset_id, updates)
+        # Allow READY or ERROR status (ERROR allows retry after failure)
+        if dataset.status not in [DatasetStatus.READY, DatasetStatus.ERROR]:
+            redis_client.delete(lock_key)  # Release lock
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dataset must be in 'ready' or 'error' status for tokenization (current: {dataset.status})"
+            )
 
-    # Queue tokenization job with Celery
-    from ....workers.dataset_tasks import tokenize_dataset_task
-    task = tokenize_dataset_task.delay(
-        dataset_id=str(dataset_id),
-        tokenizer_name=request.tokenizer_name,
-        max_length=request.max_length,
-        stride=request.stride,
-        padding=request.padding,
-        truncation=request.truncation,
-        add_special_tokens=request.add_special_tokens,
-        return_attention_mask=request.return_attention_mask,
-    )
+        if not dataset.raw_path:
+            redis_client.delete(lock_key)  # Release lock
+            raise HTTPException(
+                status_code=400,
+                detail="Dataset has no raw_path - cannot tokenize"
+            )
 
-    # Store task_id in dataset metadata for progress tracking
-    metadata = dataset.extra_metadata or {}
-    metadata['task_id'] = task.id
-    metadata['task_type'] = 'tokenization'
-    updates = DatasetUpdate(metadata=metadata)
-    dataset = await DatasetService.update_dataset(db, dataset_id, updates)
+        # Auto-clear existing tokenization before starting new job
+        # This handles both ERROR status (failed tokenization) and already-tokenized datasets
+        if dataset.status == DatasetStatus.ERROR or dataset.tokenized_path:
+            logger.info(f"Auto-clearing existing tokenization for dataset {dataset_id} before re-tokenization")
+            dataset = await DatasetService.clear_tokenization(db, dataset_id)
+            if not dataset:
+                redis_client.delete(lock_key)  # Release lock
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to clear existing tokenization"
+                )
 
-    return dataset
+        # Update status to processing
+        updates = DatasetUpdate(
+            status=DatasetStatus.PROCESSING.value,
+            progress=0.0,
+        )
+        dataset = await DatasetService.update_dataset(db, dataset_id, updates)
+
+        # Queue tokenization job with Celery
+        from ....workers.dataset_tasks import tokenize_dataset_task
+        task = tokenize_dataset_task.delay(
+            dataset_id=str(dataset_id),
+            tokenizer_name=request.tokenizer_name,
+            max_length=request.max_length,
+            stride=request.stride,
+            padding=request.padding,
+            truncation=request.truncation,
+            add_special_tokens=request.add_special_tokens,
+            return_attention_mask=request.return_attention_mask,
+            enable_cleaning=request.enable_cleaning,
+        )
+
+        # Store task_id in dataset metadata for progress tracking
+        metadata = dataset.extra_metadata or {}
+        metadata['task_id'] = task.id
+        metadata['task_type'] = 'tokenization'
+        metadata['lock_key'] = lock_key  # Store lock key for cleanup
+        updates = DatasetUpdate(metadata=metadata)
+        dataset = await DatasetService.update_dataset(db, dataset_id, updates)
+
+        # Lock will be released by the Celery task on completion/failure
+        # Don't delete lock_key here - let the task do it
+
+        return dataset
+
+    except HTTPException:
+        # Re-raise HTTP exceptions without modification
+        raise
+    except Exception as e:
+        # Release lock on unexpected errors
+        redis_client.delete(lock_key)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start tokenization: {str(e)}"
+        )
 
 
 @router.delete("/{dataset_id}/tokenization", response_model=DatasetResponse)
@@ -630,9 +677,15 @@ async def get_dataset_samples(
     """
     from datasets import load_from_disk
     from pathlib import Path
+    from sqlalchemy import select
+    from ....models.dataset import Dataset as DatasetModel
 
-    # Get dataset
-    dataset = await DatasetService.get_dataset(db, dataset_id)
+    # Get dataset with metadata (direct query to ensure metadata is loaded)
+    result = await db.execute(
+        select(DatasetModel).where(DatasetModel.id == dataset_id)
+    )
+    dataset = result.scalar_one_or_none()
+
     if not dataset:
         raise HTTPException(
             status_code=404,
@@ -646,15 +699,74 @@ async def get_dataset_samples(
             detail=f"Dataset must be in 'ready' or 'processing' status to view samples (current: {dataset.status})"
         )
 
-    if not dataset.raw_path:
-        raise HTTPException(
-            status_code=400,
-            detail="Dataset has no raw_path"
-        )
-
     try:
-        # Load dataset from disk (Arrow format saved by download task)
-        hf_dataset = load_from_disk(dataset.raw_path)
+        # Try to load from raw path first (preferred for viewing text)
+        dataset_path = None
+        is_tokenized = False
+
+        if dataset.raw_path and Path(dataset.raw_path).exists():
+            dataset_path = dataset.raw_path
+            is_tokenized = False
+        else:
+            # Try HuggingFace cache format path (repo_id slash becomes triple underscore)
+            # Example: vietgpt_openwebtext_en → vietgpt___openwebtext_en
+            if dataset.raw_path:
+                raw_path_obj = Path(dataset.raw_path)
+                hf_cache_name = raw_path_obj.name.replace('_', '___', 1)
+                hf_cache_path = raw_path_obj.parent / hf_cache_name
+
+                if hf_cache_path.exists():
+                    dataset_path = str(hf_cache_path)
+                    is_tokenized = False
+
+        # If still not found, try tokenized path
+        if not dataset_path and dataset.tokenized_path and Path(dataset.tokenized_path).exists():
+            # Fallback to tokenized dataset if raw was cleaned up
+            dataset_path = dataset.tokenized_path
+            is_tokenized = True
+
+        # Try to load dataset from local path first
+        hf_dataset = None
+        if dataset_path:
+            try:
+                # Load dataset from disk (Arrow format)
+                hf_dataset = load_from_disk(dataset_path)
+                logger.info(f"Loaded dataset from disk: {dataset_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load from disk path {dataset_path}: {e}")
+                # Fall through to HuggingFace fallback
+
+        # If loading from disk failed or no path, try loading from HuggingFace
+        if not hf_dataset and dataset.hf_repo_id:
+            from datasets import load_dataset as hf_load_dataset
+            try:
+                # Extract split from metadata (safely handle dict or SQLAlchemy type)
+                split_name = None
+                if dataset.metadata:
+                    if isinstance(dataset.metadata, dict):
+                        split_name = dataset.metadata.get('split')
+                    elif hasattr(dataset.metadata, 'get'):
+                        split_name = dataset.metadata.get('split')
+
+                # Load from HuggingFace (will use cached files if available)
+                hf_dataset = hf_load_dataset(
+                    dataset.hf_repo_id,
+                    split=split_name,
+                    trust_remote_code=True
+                )
+                logger.info(f"Loaded dataset {dataset.hf_repo_id} from HuggingFace cache (split={split_name})")
+            except Exception as e:
+                logger.error(f"Failed to load from HuggingFace: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to load dataset from HuggingFace: {str(e) or type(e).__name__}"
+                )
+
+        if not hf_dataset:
+            raise HTTPException(
+                status_code=400,
+                detail="Dataset files not found. Raw dataset may have been cleaned up and tokenized dataset is not available."
+            )
 
         # Handle DatasetDict (multi-split datasets) - use 'train' split by default
         from datasets import DatasetDict
@@ -674,11 +786,54 @@ async def get_dataset_samples(
 
         # Get samples for current page
         samples = []
+
+        # If using tokenized dataset, load tokenizer for decoding
+        tokenizer = None
+        if is_tokenized:
+            try:
+                from transformers import AutoTokenizer
+                # Get tokenizer name from metadata (handle both dict and SQLAlchemy types)
+                metadata_dict = dataset.metadata if isinstance(dataset.metadata, dict) else {}
+                tokenization_meta = metadata_dict.get('tokenization', {}) if metadata_dict else {}
+                tokenizer_name = tokenization_meta.get('tokenizer_name') if tokenization_meta else None
+
+                if tokenizer_name:
+                    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+                    print(f"Loaded tokenizer '{tokenizer_name}' for decoding tokenized samples")
+            except Exception as e:
+                # If tokenizer fails to load, we'll show raw token IDs
+                print(f"Warning: Failed to load tokenizer for decoding: {e}")
+
         for idx in range(start_idx, end_idx):
             sample = hf_dataset[idx]
             # Convert sample to dict if it's not already
             if not isinstance(sample, dict):
                 sample = {"data": str(sample)}
+
+            # If this is a tokenized dataset, decode input_ids to text
+            if is_tokenized and tokenizer and 'input_ids' in sample:
+                try:
+                    decoded_text = tokenizer.decode(sample['input_ids'], skip_special_tokens=True)
+                    # Replace input_ids with decoded text for display
+                    sample = {
+                        "text": decoded_text,
+                        "_metadata": {
+                            "source": "tokenized_dataset_decoded",
+                            "num_tokens": len(sample['input_ids']),
+                            "has_attention_mask": 'attention_mask' in sample
+                        }
+                    }
+                except Exception as e:
+                    # If decoding fails, show truncated token IDs
+                    sample = {
+                        "input_ids": sample['input_ids'][:50],  # Show first 50 tokens
+                        "_metadata": {
+                            "source": "tokenized_dataset_raw",
+                            "error": f"Failed to decode: {str(e)}",
+                            "total_tokens": len(sample['input_ids'])
+                        }
+                    }
+
             samples.append({
                 "index": idx,
                 "data": sample
@@ -702,9 +857,10 @@ async def get_dataset_samples(
         }
 
     except Exception as e:
+        logger.error(f"Samples endpoint error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to load samples: {str(e)}"
+            detail=f"Failed to load samples: {str(e) or type(e).__name__} - {repr(e)}"
         )
 
 

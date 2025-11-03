@@ -175,6 +175,10 @@ class DatasetTokenizeRequest(BaseModel):
         True,
         description="Return attention mask - Set to False to save memory if model doesn't use attention masks"
     )
+    enable_cleaning: bool = Field(
+        True,
+        description="Enable text cleaning (removes HTML tags, control characters, excessive punctuation, normalizes Unicode) - Recommended for better feature quality"
+    )
 
     @field_validator("stride")
     @classmethod

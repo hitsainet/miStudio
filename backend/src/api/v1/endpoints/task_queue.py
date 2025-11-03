@@ -290,6 +290,7 @@ async def retry_task(
             truncation=retry_params.get("truncation", "longest_first"),
             add_special_tokens=retry_params.get("add_special_tokens", True),
             text_column=retry_params.get("text_column"),
+            enable_cleaning=retry_params.get("enable_cleaning", True),
         )
 
         task.task_id = celery_task.id

@@ -11,6 +11,7 @@ import numpy as np
 from datasets import load_from_disk, Dataset as HFDataset
 from transformers import AutoTokenizer
 
+from ..core.config import settings
 from ..utils.text_cleaning import TextCleaner, get_standard_cleaner
 
 logger = logging.getLogger(__name__)
@@ -21,8 +22,8 @@ class _TokenizationMapper:
     Picklable tokenization mapper for multiprocessing support.
 
     This class encapsulates the tokenization logic in a way that can be
-    pickled for use with HuggingFace's multiprocessing. The tokenizer is
-    loaded lazily in each worker process to avoid pickling issues.
+    pickled for use with HuggingFace's multiprocessing. The tokenizer and
+    text cleaner are loaded lazily in each worker process to avoid pickling issues.
     """
 
     def __init__(
@@ -36,6 +37,7 @@ class _TokenizationMapper:
         return_attention_mask: bool,
         stride: int = 0,
         return_overflowing_tokens: bool = False,
+        enable_cleaning: bool = True,
     ):
         """Initialize the tokenization mapper with parameters."""
         self.tokenizer_name = tokenizer_name
@@ -47,7 +49,9 @@ class _TokenizationMapper:
         self.return_attention_mask = return_attention_mask
         self.stride = stride
         self.return_overflowing_tokens = return_overflowing_tokens
+        self.enable_cleaning = enable_cleaning
         self._tokenizer = None  # Lazy-loaded in worker process
+        self._text_cleaner = None  # Lazy-loaded in worker process
 
     def _get_tokenizer(self):
         """Lazy-load tokenizer in worker process (avoids pickling issues)."""
@@ -61,15 +65,34 @@ class _TokenizationMapper:
                     self._tokenizer.add_special_tokens({'pad_token': '[PAD]'})
         return self._tokenizer
 
+    def _get_text_cleaner(self):
+        """Lazy-load text cleaner in worker process (avoids pickling issues)."""
+        if self._text_cleaner is None:
+            self._text_cleaner = get_standard_cleaner()
+        return self._text_cleaner
+
     def __call__(self, examples):
         """
-        Tokenize a batch of examples.
+        Tokenize a batch of examples with optional text cleaning.
 
         Note: Progress tracking is not supported in multiprocessing mode
         because shared state between processes is complex. Progress tracking
         only works when num_proc=1 (single process mode).
         """
         tokenizer = self._get_tokenizer()
+
+        # Apply text cleaning if enabled
+        if self.enable_cleaning:
+            text_cleaner = self._get_text_cleaner()
+            texts = examples[self.text_column]
+            cleaned_texts = []
+            for text in texts:
+                cleaned = text_cleaner.clean(text)
+                # Keep empty string if cleaning returns None (better than dropping samples)
+                cleaned_texts.append(cleaned if cleaned is not None else "")
+            texts_to_tokenize = cleaned_texts
+        else:
+            texts_to_tokenize = examples[self.text_column]
 
         kwargs = {
             "max_length": self.max_length,
@@ -84,7 +107,7 @@ class _TokenizationMapper:
             kwargs["return_overflowing_tokens"] = self.return_overflowing_tokens
 
         result = tokenizer(
-            examples[self.text_column],
+            texts_to_tokenize,
             **kwargs
         )
 
@@ -346,6 +369,12 @@ class TokenizationService:
                 return_attention_mask=return_attention_mask,
                 stride=stride,
                 return_overflowing_tokens=return_overflowing_tokens,
+                enable_cleaning=enable_cleaning,
+            )
+
+            logger.info(
+                f"Using multiprocessing mode with {num_proc} processes. "
+                f"Text cleaning: {'enabled' if enable_cleaning else 'disabled'}"
             )
 
             tokenized_dataset = dataset.map(
@@ -531,10 +560,15 @@ class TokenizationService:
     @staticmethod
     def load_dataset_from_disk(dataset_path: str | Path) -> HFDataset:
         """
-        Load a dataset from disk.
+        Load a dataset from disk with intelligent format detection.
+
+        Handles three formats:
+        1. save_to_disk format (preferred): Flat structure with dataset_info.json at root
+        2. HuggingFace cache format: Triple underscore path name
+        3. HuggingFace nested cache: default/0.0.0/hash/ structure with Arrow files
 
         Args:
-            dataset_path: Path to dataset directory
+            dataset_path: Path to dataset directory (relative or absolute)
 
         Returns:
             Loaded HuggingFace dataset
@@ -542,7 +576,100 @@ class TokenizationService:
         Raises:
             Exception: If loading fails
         """
-        try:
-            return load_from_disk(str(dataset_path))
-        except Exception as e:
-            raise Exception(f"Failed to load dataset from {dataset_path}: {str(e)}")
+        import json
+        import pyarrow as pa
+        from datasets import Dataset
+
+        path = Path(dataset_path)
+
+        # Convert relative paths to absolute using settings.data_dir as base
+        if not path.is_absolute():
+            # If path starts with "data/", replace it with settings.data_dir
+            path_str = str(path)
+            if path_str.startswith("data/"):
+                # Strip "data/" prefix and join with settings.data_dir
+                relative_part = path_str[5:]  # Remove "data/" prefix
+                path = settings.data_dir / relative_part
+            else:
+                # Resolve relative to settings.data_dir
+                path = settings.data_dir / path
+
+        logger.info(f"Resolving dataset path: {path}")
+
+        # Strategy 1: Try direct load_from_disk (save_to_disk format)
+        if path.exists():
+            try:
+                logger.info(f"Attempting load_from_disk: {path}")
+                return load_from_disk(str(path))
+            except Exception as e:
+                logger.warning(f"load_from_disk failed on {path}: {e}")
+
+        # Strategy 2: Try HuggingFace cache path (single → triple underscore)
+        # Example: vietgpt_openwebtext_en → vietgpt___openwebtext_en
+        hf_cache_name = path.name.replace('_', '___', 1)
+        hf_cache_path = path.parent / hf_cache_name
+
+        if hf_cache_path.exists():
+            try:
+                logger.info(f"Attempting load_from_disk on HF cache path: {hf_cache_path}")
+                return load_from_disk(str(hf_cache_path))
+            except Exception as e:
+                logger.warning(f"load_from_disk failed on HF cache path: {e}")
+
+                # Strategy 3: HF nested cache format - use Dataset.from_file for memory efficiency
+                # Structure: vietgpt___openwebtext_en/default/0.0.0/hash/*.arrow
+                logger.info(f"Attempting to load from HF nested cache structure (memory-efficient)")
+
+                try:
+                    # Find dataset_info.json in nested structure
+                    nested_pattern = list(hf_cache_path.glob("*/*/*/dataset_info.json"))
+
+                    if not nested_pattern:
+                        raise Exception(f"No dataset_info.json found in nested structure: {hf_cache_path}")
+
+                    nested_dir = nested_pattern[0].parent
+                    logger.info(f"Found HF cache nested directory: {nested_dir}")
+
+                    # Get all Arrow files
+                    arrow_files = sorted(nested_dir.glob("*.arrow"))
+
+                    if not arrow_files:
+                        raise Exception(f"No Arrow files found in {nested_dir}")
+
+                    logger.info(f"Loading dataset from {len(arrow_files)} Arrow files (using lazy loading)")
+
+                    # Use Dataset.from_file which is memory-efficient
+                    # It uses memory mapping instead of loading everything into RAM
+                    if len(arrow_files) == 1:
+                        # Single file - easy
+                        dataset = Dataset.from_file(str(arrow_files[0]))
+                    else:
+                        # Multiple files - concatenate using IterableDataset approach
+                        # This is MUCH more memory efficient than loading all into RAM
+                        from datasets import concatenate_datasets
+
+                        datasets_list = []
+                        for i, arrow_file in enumerate(arrow_files):
+                            if i % 10 == 0:
+                                logger.info(f"Loading Arrow file {i+1}/{len(arrow_files)}")
+                            ds = Dataset.from_file(str(arrow_file))
+                            datasets_list.append(ds)
+
+                        logger.info(f"Concatenating {len(datasets_list)} dataset shards...")
+                        dataset = concatenate_datasets(datasets_list)
+
+                    logger.info(f"Successfully loaded dataset from HF nested cache: {len(dataset)} samples")
+                    return dataset
+
+                except Exception as nested_error:
+                    logger.error(f"Failed to load from HF nested cache: {nested_error}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    # Continue to final error
+
+        # If all strategies failed
+        raise Exception(
+            f"Failed to load dataset from {dataset_path}. "
+            f"Tried: {path}, {hf_cache_path}, and nested HF cache format. "
+            f"None of these paths exist or contain valid dataset format."
+        )

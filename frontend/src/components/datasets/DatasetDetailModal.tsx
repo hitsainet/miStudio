@@ -488,6 +488,7 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
   const [truncationStrategy, setTruncationStrategy] = useState<'longest_first' | 'only_first' | 'only_second' | 'do_not_truncate'>('longest_first');
   const [addSpecialTokens, setAddSpecialTokens] = useState(true);
   const [returnAttentionMask, setReturnAttentionMask] = useState(true);
+  const [enableCleaning, setEnableCleaning] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -641,6 +642,7 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
             truncation: truncationStrategy,
             add_special_tokens: addSpecialTokens,
             return_attention_mask: returnAttentionMask,
+            enable_cleaning: enableCleaning,
           }),
         }
       );
@@ -1053,6 +1055,34 @@ function TokenizationTab({ dataset, onDatasetUpdate }: { dataset: Dataset; onDat
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                     returnAttentionMask ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </label>
+          </div>
+
+          {/* Text Cleaning Toggle */}
+          <div>
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <span className="block text-sm font-medium text-slate-300 mb-1">
+                  Enable Text Cleaning
+                </span>
+                <p className="text-xs text-slate-500">
+                  Remove HTML tags, control characters, excessive punctuation, normalize Unicode - Recommended for better feature quality
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEnableCleaning(!enableCleaning)}
+                disabled={!canTokenize || isSubmitting}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  enableCleaning ? 'bg-emerald-600' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    enableCleaning ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               </button>

@@ -89,14 +89,14 @@ class TqdmWebSocketCallback(tqdm_original):
             # Map to our progress range
             mapped_progress = self.base_progress + (tqdm_progress * self.progress_range / 100.0)
 
-            # Throttle emissions: only emit if progress changed by >= 1% or enough time passed
+            # Throttle emissions: only emit if progress changed by >= 10% or enough time passed
             import time
             current_time = time.time()
             progress_delta = abs(mapped_progress - self.last_emitted_progress)
             time_delta = current_time - self.last_emit_time
 
             should_emit = (
-                progress_delta >= 1.0  # Progress changed by at least 1%
+                progress_delta >= 10.0  # Progress changed by at least 10%
                 or time_delta >= self.throttle_seconds  # Or throttle period elapsed
                 or tqdm_progress >= 99.9  # Or nearly complete
             )

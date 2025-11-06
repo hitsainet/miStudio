@@ -100,6 +100,14 @@ interface TrainingStoreState {
   statusFilter: TrainingStatus | 'all';
   modelFilter: string | null;
   datasetFilter: string | null;
+
+  // Status counts (from backend)
+  statusCounts: {
+    all: number;
+    running: number;
+    completed: number;
+    failed: number;
+  };
 }
 
 /**
@@ -225,6 +233,12 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
   statusFilter: 'all',
   modelFilter: null,
   datasetFilter: null,
+  statusCounts: {
+    all: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+  },
 
   /**
    * Fetch list of training jobs.
@@ -262,6 +276,7 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
         currentPage: response.data.pagination.page,
         totalPages: response.data.pagination.total_pages,
         totalTrainings: response.data.pagination.total,
+        statusCounts: response.data.status_counts,
         isLoading: false,
       });
     } catch (error: any) {

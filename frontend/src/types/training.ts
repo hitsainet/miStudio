@@ -301,6 +301,13 @@ export interface TrainingListResponse {
     limit: number;
     total_pages: number;
   };
+  /** Status counts for filtering */
+  status_counts: {
+    all: number;
+    running: number;
+    completed: number;
+    failed: number;
+  };
 }
 
 /**

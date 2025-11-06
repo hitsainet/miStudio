@@ -227,6 +227,8 @@ export interface Model {
   memory_required_bytes?: number;
   /** Disk size in bytes */
   disk_size_bytes?: number;
+  /** Whether model has any completed extraction jobs */
+  has_completed_extractions?: boolean;
   /** Record creation timestamp */
   created_at: string;
   /** Record last update timestamp */

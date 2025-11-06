@@ -67,6 +67,7 @@ class ModelResponse(ModelBase):
     architecture_config: Optional[Dict[str, Any]] = Field(None, description="Architecture configuration")
     memory_required_bytes: Optional[int] = Field(None, description="Estimated memory requirement")
     disk_size_bytes: Optional[int] = Field(None, description="Disk size in bytes")
+    has_completed_extractions: bool = Field(False, description="Whether model has any completed extraction jobs")
     created_at: datetime = Field(..., description="Record creation timestamp")
     updated_at: datetime = Field(..., description="Record last update timestamp")
 

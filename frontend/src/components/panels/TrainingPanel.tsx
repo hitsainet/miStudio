@@ -50,6 +50,7 @@ export const TrainingPanel: React.FC = () => {
     deleteTraining,
     statusFilter,
     setStatusFilter,
+    statusCounts,
     isLoading,
     error,
   } = useTrainingsStore();
@@ -260,14 +261,6 @@ export const TrainingPanel: React.FC = () => {
     } finally {
       setIsStarting(false);
     }
-  };
-
-  // Status filter stats
-  const statusCounts = {
-    all: trainings.length,
-    running: trainings.filter((t) => t.status === TrainingStatus.RUNNING).length,
-    completed: trainings.filter((t) => t.status === TrainingStatus.COMPLETED).length,
-    failed: trainings.filter((t) => t.status === TrainingStatus.FAILED).length,
   };
 
   return (

@@ -48,6 +48,10 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
   // Local state for extraction config
   const [evaluationSamples, setEvaluationSamples] = useState(10000);
   const [topKExamples, setTopKExamples] = useState(100);
+  const [labelingMethod, setLabelingMethod] = useState<'pattern' | 'local' | 'openai'>('pattern');
+  const [localLabelingModel, setLocalLabelingModel] = useState<'phi3' | 'llama' | 'qwen'>('phi3');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState<'gpt4-mini' | 'gpt4' | 'gpt35'>('gpt4-mini');
   const [resourceConfig, setResourceConfig] = useState<{
     batch_size?: number;
     num_workers?: number;
@@ -86,6 +90,10 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
       await startExtraction(training.id, {
         evaluation_samples: evaluationSamples,
         top_k_examples: topKExamples,
+        labeling_method: labelingMethod,
+        local_labeling_model: labelingMethod === 'local' ? localLabelingModel : undefined,
+        openai_api_key: labelingMethod === 'openai' && openaiApiKey ? openaiApiKey : undefined,
+        openai_model: labelingMethod === 'openai' ? openaiModel : undefined,
         ...resourceConfig,
       });
     } catch (error) {
@@ -232,6 +240,77 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
               />
             </div>
+          </div>
+
+          {/* Labeling Configuration */}
+          <div className="mb-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+            <h4 className="text-sm font-semibold text-slate-300 mb-3">Feature Labeling</h4>
+
+            {/* Labeling Method Selector */}
+            <div className="mb-3">
+              <label className="block text-xs text-slate-400 mb-1">Labeling Method</label>
+              <select
+                value={labelingMethod}
+                onChange={(e) => setLabelingMethod(e.target.value as 'pattern' | 'local' | 'openai')}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+              >
+                <option value="pattern">Pattern Matching (fast, simple patterns)</option>
+                <option value="local">Local LLM (slow, high quality, zero cost)</option>
+                <option value="openai">OpenAI API (fast, high quality, costs money)</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                {labelingMethod === 'pattern' && 'Uses 8 hardcoded patterns for quick labeling'}
+                {labelingMethod === 'local' && 'Uses Phi-3-mini locally (~5.5 hours for 16K features, ~2GB VRAM)'}
+                {labelingMethod === 'openai' && 'Uses GPT-4o-mini API (~55 minutes for 16K features, ~$1.64 cost)'}
+              </p>
+            </div>
+
+            {/* Local Model Selector (shown when labeling_method=local) */}
+            {labelingMethod === 'local' && (
+              <div className="mb-3">
+                <label className="block text-xs text-slate-400 mb-1">Local Model</label>
+                <select
+                  value={localLabelingModel}
+                  onChange={(e) => setLocalLabelingModel(e.target.value as 'phi3' | 'llama' | 'qwen')}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="phi3">Phi-3-mini (recommended, 3.8B params)</option>
+                  <option value="llama">Llama 3.2 3B</option>
+                  <option value="qwen">Qwen 2.5 3B</option>
+                </select>
+              </div>
+            )}
+
+            {/* OpenAI Configuration (shown when labeling_method=openai) */}
+            {labelingMethod === 'openai' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">OpenAI API Key</label>
+                  <input
+                    type="password"
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Leave blank to use OPENAI_API_KEY environment variable
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">OpenAI Model</label>
+                  <select
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value as 'gpt4-mini' | 'gpt4' | 'gpt35')}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="gpt4-mini">GPT-4o-mini (recommended, $0.0001/feature)</option>
+                    <option value="gpt4">GPT-4 Turbo (higher quality, more expensive)</option>
+                    <option value="gpt35">GPT-3.5 Turbo (faster, lower quality)</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Resource Configuration Panel */}
@@ -446,7 +525,7 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Example Context</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Activation Freq</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Interpretability</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Of Interest</th>
                 </tr>
               </thead>
               <tbody>
@@ -505,7 +584,7 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                           <Star
                             className={`w-4 h-4 ${
                               feature.is_favorite
-                                ? 'fill-yellow-400 text-yellow-400'
+                                ? 'fill-emerald-500 text-emerald-500'
                                 : 'text-slate-500'
                             }`}
                           />

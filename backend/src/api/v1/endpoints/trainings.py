@@ -104,6 +104,13 @@ async def list_trainings(
         limit=limit,
     )
 
+    # Get status counts (independent of status filter)
+    status_counts = await TrainingService.get_status_counts(
+        db=db,
+        model_id=model_id,
+        dataset_id=dataset_id,
+    )
+
     return {
         "data": trainings,
         "pagination": {
@@ -111,7 +118,8 @@ async def list_trainings(
             "page": page,
             "limit": limit,
             "total_pages": (total + limit - 1) // limit,
-        }
+        },
+        "status_counts": status_counts,
     }
 
 

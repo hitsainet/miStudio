@@ -32,6 +32,8 @@ from src.core.config import settings
 from src.services.resource_config import ResourceConfig
 from src.utils.auto_labeling import auto_label_feature
 from src.services.checkpoint_service import CheckpointService
+from src.services.local_labeling_service import LocalLabelingService
+from src.services.openai_labeling_service import OpenAILabelingService
 from src.ml.sparse_autoencoder import SparseAutoencoder
 from src.ml.model_loader import load_model_from_hf
 from src.ml.forward_hooks import HookManager, HookType
@@ -1007,9 +1009,19 @@ class ExtractionService:
                             token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
 
                             # Process each SAE neuron (feature)
+                            # Log progress periodically to show we're not stuck
+                            log_interval = max(1, latent_dim // 20)  # Log every 5% of neurons
                             for neuron_idx in range(latent_dim):
                                 neuron_activations = sae_features[:, neuron_idx].cpu().numpy()  # Shape: (seq_len,)
                                 max_activation = float(neuron_activations.max())
+
+                                # Periodic progress logging inside neuron loop
+                                if neuron_idx > 0 and neuron_idx % log_interval == 0:
+                                    neuron_progress = neuron_idx / latent_dim
+                                    logger.info(
+                                        f"Sample {global_sample_idx+1}/{len(dataset)}: "
+                                        f"Processing features {neuron_idx}/{latent_dim} ({neuron_progress*100:.1f}%)"
+                                    )
 
                                 # Task 4.9: Count activations above threshold
                                 if max_activation > 0:
@@ -1099,8 +1111,17 @@ class ExtractionService:
                 # Task 4.10: Calculate interpretability score
                 interpretability_score = self.calculate_interpretability_score(top_examples)
 
-                # Task 4.12: Auto-generate label
-                feature_name = auto_label_feature(top_examples, neuron_idx)
+                # Task 4.12: Auto-generate label (method depends on config)
+                labeling_method = config.get("labeling_method", "pattern")
+
+                if labeling_method == "pattern":
+                    # Use fast pattern matching (default)
+                    feature_name = auto_label_feature(top_examples, neuron_idx)
+                    label_source = LabelSource.AUTO.value
+                else:
+                    # Use placeholder for LLM-based labeling (will be updated after batch processing)
+                    feature_name = f"feature_{neuron_idx:05d}"
+                    label_source = "llm"  # Will be updated to specific method later
 
                 # Task 4.13: Create feature record
                 feature = Feature(
@@ -1110,7 +1131,7 @@ class ExtractionService:
                     neuron_index=neuron_idx,
                     name=feature_name,
                     description=None,
-                    label_source=LabelSource.AUTO.value,
+                    label_source=label_source,
                     activation_frequency=float(activation_frequencies[neuron_idx]),
                     interpretability_score=float(interpretability_score),  # Convert numpy to Python float
                     max_activation=float(top_examples[0]["max_activation"]),
@@ -1177,6 +1198,96 @@ class ExtractionService:
                 torch.cuda.synchronize()
                 final_memory = torch.cuda.memory_allocated(0) / (1024**3)
                 logger.info(f"Final GPU memory: {final_memory:.2f}GB allocated (freed {initial_memory - final_memory:.2f}GB)")
+
+            # Task 4.18: Batch labeling phase for LLM-based methods
+            if labeling_method in ["local", "openai"]:
+                logger.info(f"Starting batch labeling with method: {labeling_method}")
+
+                # Query all features with placeholder labels
+                features_to_label = self.db.query(Feature).filter(
+                    Feature.extraction_job_id == extraction_job.id,
+                    Feature.label_source == "llm"
+                ).order_by(Feature.neuron_index).all()
+
+                if features_to_label:
+                    logger.info(f"Found {len(features_to_label)} features to label")
+
+                    # Aggregate token statistics for each feature
+                    features_token_stats = []
+                    neuron_indices = []
+
+                    for feature in features_to_label:
+                        # Get activation records for this feature
+                        activations = self.db.query(FeatureActivation).filter(
+                            FeatureActivation.feature_id == feature.id
+                        ).all()
+
+                        # Aggregate token statistics
+                        token_stats = defaultdict(lambda: {"count": 0, "total_activation": 0.0, "max_activation": 0.0})
+
+                        for activation in activations:
+                            tokens = activation.tokens
+                            activations_list = activation.activations
+
+                            for token, act in zip(tokens, activations_list):
+                                token_stats[token]["count"] += 1
+                                token_stats[token]["total_activation"] += act
+                                token_stats[token]["max_activation"] = max(
+                                    token_stats[token]["max_activation"], act
+                                )
+
+                        features_token_stats.append(dict(token_stats))
+                        neuron_indices.append(feature.neuron_index)
+
+                    # Initialize appropriate labeling service
+                    try:
+                        if labeling_method == "local":
+                            local_model = config.get("local_labeling_model", "phi3")
+                            logger.info(f"Initializing local labeling service with model: {local_model}")
+                            labeling_service = LocalLabelingService(model_name=local_model)
+
+                            # Generate labels (load/unload handled internally)
+                            labels = labeling_service.batch_generate_labels(
+                                features_token_stats=features_token_stats,
+                                neuron_indices=neuron_indices,
+                                progress_callback=None  # Could add WebSocket progress here
+                            )
+                            label_source_value = "local_llm"
+
+                        elif labeling_method == "openai":
+                            openai_api_key = config.get("openai_api_key")
+                            openai_model = config.get("openai_model", "gpt4-mini")
+                            logger.info(f"Initializing OpenAI labeling service with model: {openai_model}")
+                            labeling_service = OpenAILabelingService(
+                                api_key=openai_api_key,
+                                model=openai_model
+                            )
+
+                            # Generate labels asynchronously
+                            import asyncio
+                            labels = asyncio.run(labeling_service.batch_generate_labels(
+                                features_token_stats=features_token_stats,
+                                neuron_indices=neuron_indices,
+                                progress_callback=None,
+                                batch_size=10
+                            ))
+                            label_source_value = "openai"
+
+                        # Update feature names and label_source
+                        for feature, label in zip(features_to_label, labels):
+                            feature.name = label
+                            feature.label_source = label_source_value
+                            feature.updated_at = datetime.now(timezone.utc)
+
+                        self.db.commit()
+                        logger.info(f"Successfully labeled {len(labels)} features using {labeling_method}")
+
+                    except Exception as e:
+                        logger.error(f"Batch labeling failed: {e}", exc_info=True)
+                        logger.warning("Features will retain placeholder names")
+                        # Don't fail the entire extraction if labeling fails
+                else:
+                    logger.info("No features require LLM-based labeling")
 
             # Mark as completed
             self.update_extraction_status_sync(

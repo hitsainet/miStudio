@@ -51,6 +51,24 @@ class ExtractionConfigRequest(BaseModel):
         description="Number of features to commit at once (500-5000). If not provided, will use recommended value"
     )
 
+    # Labeling method configuration
+    labeling_method: str = Field(
+        default="pattern",
+        description="Feature labeling method: 'pattern' (fast, pattern matching), 'local' (local LLM, slow), 'openai' (OpenAI API, fast, costs money)"
+    )
+    local_labeling_model: Optional[str] = Field(
+        default="phi3",
+        description="Local model to use for labeling when labeling_method='local'. Options: 'phi3', 'llama', 'qwen'"
+    )
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key for labeling when labeling_method='openai'. If not provided, uses environment variable"
+    )
+    openai_model: Optional[str] = Field(
+        default="gpt4-mini",
+        description="OpenAI model for labeling when labeling_method='openai'. Options: 'gpt4-mini', 'gpt4', 'gpt35'"
+    )
+
 
 class ExtractionStatusResponse(BaseModel):
     """

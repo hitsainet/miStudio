@@ -65,22 +65,22 @@ export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCar
 
   return (
     <div
-      className={`${COMPONENTS.card.base} p-6 transition-all ${
+      className={`${COMPONENTS.card.base} p-4 transition-all ${
         isClickable
           ? 'cursor-pointer hover:bg-slate-900/70 hover:border-slate-700'
           : 'cursor-default'
       }`}
       onClick={isClickable ? onClick : undefined}
     >
-      <div className="flex items-start gap-4">
+      <div className="flex items-start gap-3">
         <div className="flex-shrink-0">
-          <Database className="w-8 h-8 text-slate-400" />
+          <Database className="w-6 h-6 text-slate-400" />
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-slate-100 truncate">
+              <h3 className="text-base font-semibold text-slate-100 truncate">
                 {dataset.name}
               </h3>
               <p className="text-sm text-slate-400 mt-1 truncate">
@@ -133,13 +133,13 @@ export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCar
           )}
 
           {showProgress && dataset.progress !== undefined && (
-            <div className="mt-4">
+            <div className="mt-3">
               <ProgressBar progress={dataset.progress} />
             </div>
           )}
 
           {dataset.error_message && (
-            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
+            <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
               {dataset.error_message}
             </div>
           )}

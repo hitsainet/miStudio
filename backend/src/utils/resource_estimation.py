@@ -398,8 +398,19 @@ def estimate_training_memory(
         "overhead_mb": overhead_bytes / (1024 ** 2),
     }
 
-    # Warning level for Jetson Orin Nano (6GB VRAM)
-    warning = "critical" if total_gb > 6 else "high" if total_gb > 4 else "normal"
+    # Get actual available GPU memory
+    import torch
+    if torch.cuda.is_available():
+        gpu_total_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        gpu_reserved_gb = torch.cuda.memory_reserved(0) / (1024 ** 3)
+        available_gpu_gb = gpu_total_gb - gpu_reserved_gb
+    else:
+        # Fallback for CPU-only systems
+        available_gpu_gb = 6.0  # Conservative estimate
+
+    # Warning level based on actual available memory
+    warning = "critical" if total_gb > available_gpu_gb else "high" if total_gb > available_gpu_gb * 0.8 else "normal"
+    fits_in_memory = total_gb <= available_gpu_gb
 
     return {
         "total_bytes": int(total_bytes),
@@ -407,7 +418,8 @@ def estimate_training_memory(
         "total_gb": round(total_gb, 2),
         "breakdown": {k: round(v, 2) for k, v in breakdown.items()},
         "warning": warning,
-        "fits_in_6gb": total_gb <= 6.0,
+        "fits_in_6gb": fits_in_memory,  # Legacy field name, but now checks actual available memory
+        "available_gpu_gb": round(available_gpu_gb, 2),
     }
 
 
@@ -462,11 +474,22 @@ def estimate_multilayer_training_memory(
     per_layer_mb = per_layer_bytes / (1024 ** 2)
     per_layer_gb = per_layer_bytes / (1024 ** 3)
 
-    # Warning level for Jetson Orin Nano (6GB VRAM)
-    warning = "critical" if total_gb > 6 else "high" if total_gb > 4 else "normal"
+    # Get actual available GPU memory
+    import torch
+    if torch.cuda.is_available():
+        gpu_total_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        gpu_reserved_gb = torch.cuda.memory_reserved(0) / (1024 ** 3)
+        available_gpu_gb = gpu_total_gb - gpu_reserved_gb
+    else:
+        # Fallback for CPU-only systems
+        available_gpu_gb = 6.0  # Conservative estimate
 
-    # Calculate maximum layers that fit in 6GB
-    available_memory_bytes = 6.0 * (1024 ** 3) - base_memory_bytes
+    # Warning level based on actual available memory
+    warning = "critical" if total_gb > available_gpu_gb else "high" if total_gb > available_gpu_gb * 0.8 else "normal"
+    fits_in_memory = total_gb <= available_gpu_gb
+
+    # Calculate maximum layers that fit in available memory
+    available_memory_bytes = available_gpu_gb * (1024 ** 3) - base_memory_bytes
     max_layers = max(1, int(available_memory_bytes / (per_layer_bytes * safety_factor)))
 
     return {
@@ -478,10 +501,11 @@ def estimate_multilayer_training_memory(
         "num_layers": num_layers,
         "base_memory_gb": base_memory_gb,
         "warning": warning,
-        "fits_in_6gb": total_gb <= 6.0,
-        "max_layers_in_6gb": max_layers,
+        "fits_in_6gb": fits_in_memory,  # Legacy field name, but now checks actual available memory
+        "max_layers_in_6gb": max_layers,  # Legacy field name, but now uses actual available memory
+        "available_gpu_gb": round(available_gpu_gb, 2),
         "recommendation": (
-            f"Reduce to ≤{max_layers} layer(s) to fit in 6GB" if total_gb > 6.0 else "Memory usage is acceptable"
+            f"Reduce to ≤{max_layers} layer(s) to fit in {available_gpu_gb:.1f}GB" if not fits_in_memory else "Memory usage is acceptable"
         ),
     }
 

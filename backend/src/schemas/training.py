@@ -217,6 +217,7 @@ class TrainingListResponse(BaseModel):
 
     data: List[TrainingResponse] = Field(..., description="List of training jobs")
     pagination: Dict[str, Any] = Field(..., description="Pagination metadata")
+    status_counts: Dict[str, int] = Field(..., description="Count of trainings by status (all, running, completed, failed)")
 
 
 class TrainingMetricResponse(BaseModel):

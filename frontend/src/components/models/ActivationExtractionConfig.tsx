@@ -734,7 +734,7 @@ export function ActivationExtractionConfig({
               <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300">
                 <div className="font-medium mb-2">Template Configuration:</div>
                 <ul className="space-y-1 text-slate-400">
-                  <li>• Layers: {selectedLayers.join(', ')}</li>
+                  <li>• Layer(s): {selectedLayers.join(', ')}</li>
                   <li>• Hook Types: {hookTypes.join(', ')}</li>
                   <li>• Batch Size: {batchSize} (micro-batch: {microBatchSize || 'auto'})</li>
                   <li>• Max Samples: {maxSamples.toLocaleString()}</li>

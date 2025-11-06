@@ -122,7 +122,7 @@ export function ExtractionTemplateCard({
 
           <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-400">
             <div>
-              <span className="font-medium">Layers:</span> {template.layer_indices.length} layer
+              <span className="font-medium">Layer(s):</span> {template.layer_indices.length} layer
               {template.layer_indices.length !== 1 ? 's' : ''}
               <span className="text-slate-500 ml-1">
                 ({template.layer_indices.slice(0, 3).join(', ')}

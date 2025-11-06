@@ -19,7 +19,9 @@ class ResourceConfig:
     
     # Per-sample memory estimates (empirically determined)
     RAM_PER_SAMPLE_MB = 2.0  # ~2MB per sample in batch
-    RAM_PER_FEATURE_HEAP_KB = 20  # ~20KB per feature for top-k heap
+    # Memory-efficient heap: only stores top-5 token positions per example (~250 bytes/example)
+    # NOT full sequences (512 tokens). 250 bytes = 0.25 KB per example.
+    RAM_PER_FEATURE_HEAP_KB = 0.25  # ~250 bytes per example (top-5 tokens only)
     
     @staticmethod
     def get_system_resources() -> Dict[str, Any]:

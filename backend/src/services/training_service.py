@@ -156,6 +156,62 @@ class TrainingService:
         return trainings, total
 
     @staticmethod
+    async def get_status_counts(
+        db: AsyncSession,
+        model_id: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """
+        Get counts of trainings by status, with optional filtering.
+
+        Args:
+            db: Database session
+            model_id: Filter by model ID
+            dataset_id: Filter by dataset ID
+
+        Returns:
+            Dictionary with counts for each status
+        """
+        # Build base filters (not including status)
+        base_filters = []
+        if model_id:
+            base_filters.append(Training.model_id == model_id)
+        if dataset_id:
+            base_filters.append(Training.dataset_id == dataset_id)
+
+        # Count all trainings
+        count_query = select(func.count()).select_from(Training)
+        if base_filters:
+            count_query = count_query.where(and_(*base_filters))
+        total_result = await db.execute(count_query)
+        all_count = total_result.scalar() or 0
+
+        # Count running trainings
+        running_filters = base_filters + [Training.status == TrainingStatus.RUNNING.value]
+        count_query = select(func.count()).select_from(Training).where(and_(*running_filters))
+        running_result = await db.execute(count_query)
+        running_count = running_result.scalar() or 0
+
+        # Count completed trainings
+        completed_filters = base_filters + [Training.status == TrainingStatus.COMPLETED.value]
+        count_query = select(func.count()).select_from(Training).where(and_(*completed_filters))
+        completed_result = await db.execute(count_query)
+        completed_count = completed_result.scalar() or 0
+
+        # Count failed trainings
+        failed_filters = base_filters + [Training.status == TrainingStatus.FAILED.value]
+        count_query = select(func.count()).select_from(Training).where(and_(*failed_filters))
+        failed_result = await db.execute(count_query)
+        failed_count = failed_result.scalar() or 0
+
+        return {
+            "all": all_count,
+            "running": running_count,
+            "completed": completed_count,
+            "failed": failed_count,
+        }
+
+    @staticmethod
     async def update_training(
         db: AsyncSession,
         training_id: str,

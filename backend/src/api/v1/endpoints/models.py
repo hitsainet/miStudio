@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 from ....core.deps import get_db
 from ....models.model import ModelStatus, QuantizationFormat
+from ....models.activation_extraction import ActivationExtraction, ExtractionStatus
 from ....schemas.model import (
     ModelUpdate,
     ModelResponse,
@@ -31,6 +32,7 @@ from ....services.extraction_db_service import ExtractionDatabaseService
 from ....core.database import get_sync_db
 from ....workers.model_tasks import download_and_load_model, extract_activations, delete_model_files
 from ....core.celery_app import celery_app
+from sqlalchemy import select, exists
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -132,6 +134,18 @@ async def list_models(
         order=order
     )
 
+    # Add extraction status to each model
+    # Check if model has any completed activation extractions
+    for model in models:
+        has_completed = await db.execute(
+            select(exists().where(
+                ActivationExtraction.model_id == model.id,
+                ActivationExtraction.status == ExtractionStatus.COMPLETED.value
+            ))
+        )
+        # Add as dynamic attribute for Pydantic serialization
+        model.has_completed_extractions = has_completed.scalar()
+
     total_pages = (total + limit - 1) // limit if total > 0 else 0
     has_next = page < total_pages
     has_prev = page > 1
@@ -174,6 +188,15 @@ async def get_model(
             status_code=404,
             detail=f"Model '{model_id}' not found"
         )
+
+    # Add extraction status
+    has_completed = await db.execute(
+        select(exists().where(
+            ActivationExtraction.model_id == model.id,
+            ActivationExtraction.status == ExtractionStatus.COMPLETED.value
+        ))
+    )
+    model.has_completed_extractions = has_completed.scalar()
 
     return model
 

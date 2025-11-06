@@ -177,7 +177,13 @@ class TrainingTask(DatabaseTask):
         super().after_return(status, retval, task_id, args, kwargs, einfo)
 
 
-@get_celery_app().task(base=TrainingTask, bind=True, name="train_sae")
+@get_celery_app().task(
+    base=TrainingTask,
+    bind=True,
+    name="train_sae",
+    acks_late=False,  # Acknowledge task when it STARTS (not completes) to prevent re-execution
+    task_reject_on_worker_lost=True,  # Reject (don't requeue) if worker crashes
+)
 def train_sae_task(
     self,
     training_id: str,
@@ -199,6 +205,12 @@ def train_sae_task(
 
     Returns:
         Dictionary with training results
+
+    Note:
+        This task uses acks_late=False to prevent automatic re-execution
+        after worker restarts. Combined with the idempotency check at the
+        start of the task, this ensures completed trainings are never
+        accidentally restarted.
     """
     logger.info(f"Starting SAE training task for training_id={training_id}")
 
@@ -207,6 +219,20 @@ def train_sae_task(
         training = db.query(Training).filter_by(id=training_id).first()
         if not training:
             raise ValueError(f"Training not found: {training_id}")
+
+        # IDEMPOTENCY CHECK: Skip if training is already completed
+        # This prevents re-execution when tasks are requeued due to worker restarts
+        if training.status == TrainingStatus.COMPLETED.value:
+            logger.warning(
+                f"Training {training_id} is already completed at step {training.current_step}. "
+                f"Skipping task execution to prevent duplicate work."
+            )
+            return {
+                "status": "already_completed",
+                "steps": training.current_step,
+                "final_loss": training.current_loss,
+                "message": f"Training was already completed at step {training.current_step}",
+            }
 
         # Update status to initializing
         training.status = TrainingStatus.INITIALIZING.value
@@ -244,14 +270,15 @@ def train_sae_task(
                 num_layers=num_layers,
             )
 
-        logger.info(f"Estimated memory usage: {memory_estimate['total_gb']:.2f} GB")
+        available_gpu_gb = memory_estimate.get('available_gpu_gb', 6.0)
+        logger.info(f"Estimated memory usage: {memory_estimate['total_gb']:.2f} GB (Available: {available_gpu_gb:.2f} GB)")
         if num_layers > 1:
             logger.info(f"Per-layer memory: {memory_estimate['per_layer_gb']:.2f} GB")
-            logger.info(f"Max layers in 6GB: {memory_estimate['max_layers_in_6gb']}")
+            logger.info(f"Max layers in available memory: {memory_estimate['max_layers_in_6gb']}")
 
         if not memory_estimate['fits_in_6gb']:
             error_msg = (
-                f"Training requires {memory_estimate['total_gb']:.2f} GB but only 6 GB available. "
+                f"Training requires {memory_estimate['total_gb']:.2f} GB but only {available_gpu_gb:.2f} GB available. "
                 f"{memory_estimate.get('recommendation', 'Reduce batch_size or latent_dim.')}"
             )
             logger.error(error_msg)

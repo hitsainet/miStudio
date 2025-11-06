@@ -90,6 +90,12 @@ class Settings(BaseSettings):
         description="HuggingFace cache directory (same as HF_HOME)",
     )
 
+    # OpenAI Configuration (for feature labeling)
+    openai_api_key: str | None = Field(
+        default=None,
+        description="OpenAI API key for GPT-based feature labeling (optional, can also be set per extraction)"
+    )
+
     # Dataset Configuration
     auto_cleanup_after_download: bool = Field(
         default=True,

@@ -312,7 +312,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   };
 
   return (
-    <div className={`${COMPONENTS.card.base} p-6 space-y-4`}>
+    <div className={`${COMPONENTS.card.base} p-4 space-y-3`}>
       {/* Header Section */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -324,7 +324,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           />
           <div>
             <div className="flex items-center gap-3">
-              <h4 className="font-semibold text-lg text-slate-100">
+              <h4 className="font-semibold text-base text-slate-100">
                 Training {training.id.slice(0, 8)}
               </h4>
               <span className="text-sm text-slate-400">•</span>
@@ -341,7 +341,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               {training.hyperparameters?.training_layers && training.hyperparameters.training_layers.length > 0 && (
                 <>
                   {' • '}
-                  Layers: {training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')}
+                  Layer(s): {training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')}
                 </>
               )}
               {' • '}
@@ -366,7 +366,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       </div>
 
       {/* Key Hyperparameters Section */}
-      <div className="bg-slate-800/50 rounded-lg p-3">
+      <div className="bg-slate-800/50 rounded-lg p-2">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-slate-300">Key Parameters</span>
           <button
@@ -377,7 +377,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             <Sliders size={16} />
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-3 gap-2 text-xs">
           <div>
             <span className="text-slate-400">Latent Dim: </span>
             <span className="text-slate-100 font-medium">
@@ -453,9 +453,9 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           </div>
 
           {/* Metrics Grid */}
-          <div className="grid grid-cols-4 gap-3 pt-2">
+          <div className="grid grid-cols-4 gap-2 pt-2">
             {/* Loss */}
-            <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="bg-slate-800/50 rounded-lg p-2">
               <div className="text-xs text-slate-400 mb-1">Loss</div>
               <div className="text-lg font-semibold text-emerald-400">
                 {hasMetrics ? currentLoss.toFixed(4) : '—'}
@@ -463,7 +463,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             </div>
 
             {/* L0 Sparsity */}
-            <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="bg-slate-800/50 rounded-lg p-2">
               <div className="text-xs text-slate-400 mb-1">L0 Sparsity</div>
               <div className="flex items-baseline gap-2">
                 <div
@@ -488,7 +488,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             </div>
 
             {/* Dead Neurons */}
-            <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="bg-slate-800/50 rounded-lg p-2">
               <div className="text-xs text-slate-400 mb-1">Dead Neurons</div>
               <div className="text-lg font-semibold text-red-400">
                 {hasMetrics ? Math.floor(deadNeurons) : '—'}
@@ -496,7 +496,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             </div>
 
             {/* Learning Rate */}
-            <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="bg-slate-800/50 rounded-lg p-2">
               <div className="text-xs text-slate-400 mb-1">Learning Rate</div>
               <div className="text-lg font-semibold text-purple-400">
                 {hasMetrics ? learningRate.toExponential(2) : '—'}
@@ -544,7 +544,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
           {/* Checkpoint Management Section */}
           {showCheckpoints && (
-            <div className="border-t border-slate-700 pt-4 mt-4 space-y-3">
+            <div className="border-t border-slate-700 pt-3 mt-3 space-y-2">
               <div className="flex items-center justify-between">
                 <h5 className="text-sm font-medium text-slate-300">
                   Checkpoint Management
@@ -570,7 +570,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                   {checkpoints.map((cp: any) => (
                     <div
                       key={cp.id}
-                      className="flex items-center justify-between bg-slate-800/30 p-3 rounded"
+                      className="flex items-center justify-between bg-slate-800/30 p-2 rounded"
                     >
                       <div>
                         <div className="font-medium text-sm text-slate-100">
@@ -614,7 +614,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               )}
 
               {/* Auto-save Configuration */}
-              <div className="border-t border-slate-700 pt-3 space-y-3">
+              <div className="border-t border-slate-700 pt-2 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm text-slate-300">
                     Auto-save every N steps
@@ -653,9 +653,9 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
           {/* Live Metrics Section */}
           {showMetrics && training.status === TrainingStatus.RUNNING && (
-            <div className="border-t border-slate-700 pt-4 mt-4 space-y-4">
+            <div className="border-t border-slate-700 pt-3 mt-3 space-y-3">
               {/* Loss Curve */}
-              <div className="bg-slate-800/30 rounded-lg p-4">
+              <div className="bg-slate-800/30 rounded-lg p-3">
                 <h5 className="text-sm font-medium text-slate-300 mb-3">Loss Curve</h5>
                 <div className="h-24 flex items-end gap-1">
                   {metricsHistory.loss.length > 0 ? (
@@ -687,7 +687,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </div>
 
               {/* L0 Sparsity Chart */}
-              <div className="bg-slate-800/30 rounded-lg p-4">
+              <div className="bg-slate-800/30 rounded-lg p-3">
                 <h5 className="text-sm font-medium text-slate-300 mb-3">L0 Sparsity</h5>
                 <div className="h-24 flex items-end gap-1">
                   {metricsHistory.l0_sparsity.length > 0 ? (
@@ -718,7 +718,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </div>
 
               {/* Training Logs */}
-              <div className="bg-slate-950 rounded-lg p-4 font-mono text-xs">
+              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-slate-400">Training Logs</span>
                   <span className="text-emerald-400 text-xs">Live</span>
@@ -758,7 +758,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
       {/* Control Buttons */}
       {training.status !== TrainingStatus.COMPLETED && (
-        <div className="border-t border-slate-700 pt-4 flex gap-2">
+        <div className="border-t border-slate-700 pt-3 flex gap-2">
           {/* Training Status: Show Pause and Stop */}
           {training.status === TrainingStatus.RUNNING && (
             <>
@@ -848,7 +848,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
             {/* Modal Header */}
-            <div className="sticky top-0 bg-slate-900 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+            <div className="sticky top-0 bg-slate-900 border-b border-slate-700 px-4 py-3 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-100">
                 Training Hyperparameters
               </h3>
@@ -861,18 +861,18 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             </div>
 
             {/* Modal Content */}
-            <div className="px-6 py-4 space-y-6">
+            <div className="px-4 py-3 space-y-4">
               {/* SAE Architecture Section */}
               <div>
-                <h4 className="text-sm font-semibold text-emerald-400 mb-3">SAE Architecture</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                <h4 className="text-sm font-semibold text-emerald-400 mb-2">SAE Architecture</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Architecture Type</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.architecture_type}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Training Layers</div>
                     <div className="text-sm text-slate-100 font-medium font-mono">
                       {training.hyperparameters.training_layers && training.hyperparameters.training_layers.length > 0
@@ -880,19 +880,19 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                         : 'L0'}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Hidden Dimension</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.hidden_dim.toLocaleString()}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Latent Dimension</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.latent_dim.toLocaleString()}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Expansion Ratio</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {(training.hyperparameters.latent_dim / training.hyperparameters.hidden_dim).toFixed(1)}x
@@ -903,16 +903,16 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
               {/* Sparsity Section */}
               <div>
-                <h4 className="text-sm font-semibold text-emerald-400 mb-3">Sparsity Configuration</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                <h4 className="text-sm font-semibold text-emerald-400 mb-2">Sparsity Configuration</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">L1 Alpha</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.l1_alpha}
                     </div>
                   </div>
                   {training.hyperparameters.target_l0 && (
-                    <div className="bg-slate-800/50 rounded-lg p-3">
+                    <div className="bg-slate-800/50 rounded-lg p-2">
                       <div className="text-xs text-slate-400 mb-1">Target L0</div>
                       <div className="text-sm text-slate-100 font-medium">
                         {training.hyperparameters.target_l0}
@@ -924,28 +924,28 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
               {/* Training Configuration Section */}
               <div>
-                <h4 className="text-sm font-semibold text-emerald-400 mb-3">Training Configuration</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                <h4 className="text-sm font-semibold text-emerald-400 mb-2">Training Configuration</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Learning Rate</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.learning_rate}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Batch Size</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.batch_size}
                     </div>
                   </div>
-                  <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="bg-slate-800/50 rounded-lg p-2">
                     <div className="text-xs text-slate-400 mb-1">Total Steps</div>
                     <div className="text-sm text-slate-100 font-medium">
                       {training.hyperparameters.total_steps.toLocaleString()}
                     </div>
                   </div>
                   {training.hyperparameters.warmup_steps && (
-                    <div className="bg-slate-800/50 rounded-lg p-3">
+                    <div className="bg-slate-800/50 rounded-lg p-2">
                       <div className="text-xs text-slate-400 mb-1">Warmup Steps</div>
                       <div className="text-sm text-slate-100 font-medium">
                         {training.hyperparameters.warmup_steps.toLocaleString()}
@@ -958,10 +958,10 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               {/* Optimization Section */}
               {(training.hyperparameters.weight_decay || training.hyperparameters.grad_clip_norm) && (
                 <div>
-                  <h4 className="text-sm font-semibold text-emerald-400 mb-3">Optimization</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <h4 className="text-sm font-semibold text-emerald-400 mb-2">Optimization</h4>
+                  <div className="grid grid-cols-2 gap-3">
                     {training.hyperparameters.weight_decay && (
-                      <div className="bg-slate-800/50 rounded-lg p-3">
+                      <div className="bg-slate-800/50 rounded-lg p-2">
                         <div className="text-xs text-slate-400 mb-1">Weight Decay</div>
                         <div className="text-sm text-slate-100 font-medium">
                           {training.hyperparameters.weight_decay}
@@ -969,7 +969,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                       </div>
                     )}
                     {training.hyperparameters.grad_clip_norm && (
-                      <div className="bg-slate-800/50 rounded-lg p-3">
+                      <div className="bg-slate-800/50 rounded-lg p-2">
                         <div className="text-xs text-slate-400 mb-1">Gradient Clip Norm</div>
                         <div className="text-sm text-slate-100 font-medium">
                           {training.hyperparameters.grad_clip_norm}
@@ -983,10 +983,10 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               {/* Checkpointing Section */}
               {(training.hyperparameters.checkpoint_interval || training.hyperparameters.log_interval) && (
                 <div>
-                  <h4 className="text-sm font-semibold text-emerald-400 mb-3">Checkpointing & Logging</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <h4 className="text-sm font-semibold text-emerald-400 mb-2">Checkpointing & Logging</h4>
+                  <div className="grid grid-cols-2 gap-3">
                     {training.hyperparameters.checkpoint_interval && (
-                      <div className="bg-slate-800/50 rounded-lg p-3">
+                      <div className="bg-slate-800/50 rounded-lg p-2">
                         <div className="text-xs text-slate-400 mb-1">Checkpoint Interval</div>
                         <div className="text-sm text-slate-100 font-medium">
                           Every {training.hyperparameters.checkpoint_interval.toLocaleString()} steps
@@ -994,7 +994,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                       </div>
                     )}
                     {training.hyperparameters.log_interval && (
-                      <div className="bg-slate-800/50 rounded-lg p-3">
+                      <div className="bg-slate-800/50 rounded-lg p-2">
                         <div className="text-xs text-slate-400 mb-1">Log Interval</div>
                         <div className="text-sm text-slate-100 font-medium">
                           Every {training.hyperparameters.log_interval.toLocaleString()} steps
@@ -1009,10 +1009,10 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               {(training.hyperparameters.dead_neuron_threshold !== undefined ||
                 training.hyperparameters.resample_dead_neurons !== undefined) && (
                 <div>
-                  <h4 className="text-sm font-semibold text-emerald-400 mb-3">Dead Neuron Handling</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <h4 className="text-sm font-semibold text-emerald-400 mb-2">Dead Neuron Handling</h4>
+                  <div className="grid grid-cols-2 gap-3">
                     {training.hyperparameters.dead_neuron_threshold !== undefined && (
-                      <div className="bg-slate-800/50 rounded-lg p-3">
+                      <div className="bg-slate-800/50 rounded-lg p-2">
                         <div className="text-xs text-slate-400 mb-1">Dead Neuron Threshold</div>
                         <div className="text-sm text-slate-100 font-medium">
                           {training.hyperparameters.dead_neuron_threshold.toLocaleString()} steps
@@ -1020,7 +1020,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                       </div>
                     )}
                     {training.hyperparameters.resample_dead_neurons !== undefined && (
-                      <div className="bg-slate-800/50 rounded-lg p-3">
+                      <div className="bg-slate-800/50 rounded-lg p-2">
                         <div className="text-xs text-slate-400 mb-1">Resample Dead Neurons</div>
                         <div className="text-sm text-slate-100 font-medium">
                           {training.hyperparameters.resample_dead_neurons ? 'Enabled' : 'Disabled'}
@@ -1033,7 +1033,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="sticky bottom-0 bg-slate-900 border-t border-slate-700 px-6 py-4">
+            <div className="sticky bottom-0 bg-slate-900 border-t border-slate-700 px-4 py-3">
               <button
                 onClick={() => setShowHyperparameters(false)}
                 className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors"
@@ -1047,7 +1047,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
       {/* Features Section */}
       {showFeatures && training.status === TrainingStatus.COMPLETED && (
-        <div className="border-t border-slate-700 pt-4 mt-4">
+        <div className="border-t border-slate-700 pt-3 mt-3">
           <h5 className="text-sm font-medium text-slate-300 mb-4">Feature Discovery</h5>
           <FeaturesPanel training={training} />
         </div>
@@ -1055,7 +1055,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
       {/* Error Display */}
       {training.error_message && (
-        <div className="bg-red-900/20 border border-red-900/50 rounded-lg p-4">
+        <div className="bg-red-900/20 border border-red-900/50 rounded-lg p-3">
           <div className="text-sm font-medium text-red-400 mb-1">Training Error</div>
           <div className="text-xs text-red-300">{training.error_message}</div>
         </div>

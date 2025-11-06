@@ -132,16 +132,16 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
   };
 
   return (
-    <div className={`${COMPONENTS.card.base} p-6 hover:border-slate-700 transition-colors`}>
+    <div className={`${COMPONENTS.card.base} p-4 hover:border-slate-700 transition-colors`}>
       <div className="flex items-center justify-between">
         {/* Model Info */}
         <div
-          className="flex items-center gap-4 cursor-pointer hover:opacity-80 transition-opacity flex-1"
+          className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity flex-1"
           onClick={onClick}
         >
-          <Cpu className="w-8 h-8 text-purple-400 flex-shrink-0" />
+          <Cpu className="w-6 h-6 text-purple-400 flex-shrink-0" />
           <div className="min-w-0">
-            <h3 className="font-semibold text-lg text-slate-100 truncate">{model.name}</h3>
+            <h3 className="font-semibold text-base text-slate-100 truncate">{model.name}</h3>
             <p className="text-sm text-slate-400 mt-0.5">
               {formatParams(model.params_count)} params • {model.quantization} quantization
               {model.memory_required_bytes && ` • ${formatMemory(model.memory_required_bytes)} memory`}
@@ -161,8 +161,14 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
               <button
                 type="button"
                 onClick={handleExtract}
-                className={`text-sm ${COMPONENTS.button.primary}`}
+                className={`text-sm flex items-center gap-2 ${COMPONENTS.button.primary}`}
               >
+                <Loader
+                  className="w-4 h-4"
+                  style={{
+                    color: model.has_completed_extractions ? '#10b981' : '#9ca3af'
+                  }}
+                />
                 Extract Activations
               </button>
               {onViewExtractions && (
@@ -175,7 +181,12 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
                   className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
                   title="View extraction history"
                 >
-                  <History className="w-5 h-5" />
+                  <History
+                    className="w-5 h-5"
+                    style={{
+                      color: model.has_completed_extractions ? '#10b981' : '#9ca3af'
+                    }}
+                  />
                 </button>
               )}
             </>
@@ -210,7 +221,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
 
       {/* Progress Bar for Active Downloads/Processing */}
       {isActive && model.progress !== undefined && (
-        <div className="mt-4 space-y-2">
+        <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-400">
               {model.status === ModelStatus.DOWNLOADING && 'Download Progress'}
@@ -236,7 +247,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
 
       {/* Extraction Progress Bar */}
       {isExtracting && model.extraction_progress !== undefined && (
-        <div className="mt-4 space-y-2">
+        <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-400">
               {model.extraction_status === 'starting' && 'Starting Extraction'}
@@ -266,7 +277,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
 
       {/* Extraction Complete Message */}
       {model.extraction_status === 'complete' && (
-        <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm">
+        <div className="mt-3 p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm">
           <div className="flex items-start gap-2">
             <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>Extraction completed: {model.extraction_message || 'Activations saved successfully'}</span>
@@ -276,7 +287,7 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
 
       {/* Error Message */}
       {isError && model.error_message && (
-        <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+        <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
           <div className="flex items-start gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>{model.error_message}</span>

@@ -56,10 +56,10 @@ export function DatasetsPanel() {
 
   return (
     <div className="">
-      <div className="max-w-[80%] mx-auto px-6 py-8">
+      <div className="max-w-[90%] mx-auto px-4 py-6">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 mb-2">Datasets</h1>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-2">Datasets</h1>
           <p className="text-slate-600 dark:text-slate-400">
             Manage training datasets from HuggingFace or local sources
           </p>
@@ -73,7 +73,7 @@ export function DatasetsPanel() {
         )}
 
         {/* Download Form */}
-        <div className="mb-8">
+        <div className="mb-6">
           <DownloadForm onDownload={handleDownload} />
         </div>
 
@@ -96,10 +96,10 @@ export function DatasetsPanel() {
         {/* Datasets grid */}
         {datasets.length > 0 && (
           <div>
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">
+            <h2 className="text-base font-semibold text-slate-100 mb-3">
               Your Datasets ({datasets.length})
             </h2>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2">
               {[...datasets]
                 .sort((a, b) => {
                   // Active operations first (downloading, processing)

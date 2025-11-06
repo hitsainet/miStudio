@@ -93,6 +93,72 @@
 
 ---
 
+### ✅ GPT-Based Auto-Labeling System (NOT in original task list)
+
+**Status:** ✅ **COMPLETE** (2025-11-06)
+
+**Enhancement: Semantic Feature Labeling with LLMs**
+- Replaces generic feature names (feature_00042) with semantic labels (determiners, negation, plural_nouns)
+- Three labeling methods: pattern matching (fast), local LLM (slow, zero cost), OpenAI API (fast, costs money)
+- Token aggregation from activation records: count, total_activation, max_activation per token
+- Structured prompts with TOKEN | COUNT | AVG_ACT | MAX_ACT table format
+- Label standardization to lowercase_with_underscores format
+
+**Backend Services Created:**
+1. **LocalLabelingService** (`backend/src/services/local_labeling_service.py`, 356 lines)
+   - Uses Phi-3-mini-4k-instruct (Microsoft) with 4-bit quantization (~2GB VRAM)
+   - Supports alternative models: Llama 3.2 3B, Qwen 2.5 3B
+   - Batch processing with automatic model load/unload cycle
+   - Speed: ~5.5 hours for 16K features
+   - Cost: $0 (fully local)
+
+2. **OpenAILabelingService** (`backend/src/services/openai_labeling_service.py`, 284 lines)
+   - Uses GPT-4o-mini API with async concurrent calls and rate limiting
+   - Supports GPT-4 Turbo and GPT-3.5 as alternatives
+   - Speed: ~55 minutes for 16K features
+   - Cost: ~$0.0001 per feature (~$1.64 for 16K features)
+
+**Integration Changes:**
+- Updated `ExtractionConfigRequest` schema with labeling config fields:
+  * labeling_method: 'pattern' | 'local' | 'openai'
+  * local_labeling_model: 'phi3' | 'llama' | 'qwen'
+  * openai_api_key: optional API key
+  * openai_model: 'gpt4-mini' | 'gpt4' | 'gpt35'
+- Integrated into `ExtractionService` with batch labeling phase after feature extraction
+- Memory-efficient: loads labeling model only after base model unloaded
+
+**Frontend UI:**
+- Added "Feature Labeling" configuration section to `FeaturesPanel`
+- Labeling method selector with 3 options (pattern/local/openai)
+- Conditional UI: local model selector or OpenAI API key/model inputs
+- Helpful descriptions showing cost and speed estimates for each method
+
+**Configuration:**
+- Added `openai>=1.0.0` to requirements.txt
+- Added `openai_api_key` optional config field
+- Can be set globally via environment or per-extraction
+
+**Files Created:**
+- `backend/src/services/local_labeling_service.py` - Local LLM labeling service
+- `backend/src/services/openai_labeling_service.py` - OpenAI API labeling service
+
+**Files Modified:**
+- `backend/src/schemas/extraction.py` - Added labeling config fields
+- `backend/src/services/extraction_service.py` - Integrated batch labeling phase
+- `backend/src/core/config.py` - Added openai_api_key config
+- `backend/requirements.txt` - Added openai dependency
+- `frontend/src/components/features/FeaturesPanel.tsx` - Added labeling UI
+
+**User Impact:** Users can now:
+- Get semantic labels instead of generic feature_XXXXX names
+- Choose between pattern matching (fast), local LLM (slow, free), or OpenAI API (fast, costs money)
+- Understand feature concepts at a glance (e.g., "negation" vs "feature_00042")
+- Trade off speed vs quality vs cost based on their needs
+
+**Commit:** d8efc61 (2025-11-06)
+
+---
+
 ## Relevant Files
 
 ### Backend
@@ -103,6 +169,8 @@
 - `backend/src/schemas/extraction.py` - Pydantic schemas for extraction configuration and validation
 - `backend/src/schemas/feature.py` - Pydantic schemas for feature search, filter, and responses
 - `backend/src/services/extraction_service.py` - Feature extraction orchestration, statistics, auto-labeling
+- `backend/src/services/local_labeling_service.py` - Local LLM-based feature labeling (Phi-3, Llama, Qwen)
+- `backend/src/services/openai_labeling_service.py` - OpenAI API-based feature labeling (GPT-4o-mini, GPT-4, GPT-3.5)
 - `backend/src/services/analysis_service.py` - Logit lens, correlations, ablation calculations with caching
 - `backend/src/services/feature_service.py` - CRUD operations, search/filter/sort logic
 - `backend/src/workers/extraction_tasks.py` - Celery task: extract_features_task (main extraction loop)

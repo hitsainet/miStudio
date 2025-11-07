@@ -37,6 +37,7 @@ import type { TrainingCreateRequest } from '../../types/training';
 import { TrainingCard } from '../training/TrainingCard';
 import { estimateMultilayerTrainingMemory, formatMemorySize } from '../../utils/memoryEstimation';
 import { HyperparameterLabel, HyperparameterTooltip } from '../common/HyperparameterTooltip';
+import { calculateOptimalL1Alpha, validateSparsityConfig } from '../../utils/hyperparameterOptimization';
 import { COMPONENTS } from '../../config/brand';
 
 export const TrainingPanel: React.FC = () => {
@@ -590,7 +591,7 @@ export const TrainingPanel: React.FC = () => {
                   />
                 </div>
 
-                {/* L1 Alpha */}
+                {/* L1 Alpha with Auto-Calculate */}
                 <div>
                   <HyperparameterLabel
                     paramName="l1_alpha"
@@ -598,16 +599,43 @@ export const TrainingPanel: React.FC = () => {
                     htmlFor="l1-alpha"
                     className="mb-2"
                   />
-                  <input
-                    id="l1-alpha"
-                    type="number"
-                    value={config.l1_alpha}
-                    onChange={(e) => updateConfig({ l1_alpha: parseFloat(e.target.value) })}
-                    min={0.00001}
-                    max={0.1}
-                    step={0.00001}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      id="l1-alpha"
+                      type="number"
+                      value={config.l1_alpha}
+                      onChange={(e) => updateConfig({ l1_alpha: parseFloat(e.target.value) })}
+                      min={0.00001}
+                      max={10.0}
+                      step={0.00001}
+                      className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const optimal = calculateOptimalL1Alpha(config.latent_dim, config.target_l0 ?? 0.05);
+                        updateConfig({ l1_alpha: optimal });
+                      }}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-md transition-colors whitespace-nowrap"
+                      title={`Calculate optimal L1 alpha for ${config.latent_dim} latent dimensions`}
+                    >
+                      Auto
+                    </button>
+                  </div>
+                  {/* Sparsity Warnings */}
+                  {(() => {
+                    const warnings = validateSparsityConfig(config.l1_alpha, config.latent_dim, config.target_l0 ?? 0.05);
+                    return warnings.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {warnings.map((warning, idx) => (
+                          <div key={idx} className="flex items-start gap-2 text-xs text-yellow-400">
+                            <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            <span>{warning}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
 
                 {/* Target L0 */}

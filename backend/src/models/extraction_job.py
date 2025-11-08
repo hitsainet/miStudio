@@ -78,6 +78,7 @@ class ExtractionJob(Base):
     # Relationships
     training = relationship("Training", back_populates="extraction_jobs")
     features = relationship("Feature", back_populates="extraction_job", cascade="all, delete-orphan")
+    labeling_jobs = relationship("LabelingJob", back_populates="extraction_job", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<ExtractionJob(id={self.id}, training_id={self.training_id}, status={self.status}, progress={self.progress})>"

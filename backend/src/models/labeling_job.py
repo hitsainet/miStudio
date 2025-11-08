@@ -1,0 +1,85 @@
+"""
+Labeling Job database model.
+
+This module defines the SQLAlchemy model for feature labeling jobs.
+Labeling jobs apply semantic labels to features extracted from SAE models.
+"""
+
+from datetime import datetime
+from enum import Enum
+
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+
+from ..core.database import Base
+
+
+class LabelingStatus(str, Enum):
+    """Feature labeling job status."""
+    QUEUED = "queued"
+    LABELING = "labeling"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class LabelingMethod(str, Enum):
+    """Feature labeling method."""
+    OPENAI = "openai"
+    LOCAL = "local"
+    MANUAL = "manual"
+
+
+class LabelingJob(Base):
+    """
+    Labeling Job database model.
+
+    Stores metadata about feature labeling jobs.
+    Each labeling job applies semantic labels to features from an extraction.
+    Labeling is independent from extraction, allowing re-labeling without re-extraction.
+    """
+
+    __tablename__ = "labeling_jobs"
+
+    # Primary identifiers
+    id = Column(String(255), primary_key=True)  # Format: label_{extraction_id}_{timestamp}
+    extraction_job_id = Column(
+        String(255),
+        ForeignKey("extraction_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    celery_task_id = Column(String(255), nullable=True)
+
+    # Labeling configuration
+    labeling_method = Column(String(50), nullable=False)  # openai, local, manual
+    openai_model = Column(String(100), nullable=True)  # e.g., "gpt-4o-mini"
+    openai_api_key = Column(String(500), nullable=True)  # Encrypted API key
+    local_model = Column(String(100), nullable=True)  # e.g., "meta-llama/Llama-3.2-1B"
+
+    # Processing status
+    status = Column(String(50), nullable=False, default=LabelingStatus.QUEUED.value)
+    progress = Column(Float, nullable=False, default=0.0)  # 0.0-1.0
+    features_labeled = Column(Integer, nullable=False, default=0)
+    total_features = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    # Output statistics
+    statistics = Column(JSONB, nullable=True)
+    # Contains: {total_features: int, successfully_labeled: int,
+    #            failed_labels: int, avg_label_length: float,
+    #            labeling_duration_seconds: float}
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    extraction_job = relationship("ExtractionJob", back_populates="labeling_jobs")
+    features = relationship("Feature", back_populates="labeling_job")
+
+    def __repr__(self) -> str:
+        return f"<LabelingJob(id={self.id}, extraction_job_id={self.extraction_job_id}, status={self.status}, progress={self.progress})>"

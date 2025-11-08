@@ -6,11 +6,14 @@ Provides REST API for feature extraction, search, and management.
 
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
 from src.core.deps import get_db
 from src.services.extraction_service import ExtractionService
+from src.models.feature import Feature
+from src.workers.extraction_tasks import delete_extraction_task
 from src.services.feature_service import FeatureService
 from src.services.analysis_service import AnalysisService
 from src.schemas.extraction import (
@@ -219,7 +222,6 @@ async def cancel_extraction(
 
 @router.delete(
     "/extractions/{extraction_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete extraction job"
 )
 async def delete_extraction(
@@ -229,17 +231,51 @@ async def delete_extraction(
     """
     Delete an extraction job and all associated features.
 
+    For large extractions (>5000 features), deletion is performed in the background
+    and returns 202 Accepted. For smaller extractions, deletion is synchronous
+    and returns 204 No Content.
+
     Args:
         extraction_id: ID of the extraction job
 
     Raises:
         404: Extraction job not found
         409: Cannot delete active extraction (must cancel first)
+
+    Returns:
+        204 No Content for sync deletion (small extractions)
+        202 Accepted for async deletion (large extractions)
     """
     extraction_service = ExtractionService(db)
 
     try:
-        await extraction_service.delete_extraction(extraction_id)
+        # Count features to determine if we need background deletion
+        result = await db.execute(
+            select(func.count(Feature.id)).where(Feature.extraction_job_id == extraction_id)
+        )
+        feature_count = result.scalar() or 0
+
+        # Use background deletion for large extractions (>5000 features)
+        if feature_count > 5000:
+            logger.info(f"Large extraction ({feature_count} features) - using background deletion")
+
+            # Queue background deletion task
+            delete_extraction_task.delay(extraction_id)
+
+            # Return 202 Accepted to indicate async processing
+            return Response(
+                content=f"Deletion queued for extraction with {feature_count} features",
+                status_code=status.HTTP_202_ACCEPTED
+            )
+        else:
+            logger.info(f"Small extraction ({feature_count} features) - using sync deletion")
+
+            # Perform synchronous deletion for small extractions
+            await extraction_service.delete_extraction(extraction_id)
+
+            # Return 204 No Content for successful sync deletion
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     except ValueError as e:
         error_message = str(e)
         if "not found" in error_message:

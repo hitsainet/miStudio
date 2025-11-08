@@ -3,9 +3,11 @@ OpenAI API-based feature labeling service.
 
 This service uses OpenAI's GPT models to generate semantic labels
 for SAE features. Provides high-quality, fast alternative to local models.
+
+Updated for OpenAI Python library v1.0+
 """
 
-import openai
+from openai import AsyncOpenAI, OpenAIError, RateLimitError, AuthenticationError
 from typing import List, Dict, Any, Optional
 import logging
 import asyncio
@@ -50,7 +52,8 @@ class OpenAILabelingService:
                 "or pass api_key parameter."
             )
 
-        openai.api_key = self.api_key
+        # Initialize async client
+        self.client = AsyncOpenAI(api_key=self.api_key)
 
         # Resolve model name
         if model is None or model == "gpt4-mini":
@@ -97,8 +100,8 @@ class OpenAILabelingService:
         prompt = self._build_prompt(sorted_tokens)
 
         try:
-            # Call OpenAI API
-            response = await openai.ChatCompletion.acreate(
+            # Call OpenAI API (new v1+ syntax)
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
@@ -115,7 +118,7 @@ class OpenAILabelingService:
                 top_p=0.9
             )
 
-            # Extract label from response
+            # Extract label from response (new v1+ syntax)
             label_text = response.choices[0].message.content.strip()
 
             # Clean and validate
@@ -124,11 +127,11 @@ class OpenAILabelingService:
             logger.debug(f"Generated label: '{label}' from GPT response: '{label_text[:50]}'")
             return label
 
-        except openai.error.RateLimitError:
+        except RateLimitError:
             logger.warning("OpenAI rate limit reached, using fallback")
             return f"feature_{neuron_index}" if neuron_index is not None else "rate_limited"
 
-        except openai.error.AuthenticationError:
+        except AuthenticationError:
             logger.error("OpenAI authentication failed - check API key")
             raise
 

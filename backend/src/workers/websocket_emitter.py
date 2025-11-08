@@ -590,6 +590,53 @@ def emit_system_metrics(
     return emit_progress(channel, "metrics", metrics)
 
 
+# ============================================================================
+# Feature Labeling Emission Functions
+# ============================================================================
+
+
+def emit_labeling_progress(
+    labeling_job_id: str,
+    event: str,
+    data: Dict[str, Any],
+) -> bool:
+    """
+    Emit progress update for a feature labeling operation.
+
+    Convenience function that automatically constructs the channel name
+    for labeling progress updates.
+
+    Args:
+        labeling_job_id: Labeling job ID
+        event: Event type (e.g., "progress", "completed", "failed")
+        data: Event data payload
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        labeling/{labeling_job_id}/progress
+
+    Examples:
+        >>> emit_labeling_progress(
+        ...     labeling_job_id="label_extr_abc123_20250108",
+        ...     event="progress",
+        ...     data={
+        ...         "labeling_job_id": "label_extr_abc123_20250108",
+        ...         "extraction_job_id": "extr_abc123",
+        ...         "progress": 0.45,
+        ...         "features_labeled": 450,
+        ...         "total_features": 1000,
+        ...         "labeling_method": "openai",
+        ...         "status": "labeling"
+        ...     }
+        ... )
+        True
+    """
+    channel = f"labeling/{labeling_job_id}/progress"
+    return emit_progress(channel, event, data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -606,4 +653,6 @@ __all__ = [
     "emit_memory_metrics",
     "emit_disk_metrics",
     "emit_network_metrics",
+    # Feature labeling functions
+    "emit_labeling_progress",
 ]

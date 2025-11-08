@@ -98,3 +98,84 @@ def extract_features_task(
             )
             # Service already handles status update and WebSocket events on error
             raise
+
+
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
+    name="delete_extraction",
+    max_retries=0,
+)
+def delete_extraction_task(self, extraction_id: str) -> Dict[str, Any]:
+    """
+    Background task for deleting large extractions.
+
+    Large extractions (>10k features) take too long for synchronous deletion
+    due to CASCADE deleting hundreds of thousands of feature_activations.
+
+    Args:
+        extraction_id: ID of the extraction job to delete
+
+    Returns:
+        Dict with deletion statistics
+    """
+    logger.info(f"Starting background deletion for extraction {extraction_id}")
+
+    with self.get_db() as db:
+        try:
+            from src.models.extraction_job import ExtractionJob, ExtractionStatus
+            from src.models.feature import Feature
+            from datetime import datetime, timezone, timedelta
+
+            # Verify extraction exists
+            extraction_job = db.query(ExtractionJob).filter(
+                ExtractionJob.id == extraction_id
+            ).first()
+
+            if not extraction_job:
+                raise ValueError(f"Extraction job {extraction_id} not found")
+
+            # Cannot delete active extraction (unless stuck for > 5 minutes)
+            if extraction_job.status in [ExtractionStatus.QUEUED, ExtractionStatus.EXTRACTING]:
+                time_since_update = datetime.now(timezone.utc) - extraction_job.updated_at
+
+                if time_since_update < timedelta(minutes=5):
+                    raise ValueError(
+                        f"Cannot delete active extraction job. Please wait or cancel it first."
+                    )
+
+            # Count features before deletion
+            feature_count = db.query(Feature).filter(
+                Feature.extraction_job_id == extraction_id
+            ).count()
+
+            logger.info(f"Deleting {feature_count} features for extraction {extraction_id}")
+
+            # Delete features (CASCADE will automatically delete feature_activations)
+            db.query(Feature).filter(
+                Feature.extraction_job_id == extraction_id
+            ).delete(synchronize_session=False)
+
+            # Delete extraction job
+            db.query(ExtractionJob).filter(
+                ExtractionJob.id == extraction_id
+            ).delete(synchronize_session=False)
+
+            # Commit transaction
+            db.commit()
+
+            logger.info(f"Successfully deleted extraction {extraction_id} with {feature_count} features")
+
+            return {
+                "extraction_id": extraction_id,
+                "feature_count": feature_count,
+                "status": "deleted"
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Background deletion failed for extraction {extraction_id}: {e}",
+                exc_info=True
+            )
+            db.rollback()
+            raise

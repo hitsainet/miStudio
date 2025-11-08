@@ -1,0 +1,163 @@
+================================================================================
+EXAMPLE PROMPT SENT TO OPENAI API
+================================================================================
+
+SYSTEM MESSAGE:
+--------------
+You are an expert in mechanistic interpretability analyzing sparse autoencoder features. Provide both category and specific labels in JSON format.
+
+
+USER MESSAGE:
+-------------
+You are labeling a sparse autoencoder feature. Provide BOTH a high-level category AND a specific interpretation.
+
+INSTRUCTIONS:
+Provide two labels:
+1. CATEGORY: A broad, high-level grouping (for filtering/organizing)
+2. SPECIFIC: The most precise interpretation possible (for understanding mechanism)
+
+EXAMPLES:
+
+Tokens: Trump, Trumps, Donald, MAGA, administration
+→ category: "political_terms"
+→ specific: "trump_mentions"
+
+Tokens: Biden, Joe, Bidens, President, administration
+→ category: "political_terms"
+→ specific: "biden_administration"
+
+Tokens: COVID, coronavirus, pandemic, vaccine, quarantine
+→ category: "health_topics"
+→ specific: "covid_pandemic"
+
+Tokens: Elizabeth, Lizzie, Liz, Beth, Betty
+→ category: "names"
+→ specific: "elizabeth_variations"
+
+Tokens: def, class, import, return, function
+→ category: "code_keywords"
+→ specific: "python_syntax"
+
+Tokens: don, didn, wouldn, couldn, shouldn
+→ category: "function_words"
+→ specific: "negative_contractions"
+
+Tokens: president, senator, congress, vote, bill
+→ category: "political_terms"
+→ specific: "political_institutions"
+
+TOP TOKENS FOR THIS FEATURE:
+'Trump'              | count=  45 | avg=0.023 | max=0.089
+'Trumps'             | count=  12 | avg=0.019 | max=0.076
+'Donald'             | count=   8 | avg=0.016 | max=0.071
+'MAGA'               | count=   6 | avg=0.014 | max=0.068
+'administration'     | count=   4 | avg=0.012 | max=0.065
+'Republican'         | count=   3 | avg=0.011 | max=0.062
+'GOP'                | count=   2 | avg=0.010 | max=0.058
+'campaign'           | count=   2 | avg=0.009 | max=0.055
+'rally'              | count=   2 | avg=0.008 | max=0.052
+'supporters'         | count=   1 | avg=0.007 | max=0.048
+'presidential'       | count=   1 | avg=0.006 | max=0.045
+'election'           | count=   1 | avg=0.005 | max=0.042
+'voters'             | count=   1 | avg=0.004 | max=0.039
+'conservative'       | count=   1 | avg=0.003 | max=0.036
+'policy'             | count=   1 | avg=0.002 | max=0.033
+
+DECISION TREE FOR SPECIFIC LABEL:
+1. Is ONE entity/person dominant (70%+ tokens)? → Name it specifically
+2. Is there a NARROW domain (60%+ tokens)? → Name the narrow domain
+3. Is there a SPECIFIC pattern? → Name the pattern
+4. Otherwise → Use a precise descriptor
+
+Respond in JSON format:
+{"category": "broad_category", "specific": "precise_interpretation"}
+
+Both labels must be lowercase_with_underscores (1-3 words max each).
+
+
+EXPECTED GPT RESPONSE:
+----------------------
+{"category": "political_terms", "specific": "trump_mentions"}
+
+
+================================================================================
+EXAMPLE 2: MIXED POLITICAL TOKENS
+================================================================================
+
+USER MESSAGE (Token section only):
+----------------------------------
+TOP TOKENS FOR THIS FEATURE:
+'president'          | count=  20 | avg=0.018 | max=0.089
+'senator'            | count=  15 | avg=0.016 | max=0.076
+'congress'           | count=  14 | avg=0.015 | max=0.071
+'Trump'              | count=   3 | avg=0.012 | max=0.068
+'vote'               | count=  12 | avg=0.011 | max=0.065
+'Biden'              | count=   2 | avg=0.010 | max=0.062
+'legislation'        | count=  10 | avg=0.009 | max=0.058
+'bill'               | count=   9 | avg=0.008 | max=0.055
+'committee'          | count=   8 | avg=0.007 | max=0.052
+'representative'     | count=   7 | avg=0.006 | max=0.048
+
+EXPECTED GPT RESPONSE:
+----------------------
+{"category": "political_terms", "specific": "political_institutions"}
+
+
+================================================================================
+EXAMPLE 3: PUNCTUATION TOKENS
+================================================================================
+
+USER MESSAGE (Token section only):
+----------------------------------
+TOP TOKENS FOR THIS FEATURE:
+','                  | count= 452 | avg=0.089 | max=0.234
+', '                 | count= 389 | avg=0.087 | max=0.228
+','                  | count= 156 | avg=0.078 | max=0.198
+'.'                  | count= 124 | avg=0.067 | max=0.176
+'.'                  | count=  98 | avg=0.058 | max=0.154
+';'                  | count=  45 | avg=0.045 | max=0.132
+':'                  | count=  34 | avg=0.034 | max=0.098
+
+EXPECTED GPT RESPONSE:
+----------------------
+{"category": "punctuation", "specific": "commas_and_periods"}
+
+
+================================================================================
+EXAMPLE 4: FUNCTION WORDS (NEGATION)
+================================================================================
+
+USER MESSAGE (Token section only):
+----------------------------------
+TOP TOKENS FOR THIS FEATURE:
+"don't"              | count=  89 | avg=0.045 | max=0.156
+"didn't"             | count=  67 | avg=0.042 | max=0.143
+"wouldn't"           | count=  45 | avg=0.038 | max=0.134
+"couldn't"           | count=  34 | avg=0.035 | max=0.127
+"shouldn't"          | count=  23 | avg=0.031 | max=0.112
+"won't"              | count=  19 | avg=0.028 | max=0.098
+"can't"              | count=  17 | avg=0.025 | max=0.087
+"haven't"            | count=  12 | avg=0.022 | max=0.076
+
+EXPECTED GPT RESPONSE:
+----------------------
+{"category": "function_words", "specific": "negative_contractions"}
+
+
+================================================================================
+KEY FEATURES OF THE PROMPT:
+================================================================================
+
+1. **Contrastive Examples**: Shows what we want (Trump → trump_mentions, not political_terms)
+
+2. **Clear Instructions**: Explicitly asks for TWO labels with different purposes
+
+3. **Decision Tree**: Guides the LLM on how to choose specificity level
+
+4. **Token Statistics**: Provides rich context (count, avg activation, max activation)
+
+5. **JSON Format**: Structured output for reliable parsing
+
+6. **Fallback Guidance**: "lowercase_with_underscores" ensures consistent formatting
+
+7. **Top 30 Tokens**: Shows enough context to identify patterns (not just top 5-10)

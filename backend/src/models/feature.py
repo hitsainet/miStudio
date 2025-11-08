@@ -54,7 +54,8 @@ class Feature(Base):
     neuron_index = Column(Integer, nullable=False, index=True)
 
     # Feature identification
-    name = Column(String(500), nullable=False)
+    name = Column(String(500), nullable=False)  # Specific interpretation (e.g., "trump_mentions")
+    category = Column(String(255), nullable=True)  # High-level category (e.g., "political_terms")
     description = Column(Text, nullable=True)
     label_source = Column(String(10), nullable=False, default=LabelSource.AUTO.value)
 

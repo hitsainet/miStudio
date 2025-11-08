@@ -5,6 +5,7 @@ import { ModelsPanel } from './components/panels/ModelsPanel';
 import { TemplatesPanel } from './components/panels/TemplatesPanel';
 import { TrainingPanel } from './components/panels/TrainingPanel';
 import { ExtractionsPanel } from './components/panels/ExtractionsPanel';
+import { LabelingPanel } from './components/panels/LabelingPanel';
 import { SystemMonitor } from './components/SystemMonitor/SystemMonitor';
 import { CompactGPUStatus } from './components/SystemMonitor/CompactGPUStatus';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
@@ -12,14 +13,14 @@ import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
 import { COMPONENTS } from './config/brand';
 
-type ActivePanel = 'datasets' | 'models' | 'training' | 'extractions' | 'templates' | 'system';
+type ActivePanel = 'datasets' | 'models' | 'training' | 'extractions' | 'labeling' | 'templates' | 'system';
 
 function AppContent() {
   const ws = useWebSocketContext();
   // Restore active panel from localStorage, default to 'datasets'
   const [activePanel, setActivePanel] = useState<ActivePanel>(() => {
     const saved = localStorage.getItem('activePanel');
-    return (saved === 'models' || saved === 'datasets' || saved === 'training' || saved === 'extractions' || saved === 'templates' || saved === 'system') ? saved : 'datasets';
+    return (saved === 'models' || saved === 'datasets' || saved === 'training' || saved === 'extractions' || saved === 'labeling' || saved === 'templates' || saved === 'system') ? saved : 'datasets';
   });
 
   // Theme state management - default to dark mode
@@ -140,6 +141,19 @@ function AppContent() {
               )}
             </button>
             <button
+              onClick={() => setActivePanel('labeling')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'labeling'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
+              }`}
+            >
+              Labeling
+              {activePanel === 'labeling' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
+              )}
+            </button>
+            <button
               onClick={() => setActivePanel('templates')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'templates'
@@ -179,6 +193,7 @@ function AppContent() {
         {activePanel === 'models' && <ModelsPanel />}
         {activePanel === 'training' && <TrainingPanel />}
         {activePanel === 'extractions' && <ExtractionsPanel />}
+        {activePanel === 'labeling' && <LabelingPanel />}
         {activePanel === 'templates' && <TemplatesPanel />}
         {activePanel === 'system' && <SystemMonitor />}
       </main>

@@ -230,12 +230,14 @@ async def delete_labeling(
     This does NOT delete the features or their labels, only the labeling job
     record itself. Feature labels will remain intact.
 
+    If the job is currently active (queued or labeling), it will be automatically
+    cancelled before deletion by revoking the Celery task.
+
     Args:
         labeling_job_id: ID of the labeling job to delete
 
     Raises:
         404: Labeling job not found
-        409: Cannot delete active labeling job (must cancel first)
     """
     labeling_service = LabelingService(db)
 
@@ -245,17 +247,11 @@ async def delete_labeling(
         return None  # 204 No Content
     except ValueError as e:
         error_message = str(e)
-        if "not found" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=error_message
-            )
-        else:
-            # Cannot delete due to active status
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=error_message
-            )
+        # Only possible error now is "not found"
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error_message
+        )
 
 
 @router.post(

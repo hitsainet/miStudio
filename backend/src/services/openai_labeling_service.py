@@ -70,7 +70,7 @@ class OpenAILabelingService:
         token_stats: Dict[str, Dict[str, float]],
         top_k: int = 50,
         neuron_index: Optional[int] = None
-    ) -> str:
+    ) -> Dict[str, str]:
         """
         Generate semantic label for a feature based on token statistics.
 
@@ -80,11 +80,13 @@ class OpenAILabelingService:
             neuron_index: Optional neuron index for fallback naming
 
         Returns:
-            Single word or short phrase representing the feature concept
+            Dict with {"category": "broad_label", "specific": "precise_label"}
         """
+        fallback_label = f"feature_{neuron_index}" if neuron_index is not None else "empty_feature"
+
         if not token_stats:
             logger.warning("Empty token stats, using fallback label")
-            return f"feature_{neuron_index}" if neuron_index is not None else "empty_feature"
+            return {"category": "empty_features", "specific": fallback_label}
 
         # Sort tokens by total activation strength
         sorted_tokens = sorted(
@@ -94,7 +96,7 @@ class OpenAILabelingService:
         )[:top_k]
 
         if not sorted_tokens:
-            return f"feature_{neuron_index}" if neuron_index is not None else "no_activations"
+            return {"category": "no_activations", "specific": fallback_label}
 
         # Build prompt with token frequency table
         prompt = self._build_prompt(sorted_tokens)
@@ -106,7 +108,7 @@ class OpenAILabelingService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert in mechanistic interpretability analyzing sparse autoencoder features. Respond with single-word or 2-3 word labels only."
+                        "content": "You are an expert in mechanistic interpretability analyzing sparse autoencoder features. Provide both category and specific labels in JSON format."
                     },
                     {
                         "role": "user",
@@ -114,22 +116,22 @@ class OpenAILabelingService:
                     }
                 ],
                 temperature=0.3,  # Low temperature for consistency
-                max_tokens=15,  # Allow 2-3 words
+                max_tokens=50,  # Allow JSON response
                 top_p=0.9
             )
 
             # Extract label from response (new v1+ syntax)
             label_text = response.choices[0].message.content.strip()
 
-            # Clean and validate
-            label = self._clean_label(label_text)
+            # Parse JSON response
+            labels = self._parse_dual_label(label_text, fallback_label)
 
-            logger.debug(f"Generated label: '{label}' from GPT response: '{label_text[:50]}'")
-            return label
+            logger.debug(f"Generated labels: category='{labels['category']}', specific='{labels['specific']}' from GPT response")
+            return labels
 
         except RateLimitError:
             logger.warning("OpenAI rate limit reached, using fallback")
-            return f"feature_{neuron_index}" if neuron_index is not None else "rate_limited"
+            return {"category": "rate_limited", "specific": fallback_label}
 
         except AuthenticationError:
             logger.error("OpenAI authentication failed - check API key")
@@ -137,12 +139,13 @@ class OpenAILabelingService:
 
         except Exception as e:
             logger.error(f"Error calling OpenAI API: {e}", exc_info=True)
-            fallback = f"feature_{neuron_index}" if neuron_index is not None else "error_feature"
-            return fallback
+            return {"category": "error_feature", "specific": fallback_label}
 
     def _build_prompt(self, sorted_tokens: List[tuple]) -> str:
         """
         Build analysis prompt with token frequency table.
+
+        Uses contrastive examples to encourage maximum specificity in labels.
 
         Args:
             sorted_tokens: List of (token, stats_dict) tuples sorted by activation
@@ -150,35 +153,102 @@ class OpenAILabelingService:
         Returns:
             Formatted prompt string
         """
-        prompt = """Analyze this sparse autoencoder neuron's activation pattern.
+        prompt = """You are labeling a sparse autoencoder feature. Provide BOTH a high-level category AND a specific interpretation.
 
-Top tokens that activate this neuron:
+INSTRUCTIONS:
+Provide two labels:
+1. CATEGORY: A broad, high-level grouping (for filtering/organizing)
+2. SPECIFIC: The most precise interpretation possible (for understanding mechanism)
 
-TOKEN                | COUNT | AVG_ACT | MAX_ACT
----------------------|-------|---------|--------
+EXAMPLES:
+
+Tokens: Trump, Trumps, Donald, MAGA, administration
+→ category: "political_terms"
+→ specific: "trump_mentions"
+
+Tokens: Biden, Joe, Bidens, President, administration
+→ category: "political_terms"
+→ specific: "biden_administration"
+
+Tokens: COVID, coronavirus, pandemic, vaccine, quarantine
+→ category: "health_topics"
+→ specific: "covid_pandemic"
+
+Tokens: Elizabeth, Lizzie, Liz, Beth, Betty
+→ category: "names"
+→ specific: "elizabeth_variations"
+
+Tokens: def, class, import, return, function
+→ category: "code_keywords"
+→ specific: "python_syntax"
+
+Tokens: don, didn, wouldn, couldn, shouldn
+→ category: "function_words"
+→ specific: "negative_contractions"
+
+Tokens: president, senator, congress, vote, bill
+→ category: "political_terms"
+→ specific: "political_institutions"
+
+TOP TOKENS FOR THIS FEATURE:
 """
 
-        for token, stats in sorted_tokens[:50]:  # Limit to top 50
+        for token, stats in sorted_tokens[:30]:  # Show top 30 for better context
             avg_act = stats["total_activation"] / stats["count"]
-
-            # Escape and truncate token for display
             token_display = repr(token)[:20].ljust(20)
-
-            prompt += f"{token_display} | {stats['count']:5} | {avg_act:7.2f} | {stats['max_activation']:7.2f}\n"
+            prompt += f"{token_display} | count={stats['count']:4d} | avg={avg_act:6.3f} | max={stats['max_activation']:6.3f}\n"
 
         prompt += """
-What single concept does this neuron represent?
+DECISION TREE FOR SPECIFIC LABEL:
+1. Is ONE entity/person dominant (70%+ tokens)? → Name it specifically
+2. Is there a NARROW domain (60%+ tokens)? → Name the narrow domain
+3. Is there a SPECIFIC pattern? → Name the pattern
+4. Otherwise → Use a precise descriptor
 
-Respond with ONLY one word or short phrase (max 3 words). Examples:
-- "determiners" (the, a, an)
-- "negation" (not, never, no)
-- "plural_nouns" (words ending in -s)
-- "past_tense" (was, had, did)
-- "code_keywords" (def, class, import)
+Respond in JSON format:
+{"category": "broad_category", "specific": "precise_interpretation"}
 
-Concept:"""
+Both labels must be lowercase_with_underscores (1-3 words max each).
+"""
 
         return prompt
+
+    def _parse_dual_label(self, response: str, fallback_label: str) -> Dict[str, str]:
+        """
+        Parse JSON response containing category and specific labels.
+
+        Args:
+            response: Raw JSON response from GPT
+            fallback_label: Fallback if parsing fails
+
+        Returns:
+            Dict with cleaned {"category": "...", "specific": "..."}
+        """
+        import json
+        import re
+
+        try:
+            # Try to parse JSON
+            data = json.loads(response)
+
+            # Extract and clean both labels
+            category = self._clean_label(data.get("category", "uncategorized"))
+            specific = self._clean_label(data.get("specific", fallback_label))
+
+            return {"category": category, "specific": specific}
+
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning(f"Failed to parse dual label from response: {response[:100]}, error: {e}")
+
+            # Try to extract from plain text if JSON parsing fails
+            # Look for patterns like: category: "X", specific: "Y"
+            category_match = re.search(r'category["\s:]+([a-z_]+)', response.lower())
+            specific_match = re.search(r'specific["\s:]+([a-z_]+)', response.lower())
+
+            category = self._clean_label(category_match.group(1)) if category_match else "uncategorized"
+            specific = self._clean_label(specific_match.group(1)) if specific_match else fallback_label
+
+            return {"category": category, "specific": specific}
 
     def _clean_label(self, response: str) -> str:
         """
@@ -230,7 +300,7 @@ Concept:"""
         neuron_indices: Optional[List[int]] = None,
         progress_callback: Optional[callable] = None,
         batch_size: int = 10
-    ) -> List[str]:
+    ) -> List[Dict[str, str]]:
         """
         Generate labels for multiple features with concurrent API calls.
 
@@ -241,7 +311,7 @@ Concept:"""
             batch_size: Number of concurrent API calls
 
         Returns:
-            List of labels in same order as input
+            List of label dicts with {"category": "...", "specific": "..."} in same order as input
         """
         logger.info(f"Starting batch label generation for {len(features_token_stats)} features")
 
@@ -268,9 +338,16 @@ Concept:"""
                 if isinstance(label, Exception):
                     logger.error(f"Error generating label for feature {i+j}: {label}")
                     fallback_idx = batch_indices[j]
-                    label = f"feature_{fallback_idx}" if fallback_idx is not None else "error_feature"
+                    fallback_name = f"feature_{fallback_idx}" if fallback_idx is not None else "error_feature"
+                    label = {"category": "error_feature", "specific": fallback_name}
 
                 labels.append(label)
+
+                # Log sample labels (every 100th label + first 5)
+                feature_num = i + j + 1
+                neuron_idx = batch_indices[j]
+                if feature_num <= 5 or feature_num % 100 == 0:
+                    logger.info(f"✨ Sample label #{feature_num}: neuron_{neuron_idx} = category:'{label['category']}', specific:'{label['specific']}'")
 
             # Progress updates
             completed = min(batch_end, total)

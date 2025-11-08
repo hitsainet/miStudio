@@ -77,6 +77,12 @@ celery_app.conf.update(
             "priority": 5,
         },
 
+        # Labeling operations: LLM bound, medium priority
+        "src.workers.labeling_tasks.*": {
+            "queue": "processing",
+            "priority": 6,
+        },
+
         # Maintenance operations: Background tasks
         "src.workers.maintenance_tasks.*": {
             "queue": "low_priority",
@@ -143,6 +149,7 @@ celery_app.autodiscover_tasks(
         "src.workers.model_tasks",
         "src.workers.training_tasks",
         "src.workers.extraction_tasks",
+        "src.workers.labeling_tasks",
         "src.workers.system_monitor_tasks",
     ],
     force=True,

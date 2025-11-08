@@ -89,7 +89,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
                   onChange={(e) => setLabelingMethod(e.target.value as LabelingMethod)}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option value={LabelingMethod.OPENAI}>OpenAI (gpt-4o-mini)</option>
+                  <option value={LabelingMethod.OPENAI}>OpenAI (requires api-key)</option>
                   <option value={LabelingMethod.LOCAL}>Local Model</option>
                 </select>
               </div>

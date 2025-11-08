@@ -19,11 +19,10 @@
 import { create } from 'zustand';
 import type {
   LabelingJob,
-  LabelingStatus,
   LabelingConfigRequest,
-  LabelingMethod,
   LabelingListResponse,
 } from '../types/labeling';
+import { LabelingStatus, LabelingMethod } from '../types/labeling';
 import * as labelingAPI from '../api/labeling';
 
 /**

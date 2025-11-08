@@ -8,11 +8,12 @@
 import React, { useState, useEffect } from 'react';
 import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star } from 'lucide-react';
 import type { ExtractionStatusResponse, FeatureSearchRequest } from '../../types/features';
-import { format, formatDuration, intervalToDuration } from 'date-fns';
+import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
+import { StartLabelingButton } from '../labeling/StartLabelingButton';
 import { COMPONENTS } from '../../config/brand';
 
 interface ExtractionJobCardProps {
@@ -286,6 +287,17 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             >
               <XCircle className="w-5 h-5" />
             </button>
+          )}
+          {isCompleted && (
+            <StartLabelingButton
+              extractionId={extraction.id}
+              onSuccess={() => {
+                // Optionally refresh features list if expanded
+                if (isExpanded) {
+                  fetchExtractionFeatures(extraction.id, filters);
+                }
+              }}
+            />
           )}
           {(isCompleted || isFailed) && onDelete && (
             <button

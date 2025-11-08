@@ -22,6 +22,7 @@ from src.models.feature_activation import FeatureActivation
 from src.core.config import settings
 from src.services.local_labeling_service import LocalLabelingService
 from src.services.openai_labeling_service import OpenAILabelingService
+from src.workers.websocket_emitter import emit_labeling_progress
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,75 @@ class LabelingService:
 
         return labeling_job
 
+    def _aggregate_token_stats_batch(
+        self,
+        feature_ids: List[str]
+    ) -> Dict[str, Dict[str, Dict[str, float]]]:
+        """
+        Aggregate token statistics for a batch of features using SQL.
+
+        Uses PostgreSQL JSONB functions to efficiently aggregate token statistics
+        directly in the database, avoiding N+1 query problem.
+
+        Args:
+            feature_ids: List of feature IDs to aggregate
+
+        Returns:
+            Dict mapping feature_id to token_stats dict:
+            {
+                "feature_id_1": {
+                    "token_1": {"count": 10, "total_activation": 5.2, "max_activation": 0.8},
+                    "token_2": {"count": 5, "total_activation": 2.1, "max_activation": 0.5}
+                },
+                ...
+            }
+        """
+        from sqlalchemy import text
+
+        if not feature_ids:
+            return {}
+
+        # SQL query using CTEs to aggregate token statistics
+        query = text("""
+            WITH token_aggregates AS (
+                SELECT
+                    fa.feature_id,
+                    token_elem.token::text as token,
+                    COUNT(*) as count,
+                    SUM((activation_elem.activation::text)::float) as total_activation,
+                    MAX((activation_elem.activation::text)::float) as max_activation
+                FROM feature_activations fa,
+                    LATERAL jsonb_array_elements(fa.tokens) WITH ORDINALITY AS token_elem(token, token_idx),
+                    LATERAL jsonb_array_elements(fa.activations) WITH ORDINALITY AS activation_elem(activation, act_idx)
+                WHERE token_elem.token_idx = activation_elem.act_idx
+                  AND fa.feature_id = ANY(:feature_ids)
+                GROUP BY fa.feature_id, token_elem.token::text
+            )
+            SELECT
+                feature_id,
+                jsonb_object_agg(
+                    token,
+                    jsonb_build_object(
+                        'count', count,
+                        'total_activation', total_activation,
+                        'max_activation', max_activation
+                    )
+                ) as token_stats
+            FROM token_aggregates
+            GROUP BY feature_id;
+        """)
+
+        result = self.db.execute(query, {"feature_ids": feature_ids})
+
+        # Convert to dict for easy lookup
+        token_stats_map = {}
+        for row in result:
+            feature_id = row.feature_id
+            token_stats = row.token_stats or {}
+            token_stats_map[feature_id] = token_stats
+
+        return token_stats_map
+
     def label_features_for_extraction(
         self,
         labeling_job_id: str
@@ -146,7 +216,7 @@ class LabelingService:
 
         This is the core labeling logic that:
         1. Fetches features and their activations
-        2. Aggregates token statistics for each feature
+        2. Aggregates token statistics for each feature (using efficient SQL batching)
         3. Generates semantic labels using specified method
         4. Updates feature names and tracks progress
         5. Calculates statistics and marks job complete
@@ -192,38 +262,101 @@ class LabelingService:
             if not features:
                 raise ValueError(f"No features found for extraction {labeling_job.extraction_job_id}")
 
-            logger.info(f"Labeling {len(features)} features for extraction {labeling_job.extraction_job_id}")
+            total_features = len(features)
+            logger.info(f"Labeling {total_features} features for extraction {labeling_job.extraction_job_id}")
 
-            # Aggregate token statistics for each feature
+            # Aggregate token statistics using efficient SQL batching
+            # Process features in batches of 1000 to avoid memory issues and track progress
+            BATCH_SIZE = 1000
             features_token_stats = []
             neuron_indices = []
 
-            for feature in features:
-                # Fetch activations for this feature
-                activations = self.db.query(FeatureActivation).filter(
-                    FeatureActivation.feature_id == feature.id
-                ).all()
+            # Phase 1: Token Aggregation with progress tracking
+            logger.info(f"Starting token aggregation phase for {total_features} features in batches of {BATCH_SIZE}")
 
-                # Aggregate token statistics
-                token_stats = defaultdict(lambda: {
-                    "count": 0,
-                    "total_activation": 0.0,
-                    "max_activation": 0.0
-                })
+            for batch_start in range(0, total_features, BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, total_features)
+                batch_features = features[batch_start:batch_end]
+                batch_size = len(batch_features)
 
-                for activation in activations:
-                    token = activation.token_str
-                    act = activation.activation_value
-                    token_stats[token]["count"] += 1
-                    token_stats[token]["total_activation"] += act
-                    token_stats[token]["max_activation"] = max(
-                        token_stats[token]["max_activation"], act
-                    )
+                logger.info(f"Aggregating batch {batch_start//BATCH_SIZE + 1}/{(total_features + BATCH_SIZE - 1)//BATCH_SIZE}: features {batch_start+1}-{batch_end}")
 
-                features_token_stats.append(dict(token_stats))
-                neuron_indices.append(feature.neuron_index)
+                # Get feature IDs for this batch
+                batch_feature_ids = [f.id for f in batch_features]
 
-            logger.info(f"Aggregation complete for {len(features)} features")
+                # Use SQL to aggregate token stats for entire batch
+                token_stats_map = self._aggregate_token_stats_batch(batch_feature_ids)
+
+                # Build ordered lists for labeling (maintain feature order)
+                for feature in batch_features:
+                    token_stats = token_stats_map.get(feature.id, {})
+                    features_token_stats.append(token_stats)
+                    neuron_indices.append(feature.neuron_index)
+
+                # Update progress in database
+                aggregation_progress = batch_end / total_features
+                labeling_job.progress = aggregation_progress * 0.3  # Aggregation is ~30% of total work
+                labeling_job.updated_at = datetime.now(timezone.utc)
+                self.db.commit()
+
+                # Emit WebSocket progress update
+                emit_labeling_progress(
+                    labeling_job_id=labeling_job.id,
+                    event="progress",
+                    data={
+                        "labeling_job_id": labeling_job.id,
+                        "extraction_job_id": labeling_job.extraction_job_id,
+                        "progress": labeling_job.progress,
+                        "features_labeled": 0,
+                        "total_features": total_features,
+                        "status": "labeling",
+                        "phase": "aggregation",
+                        "message": f"Aggregated token statistics for {batch_end}/{total_features} features"
+                    }
+                )
+
+                logger.info(f"Batch {batch_start//BATCH_SIZE + 1} complete: {batch_end}/{total_features} features aggregated ({aggregation_progress*100:.1f}%)")
+
+            logger.info(f"Token aggregation complete for {len(features_token_stats)} features")
+
+            # Phase 2: Label Generation with progress tracking
+            logger.info("Starting label generation phase")
+
+            # Define progress callback for label generation
+            def labeling_progress_callback(current: int, total: int):
+                """
+                Callback for label generation progress.
+                Updates database and emits WebSocket events.
+
+                Args:
+                    current: Number of features labeled so far
+                    total: Total number of features to label
+                """
+                # Calculate progress: aggregation was 0-30%, labeling is 30-100%
+                labeling_progress = current / total if total > 0 else 0
+                overall_progress = 0.3 + (labeling_progress * 0.7)
+
+                # Update database
+                labeling_job.progress = overall_progress
+                labeling_job.features_labeled = current
+                labeling_job.updated_at = datetime.now(timezone.utc)
+                self.db.commit()
+
+                # Emit WebSocket progress
+                emit_labeling_progress(
+                    labeling_job_id=labeling_job.id,
+                    event="progress",
+                    data={
+                        "labeling_job_id": labeling_job.id,
+                        "extraction_job_id": labeling_job.extraction_job_id,
+                        "progress": overall_progress,
+                        "features_labeled": current,
+                        "total_features": total_features,
+                        "status": "labeling",
+                        "phase": "labeling",
+                        "message": f"Generated labels for {current}/{total_features} features"
+                    }
+                )
 
             # Initialize appropriate labeling service
             labeling_method = labeling_job.labeling_method
@@ -235,11 +368,11 @@ class LabelingService:
                     logger.info(f"Initializing local labeling service with model: {local_model}")
                     labeling_service = LocalLabelingService(model_name=local_model)
 
-                    # Generate labels (load/unload handled internally)
+                    # Generate labels with progress tracking
                     labels = labeling_service.batch_generate_labels(
                         features_token_stats=features_token_stats,
                         neuron_indices=neuron_indices,
-                        progress_callback=None  # Could add WebSocket progress here
+                        progress_callback=labeling_progress_callback
                     )
                     label_source_value = LabelSource.LLM.value
 
@@ -262,11 +395,11 @@ class LabelingService:
                         model=openai_model
                     )
 
-                    # Generate labels asynchronously
+                    # Generate labels asynchronously with progress tracking
                     labels = asyncio.run(labeling_service.batch_generate_labels(
                         features_token_stats=features_token_stats,
                         neuron_indices=neuron_indices,
-                        progress_callback=None,
+                        progress_callback=labeling_progress_callback,
                         batch_size=10
                     ))
                     label_source_value = LabelSource.LLM.value
@@ -274,25 +407,50 @@ class LabelingService:
                 else:
                     raise ValueError(f"Unsupported labeling method: {labeling_method}")
 
-                # Update feature names, label_source, and labeling_job_id
+                # Update feature names, categories, label_source, and labeling_job_id
+                # Commit in batches to provide fault tolerance and enable viewing partial results
+                COMMIT_BATCH_SIZE = 1000
                 labeled_at = datetime.now(timezone.utc)
-                for feature, label in zip(features, labels):
-                    feature.name = label
+
+                logger.info(f"Persisting {len(labels)} dual-label pairs (category + specific) to database in batches of {COMMIT_BATCH_SIZE}")
+
+                for idx, (feature, label) in enumerate(zip(features, labels), start=1):
+                    # label is now a dict with {"category": "...", "specific": "..."}
+                    feature.category = label["category"]
+                    feature.name = label["specific"]
                     feature.label_source = label_source_value
                     feature.labeling_job_id = labeling_job.id
                     feature.labeled_at = labeled_at
                     feature.updated_at = labeled_at
 
-                self.db.commit()
-                logger.info(f"Successfully labeled {len(labels)} features using {labeling_method}")
+                    # Log sample labels for debugging (first 5 labels of each batch)
+                    if idx % COMMIT_BATCH_SIZE <= 5:
+                        logger.info(f"Sample label {idx}: Feature {feature.neuron_index} = category:'{label['category']}', specific:'{label['specific']}'")
+
+                    # Commit every COMMIT_BATCH_SIZE features
+                    if idx % COMMIT_BATCH_SIZE == 0:
+                        self.db.commit()
+                        logger.info(f"Committed batch {idx // COMMIT_BATCH_SIZE}: {idx}/{len(labels)} features persisted to database")
+
+                        # Update job with committed progress
+                        labeling_job.features_labeled = idx
+                        labeling_job.updated_at = datetime.now(timezone.utc)
+                        self.db.commit()
+
+                # Final commit for remaining features
+                if len(labels) % COMMIT_BATCH_SIZE != 0:
+                    self.db.commit()
+                    logger.info(f"Final commit: {len(labels)}/{len(labels)} features persisted to database")
+
+                logger.info(f"Successfully labeled and persisted {len(labels)} features using {labeling_method}")
 
                 # Calculate statistics
                 end_time = datetime.now(timezone.utc)
                 duration_seconds = (end_time - start_time).total_seconds()
 
-                successfully_labeled = len([l for l in labels if l and not l.startswith("feature_")])
+                successfully_labeled = len([l for l in labels if l and l.get("specific") and not l.get("specific").startswith("feature_")])
                 failed_labels = len(labels) - successfully_labeled
-                avg_label_length = sum(len(l) for l in labels) / len(labels) if labels else 0
+                avg_label_length = sum(len(l.get("specific", "")) for l in labels) / len(labels) if labels else 0
 
                 statistics = {
                     "total_features": len(features),
@@ -314,6 +472,21 @@ class LabelingService:
 
                 logger.info(f"Labeling job {labeling_job_id} completed successfully")
 
+                # Emit completion event via WebSocket
+                emit_labeling_progress(
+                    labeling_job_id=labeling_job.id,
+                    event="completed",
+                    data={
+                        "labeling_job_id": labeling_job.id,
+                        "extraction_job_id": labeling_job.extraction_job_id,
+                        "status": "completed",
+                        "features_labeled": len(labels),
+                        "total_features": total_features,
+                        "statistics": statistics,
+                        "message": f"Successfully labeled {successfully_labeled}/{total_features} features in {duration_seconds:.1f}s"
+                    }
+                )
+
                 return statistics
 
             except Exception as e:
@@ -328,6 +501,19 @@ class LabelingService:
             labeling_job.error_message = str(e)
             labeling_job.updated_at = datetime.now(timezone.utc)
             self.db.commit()
+
+            # Emit failure event via WebSocket
+            emit_labeling_progress(
+                labeling_job_id=labeling_job.id,
+                event="failed",
+                data={
+                    "labeling_job_id": labeling_job.id,
+                    "extraction_job_id": labeling_job.extraction_job_id,
+                    "status": "failed",
+                    "error_message": str(e),
+                    "message": f"Labeling failed: {str(e)}"
+                }
+            )
 
             raise
 
@@ -412,6 +598,16 @@ class LabelingService:
                 f"Cannot cancel labeling job {labeling_job_id} with status {labeling_job.status}"
             )
 
+        # Revoke the Celery task to stop execution
+        if labeling_job.celery_task_id:
+            from ..core.celery_app import celery_app
+            logger.info(f"Revoking Celery task {labeling_job.celery_task_id} for job {labeling_job_id}")
+            celery_app.control.revoke(
+                labeling_job.celery_task_id,
+                terminate=True,
+                signal='SIGTERM'
+            )
+
         labeling_job.status = LabelingStatus.CANCELLED.value
         labeling_job.updated_at = datetime.now(timezone.utc)
         await self.db.commit()
@@ -424,7 +620,7 @@ class LabelingService:
         Delete a labeling job.
 
         This does NOT delete the features or their labels, only the labeling job record.
-        Feature labels will remain intact.
+        Feature labels will remain intact. If the job is active, it will be cancelled first.
 
         Args:
             labeling_job_id: ID of the labeling job to delete
@@ -433,7 +629,7 @@ class LabelingService:
             True if deleted successfully
 
         Raises:
-            ValueError: If job not found or in active state
+            ValueError: If job not found
         """
         from sqlalchemy import update
 
@@ -445,11 +641,16 @@ class LabelingService:
         if not labeling_job:
             raise ValueError(f"Labeling job {labeling_job_id} not found")
 
+        # If job is active, cancel it first (revoke Celery task)
         if labeling_job.status in [LabelingStatus.QUEUED.value, LabelingStatus.LABELING.value]:
-            raise ValueError(
-                f"Cannot delete active labeling job {labeling_job_id}. "
-                f"Cancel it first or wait for completion."
-            )
+            if labeling_job.celery_task_id:
+                from ..core.celery_app import celery_app
+                logger.info(f"Auto-cancelling active job: revoking Celery task {labeling_job.celery_task_id}")
+                celery_app.control.revoke(
+                    labeling_job.celery_task_id,
+                    terminate=True,
+                    signal='SIGTERM'
+                )
 
         # Clear labeling_job_id reference from features
         await self.db.execute(

@@ -47,6 +47,7 @@ class SparseAutoencoder(nn.Module):
         init_scale: float = 0.1,
         ghost_gradient_penalty: float = 0.0,
         normalize_activations: str = 'constant_norm_rescale',
+        top_k_sparsity: Optional[float] = None,
     ):
         super().__init__()
 
@@ -56,6 +57,13 @@ class SparseAutoencoder(nn.Module):
         self.tied_weights = tied_weights
         self.ghost_gradient_penalty = ghost_gradient_penalty
         self.normalize_activations = normalize_activations
+        self.top_k_sparsity = top_k_sparsity
+
+        # Calculate k for Top-K if enabled (fraction of latent_dim)
+        if top_k_sparsity is not None:
+            self.k = max(1, int(top_k_sparsity * latent_dim))
+        else:
+            self.k = None
 
         # Encoder: x → z
         self.encoder = nn.Linear(hidden_dim, latent_dim, bias=True)
@@ -130,9 +138,23 @@ class SparseAutoencoder(nn.Module):
             x: Input tensor [batch, hidden_dim]
 
         Returns:
-            z: Latent activations [batch, latent_dim] (after ReLU)
+            z: Latent activations [batch, latent_dim] (after ReLU, with optional Top-K)
         """
-        return F.relu(self.encoder(x))
+        z = F.relu(self.encoder(x))
+
+        # Apply Top-K sparsity if enabled
+        if self.k is not None:
+            # Keep only top-K activations per sample
+            # Get top-K values and indices
+            topk_values, topk_indices = torch.topk(z, self.k, dim=-1)
+
+            # Create sparse tensor with only top-K activations
+            z_sparse = torch.zeros_like(z)
+            z_sparse.scatter_(-1, topk_indices, topk_values)
+
+            return z_sparse
+
+        return z
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """
@@ -274,8 +296,18 @@ class SkipAutoencoder(SparseAutoencoder):
         tied_weights: bool = False,
         init_scale: float = 0.1,
         skip_scale: float = 1.0,
+        normalize_activations: str = 'constant_norm_rescale',
+        top_k_sparsity: Optional[float] = None,
     ):
-        super().__init__(hidden_dim, latent_dim, l1_alpha, tied_weights, init_scale)
+        super().__init__(
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            l1_alpha=l1_alpha,
+            tied_weights=tied_weights,
+            init_scale=init_scale,
+            normalize_activations=normalize_activations,
+            top_k_sparsity=top_k_sparsity,
+        )
         self.skip_scale = skip_scale
 
     def decode(self, z: torch.Tensor, x_original: torch.Tensor) -> torch.Tensor:
@@ -367,6 +399,7 @@ class Transcoder(nn.Module):
         latent_dim: int,
         l1_alpha: float = 0.001,
         init_scale: float = 0.1,
+        top_k_sparsity: Optional[float] = None,
     ):
         super().__init__()
 
@@ -374,6 +407,13 @@ class Transcoder(nn.Module):
         self.output_dim = output_dim
         self.latent_dim = latent_dim
         self.l1_alpha = l1_alpha
+        self.top_k_sparsity = top_k_sparsity
+
+        # Calculate k for Top-K if enabled (fraction of latent_dim)
+        if top_k_sparsity is not None:
+            self.k = max(1, int(top_k_sparsity * latent_dim))
+        else:
+            self.k = None
 
         # Encoder: x_i → z
         self.encoder = nn.Linear(input_dim, latent_dim, bias=True)
@@ -393,7 +433,17 @@ class Transcoder(nn.Module):
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encode layer i activations to latent."""
-        return F.relu(self.encoder(x))
+        z = F.relu(self.encoder(x))
+
+        # Apply Top-K sparsity if enabled
+        if self.k is not None:
+            # Keep only top-K activations per sample
+            topk_values, topk_indices = torch.topk(z, self.k, dim=-1)
+            z_sparse = torch.zeros_like(z)
+            z_sparse.scatter_(-1, topk_indices, topk_values)
+            return z_sparse
+
+        return z
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """Decode latent to layer j activations."""

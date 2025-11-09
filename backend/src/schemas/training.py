@@ -52,6 +52,12 @@ class TrainingHyperparameters(BaseModel):
         le=0.2,
         description="Target L0 sparsity (fraction of active features, typically 0.01-0.05)"
     )
+    top_k_sparsity: Optional[float] = Field(
+        None,
+        gt=0,
+        le=1.0,
+        description="Top-K sparsity (fraction of neurons to keep active, e.g., 0.05 for 5%). Guarantees exact sparsity level."
+    )
     normalize_activations: Optional[str] = Field(
         "constant_norm_rescale",
         description="Activation normalization method: 'constant_norm_rescale' (SAELens standard) or 'none'"

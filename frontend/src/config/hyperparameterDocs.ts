@@ -185,6 +185,48 @@ export const HYPERPARAMETER_DOCS: Record<string, HyperparameterDoc> = {
     relatedParams: ['l1_alpha'],
   },
 
+  top_k_sparsity: {
+    name: 'Top-K Sparsity (Hard)',
+    purpose: 'GUARANTEES exact sparsity by keeping only the top-K most active neurons. Replaces L1 penalty with direct sparsity enforcement.',
+    description:
+      'Top-K sparsity enforces hard sparsity by selecting only the K largest activations per sample (where K = top_k_sparsity × latent_dim). This GUARANTEES the exact sparsity level you specify, unlike L1 penalty which only encourages sparsity. All other neurons are set to zero.',
+    examples: [
+      {
+        value: null,
+        effect: 'Use L1 penalty (soft sparsity)',
+        useCase: 'Traditional SAE training with L1 regularization',
+      },
+      {
+        value: 0.05,
+        effect: 'Keep exactly 5% of neurons → 1229 active features (for 24576 latent_dim)',
+        useCase: 'When L1 alpha tuning fails to achieve target sparsity',
+      },
+      {
+        value: 0.01,
+        effect: 'Keep exactly 1% of neurons → Extremely sparse',
+        useCase: 'Maximum interpretability with guaranteed sparsity',
+      },
+      {
+        value: 0.10,
+        effect: 'Keep exactly 10% of neurons → Denser features',
+        useCase: 'More features active, easier reconstruction',
+      },
+    ],
+    recommendations: [
+      'Leave empty to use L1 penalty (default)',
+      'Use Top-K when L1 alpha is difficult to tune',
+      'Start with 0.05 (5%) for balanced interpretability',
+      'Top-K + small L1 alpha can encourage larger activations',
+      'When using Top-K, L1 alpha becomes less critical',
+    ],
+    warnings: [
+      'Top-K is HARD sparsity: gradients only flow to top-K neurons',
+      'Cannot smoothly adjust sparsity during training (unlike L1)',
+      'May have sharper feature boundaries than L1 sparsity',
+    ],
+    relatedParams: ['l1_alpha', 'target_l0'],
+  },
+
   learning_rate: {
     name: 'Learning Rate',
     purpose: 'Controls the step size for gradient descent optimization. Too high causes instability, too low slows convergence.',

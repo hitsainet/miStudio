@@ -23,6 +23,7 @@ from ..ml.sparse_autoencoder import create_sae
 from ..models.training import Training, TrainingStatus
 from ..models.dataset import Dataset
 from ..models.model import Model
+from ..models.dataset_tokenization import DatasetTokenization, TokenizationStatus
 from ..services.training_service import TrainingService
 from ..services.checkpoint_service import CheckpointService
 from ..core.config import settings
@@ -486,8 +487,24 @@ def train_sae_task(
                 if not model_record:
                     raise ValueError(f"Model {training.model_id} not found")
 
-            logger.info(f"Loading dataset from {dataset_record.tokenized_path}")
-            dataset = load_from_disk(dataset_record.tokenized_path)
+                # Query the tokenization for this dataset + model combination
+                tokenization = db.query(DatasetTokenization).filter(
+                    DatasetTokenization.dataset_id == training.dataset_id,
+                    DatasetTokenization.model_id == training.model_id
+                ).first()
+                if not tokenization:
+                    raise ValueError(
+                        f"No tokenization found for dataset {training.dataset_id} with model {training.model_id}. "
+                        f"Please tokenize the dataset with this model first."
+                    )
+                if tokenization.status != TokenizationStatus.READY:
+                    raise ValueError(
+                        f"Tokenization for dataset {training.dataset_id} with model {training.model_id} "
+                        f"is not ready (status: {tokenization.status}). Please wait for tokenization to complete."
+                    )
+
+            logger.info(f"Loading dataset from {tokenization.tokenized_path}")
+            dataset = load_from_disk(tokenization.tokenized_path)
 
             logger.info(f"Loading base model: {model_record.repo_id}")
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
@@ -499,12 +516,8 @@ def train_sae_task(
             base_model.eval()
 
             # Validate tokenizer/model vocabulary compatibility
-            dataset_tokenizer_name = None
-            dataset_vocab_size = None
-            if dataset_record.metadata and isinstance(dataset_record.metadata, dict):
-                tokenization_info = dataset_record.metadata.get("tokenization", {})
-                dataset_tokenizer_name = tokenization_info.get("tokenizer_name")
-                dataset_vocab_size = tokenization_info.get("vocab_size")
+            dataset_tokenizer_name = tokenization.tokenizer_repo_id
+            dataset_vocab_size = tokenization.vocab_size
 
             model_vocab_size = model_config.vocab_size if hasattr(model_config, "vocab_size") else tokenizer.vocab_size
 

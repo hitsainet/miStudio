@@ -26,6 +26,7 @@ from src.models.feature import Feature, LabelSource
 from src.models.feature_activation import FeatureActivation
 from src.models.checkpoint import Checkpoint
 from src.models.dataset import Dataset
+from src.models.dataset_tokenization import DatasetTokenization, TokenizationStatus
 from src.core.database import get_db
 from src.workers.websocket_emitter import emit_training_progress
 from src.core.config import settings
@@ -752,8 +753,24 @@ class ExtractionService:
             if not dataset_record:
                 raise ValueError(f"Dataset {training.dataset_id} not found")
 
-            logger.info(f"Loading dataset from {dataset_record.tokenized_path}")
-            dataset = load_from_disk(dataset_record.tokenized_path)
+            # Query the tokenization for this dataset + model combination
+            tokenization = self.db.query(DatasetTokenization).filter(
+                DatasetTokenization.dataset_id == training.dataset_id,
+                DatasetTokenization.model_id == training.model_id
+            ).first()
+            if not tokenization:
+                raise ValueError(
+                    f"No tokenization found for dataset {training.dataset_id} with model {training.model_id}. "
+                    f"Please tokenize the dataset with this model first."
+                )
+            if tokenization.status != TokenizationStatus.READY:
+                raise ValueError(
+                    f"Tokenization for dataset {training.dataset_id} with model {training.model_id} "
+                    f"is not ready (status: {tokenization.status}). Please wait for tokenization to complete."
+                )
+
+            logger.info(f"Loading dataset from {tokenization.tokenized_path}")
+            dataset = load_from_disk(tokenization.tokenized_path)
 
             # Limit to evaluation_samples
             if len(dataset) > evaluation_samples:
@@ -780,13 +797,8 @@ class ExtractionService:
             base_model.eval()
 
             # Validate tokenizer/model vocabulary compatibility
-            # Get dataset tokenizer name from metadata
-            dataset_tokenizer_name = None
-            dataset_vocab_size = None
-            if dataset_record.metadata and isinstance(dataset_record.metadata, dict):
-                tokenization_info = dataset_record.metadata.get("tokenization", {})
-                dataset_tokenizer_name = tokenization_info.get("tokenizer_name")
-                dataset_vocab_size = tokenization_info.get("vocab_size")
+            dataset_tokenizer_name = tokenization.tokenizer_repo_id
+            dataset_vocab_size = tokenization.vocab_size
 
             # Get model vocabulary size
             model_vocab_size = model_config.vocab_size if hasattr(model_config, "vocab_size") else tokenizer.vocab_size

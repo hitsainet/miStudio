@@ -18,6 +18,7 @@ from ....core.deps import get_db
 from ....core.celery_app import celery_app
 from ....core.config import settings
 from ....models.dataset import DatasetStatus
+from ....models.dataset_tokenization import DatasetTokenization, TokenizationStatus
 from ....schemas.dataset import (
     DatasetCreate,
     DatasetUpdate,
@@ -28,6 +29,8 @@ from ....schemas.dataset import (
     TokenizePreviewRequest,
     TokenizePreviewResponse,
     TokenInfo,
+    DatasetTokenizationResponse,
+    DatasetTokenizationListResponse,
 )
 from ....services.dataset_service import DatasetService
 
@@ -504,7 +507,7 @@ async def tokenize_dataset(
         from ....workers.dataset_tasks import tokenize_dataset_task
         task = tokenize_dataset_task.delay(
             dataset_id=str(dataset_id),
-            tokenizer_name=request.tokenizer_name,
+            model_id=request.model_id,
             max_length=request.max_length,
             stride=request.stride,
             padding=request.padding,
@@ -991,3 +994,253 @@ async def tokenize_preview(
             status_code=500,
             detail=f"Tokenization failed: {str(e)}"
         )
+
+
+@router.get("/{dataset_id}/tokenizations", response_model=DatasetTokenizationListResponse)
+async def list_dataset_tokenizations(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List all tokenizations for a dataset.
+
+    This endpoint returns all tokenization records for a specific dataset,
+    showing which models have been used to tokenize it and their status.
+
+    Args:
+        dataset_id: Dataset UUID
+        db: Database session
+
+    Returns:
+        List of tokenizations with their status and statistics
+
+    Raises:
+        HTTPException: If dataset not found
+    """
+    # Verify dataset exists
+    dataset = await DatasetService.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} not found"
+        )
+
+    # Get all tokenizations for this dataset
+    from sqlalchemy import select
+    from ....models.dataset_tokenization import DatasetTokenization
+
+    result = await db.execute(
+        select(DatasetTokenization)
+        .where(DatasetTokenization.dataset_id == dataset_id)
+        .order_by(DatasetTokenization.created_at.desc())
+    )
+    tokenizations = result.scalars().all()
+
+    return DatasetTokenizationListResponse(
+        data=tokenizations,
+        total=len(tokenizations)
+    )
+
+
+@router.get("/{dataset_id}/tokenizations/{model_id}", response_model=DatasetTokenizationResponse)
+async def get_dataset_tokenization(
+    dataset_id: UUID,
+    model_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get a specific tokenization for a dataset and model.
+
+    This endpoint returns detailed information about a specific tokenization,
+    including its path, statistics, and current status.
+
+    Args:
+        dataset_id: Dataset UUID
+        model_id: Model ID
+        db: Database session
+
+    Returns:
+        Tokenization details
+
+    Raises:
+        HTTPException: If tokenization not found
+    """
+    # Query tokenization
+    from sqlalchemy import select
+    from ....models.dataset_tokenization import DatasetTokenization
+
+    result = await db.execute(
+        select(DatasetTokenization)
+        .where(
+            DatasetTokenization.dataset_id == dataset_id,
+            DatasetTokenization.model_id == model_id
+        )
+    )
+    tokenization = result.scalar_one_or_none()
+
+    if not tokenization:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No tokenization found for dataset {dataset_id} with model {model_id}"
+        )
+
+    return tokenization
+
+
+@router.delete("/{dataset_id}/tokenizations/{model_id}", status_code=204)
+async def delete_dataset_tokenization(
+    dataset_id: UUID,
+    model_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete a specific tokenization.
+
+    This endpoint removes a tokenization record and queues deletion of
+    the associated tokenized files. The raw dataset remains intact.
+
+    Args:
+        dataset_id: Dataset UUID
+        model_id: Model ID
+        db: Database session
+
+    Raises:
+        HTTPException: If tokenization not found or currently processing
+    """
+    from pathlib import Path
+    from sqlalchemy import select
+    from ....models.dataset_tokenization import DatasetTokenization
+
+    # Query tokenization
+    result = await db.execute(
+        select(DatasetTokenization)
+        .where(
+            DatasetTokenization.dataset_id == dataset_id,
+            DatasetTokenization.model_id == model_id
+        )
+    )
+    tokenization = result.scalar_one_or_none()
+
+    if not tokenization:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No tokenization found for dataset {dataset_id} with model {model_id}"
+        )
+
+    # Prevent deletion of tokenization currently being processed
+    if tokenization.status == TokenizationStatus.PROCESSING:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete tokenization while it is being processed. Please wait for completion or cancel the job first."
+        )
+
+    # Store tokenized_path before deletion
+    tokenized_path = tokenization.tokenized_path
+
+    # Delete tokenization record
+    await db.delete(tokenization)
+    await db.commit()
+
+    # Queue background file cleanup if there are files to delete
+    if tokenized_path and Path(tokenized_path).exists():
+        from ....workers.dataset_tasks import delete_dataset_files
+        logger.info(f"Queuing file cleanup for tokenization {tokenization.id} (path={tokenized_path})")
+        delete_dataset_files.delay(
+            dataset_id=str(dataset_id),
+            raw_path=None,  # Don't delete raw files
+            tokenized_path=tokenized_path
+        )
+    else:
+        logger.info(f"No files to clean up for tokenization {tokenization.id}")
+
+    return None
+
+
+@router.post("/{dataset_id}/tokenizations/{model_id}/cancel", status_code=200)
+async def cancel_dataset_tokenization(
+    dataset_id: UUID,
+    model_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an in-progress tokenization job.
+
+    This endpoint:
+    1. Revokes the Celery task
+    2. Updates tokenization status to ERROR with "Cancelled by user"
+    3. Cleans up partial tokenization files
+
+    Args:
+        dataset_id: Dataset UUID
+        model_id: Model ID
+        db: Database session
+
+    Returns:
+        dict: Cancellation status
+
+    Raises:
+        HTTPException: If tokenization not found or not cancellable
+    """
+    from pathlib import Path
+    from sqlalchemy import select
+    from ....models.dataset_tokenization import DatasetTokenization, TokenizationStatus
+    from celery import current_app
+
+    # Query tokenization
+    result = await db.execute(
+        select(DatasetTokenization)
+        .where(
+            DatasetTokenization.dataset_id == dataset_id,
+            DatasetTokenization.model_id == model_id
+        )
+    )
+    tokenization = result.scalar_one_or_none()
+
+    if not tokenization:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No tokenization found for dataset {dataset_id} with model {model_id}"
+        )
+
+    # Check if tokenization is in a cancellable state
+    if tokenization.status not in [TokenizationStatus.PROCESSING, TokenizationStatus.QUEUED]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel tokenization with status '{tokenization.status.value}'. Only PROCESSING or QUEUED jobs can be cancelled."
+        )
+
+    # Revoke the Celery task if task_id exists
+    if tokenization.celery_task_id:
+        try:
+            current_app.control.revoke(tokenization.celery_task_id, terminate=True, signal='SIGKILL')
+            logger.info(f"Revoked Celery task {tokenization.celery_task_id} for tokenization {tokenization.id}")
+        except Exception as e:
+            logger.warning(f"Failed to revoke Celery task {tokenization.celery_task_id}: {e}")
+
+    # Update tokenization status to ERROR
+    tokenization.status = TokenizationStatus.ERROR
+    tokenization.error_message = "Cancelled by user"
+    tokenization.progress = None
+    await db.commit()
+
+    # Clean up partial tokenization files if they exist
+    if tokenization.tokenized_path:
+        tokenized_path = Path(tokenization.tokenized_path)
+        if tokenized_path.exists():
+            from ....workers.dataset_tasks import delete_dataset_files
+            logger.info(f"Queuing cleanup of partial tokenization files: {tokenized_path}")
+            delete_dataset_files.delay(
+                dataset_id=str(dataset_id),
+                raw_path=None,
+                tokenized_path=str(tokenized_path)
+            )
+
+    logger.info(f"Cancelled tokenization {tokenization.id} for dataset {dataset_id}")
+
+    return {
+        "dataset_id": str(dataset_id),
+        "model_id": model_id,
+        "tokenization_id": tokenization.id,
+        "status": "cancelled",
+        "message": "Tokenization cancelled successfully"
+    }

@@ -165,6 +165,10 @@ def on_worker_ready(sender, **kwargs):
         sender: Worker instance
         **kwargs: Additional arguments
     """
+    # Apply transformers compatibility patches for newer models
+    from ..ml.transformers_compat import patch_transformers_compatibility
+    patch_transformers_compatibility()
+
     print(f"Celery worker ready: {sender.hostname}")
 
 

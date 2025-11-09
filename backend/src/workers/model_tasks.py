@@ -239,6 +239,11 @@ def download_and_load_model(
         dict with model metadata
     """
     try:
+        # Apply transformers compatibility patches for newer models (Phi-4, etc.)
+        # This must be done in the task because Celery uses forked child processes
+        from ..ml.transformers_compat import patch_transformers_compatibility
+        patch_transformers_compatibility()
+
         logger.info(f"Starting model download: {model_id} from {repo_id}")
 
         # Convert quantization string to enum

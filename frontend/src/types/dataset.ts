@@ -84,6 +84,36 @@ export interface DatasetMetadata {
   download?: DownloadMetadata;
 }
 
+export enum TokenizationStatus {
+  QUEUED = 'queued',
+  PROCESSING = 'processing',
+  READY = 'ready',
+  ERROR = 'error',
+}
+
+export interface DatasetTokenization {
+  id: string;
+  dataset_id: string;
+  model_id: string;
+  tokenized_path?: string;
+  tokenizer_repo_id: string;
+  vocab_size?: number;
+  num_tokens?: number;
+  avg_seq_length?: number;
+  status: TokenizationStatus | 'queued' | 'processing' | 'ready' | 'error';
+  progress?: number;
+  error_message?: string;
+  celery_task_id?: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
+}
+
+export interface DatasetTokenizationListResponse {
+  data: DatasetTokenization[];
+  total: number;
+}
+
 export interface Dataset {
   id: string;
   name: string;
@@ -93,11 +123,7 @@ export interface Dataset {
   progress?: number;
   error_message?: string;
   raw_path?: string;
-  tokenized_path?: string;
   num_samples?: number;
-  num_tokens?: number;
-  avg_seq_length?: number;
-  vocab_size?: number;
   size_bytes?: number;
   /** Structured dataset metadata with schema, tokenization, and download info */
   metadata?: DatasetMetadata;

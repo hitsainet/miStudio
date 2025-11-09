@@ -9,6 +9,10 @@ from fastapi import FastAPI
 from .api.v1.router import api_router
 from .core.config import settings
 from .core.websocket import socket_app, sio, WebSocketManager
+from .ml.transformers_compat import patch_transformers_compatibility
+
+# Apply transformers compatibility patches for newer models (Phi-4, etc.)
+patch_transformers_compatibility()
 
 app = FastAPI(
     title="MechInterp Studio API",

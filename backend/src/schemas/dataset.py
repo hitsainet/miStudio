@@ -38,11 +38,7 @@ class DatasetUpdate(BaseModel):
     progress: Optional[float] = Field(None, ge=0, le=100)
     error_message: Optional[str] = None
     raw_path: Optional[str] = Field(None, max_length=512)
-    tokenized_path: Optional[str] = Field(None, max_length=512)
     num_samples: Optional[int] = Field(None, ge=0)
-    num_tokens: Optional[int] = Field(None, ge=0)
-    avg_seq_length: Optional[float] = Field(None, ge=0)
-    vocab_size: Optional[int] = Field(None, ge=0)
     size_bytes: Optional[int] = Field(None, ge=0)
     metadata: Optional[Union[DatasetMetadata, Dict[str, Any]]] = Field(
         None,
@@ -102,11 +98,7 @@ class DatasetResponse(DatasetBase):
     progress: Optional[float] = Field(None, description="Download/processing progress (0-100)")
     error_message: Optional[str] = Field(None, description="Error message if status is ERROR")
     raw_path: Optional[str] = Field(None, description="Path to raw dataset files")
-    tokenized_path: Optional[str] = Field(None, description="Path to tokenized dataset")
-    num_samples: Optional[int] = Field(None, description="Total number of samples")
-    num_tokens: Optional[int] = Field(None, description="Total number of tokens")
-    avg_seq_length: Optional[float] = Field(None, description="Average sequence length in tokens")
-    vocab_size: Optional[int] = Field(None, description="Vocabulary size")
+    num_samples: Optional[int] = Field(None, description="Total number of samples in raw dataset")
     size_bytes: Optional[int] = Field(None, description="Total size in bytes")
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
@@ -156,7 +148,7 @@ class DatasetDownloadRequest(BaseModel):
 class DatasetTokenizeRequest(BaseModel):
     """Schema for dataset tokenization request."""
 
-    tokenizer_name: str = Field(..., min_length=1, description="HuggingFace tokenizer name (e.g., 'gpt2', 'bert-base-uncased')")
+    model_id: str = Field(..., min_length=1, description="Model ID whose tokenizer will be used for tokenization")
     max_length: int = Field(512, ge=1, le=8192, description="Maximum sequence length in tokens")
     stride: int = Field(0, ge=0, description="Sliding window stride for long sequences (0 = no overlap)")
     padding: Literal["max_length", "longest", "do_not_pad"] = Field(
@@ -219,3 +211,34 @@ class TokenizePreviewResponse(BaseModel):
     token_count: int = Field(..., ge=0, description="Total number of tokens")
     sequence_length: int = Field(..., ge=0, description="Length of tokenized sequence")
     special_token_count: int = Field(..., ge=0, description="Number of special tokens")
+
+
+class DatasetTokenizationResponse(BaseModel):
+    """Schema for dataset tokenization response."""
+
+    id: str = Field(..., description="Unique tokenization identifier")
+    dataset_id: UUID = Field(..., description="Parent dataset ID")
+    model_id: str = Field(..., description="Model whose tokenizer was used")
+    tokenized_path: Optional[str] = Field(None, description="Path to tokenized dataset files")
+    tokenizer_repo_id: str = Field(..., description="HuggingFace tokenizer repository ID")
+    vocab_size: Optional[int] = Field(None, description="Vocabulary size for this tokenization")
+    num_tokens: Optional[int] = Field(None, description="Total number of tokens in tokenized dataset")
+    avg_seq_length: Optional[float] = Field(None, description="Average sequence length in tokens")
+    status: str = Field(..., description="Current tokenization status")
+    progress: Optional[float] = Field(None, description="Tokenization progress (0-100)")
+    error_message: Optional[str] = Field(None, description="Error message if status is ERROR")
+    celery_task_id: Optional[str] = Field(None, description="Celery task ID for async tokenization")
+    created_at: datetime = Field(..., description="Record creation timestamp")
+    updated_at: datetime = Field(..., description="Record last update timestamp")
+    completed_at: Optional[datetime] = Field(None, description="Timestamp when tokenization completed")
+
+    model_config = {
+        "from_attributes": True,  # Enable ORM mode for SQLAlchemy models
+    }
+
+
+class DatasetTokenizationListResponse(BaseModel):
+    """Schema for list of dataset tokenizations."""
+
+    data: list[DatasetTokenizationResponse] = Field(..., description="List of tokenizations")
+    total: int = Field(..., ge=0, description="Total number of tokenizations")

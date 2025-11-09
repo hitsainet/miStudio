@@ -19,6 +19,8 @@ import redis
 from ..core.celery_app import celery_app
 from ..core.config import settings
 from ..models.dataset import DatasetStatus, Dataset
+from ..models.dataset_tokenization import DatasetTokenization, TokenizationStatus
+from ..models.model import Model
 from ..schemas.dataset import DatasetUpdate
 from ..services.dataset_service import DatasetService
 from ..services.tokenization_service import TokenizationService
@@ -356,7 +358,7 @@ def download_dataset_task(
 def tokenize_dataset_task(
     self,
     dataset_id: str,
-    tokenizer_name: str,
+    model_id: str,
     max_length: int = 512,
     stride: int = 0,
     padding: str = "max_length",
@@ -366,11 +368,11 @@ def tokenize_dataset_task(
     enable_cleaning: bool = True,
 ):
     """
-    Tokenize dataset using specified tokenizer.
+    Tokenize dataset using model's tokenizer.
 
     Args:
         dataset_id: Dataset UUID
-        tokenizer_name: HuggingFace tokenizer name (e.g., 'gpt2')
+        model_id: Model ID whose tokenizer will be used
         max_length: Maximum sequence length
         stride: Sliding window stride for long sequences
         padding: Padding strategy ('max_length', 'longest', or 'do_not_pad')
@@ -385,34 +387,64 @@ def tokenize_dataset_task(
     try:
         dataset_uuid = UUID(dataset_id)
 
-        # Task-level deduplication guard: Check if already successfully tokenized
-        # This prevents duplicate/late tasks from overwriting successful results
+        # Create tokenization ID: tok_{dataset_id}_{model_id}
+        tokenization_id = f"tok_{str(dataset_uuid).replace('-', '')}_{model_id}"
+
+        # Get dataset, model, and create/get tokenization record
         with self.get_db() as db:
             dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
             if not dataset_obj:
                 raise ValueError(f"Dataset {dataset_id} not found")
 
-            # If already successfully tokenized, skip this duplicate task
-            if (dataset_obj.status == DatasetStatus.READY and
-                dataset_obj.tokenized_path and
-                Path(dataset_obj.tokenized_path).exists()):
-                print(f"[DEDUP] Dataset {dataset_id} already tokenized at {dataset_obj.tokenized_path}, skipping duplicate task")
-                return {
-                    'dataset_id': dataset_id,
-                    'status': 'skipped',
-                    'reason': 'already_tokenized',
-                    'tokenized_path': dataset_obj.tokenized_path
-                }
+            if not dataset_obj.raw_path:
+                raise ValueError(f"Dataset {dataset_id} has no raw_path - download dataset first")
+
+            model_obj = db.query(Model).filter_by(id=model_id).first()
+            if not model_obj:
+                raise ValueError(f"Model {model_id} not found")
+
+            tokenizer_name = model_obj.repo_id
+            print(f"Using tokenizer from model {model_id}: {tokenizer_name}")
+
+            # Check if tokenization already exists
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+
+            if tokenization_obj:
+                # Task-level deduplication: Check if already successfully tokenized
+                if (tokenization_obj.status == TokenizationStatus.READY and
+                    tokenization_obj.tokenized_path and
+                    Path(tokenization_obj.tokenized_path).exists()):
+                    print(f"[DEDUP] Tokenization {tokenization_id} already complete, skipping duplicate task")
+                    return {
+                        'tokenization_id': tokenization_id,
+                        'dataset_id': dataset_id,
+                        'model_id': model_id,
+                        'status': 'skipped',
+                        'reason': 'already_tokenized',
+                        'tokenized_path': tokenization_obj.tokenized_path
+                    }
+            else:
+                # Create new tokenization record
+                tokenization_obj = DatasetTokenization(
+                    id=tokenization_id,
+                    dataset_id=dataset_uuid,
+                    model_id=model_id,
+                    tokenizer_repo_id=tokenizer_name,
+                    status=TokenizationStatus.QUEUED,
+                    progress=0.0,
+                    celery_task_id=self.request.id,
+                )
+                db.add(tokenization_obj)
+                db.commit()
+                print(f"Created new tokenization record: {tokenization_id}")
 
         # Update status to processing
         with self.get_db() as db:
-            self.update_progress(
-                db=db,
-                model_class=Dataset,
-                record_id=dataset_id,
-                progress=0.0,
-                status=DatasetStatus.PROCESSING.value,
-            )
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                tokenization_obj.status = TokenizationStatus.PROCESSING
+                tokenization_obj.progress = 0.0
+                db.commit()
 
         # Update Celery task state: Starting
         self.update_state(
@@ -433,11 +465,6 @@ def tokenize_dataset_task(
             if not dataset_obj.raw_path:
                 raise ValueError(f"Dataset {dataset_id} has no raw_path")
             raw_path = dataset_obj.raw_path
-
-            # Update database progress
-            dataset_obj.progress = 0.0
-            dataset_obj.status = DatasetStatus.PROCESSING
-            db.commit()
 
         # Update Celery task state: Loading tokenizer
         self.update_state(
@@ -464,11 +491,11 @@ def tokenize_dataset_task(
             }
         )
 
-        # Update database progress
+        # Update tokenization progress
         with self.get_db() as db:
-            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-            if dataset_obj:
-                dataset_obj.progress = 20.0
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                tokenization_obj.progress = 20.0
                 db.commit()
 
         # Load dataset from disk
@@ -497,9 +524,9 @@ def tokenize_dataset_task(
         )
 
         with self.get_db() as db:
-            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-            if dataset_obj:
-                dataset_obj.progress = 30.0
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                tokenization_obj.progress = 30.0
                 db.commit()
 
         schema_info = TokenizationService.analyze_dataset_schema(dataset)
@@ -534,9 +561,9 @@ def tokenize_dataset_task(
         )
 
         with self.get_db() as db:
-            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-            if dataset_obj:
-                dataset_obj.progress = 40.0
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                tokenization_obj.progress = 40.0
                 db.commit()
 
         # Map truncation strategy to tokenizer parameter
@@ -610,9 +637,9 @@ def tokenize_dataset_task(
         )
 
         with self.get_db() as db:
-            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-            if dataset_obj:
-                dataset_obj.progress = 80.0
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                tokenization_obj.progress = 80.0
                 db.commit()
 
         # Define callback for statistics calculation progress (80-90% range)
@@ -622,14 +649,14 @@ def tokenize_dataset_task(
                 mapped_progress = 80.0 + (pct / 100.0 * 10.0)  # Map 0-100% to 80-90%
                 print(f"[STATS CALLBACK] Called with pct={pct:.1f}%, mapped to {mapped_progress:.1f}%")
                 with self.get_db() as db:
-                    dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-                    if dataset_obj:
-                        old_progress = dataset_obj.progress
-                        dataset_obj.progress = mapped_progress
+                    tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+                    if tokenization_obj:
+                        old_progress = tokenization_obj.progress
+                        tokenization_obj.progress = mapped_progress
                         db.commit()
                         print(f"[STATS CALLBACK] Updated progress from {old_progress} to {mapped_progress}")
                     else:
-                        print(f"[STATS CALLBACK] ERROR: Dataset {dataset_uuid} not found")
+                        print(f"[STATS CALLBACK] ERROR: Tokenization {tokenization_id} not found")
             except Exception as e:
                 print(f"[STATS CALLBACK] EXCEPTION: {e}")
 
@@ -650,8 +677,8 @@ def tokenize_dataset_task(
             }
         )
 
-        # Save tokenized dataset
-        tokenized_path = Path(raw_path).parent / f"{Path(raw_path).name}_tokenized"
+        # Save tokenized dataset with model-specific naming
+        tokenized_path = Path(raw_path).parent / f"{Path(raw_path).name}_tokenized_{model_id}"
         TokenizationService.save_tokenized_dataset(
             tokenized_dataset,
             tokenized_path,
@@ -669,59 +696,30 @@ def tokenize_dataset_task(
         )
 
         with self.get_db() as db:
-            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-            if dataset_obj:
-                dataset_obj.progress = 95.0
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                tokenization_obj.progress = 95.0
                 db.commit()
 
 
-        # Update dataset with tokenization results
+        # Update tokenization record with results
         with self.get_db() as db:
             try:
-                dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-                if not dataset_obj:
-                    raise ValueError(f"Dataset {dataset_id} not found")
+                tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+                if not tokenization_obj:
+                    raise ValueError(f"Tokenization {tokenization_id} not found")
 
-                # Update dataset metadata with tokenization stats and schema info
-                dataset_obj.status = DatasetStatus.READY
-                dataset_obj.progress = 100.0
-                dataset_obj.tokenized_path = str(tokenized_path)
-                # Update top-level statistics columns for easy querying
-                dataset_obj.num_tokens = stats["num_tokens"]
-                dataset_obj.avg_seq_length = stats["avg_seq_length"]
-                dataset_obj.vocab_size = stats["vocab_size"]
-                # Merge tokenization metadata with existing metadata (don't overwrite!)
-                existing_metadata = dataset_obj.extra_metadata or {}
-                dataset_obj.extra_metadata = {
-                    **existing_metadata,  # Preserve existing metadata (split, config, etc.)
-                    "schema": {
-                        "text_columns": schema_info["text_columns"],
-                        "column_info": schema_info["column_info"],
-                        "all_columns": schema_info["all_columns"],
-                        "is_multi_column": schema_info["is_multi_column"],
-                    },
-                    "tokenization": {
-                        "tokenizer_name": tokenizer_name,
-                        "text_column_used": text_column,
-                        "max_length": max_length,
-                        "stride": stride,
-                        "padding": padding,
-                        "truncation": truncation,
-                        "add_special_tokens": add_special_tokens,
-                        "return_attention_mask": return_attention_mask,
-                        "num_tokens": stats["num_tokens"],
-                        "avg_seq_length": stats["avg_seq_length"],
-                        "min_seq_length": stats["min_seq_length"],
-                        "max_seq_length": stats["max_seq_length"],
-                        "median_seq_length": stats["median_seq_length"],
-                        "vocab_size": stats["vocab_size"],
-                        "length_distribution": stats["length_distribution"],
-                        "split_distribution": stats.get("split_distribution"),
-                    }
-                }
+                # Update tokenization record with results
+                tokenization_obj.status = TokenizationStatus.READY
+                tokenization_obj.progress = 100.0
+                tokenization_obj.completed_at = datetime.now(UTC)
+                tokenization_obj.tokenized_path = str(tokenized_path)
+                tokenization_obj.vocab_size = stats["vocab_size"]
+                tokenization_obj.num_tokens = stats["num_tokens"]
+                tokenization_obj.avg_seq_length = stats["avg_seq_length"]
 
                 db.commit()
-                db.refresh(dataset_obj)
+                db.refresh(tokenization_obj)
 
                 # Update Celery task state: Complete
                 self.update_state(
@@ -772,7 +770,9 @@ def tokenize_dataset_task(
                 raise
 
         return {
+            "tokenization_id": tokenization_id,
             "dataset_id": dataset_id,
+            "model_id": model_id,
             "status": "ready",
             "tokenized_path": str(tokenized_path),
             "statistics": stats,
@@ -780,23 +780,24 @@ def tokenize_dataset_task(
 
     except Exception as e:
         error_message = f"Tokenization failed: {str(e)}"
-        print(f"Dataset tokenization error: {error_message}")
+        print(f"Tokenization error: {error_message}")
 
+        # Update tokenization status to ERROR
         with self.get_db() as db:
-            self.update_progress(
-                db=db,
-                model_class=Dataset,
-                record_id=dataset_id,
-                progress=None,
-                status=DatasetStatus.ERROR.value,
-                error_message=error_message,
-            )
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                tokenization_obj.status = TokenizationStatus.ERROR
+                tokenization_obj.error_message = error_message
+                tokenization_obj.progress = None
+                db.commit()
 
         emit_dataset_progress(
             dataset_id,
             "error",
             {
                 "dataset_id": dataset_id,
+                "model_id": model_id,
+                "tokenization_id": tokenization_id,
                 "status": "error",
                 "message": error_message,
             },

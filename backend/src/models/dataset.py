@@ -22,6 +22,7 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from ..core.database import Base
@@ -42,7 +43,7 @@ class Dataset(Base):
 
     A dataset can be downloaded from HuggingFace or uploaded locally.
     It goes through stages: downloading → processing → ready.
-    Statistics are computed during processing and stored for quick access.
+    Tokenization is now handled separately via DatasetTokenization model.
 
     Attributes:
         id: Unique identifier (UUID)
@@ -53,13 +54,10 @@ class Dataset(Base):
         progress: Download/processing progress (0-100)
         error_message: Error details if status is ERROR
         raw_path: Path to raw downloaded data
-        tokenized_path: Path to tokenized data (Arrow format)
-        num_samples: Total number of samples in dataset
-        num_tokens: Total number of tokens across all samples
-        avg_seq_length: Average sequence length in tokens
-        vocab_size: Vocabulary size (unique tokens)
+        num_samples: Total number of samples in raw dataset
         size_bytes: Total size in bytes
         metadata: Flexible JSONB field for additional metadata
+        tokenizations: Relationship to DatasetTokenization records
         created_at: Record creation timestamp
         updated_at: Record last update timestamp
     """
@@ -112,32 +110,12 @@ class Dataset(Base):
         nullable=True,
         comment="Path to raw dataset files",
     )
-    tokenized_path = Column(
-        String(512),
-        nullable=True,
-        comment="Path to tokenized dataset (Arrow format)",
-    )
 
-    # Statistics
+    # Statistics (dataset-level only)
     num_samples = Column(
         Integer,
         nullable=True,
-        comment="Total number of samples",
-    )
-    num_tokens = Column(
-        BigInteger,
-        nullable=True,
-        comment="Total number of tokens",
-    )
-    avg_seq_length = Column(
-        Float,
-        nullable=True,
-        comment="Average sequence length in tokens",
-    )
-    vocab_size = Column(
-        Integer,
-        nullable=True,
-        comment="Vocabulary size (unique tokens)",
+        comment="Total number of samples in raw dataset",
     )
     size_bytes = Column(
         BigInteger,
@@ -168,6 +146,14 @@ class Dataset(Base):
         server_default=func.now(),
         onupdate=func.now(),
         comment="Record last update timestamp",
+    )
+
+    # Relationships
+    tokenizations = relationship(
+        "DatasetTokenization",
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     # Indexes for query optimization
@@ -202,11 +188,7 @@ class Dataset(Base):
             "progress": self.progress,
             "error_message": self.error_message,
             "raw_path": self.raw_path,
-            "tokenized_path": self.tokenized_path,
             "num_samples": self.num_samples,
-            "num_tokens": self.num_tokens,
-            "avg_seq_length": self.avg_seq_length,
-            "vocab_size": self.vocab_size,
             "size_bytes": self.size_bytes,
             "metadata": self.extra_metadata,  # Map to API name
             "created_at": self.created_at.isoformat() if self.created_at else None,

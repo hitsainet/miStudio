@@ -11,7 +11,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { Dataset, DatasetStatus } from '../types/dataset';
+import { Dataset, DatasetStatus, DatasetTokenization, DatasetTokenizationListResponse } from '../types/dataset';
 import { API_BASE_URL } from '../config/api';
 import { cancelDatasetDownload, getDataset } from '../api/datasets';
 import { startPolling } from '../utils/polling';
@@ -26,6 +26,7 @@ export function setDatasetSubscriptionCallback(callback: (datasetId: string) => 
 interface DatasetsState {
   // State
   datasets: Dataset[];
+  tokenizations: Record<string, DatasetTokenization[]>; // keyed by dataset_id
   loading: boolean;
   error: string | null;
 
@@ -38,6 +39,12 @@ interface DatasetsState {
   updateDatasetStatus: (id: string, status: DatasetStatus, errorMessage?: string) => void;
   setError: (error: string | null) => void;
   clearError: () => void;
+
+  // Tokenization actions
+  fetchTokenizations: (datasetId: string) => Promise<void>;
+  createTokenization: (datasetId: string, modelId: string, params: any) => Promise<void>;
+  deleteTokenization: (datasetId: string, modelId: string) => Promise<void>;
+  cancelTokenization: (datasetId: string, modelId: string) => Promise<void>;
 }
 
 export const useDatasetsStore = create<DatasetsState>()(
@@ -45,6 +52,7 @@ export const useDatasetsStore = create<DatasetsState>()(
     (set, _get) => ({
       // Initial state
       datasets: [],
+      tokenizations: {},
       loading: false,
       error: null,
 
@@ -239,6 +247,107 @@ export const useDatasetsStore = create<DatasetsState>()(
       // Clear error message
       clearError: () => {
         set({ error: null });
+      },
+
+      // Fetch tokenizations for a dataset
+      fetchTokenizations: async (datasetId: string) => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenizations`);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const result: DatasetTokenizationListResponse = await response.json();
+          set((state) => ({
+            tokenizations: {
+              ...state.tokenizations,
+              [datasetId]: result.data || [],
+            },
+          }));
+        } catch (error) {
+          console.error('[Store] Failed to fetch tokenizations:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Failed to fetch tokenizations';
+          set({ error: errorMessage });
+        }
+      },
+
+      // Create a new tokenization
+      createTokenization: async (datasetId: string, modelId: string, params: any) => {
+        set({ loading: true, error: null });
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenize`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model_id: modelId,
+              ...params,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to create tokenization');
+          }
+
+          // Refresh tokenizations list
+          await _get().fetchTokenizations(datasetId);
+          set({ loading: false });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to create tokenization';
+          set({ error: errorMessage, loading: false });
+          throw error;
+        }
+      },
+
+      // Delete a tokenization
+      deleteTokenization: async (datasetId: string, modelId: string) => {
+        set({ loading: true, error: null });
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenizations/${modelId}`, {
+            method: 'DELETE',
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to delete tokenization');
+          }
+
+          // Update local state
+          set((state) => ({
+            tokenizations: {
+              ...state.tokenizations,
+              [datasetId]: (state.tokenizations[datasetId] || []).filter((t) => t.model_id !== modelId),
+            },
+            loading: false,
+          }));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to delete tokenization';
+          set({ error: errorMessage, loading: false });
+          throw error;
+        }
+      },
+
+      // Cancel a tokenization
+      cancelTokenization: async (datasetId: string, modelId: string) => {
+        set({ loading: true, error: null });
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenizations/${modelId}/cancel`, {
+            method: 'POST',
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to cancel tokenization');
+          }
+
+          // Refresh tokenizations list to get updated status
+          await _get().fetchTokenizations(datasetId);
+          set({ loading: false });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to cancel tokenization';
+          set({ error: errorMessage, loading: false });
+          throw error;
+        }
       },
     }),
     {

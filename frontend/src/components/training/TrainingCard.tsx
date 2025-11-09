@@ -408,6 +408,14 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               {training.hyperparameters?.l1_alpha ?? 'N/A'}
             </span>
           </div>
+          {training.hyperparameters?.top_k_sparsity && (
+            <div>
+              <span className="text-slate-400">Top-K: </span>
+              <span className="text-emerald-400 font-medium">
+                {training.hyperparameters.top_k_sparsity}%
+              </span>
+            </div>
+          )}
           <div>
             <span className="text-slate-400">Hidden Dim: </span>
             <span className="text-slate-100 font-medium">
@@ -916,6 +924,14 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                       <div className="text-xs text-slate-400 mb-1">Target L0</div>
                       <div className="text-sm text-slate-100 font-medium">
                         {training.hyperparameters.target_l0}
+                      </div>
+                    </div>
+                  )}
+                  {training.hyperparameters.top_k_sparsity && (
+                    <div className="bg-slate-800/50 rounded-lg p-2 border border-emerald-500/30">
+                      <div className="text-xs text-slate-400 mb-1">Top-K Sparsity</div>
+                      <div className="text-sm text-emerald-400 font-medium">
+                        {training.hyperparameters.top_k_sparsity}%
                       </div>
                     </div>
                   )}

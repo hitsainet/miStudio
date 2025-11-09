@@ -942,3 +942,145 @@ I have generated comprehensive high-level tasks with detailed sub-tasks based on
 All tasks reference specific line numbers from Mock UI (1108-1202), include exact styling requirements, match ADR technology decisions, follow TDD architecture, and implement TID patterns. The task list is ready for a junior developer to implement systematically.
 
 This task list is comprehensive and ready for implementation. Each sub-task is specific and actionable.
+
+---
+
+## Phase 14: Multi-Tokenization Architecture ✅ COMPLETED (2025-11-09)
+
+**Completed:** 2025-11-09
+**Status:** PRODUCTION READY
+**Impact:** Enables multiple tokenizations per dataset, one for each model
+
+### Overview
+Implemented comprehensive multi-tokenization support allowing datasets to be tokenized with different models independently. Each tokenization is tracked separately with its own statistics, status, and files.
+
+### Backend Implementation
+
+- [x] 14.1 Create DatasetTokenization model
+  - File: `backend/src/models/dataset_tokenization.py`
+  - Table: `dataset_tokenizations` with columns: id, dataset_id (FK), model_id (FK), status, progress, error_message, tokenized_path, statistics (JSONB), created_at, updated_at
+  - Relationships: ForeignKey to datasets and models tables
+  - **Status**: COMPLETE - Model defined with proper relationships
+
+- [x] 14.2 Create Alembic migration for dataset_tokenizations table
+  - File: `backend/alembic/versions/04b58ed9486a_create_dataset_tokenizations.py`
+  - Creates: New table with indexes on (dataset_id), (model_id), (dataset_id, model_id) unique constraint
+  - **Status**: COMPLETE - Migration created and applied
+
+- [x] 14.3 Create migration to migrate existing tokenization data
+  - File: `backend/alembic/versions/2e1feb9cc451_migrate_tokenization_data.py`
+  - Migrates: Existing dataset tokenization metadata to new table structure
+  - Preserves: All statistics and tokenized_path data
+  - **Status**: COMPLETE - Data migration successful
+
+- [x] 14.4 Create migration to remove legacy fields
+  - File: `backend/alembic/versions/7282abcac53a_remove_legacy_tokenization_fields.py`
+  - Removes: tokenized_path column from datasets table
+  - Removes: tokenization metadata from datasets.metadata JSONB
+  - **Status**: COMPLETE - Legacy fields removed
+
+- [x] 14.5 Update dataset_tasks.py to create DatasetTokenization records
+  - File: `backend/src/workers/dataset_tasks.py`
+  - Updates: tokenize_dataset_task to create/update DatasetTokenization records instead of dataset metadata
+  - Progress tracking: Updates DatasetTokenization.progress and status
+  - **Status**: COMPLETE - Worker updated with new pattern
+
+- [x] 14.6 Add transformers_compat.py for tokenizer compatibility
+  - File: `backend/src/utils/transformers_compat.py`
+  - Functions: load_tokenizer_safe() with error handling
+  - Handles: Model name resolution, tokenizer fallbacks
+  - **Status**: COMPLETE - Tokenizer loading robust
+
+### API Endpoints
+
+- [x] 14.7 GET /datasets/{id}/tokenizations - List all tokenizations
+  - File: `backend/src/api/v1/endpoints/datasets.py`
+  - Returns: List of tokenizations for a dataset with statistics
+  - Includes: Model name, status, progress, statistics
+  - **Status**: COMPLETE - Endpoint implemented
+
+- [x] 14.8 GET /datasets/{id}/tokenizations/{model_id} - Get specific tokenization
+  - File: `backend/src/api/v1/endpoints/datasets.py`
+  - Returns: Single tokenization details with full statistics
+  - Error handling: 404 if not found
+  - **Status**: COMPLETE - Endpoint implemented
+
+- [x] 14.9 POST /datasets/{id}/tokenizations/{model_id}/cancel - Cancel tokenization
+  - File: `backend/src/api/v1/endpoints/datasets.py`
+  - Cancels: Running tokenization job via Celery revoke
+  - Updates: Status to CANCELLED
+  - **Status**: COMPLETE - Cancel functionality working
+
+- [x] 14.10 DELETE /datasets/{id}/tokenizations/{model_id} - Delete tokenization
+  - File: `backend/src/api/v1/endpoints/datasets.py`
+  - Deletes: Tokenization record and associated files
+  - Validation: Cannot delete if status is PROCESSING/QUEUED
+  - **Status**: COMPLETE - Deletion with file cleanup
+
+### Frontend Implementation
+
+- [x] 14.11 Create TokenizationsList.tsx component
+  - File: `frontend/src/components/datasets/TokenizationsList.tsx`
+  - Displays: List of all tokenizations for a dataset
+  - Features: Status badges, progress bars, cancel button, delete button
+  - Styling: Matches existing DatasetCard patterns
+  - **Status**: COMPLETE - Component implemented
+
+- [x] 14.12 Update DatasetDetailModal.tsx for multi-tokenization UI
+  - File: `frontend/src/components/datasets/DatasetDetailModal.tsx`
+  - Updates: Tokenization tab to show TokenizationsList
+  - Updates: Statistics tab to show tokenization selector dropdown
+  - Integration: Fetches tokenizations on modal open
+  - **Status**: COMPLETE - Modal updated with new UI
+
+- [x] 14.13 Rewrite StatisticsTab to fetch from new table
+  - File: `frontend/src/components/datasets/DatasetDetailModal.tsx`
+  - Fetches: Statistics from selected tokenization via GET /datasets/{id}/tokenizations/{model_id}
+  - Displays: Tokenization selector dropdown at top
+  - Updates: Statistics visualization based on selected tokenization
+  - **Status**: COMPLETE - Statistics tab fully functional
+
+- [x] 14.14 Add tokenization selector dropdown
+  - File: `frontend/src/components/datasets/DatasetDetailModal.tsx`
+  - Dropdown: Lists all available tokenizations with model names
+  - Selection: Updates statistics display immediately
+  - Styling: Matches existing form controls
+  - **Status**: COMPLETE - Selector integrated
+
+- [x] 14.15 Implement cancel button (X icon) for PROCESSING/QUEUED jobs
+  - File: `frontend/src/components/datasets/TokenizationsList.tsx`
+  - Button: X icon visible only for active jobs (PROCESSING/QUEUED)
+  - Action: Calls POST /datasets/{id}/tokenizations/{model_id}/cancel
+  - Feedback: Shows confirmation, updates status immediately
+  - **Status**: COMPLETE - Cancel button working
+
+- [x] 14.16 Update datasetsStore.ts with tokenization methods
+  - File: `frontend/src/stores/datasetsStore.ts`
+  - Methods: fetchTokenizations(), cancelTokenization(), deleteTokenization(), startTokenization()
+  - State: tokenizations[] array, selectedTokenization
+  - WebSocket: Updates tokenization progress in real-time
+  - **Status**: COMPLETE - Store fully integrated
+
+### Related Files
+- `backend/src/models/dataset_tokenization.py` - New model for tokenizations
+- `backend/alembic/versions/04b58ed9486a_create_dataset_tokenizations.py` - Create table
+- `backend/alembic/versions/2e1feb9cc451_migrate_tokenization_data.py` - Data migration
+- `backend/alembic/versions/7282abcac53a_remove_legacy_tokenization_fields.py` - Cleanup
+- `backend/src/workers/dataset_tasks.py` - Worker updated for new pattern
+- `backend/src/utils/transformers_compat.py` - Tokenizer compatibility layer
+- `backend/src/api/v1/endpoints/datasets.py` - New API endpoints
+- `frontend/src/components/datasets/TokenizationsList.tsx` - New component
+- `frontend/src/components/datasets/DatasetDetailModal.tsx` - Updated modal
+- `frontend/src/stores/datasetsStore.ts` - Store with tokenization methods
+
+### Testing Status
+- Backend API: All tokenization endpoints tested manually
+- Frontend: Multi-tokenization UI tested with multiple models
+- Database: Migrations verified, data integrity confirmed
+- WebSocket: Real-time progress updates working correctly
+
+### Impact on Existing Features
+- Datasets can now have multiple tokenizations simultaneously
+- Statistics tab shows tokenization-specific data (not dataset-wide)
+- Each tokenization tracks its own status, progress, and statistics independently
+- Legacy single-tokenization data successfully migrated to new structure

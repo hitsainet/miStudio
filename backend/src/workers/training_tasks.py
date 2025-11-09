@@ -333,6 +333,7 @@ def train_sae_task(
                 l1_alpha=hp['l1_alpha'],
                 ghost_gradient_penalty=hp.get('ghost_gradient_penalty', 0.0),
                 normalize_activations=hp.get('normalize_activations', 'constant_norm_rescale'),
+                top_k_sparsity=hp.get('top_k_sparsity', None),
             ).to(device)
             models[layer_idx] = model
 

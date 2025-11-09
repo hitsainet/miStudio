@@ -75,7 +75,7 @@ export interface HyperparametersConfig {
   l1_alpha: number;
   /** Target L0 sparsity (fraction of active features, 0-1) */
   target_l0?: number;
-  /** Top-K sparsity (fraction of neurons to keep active, 0-1). Guarantees exact sparsity. */
+  /** Top-K sparsity percentage (e.g., 5 for 5%). Guarantees exact sparsity. */
   top_k_sparsity?: number;
 
   // Training

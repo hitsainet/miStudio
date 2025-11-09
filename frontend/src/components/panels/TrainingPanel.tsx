@@ -662,7 +662,7 @@ export const TrainingPanel: React.FC = () => {
                 <div>
                   <HyperparameterLabel
                     paramName="top_k_sparsity"
-                    label="Top-K Sparsity (Hard)"
+                    label="Top-K Sparsity % (Hard)"
                     htmlFor="top-k-sparsity"
                     className="mb-2"
                   />
@@ -671,10 +671,10 @@ export const TrainingPanel: React.FC = () => {
                     type="number"
                     value={config.top_k_sparsity ?? ''}
                     onChange={(e) => updateConfig({ top_k_sparsity: e.target.value ? parseFloat(e.target.value) : undefined })}
-                    min={0.001}
-                    max={1.0}
-                    step={0.001}
-                    placeholder="Optional (e.g., 0.05 for 5%)"
+                    min={0.1}
+                    max={100}
+                    step={0.1}
+                    placeholder="Optional (e.g., 5 for 5%)"
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors placeholder:text-slate-500"
                   />
                   <p className="mt-1 text-xs text-slate-400">

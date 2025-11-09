@@ -59,9 +59,10 @@ class SparseAutoencoder(nn.Module):
         self.normalize_activations = normalize_activations
         self.top_k_sparsity = top_k_sparsity
 
-        # Calculate k for Top-K if enabled (fraction of latent_dim)
+        # Calculate k for Top-K if enabled (convert percentage to fraction)
         if top_k_sparsity is not None:
-            self.k = max(1, int(top_k_sparsity * latent_dim))
+            fraction = top_k_sparsity / 100.0  # Convert percentage to fraction
+            self.k = max(1, int(fraction * latent_dim))
         else:
             self.k = None
 
@@ -409,9 +410,10 @@ class Transcoder(nn.Module):
         self.l1_alpha = l1_alpha
         self.top_k_sparsity = top_k_sparsity
 
-        # Calculate k for Top-K if enabled (fraction of latent_dim)
+        # Calculate k for Top-K if enabled (convert percentage to fraction)
         if top_k_sparsity is not None:
-            self.k = max(1, int(top_k_sparsity * latent_dim))
+            fraction = top_k_sparsity / 100.0  # Convert percentage to fraction
+            self.k = max(1, int(fraction * latent_dim))
         else:
             self.k = None
 

@@ -240,6 +240,7 @@ export const TrainingPanel: React.FC = () => {
           training_layers: config.training_layers || [0],
           l1_alpha: config.l1_alpha,
           target_l0: config.target_l0,
+          top_k_sparsity: config.top_k_sparsity,
           learning_rate: config.learning_rate,
           batch_size: config.batch_size,
           total_steps: config.total_steps,

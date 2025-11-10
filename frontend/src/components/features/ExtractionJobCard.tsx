@@ -458,6 +458,8 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   <tr>
                     <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>ID</th>
                     <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Label</th>
+                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Category</th>
+                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Description</th>
                     <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Example Context</th>
                     <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Activation Freq</th>
                     <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Interpretability</th>
@@ -467,13 +469,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 <tbody>
                   {isLoadingFeatures ? (
                     <tr>
-                      <td colSpan={6} className={`px-4 py-8 text-center ${COMPONENTS.text.secondary}`}>
+                      <td colSpan={8} className={`px-4 py-8 text-center ${COMPONENTS.text.secondary}`}>
                         Loading features...
                       </td>
                     </tr>
                   ) : features.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className={`px-4 py-8 text-center ${COMPONENTS.text.secondary}`}>
+                      <td colSpan={8} className={`px-4 py-8 text-center ${COMPONENTS.text.secondary}`}>
                         No features match your search
                       </td>
                     </tr>
@@ -491,6 +493,24 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                         </td>
                         <td className="px-4 py-3">
                           <span className={`text-sm ${COMPONENTS.text.primary}`}>{feature.name}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {feature.category ? (
+                            <span className="text-xs text-slate-300 bg-slate-700/50 px-2 py-1 rounded">
+                              {feature.category}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-500 italic">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {feature.description ? (
+                            <span className="text-xs text-slate-400 line-clamp-2">
+                              {feature.description}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-500 italic">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           {feature.example_context && (

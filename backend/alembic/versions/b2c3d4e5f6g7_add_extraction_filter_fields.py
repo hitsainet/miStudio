@@ -18,13 +18,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add extraction filter fields to extractions table (if it exists)
+    # Add extraction filter fields to extraction_jobs table (if it exists)
     conn = op.get_bind()
     inspector = sa.inspect(conn)
 
-    if 'extractions' in inspector.get_table_names():
-        op.add_column('extractions', sa.Column('extraction_filter_enabled', sa.Boolean(), nullable=False, server_default='false'))
-        op.add_column('extractions', sa.Column('extraction_filter_mode', sa.String(20), nullable=False, server_default='standard'))
+    if 'extraction_jobs' in inspector.get_table_names():
+        op.add_column('extraction_jobs', sa.Column('extraction_filter_enabled', sa.Boolean(), nullable=False, server_default='false'))
+        op.add_column('extraction_jobs', sa.Column('extraction_filter_mode', sa.String(20), nullable=False, server_default='standard'))
 
 
 def downgrade() -> None:
@@ -32,6 +32,6 @@ def downgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
 
-    if 'extractions' in inspector.get_table_names():
-        op.drop_column('extractions', 'extraction_filter_mode')
-        op.drop_column('extractions', 'extraction_filter_enabled')
+    if 'extraction_jobs' in inspector.get_table_names():
+        op.drop_column('extraction_jobs', 'extraction_filter_mode')
+        op.drop_column('extraction_jobs', 'extraction_filter_enabled')

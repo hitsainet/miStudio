@@ -487,16 +487,34 @@ async def tokenize_dataset(
         # Auto-clear existing tokenization before starting new job
         # This handles both ERROR status (failed tokenization) and already-tokenized datasets
         # Check if any tokenization exists by querying the relationship
-        has_tokenization = dataset.tokenizations and len(dataset.tokenizations) > 0
-        if dataset.status == DatasetStatus.ERROR or has_tokenization:
-            logger.info(f"Auto-clearing existing tokenization for dataset {dataset_id} before re-tokenization")
-            dataset = await DatasetService.clear_tokenization(db, dataset_id)
-            if not dataset:
-                redis_client.delete(lock_key)  # Release lock
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to clear existing tokenization"
-                )
+        try:
+            logger.info(f"Checking for existing tokenizations on dataset {dataset_id}")
+            has_tokenization = dataset.tokenizations and len(dataset.tokenizations) > 0
+            logger.info(f"Dataset {dataset_id} has_tokenization={has_tokenization}, status={dataset.status}")
+
+            if dataset.status == DatasetStatus.ERROR or has_tokenization:
+                logger.info(f"Auto-clearing existing tokenization for dataset {dataset_id} before re-tokenization")
+                dataset = await DatasetService.clear_tokenization(db, dataset_id)
+                if not dataset:
+                    redis_client.delete(lock_key)  # Release lock
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to clear existing tokenization"
+                    )
+        except AttributeError as e:
+            logger.error(f"AttributeError in tokenization check: {e}", exc_info=True)
+            redis_client.delete(lock_key)  # Release lock
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to check tokenization status: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in tokenization check: {e}", exc_info=True)
+            redis_client.delete(lock_key)  # Release lock
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to start tokenization: {str(e)}"
+            )
 
         # Update status to processing
         updates = DatasetUpdate(

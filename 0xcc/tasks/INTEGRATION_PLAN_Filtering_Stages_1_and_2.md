@@ -28,21 +28,21 @@ This document outlines the integration work needed to complete the three-stage f
 
 ---
 
-## Stage 1: Dataset Tokenization Filter Integration
+## Stage 1: Dataset Tokenization Filter Integration ✅ COMPLETE
 
 ### Target Files:
 1. **Primary:** `backend/src/services/tokenization_service.py`
    - Class: `_TokenizationMapper`
    - Method: `__call__(self, examples)`
-   - Line: ~109 (after tokenization, before return)
+   - Lines: 29-61 (parameters), 81-87 (_get_token_filter), 129-166 (filtering logic)
 
 2. **Secondary:** `backend/src/workers/dataset_tasks.py`
-   - Function: `tokenize_dataset_task()` or similar
-   - Purpose: Pass filter settings to TokenizationMapper
+   - Function: `tokenize_dataset_task()`
+   - Lines: 612-614 (passing settings)
 
 ### Implementation Steps:
 
-#### Step 1.1: Add Filter Parameters to _TokenizationMapper
+#### Step 1.1: Add Filter Parameters to _TokenizationMapper ✅
 **Location:** `tokenization_service.py`, `_TokenizationMapper.__init__()`
 
 ```python

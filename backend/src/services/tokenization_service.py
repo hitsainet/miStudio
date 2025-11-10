@@ -38,6 +38,9 @@ class _TokenizationMapper:
         stride: int = 0,
         return_overflowing_tokens: bool = False,
         enable_cleaning: bool = True,
+        enable_filtering: bool = False,
+        filter_mode: str = "conservative",
+        junk_ratio_threshold: float = 0.7,
     ):
         """Initialize the tokenization mapper with parameters."""
         self.tokenizer_name = tokenizer_name
@@ -50,8 +53,12 @@ class _TokenizationMapper:
         self.stride = stride
         self.return_overflowing_tokens = return_overflowing_tokens
         self.enable_cleaning = enable_cleaning
+        self.enable_filtering = enable_filtering
+        self.filter_mode = filter_mode
+        self.junk_ratio_threshold = junk_ratio_threshold
         self._tokenizer = None  # Lazy-loaded in worker process
         self._text_cleaner = None  # Lazy-loaded in worker process
+        self._token_filter = None  # Lazy-loaded in worker process
 
     def _get_tokenizer(self):
         """Lazy-load tokenizer in worker process (avoids pickling issues)."""
@@ -70,6 +77,14 @@ class _TokenizationMapper:
         if self._text_cleaner is None:
             self._text_cleaner = get_standard_cleaner()
         return self._text_cleaner
+
+    def _get_token_filter(self):
+        """Lazy-load token filter in worker process (avoids pickling issues)."""
+        if self._token_filter is None:
+            from ..utils.token_filter import TokenFilter, FilterMode
+            mode = FilterMode[self.filter_mode.upper()]
+            self._token_filter = TokenFilter(mode=mode)
+        return self._token_filter
 
     def __call__(self, examples):
         """
@@ -110,6 +125,43 @@ class _TokenizationMapper:
             texts_to_tokenize,
             **kwargs
         )
+
+        # Filter junk samples if enabled (Stage 1: Tokenization Filter)
+        if self.enable_filtering:
+            token_filter = self._get_token_filter()
+            tokenizer_obj = self._get_tokenizer()
+
+            original_count = len(result['input_ids'])
+
+            # Filter out samples with too many junk tokens
+            filtered_indices = []
+            for idx, input_ids in enumerate(result['input_ids']):
+                if not token_filter.is_junk_sequence(
+                    input_ids,
+                    tokenizer_obj,
+                    self.junk_ratio_threshold
+                ):
+                    filtered_indices.append(idx)
+
+            kept_count = len(filtered_indices)
+            filtered_count = original_count - kept_count
+            filter_pct = (filtered_count / original_count * 100) if original_count > 0 else 0
+
+            # Log filtering statistics
+            logger.info(
+                f"Tokenization filter: {kept_count} samples kept, "
+                f"{filtered_count} junk samples filtered ({filter_pct:.1f}% filtered)"
+            )
+
+            # Keep only non-junk samples
+            if filtered_indices:
+                result = {
+                    key: [value[i] for i in filtered_indices]
+                    for key, value in result.items()
+                }
+            else:
+                # All samples filtered - return empty result
+                result = {key: [] for key in result.keys()}
 
         return result
 
@@ -220,6 +272,9 @@ class TokenizationService:
         num_proc: Optional[int] = None,
         text_cleaner: Optional[TextCleaner] = None,
         enable_cleaning: bool = True,
+        enable_filtering: bool = False,
+        filter_mode: str = "conservative",
+        junk_ratio_threshold: float = 0.7,
     ) -> HFDataset:
         """
         Tokenize a dataset using the provided tokenizer.
@@ -370,6 +425,9 @@ class TokenizationService:
                 stride=stride,
                 return_overflowing_tokens=return_overflowing_tokens,
                 enable_cleaning=enable_cleaning,
+                enable_filtering=enable_filtering,
+                filter_mode=filter_mode,
+                junk_ratio_threshold=junk_ratio_threshold,
             )
 
             logger.info(

@@ -13,6 +13,7 @@ import copy
 
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ..models.dataset import Dataset, DatasetStatus
 from ..schemas.dataset import DatasetCreate, DatasetUpdate
@@ -108,17 +109,19 @@ class DatasetService:
         dataset_id: UUID
     ) -> Optional[Dataset]:
         """
-        Get a dataset by ID.
+        Get a dataset by ID with tokenizations eagerly loaded.
 
         Args:
             db: Database session
             dataset_id: Dataset UUID
 
         Returns:
-            Dataset object if found, None otherwise
+            Dataset object with tokenizations relationship loaded if found, None otherwise
         """
         result = await db.execute(
-            select(Dataset).where(Dataset.id == dataset_id)
+            select(Dataset)
+            .where(Dataset.id == dataset_id)
+            .options(selectinload(Dataset.tokenizations))
         )
         return result.scalar_one_or_none()
 

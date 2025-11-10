@@ -29,6 +29,11 @@ class DatasetCreate(DatasetBase):
     raw_path: Optional[str] = Field(None, max_length=512, description="Path to raw dataset files")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional metadata")
 
+    # Tokenization filter configuration
+    tokenization_filter_enabled: bool = Field(False, description="Enable sample filtering during tokenization")
+    tokenization_filter_mode: Literal["minimal", "conservative"] = Field("conservative", description="Filter mode: minimal or conservative")
+    tokenization_junk_ratio_threshold: float = Field(0.7, ge=0.0, le=1.0, description="Junk ratio threshold (0.0-1.0)")
+
 
 class DatasetUpdate(BaseModel):
     """Schema for updating an existing dataset."""
@@ -107,6 +112,11 @@ class DatasetResponse(DatasetBase):
     )
     created_at: datetime = Field(..., description="Record creation timestamp")
     updated_at: datetime = Field(..., description="Record last update timestamp")
+
+    # Tokenization filter configuration
+    tokenization_filter_enabled: bool = Field(False, description="Enable sample filtering during tokenization")
+    tokenization_filter_mode: str = Field("conservative", description="Filter mode: minimal or conservative")
+    tokenization_junk_ratio_threshold: float = Field(0.7, description="Junk ratio threshold (0.0-1.0)")
 
     @field_serializer('status')
     def serialize_status(self, status: DatasetStatus | str, _info) -> str:

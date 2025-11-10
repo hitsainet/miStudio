@@ -609,9 +609,10 @@ def tokenize_dataset_task(
                 batch_size=1000,
                 progress_callback=None,  # Disabled for multiprocessing (using tqdm bridge instead)
                 num_proc=None,  # Auto-detect CPU cores for parallel processing (prevents OOM)
-                enable_filtering=settings.tokenization_filter_enabled,
-                filter_mode=settings.tokenization_filter_mode,
-                junk_ratio_threshold=settings.tokenization_junk_ratio_threshold,
+                # Use filter config from dataset object (per-job) instead of global settings
+                enable_filtering=dataset_obj.tokenization_filter_enabled,
+                filter_mode=dataset_obj.tokenization_filter_mode,
+                junk_ratio_threshold=dataset_obj.tokenization_junk_ratio_threshold,
             )
         finally:
             # Always restore original tqdm regardless of success/failure

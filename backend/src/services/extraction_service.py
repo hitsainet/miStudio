@@ -683,6 +683,10 @@ class ExtractionService:
             hidden_dim = training.hyperparameters.get("hidden_dim", 768)
             max_length = config.get("max_length", 512)
 
+            # Get token filter configuration from config (per-job) instead of global settings
+            extraction_filter_enabled = config.get("extraction_filter_enabled", False)
+            extraction_filter_mode = config.get("extraction_filter_mode", "standard")
+
             # Calculate recommended resource settings based on available system resources
             recommended_settings = ResourceConfig.get_optimal_settings(
                 training_config=training.hyperparameters,
@@ -942,14 +946,14 @@ class ExtractionService:
                             continue
 
                         # NEW: Stage 2 Token Filtering - Filter junk tokens if enabled
-                        if settings.extraction_filter_enabled:
+                        if extraction_filter_enabled:
                             from src.utils.token_filter import TokenFilter, FilterMode
 
                             # Lazy-load filter once per extraction
                             if not hasattr(self, '_token_filter'):
-                                mode = FilterMode[settings.extraction_filter_mode.upper()]
+                                mode = FilterMode[extraction_filter_mode.upper()]
                                 self._token_filter = TokenFilter(mode=mode)
-                                logger.info(f"Token filtering enabled for extraction: mode={settings.extraction_filter_mode}")
+                                logger.info(f"Token filtering enabled for extraction: mode={extraction_filter_mode}")
 
                             # Track filtering statistics
                             tokens_before = sum(len(ids) for ids in batch_input_ids)
@@ -1193,7 +1197,7 @@ class ExtractionService:
             logger.info(f"Activation extraction complete. Creating feature records...")
 
             # Log Stage 2 filtering statistics if enabled
-            if settings.extraction_filter_enabled and hasattr(self, '_extraction_tokens_kept'):
+            if extraction_filter_enabled and hasattr(self, '_extraction_tokens_kept'):
                 total_tokens = self._extraction_tokens_kept + self._extraction_tokens_filtered
                 filter_pct = (self._extraction_tokens_filtered / total_tokens * 100) if total_tokens > 0 else 0
                 logger.info(

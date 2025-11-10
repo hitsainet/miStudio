@@ -6,7 +6,7 @@ from trained SAE models.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -51,6 +51,10 @@ class ExtractionConfigRequest(BaseModel):
         description="Number of features to commit at once (500-5000). If not provided, will use recommended value"
     )
 
+    # Token filtering configuration
+    extraction_filter_enabled: bool = Field(False, description="Enable token filtering during extraction")
+    extraction_filter_mode: Literal["minimal", "conservative", "standard", "aggressive"] = Field("standard", description="Filter mode: minimal, conservative, standard, or aggressive")
+
     # NOTE: Labeling configuration has been removed from extraction
     # Features are created unlabeled and can be labeled separately via LabelingService
     # This allows re-labeling without re-extraction
@@ -78,6 +82,10 @@ class ExtractionStatusResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None
+
+    # Token filtering configuration
+    extraction_filter_enabled: Optional[bool] = False
+    extraction_filter_mode: Optional[str] = "standard"
 
 
 class ExtractionListResponse(BaseModel):

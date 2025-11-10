@@ -38,6 +38,10 @@ export interface ExtractionTemplate {
   top_k_examples: number;
   /** Whether this template is marked as favorite */
   is_favorite: boolean;
+  /** Enable token filtering during extraction (default: false) */
+  extraction_filter_enabled?: boolean;
+  /** Filter mode: minimal, conservative, standard, or aggressive (default: 'standard') */
+  extraction_filter_mode?: 'minimal' | 'conservative' | 'standard' | 'aggressive';
   /** Additional JSON metadata */
   extra_metadata?: Record<string, any>;
   /** Creation timestamp */
@@ -69,6 +73,10 @@ export interface ExtractionTemplateCreate {
   top_k_examples?: number;
   /** Whether this template is marked as favorite (default: false) */
   is_favorite?: boolean;
+  /** Enable token filtering during extraction (default: false) */
+  extraction_filter_enabled?: boolean;
+  /** Filter mode: minimal, conservative, standard, or aggressive (default: 'standard') */
+  extraction_filter_mode?: 'minimal' | 'conservative' | 'standard' | 'aggressive';
   /** Additional JSON metadata */
   extra_metadata?: Record<string, any>;
 }
@@ -96,6 +104,10 @@ export interface ExtractionTemplateUpdate {
   top_k_examples?: number;
   /** Whether this template is marked as favorite */
   is_favorite?: boolean;
+  /** Enable token filtering during extraction */
+  extraction_filter_enabled?: boolean;
+  /** Filter mode: minimal, conservative, standard, or aggressive */
+  extraction_filter_mode?: 'minimal' | 'conservative' | 'standard' | 'aggressive';
   /** Additional JSON metadata */
   extra_metadata?: Record<string, any>;
 }

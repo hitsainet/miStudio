@@ -43,6 +43,12 @@ export function ExtractionTemplateForm({
     template?.extra_metadata ? JSON.stringify(template.extra_metadata, null, 2) : '{}'
   );
 
+  // Filtering configuration state
+  const [filterEnabled, setFilterEnabled] = useState(template?.extraction_filter_enabled || false);
+  const [filterMode, setFilterMode] = useState<'minimal' | 'conservative' | 'standard' | 'aggressive'>(
+    template?.extraction_filter_mode || 'standard'
+  );
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +64,8 @@ export function ExtractionTemplateForm({
       setTopKExamples(template.top_k_examples);
       setIsFavorite(template.is_favorite);
       setMetadataJson(template.extra_metadata ? JSON.stringify(template.extra_metadata, null, 2) : '{}');
+      setFilterEnabled(template.extraction_filter_enabled || false);
+      setFilterMode(template.extraction_filter_mode || 'standard');
     }
   }, [template]);
 
@@ -154,6 +162,8 @@ export function ExtractionTemplateForm({
         batch_size: batchSize,
         top_k_examples: topKExamples,
         is_favorite: isFavorite,
+        extraction_filter_enabled: filterEnabled,
+        extraction_filter_mode: filterMode,
         extra_metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       };
 
@@ -169,6 +179,8 @@ export function ExtractionTemplateForm({
         setBatchSize(32);
         setTopKExamples(10);
         setIsFavorite(false);
+        setFilterEnabled(false);
+        setFilterMode('standard');
         setMetadataJson('{}');
       }
     } catch (err) {
@@ -346,6 +358,52 @@ export function ExtractionTemplateForm({
             />
             <span className="text-sm text-slate-300">Mark as favorite</span>
           </label>
+        </div>
+
+        {/* Token Filtering Settings */}
+        <div className="border-t border-slate-700 pt-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="filter-enabled-template"
+              checked={filterEnabled}
+              onChange={(e) => setFilterEnabled(e.target.checked)}
+              disabled={isSubmitting}
+              className="w-4 h-4 text-emerald-600 bg-slate-700 border-slate-600 rounded focus:ring-2 focus:ring-emerald-500"
+            />
+            <label htmlFor="filter-enabled-template" className="text-sm font-medium text-slate-100">
+              Enable Token Filtering
+            </label>
+          </div>
+
+          {filterEnabled && (
+            <div className="ml-6 space-y-3 bg-slate-800/50 p-3 rounded border border-slate-700/50">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-300">Filter Mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['minimal', 'conservative', 'standard', 'aggressive'] as const).map((mode) => (
+                    <label key={mode} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value={mode}
+                        checked={filterMode === mode}
+                        onChange={(e) => setFilterMode(e.target.value as typeof filterMode)}
+                        disabled={isSubmitting}
+                        className="w-3.5 h-3.5 text-emerald-600 bg-slate-700 border-slate-600 focus:ring-emerald-500"
+                      />
+                      <span className="text-sm text-slate-200 capitalize">{mode}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  {filterMode === 'minimal' && 'Only filter control characters'}
+                  {filterMode === 'conservative' && 'Filter control characters + whitespace'}
+                  {filterMode === 'standard' && 'Balanced filtering (recommended)'}
+                  {filterMode === 'aggressive' && 'Maximum filtering (punctuation, numbers, etc.)'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Extra Metadata */}

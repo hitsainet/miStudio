@@ -97,6 +97,7 @@ class FeatureResponse(BaseModel):
     training_id: str
     extraction_job_id: str
     neuron_index: int
+    category: Optional[str] = None
     name: str
     description: Optional[str] = None
     label_source: str
@@ -149,6 +150,7 @@ class FeatureDetailResponse(BaseModel):
     training_id: str
     extraction_job_id: str
     neuron_index: int
+    category: Optional[str] = None
     name: str
     description: Optional[str] = None
     label_source: str

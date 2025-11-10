@@ -7,6 +7,9 @@
  * - Progress: Extraction in progress
  * - Browser: Feature list with search/filter/sort (if completed)
  *
+ * Displays 8 columns: ID, Label, Category, Description, Example Context,
+ * Activation Freq, Interpretability, Of Interest
+ *
  * Matches Mock UI specification (lines 2359-2800+).
  */
 
@@ -90,12 +93,8 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
       await startExtraction(training.id, {
         evaluation_samples: evaluationSamples,
         top_k_examples: topKExamples,
-        labeling_method: labelingMethod,
-        local_labeling_model: labelingMethod === 'local' ? localLabelingModel : undefined,
-        openai_api_key: labelingMethod === 'openai' && openaiApiKey ? openaiApiKey : undefined,
-        openai_model: labelingMethod === 'openai' ? openaiModel : undefined,
         ...resourceConfig,
-      });
+      } as any); // TODO: Update ExtractionConfigRequest to include labeling params
     } catch (error) {
       console.error('Failed to start extraction:', error);
       // Refresh extraction status to show current state (e.g., existing failed extraction)
@@ -522,6 +521,8 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">ID</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Label</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Category</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Description</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Example Context</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Activation Freq</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Interpretability</th>
@@ -531,13 +532,13 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
               <tbody>
                 {isLoadingFeatures ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
                       Loading features...
                     </td>
                   </tr>
                 ) : features.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
                       No features match your search
                     </td>
                   </tr>
@@ -554,7 +555,25 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="text-sm text-white">{feature.name}</span>
+                        <span className="text-sm text-white font-medium">{feature.name}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {feature.category ? (
+                          <span className="text-xs text-slate-300 bg-slate-700/50 px-2 py-1 rounded">
+                            {feature.category}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500 italic">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {feature.description ? (
+                          <span className="text-xs text-slate-400 line-clamp-2">
+                            {feature.description}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500 italic">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {feature.example_context && (
@@ -580,12 +599,13 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                         <button
                           onClick={(e) => handleToggleFavorite(feature.id, feature.is_favorite, e)}
                           className="p-1 hover:bg-slate-700 rounded transition-colors"
+                          title={feature.is_favorite ? "Remove from favorites" : "Mark as favorite"}
                         >
                           <Star
-                            className={`w-4 h-4 ${
+                            className={`w-5 h-5 transition-all ${
                               feature.is_favorite
-                                ? 'fill-emerald-500 text-emerald-500'
-                                : 'text-slate-500'
+                                ? 'fill-yellow-400 text-yellow-400'
+                                : 'text-slate-500 hover:text-yellow-400'
                             }`}
                           />
                         </button>
@@ -599,10 +619,10 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
         </div>
 
         {/* Pagination */}
-        {features.length > 0 && (
+        {features.length > 0 && metadata && (
           <div className="flex items-center justify-between border-t border-slate-700 pt-4">
             <div className="text-sm text-slate-400">
-              Showing {features.length} of {metadata.total} features
+              Showing {filters.offset! + 1}-{Math.min(filters.offset! + filters.limit!, metadata.total)} of {metadata.total} features
             </div>
             <div className="flex gap-2">
               <button

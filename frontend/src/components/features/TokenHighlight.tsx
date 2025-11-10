@@ -19,6 +19,19 @@ interface TokenHighlightProps {
 }
 
 /**
+ * Clean token by removing BPE markers from GPT-2/BERT tokenizers.
+ * - "Ġ" = GPT-2 space marker (indicates token starts a new word)
+ * - "▁" = SentencePiece/T5 space marker
+ * - "##" = BERT word-piece continuation marker
+ */
+const cleanToken = (token: string): string => {
+  return token
+    .replace(/^Ġ/g, ' ')  // GPT-2 space marker → space
+    .replace(/^▁/g, ' ')  // SentencePiece space marker → space
+    .replace(/^##/g, '');  // BERT continuation marker → nothing
+};
+
+/**
  * Calculate activation intensity (0-1) for a token.
  */
 const calculateIntensity = (activation: number, maxActivation: number): number => {
@@ -73,6 +86,7 @@ export const TokenHighlight: React.FC<TokenHighlightProps> = ({
         const backgroundColor = getBackgroundColor(intensity);
         const textColor = getTextColor(intensity);
         const borderClass = getBorderClass(intensity);
+        const cleanedToken = cleanToken(token);
 
         return (
           <span
@@ -81,7 +95,7 @@ export const TokenHighlight: React.FC<TokenHighlightProps> = ({
             style={{ backgroundColor }}
             title={`Activation: ${activation.toFixed(3)}`}
           >
-            {token}
+            {cleanedToken}
             {/* Tooltip */}
             <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
               Activation: {activation.toFixed(3)}
@@ -116,6 +130,7 @@ export const TokenHighlightCompact: React.FC<TokenHighlightProps & { maxTokens?:
         const backgroundColor = getBackgroundColor(intensity);
         const textColor = getTextColor(intensity);
         const borderClass = getBorderClass(intensity);
+        const cleanedToken = cleanToken(token);
 
         return (
           <span
@@ -124,7 +139,7 @@ export const TokenHighlightCompact: React.FC<TokenHighlightProps & { maxTokens?:
             style={{ backgroundColor }}
             title={`Activation: ${activation.toFixed(3)}`}
           >
-            {token}
+            {cleanedToken}
             {/* Tooltip */}
             <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
               Activation: {activation.toFixed(3)}

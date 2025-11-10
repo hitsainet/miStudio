@@ -333,24 +333,40 @@ class DatasetService:
         if not db_dataset:
             return None
 
-        # Delete tokenized files from disk if they exist
-        if db_dataset.tokenized_path:
-            tokenized_path = Path(db_dataset.tokenized_path)
-            if tokenized_path.exists():
-                try:
-                    if tokenized_path.is_dir():
-                        shutil.rmtree(tokenized_path)
-                    else:
-                        tokenized_path.unlink()
-                    logger.info(f"Deleted tokenized files at {tokenized_path}")
-                except Exception as e:
-                    logger.error(f"Failed to delete tokenized files at {tokenized_path}: {e}")
+        # Delete tokenized files and remove tokenization records from database
+        # Use eager loading to get tokenizations
+        result = await db.execute(
+            select(Dataset)
+            .where(Dataset.id == dataset_id)
+            .options(selectinload(Dataset.tokenizations))
+        )
+        db_dataset = result.scalar_one_or_none()
 
-        # Clear tokenization-related fields
-        db_dataset.tokenized_path = None
-        db_dataset.num_tokens = None
-        db_dataset.avg_seq_length = None
-        db_dataset.vocab_size = None
+        if not db_dataset:
+            return None
+
+        # Delete tokenized files from disk and remove tokenization records
+        if db_dataset.tokenizations:
+            from ..models.dataset_tokenization import DatasetTokenization
+
+            for tokenization in db_dataset.tokenizations:
+                # Delete tokenized files from disk if they exist
+                if tokenization.tokenized_path:
+                    tokenized_path = Path(tokenization.tokenized_path)
+                    if tokenized_path.exists():
+                        try:
+                            if tokenized_path.is_dir():
+                                shutil.rmtree(tokenized_path)
+                            else:
+                                tokenized_path.unlink()
+                            logger.info(f"Deleted tokenized files at {tokenized_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to delete tokenized files at {tokenized_path}: {e}")
+
+                # Delete the tokenization record from database
+                await db.delete(tokenization)
+
+            logger.info(f"Removed {len(db_dataset.tokenizations)} tokenization records from database")
 
         # Remove tokenization metadata
         if db_dataset.extra_metadata and 'tokenization' in db_dataset.extra_metadata:

@@ -8,7 +8,7 @@
 **Status:** ⚠️ 60% COMPLETE - Core extraction working, **CRITICAL ANALYSIS FEATURES MISSING**
 **Created:** 2025-10-06
 **Last Audited:** 2025-10-28
-**Last Updated:** 2025-11-01
+**Last Updated:** 2025-11-10
 **Completion:** 165/282 tasks (58.5%) - See audit: 0xcc/docs/Feature_Discovery_Audit_2025-10-28.md
 
 **🚨 CRITICAL GAPS:**
@@ -21,6 +21,52 @@
 ---
 
 ## Recent Enhancements (Completed October-November 2025)
+
+### ✅ Category and Description Column Display Fix (NOT in original task list)
+
+**Status:** ✅ **COMPLETE** (2025-11-10)
+
+**Problem:** Category and Description columns existed in database but were not visible in UI
+- Backend Pydantic schemas missing `category` field
+- Backend service layer not passing `category` when constructing responses
+- Frontend ExtractionJobCard missing Category and Description columns
+
+**Fixes Applied:**
+
+**Backend Schema Fix** (commit ef418cc):
+- File: `backend/src/schemas/feature.py`
+- Added `category: Optional[str] = None` to `FeatureResponse` (line 100)
+- Added `category: Optional[str] = None` to `FeatureDetailResponse` (line 153)
+
+**Backend Service Fix** (commit ef418cc):
+- File: `backend/src/services/feature_service.py`
+- Added `category=feature.category` to 4 response construction locations:
+  - Line 170: `list_features()` method
+  - Line 340: Pagination response in `list_features()`
+  - Line 428: `get_feature()` method
+  - Line 498: `update_feature()` method
+
+**Frontend Component Fix** (commit 5e2f802):
+- File: `frontend/src/components/features/ExtractionJobCard.tsx`
+- Added Category column header (line 461) and cells (lines 495-503)
+- Added Description column header (line 462) and cells (lines 504-512)
+- Updated table colSpan from 6 to 8 (lines 472, 478)
+- Styled with bg-slate-700/50 badge for category, line-clamp-2 for description
+
+**Token Display Enhancement** (commit ef418cc):
+- File: `frontend/src/components/features/TokenHighlight.tsx`
+- Added `cleanToken()` function to strip BPE markers (lines 27-32)
+- Removes "Ġ" (GPT-2), "▁" (SentencePiece), "##" (BERT) from display
+- Applied to both `TokenHighlight` and `TokenHighlightCompact` components
+
+**User Impact:**
+- Category and Description data now visible in features table
+- Token displays are clean without tokenizer markers
+- Better feature interpretation and readability
+
+**Related Issues:** ISS-007 (Category/Description), ISS-008 (Token markers)
+
+---
 
 ### ✅ Extraction Card UX Improvements (NOT in original task list)
 

@@ -255,12 +255,61 @@ class LabelingService:
                 raise ValueError(f"Extraction job {labeling_job.extraction_job_id} not found")
 
             # Fetch all features for this extraction
-            features = self.db.query(Feature).filter(
+            all_features = self.db.query(Feature).filter(
                 Feature.extraction_job_id == labeling_job.extraction_job_id
             ).order_by(Feature.neuron_index).all()
 
-            if not features:
+            if not all_features:
                 raise ValueError(f"No features found for extraction {labeling_job.extraction_job_id}")
+
+            # Pre-labeling feature filtering (if enabled)
+            from src.utils.token_filter import FeatureFilter
+            from src.core.config import settings
+
+            if settings.pre_labeling_filter_enabled:
+                logger.info(f"Pre-labeling filter enabled - analyzing {len(all_features)} features")
+
+                # Initialize feature filter with configured thresholds
+                feature_filter = FeatureFilter(
+                    junk_ratio_threshold=settings.pre_labeling_junk_ratio_threshold,
+                    single_char_ratio_threshold=settings.pre_labeling_single_char_threshold,
+                    min_tokens_for_decision=5
+                )
+
+                # Quick token aggregation for filtering decision
+                all_feature_ids = [f.id for f in all_features]
+                token_stats_map = self._aggregate_token_stats_batch(all_feature_ids)
+
+                # Analyze each feature
+                features_to_label = []
+                skipped_features = []
+
+                for feature in all_features:
+                    token_stats = token_stats_map.get(feature.id, {})
+                    if feature_filter.is_junk_feature(token_stats):
+                        skipped_features.append(feature)
+                    else:
+                        features_to_label.append(feature)
+
+                # Mark skipped features as unlabeled junk
+                if skipped_features:
+                    for feature in skipped_features:
+                        feature.name = "unlabeled_junk"
+                        feature.category = "system"
+                        feature.label_source = "filter"
+                        feature.labeled_at = datetime.now(timezone.utc)
+                    self.db.commit()
+
+                logger.info(
+                    f"Pre-labeling filter: {len(features_to_label)} features to label, "
+                    f"{len(skipped_features)} junk features skipped "
+                    f"({len(skipped_features) / len(all_features) * 100:.1f}% filtered)"
+                )
+
+                features = features_to_label
+            else:
+                logger.info("Pre-labeling filter disabled - labeling all features")
+                features = all_features
 
             total_features = len(features)
             logger.info(f"Labeling {total_features} features for extraction {labeling_job.extraction_job_id}")

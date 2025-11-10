@@ -119,6 +119,35 @@ class Settings(BaseSettings):
         default=2, ge=1, le=30, description="System metrics collection interval in seconds (via WebSocket)"
     )
 
+    # Token and Feature Filtering Configuration
+    # Stage 1: Tokenization-time filtering (conservative, permanent)
+    tokenization_filter_enabled: bool = Field(
+        default=False,
+        description="Enable token filtering during dataset tokenization (permanent filtering)"
+    )
+    tokenization_filter_mode: Literal["minimal", "conservative"] = Field(
+        default="conservative",
+        description="Tokenization filter mode: minimal (control chars only), conservative (+ whitespace)"
+    )
+
+    # Stage 2: Pre-labeling feature filtering (aggressive, reversible)
+    pre_labeling_filter_enabled: bool = Field(
+        default=True,
+        description="Enable feature filtering before LLM labeling (saves API costs)"
+    )
+    pre_labeling_junk_ratio_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Skip features if >X% of top tokens are junk (0.0-1.0)"
+    )
+    pre_labeling_single_char_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Skip features if >X% of top tokens are single char (0.0-1.0)"
+    )
+
     # Rate Limiting
     rate_limit_enabled: bool = Field(default=True, description="Enable rate limiting")
     rate_limit_per_minute: int = Field(

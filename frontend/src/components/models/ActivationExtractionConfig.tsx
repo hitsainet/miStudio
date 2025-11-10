@@ -52,6 +52,10 @@ export function ActivationExtractionConfig({
   const [resourceEstimates, setResourceEstimates] = useState<any>(null);
   const [loadingEstimates, setLoadingEstimates] = useState(false);
 
+  // Token filtering configuration state
+  const [filterEnabled, setFilterEnabled] = useState(false);
+  const [filterMode, setFilterMode] = useState<'minimal' | 'conservative' | 'standard' | 'aggressive'>('standard');
+
   // Get the latest model data from store
   const latestModel = models.find(m => m.id === model.id) || model;
 
@@ -303,6 +307,9 @@ export function ActivationExtractionConfig({
         batch_size: batchSize,
         micro_batch_size: microBatchSize === '' ? undefined : microBatchSize,
         top_k_examples: topKExamples,
+        // Token filtering configuration
+        extraction_filter_enabled: filterEnabled,
+        extraction_filter_mode: filterMode,
       };
 
       await onExtract(model.id, config);
@@ -544,6 +551,64 @@ export function ActivationExtractionConfig({
                 className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               />
             </div>
+          </div>
+
+          {/* Token Filtering Settings */}
+          <div className="border-t border-slate-700 pt-4 mt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="filter-enabled-extraction"
+                checked={filterEnabled}
+                onChange={(e) => setFilterEnabled(e.target.checked)}
+                disabled={extracting}
+                className="w-4 h-4 bg-slate-900 border-slate-700 rounded text-emerald-500 focus:ring-emerald-500"
+              />
+              <label htmlFor="filter-enabled-extraction" className="text-sm font-medium text-slate-100">
+                Enable Token Filtering
+              </label>
+              <span className="text-xs text-slate-500 ml-auto">
+                Filters junk tokens before feature extraction
+              </span>
+            </div>
+
+            {filterEnabled && (
+              <div className="ml-6 space-y-3 bg-slate-900/50 p-3 rounded border border-slate-700/50">
+                {/* Filter Mode */}
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-slate-300">Filter Mode</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['minimal', 'conservative', 'standard', 'aggressive'] as const).map((mode) => (
+                      <label key={mode} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          value={mode}
+                          checked={filterMode === mode}
+                          onChange={(e) => setFilterMode(e.target.value as typeof filterMode)}
+                          disabled={extracting}
+                          className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
+                        />
+                        <span className="text-sm text-slate-200 capitalize">{mode}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {filterMode === 'minimal' && 'Only filter control characters'}
+                    {filterMode === 'conservative' && 'Filter control characters + whitespace'}
+                    {filterMode === 'standard' && 'Balanced filtering (recommended)'}
+                    {filterMode === 'aggressive' && 'Maximum filtering (punctuation, numbers, etc.)'}
+                  </p>
+                </div>
+
+                {/* Info */}
+                <div className="flex items-start gap-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded">
+                  <Info className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-300">
+                    Token filtering reduces noise in extracted features and improves feature quality.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Resource Estimates */}

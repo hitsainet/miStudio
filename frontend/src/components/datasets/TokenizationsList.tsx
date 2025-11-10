@@ -23,6 +23,11 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
   const [selectedModelId, setSelectedModelId] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
+  // Filtering configuration state
+  const [filterEnabled, setFilterEnabled] = useState(false);
+  const [filterMode, setFilterMode] = useState<'minimal' | 'conservative'>('conservative');
+  const [junkRatioThreshold, setJunkRatioThreshold] = useState(0.7);
+
   const datasetTokenizations = tokenizations[datasetId] || [];
 
   useEffect(() => {
@@ -63,9 +68,17 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
         add_special_tokens: true,
         return_attention_mask: true,
         enable_cleaning: true,
+        // Filter configuration
+        tokenization_filter_enabled: filterEnabled,
+        tokenization_filter_mode: filterMode,
+        tokenization_junk_ratio_threshold: junkRatioThreshold,
       });
       setShowCreateForm(false);
       setSelectedModelId('');
+      // Reset filter settings
+      setFilterEnabled(false);
+      setFilterMode('conservative');
+      setJunkRatioThreshold(0.7);
     } catch (error) {
       console.error('Failed to create tokenization:', error);
     } finally {
@@ -142,6 +155,86 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
               ))}
             </select>
           </div>
+
+          {/* Filtering Settings Section */}
+          <div className="border-t border-slate-700 pt-3 mt-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="filter-enabled"
+                checked={filterEnabled}
+                onChange={(e) => setFilterEnabled(e.target.checked)}
+                className="w-4 h-4 bg-slate-900 border-slate-700 rounded text-emerald-500 focus:ring-emerald-500"
+              />
+              <label htmlFor="filter-enabled" className="text-sm font-medium text-slate-100">
+                Enable Sample Filtering
+              </label>
+              <span className="text-xs text-slate-500 ml-auto">
+                Removes samples with too many junk tokens
+              </span>
+            </div>
+
+            {filterEnabled && (
+              <div className="ml-6 space-y-3 bg-slate-900/50 p-3 rounded border border-slate-700/50">
+                {/* Filter Mode */}
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-slate-300">Filter Mode</label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="minimal"
+                        checked={filterMode === 'minimal'}
+                        onChange={(e) => setFilterMode(e.target.value as 'minimal' | 'conservative')}
+                        className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
+                      />
+                      <span className="text-sm text-slate-200">Minimal</span>
+                      <span className="text-xs text-slate-500">- Only control characters</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="conservative"
+                        checked={filterMode === 'conservative'}
+                        onChange={(e) => setFilterMode(e.target.value as 'minimal' | 'conservative')}
+                        className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
+                      />
+                      <span className="text-sm text-slate-200">Conservative</span>
+                      <span className="text-xs text-slate-500">- + Whitespace tokens</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Junk Ratio Threshold */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-300">Junk Ratio Threshold</label>
+                    <span className="text-xs text-emerald-400 font-mono">{(junkRatioThreshold * 100).toFixed(0)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={junkRatioThreshold * 100}
+                    onChange={(e) => setJunkRatioThreshold(parseInt(e.target.value) / 100)}
+                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Skip samples if &gt;{(junkRatioThreshold * 100).toFixed(0)}% of tokens are junk
+                  </p>
+                </div>
+
+                {/* Warning */}
+                <div className="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded">
+                  <AlertCircle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-yellow-300">
+                    Filtering is permanent. Filtered samples will not be included in the tokenized dataset.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-2">
             <button
               onClick={handleCreate}

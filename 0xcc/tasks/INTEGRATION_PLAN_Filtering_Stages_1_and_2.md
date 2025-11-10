@@ -146,11 +146,12 @@ mapper = _TokenizationMapper(
 
 ---
 
-## Stage 2: Extraction Filter Integration
+## Stage 2: Extraction Filter Integration ✅ COMPLETE
 
 ### Target Files:
-1. **Primary:** `backend/src/workers/extraction_tasks.py`
-   - Function: Feature extraction function
+1. **Primary:** `backend/src/services/extraction_service.py`
+   - Method: `extract_features_for_training()`
+   - Lines: 944-1011 (token filtering logic)
    - Purpose: Filter tokens before SAE forward pass
 
 ### Implementation Steps:
@@ -228,11 +229,11 @@ activations = sae(batch['input_ids'])
 - [ ] Verify no performance regression
 
 ### Stage 2 Integration:
-- [ ] Locate SAE forward pass in extraction worker
-- [ ] Add filter initialization
-- [ ] Add token filtering loop
-- [ ] Update batch with filtered tokens
-- [ ] Add logging for filtered token count
+- [x] Locate SAE forward pass in extraction worker
+- [x] Add filter initialization
+- [x] Add token filtering loop
+- [x] Update batch with filtered tokens
+- [x] Add logging for filtered token count
 - [ ] Test with small model
 - [ ] Verify feature quality
 

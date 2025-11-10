@@ -941,6 +941,75 @@ class ExtractionService:
                         if not batch_input_ids:
                             continue
 
+                        # NEW: Stage 2 Token Filtering - Filter junk tokens if enabled
+                        if settings.extraction_filter_enabled:
+                            from src.utils.token_filter import TokenFilter, FilterMode
+
+                            # Lazy-load filter once per extraction
+                            if not hasattr(self, '_token_filter'):
+                                mode = FilterMode[settings.extraction_filter_mode.upper()]
+                                self._token_filter = TokenFilter(mode=mode)
+                                logger.info(f"Token filtering enabled for extraction: mode={settings.extraction_filter_mode}")
+
+                            # Track filtering statistics
+                            tokens_before = sum(len(ids) for ids in batch_input_ids)
+
+                            # Filter tokens from each sequence
+                            filtered_batch_input_ids = []
+                            filtered_batch_texts = []
+
+                            for idx, input_ids in enumerate(batch_input_ids):
+                                # Get token strings for filtering
+                                token_strings = tokenizer.convert_ids_to_tokens(input_ids)
+
+                                # Filter junk tokens
+                                filtered_indices = [
+                                    i for i, token_str in enumerate(token_strings)
+                                    if not self._token_filter.is_junk_token(token_str)
+                                ]
+
+                                # Keep only non-junk tokens
+                                if filtered_indices:
+                                    filtered_ids = [input_ids[i] for i in filtered_indices]
+                                    filtered_batch_input_ids.append(filtered_ids)
+
+                                    # Update text representation
+                                    if idx < len(batch_texts):
+                                        filtered_batch_texts.append(batch_texts[idx])
+                                else:
+                                    # All tokens filtered - keep at least BOS/EOS if they exist
+                                    if input_ids:
+                                        filtered_batch_input_ids.append([input_ids[0]])  # Keep first token (usually BOS)
+                                    else:
+                                        filtered_batch_input_ids.append([])
+
+                                    if idx < len(batch_texts):
+                                        filtered_batch_texts.append("[filtered]")
+
+                            # Update batch with filtered tokens
+                            batch_input_ids = filtered_batch_input_ids
+                            batch_texts = filtered_batch_texts
+
+                            # Track filtering statistics
+                            tokens_after = sum(len(ids) for ids in batch_input_ids)
+                            tokens_filtered = tokens_before - tokens_after
+
+                            # Accumulate statistics (initialize if first batch)
+                            if not hasattr(self, '_extraction_tokens_kept'):
+                                self._extraction_tokens_kept = 0
+                                self._extraction_tokens_filtered = 0
+
+                            self._extraction_tokens_kept += tokens_after
+                            self._extraction_tokens_filtered += tokens_filtered
+
+                            # Log periodically (every 10 batches)
+                            if batch_start // batch_size % 10 == 0 and tokens_before > 0:
+                                filter_pct = (tokens_filtered / tokens_before) * 100
+                                logger.debug(
+                                    f"Batch {batch_start//batch_size}: {tokens_after} tokens kept, "
+                                    f"{tokens_filtered} filtered ({filter_pct:.1f}%)"
+                                )
+
                         # Pad sequences to same length
                         max_length = max(len(ids) for ids in batch_input_ids)
 
@@ -1122,6 +1191,15 @@ class ExtractionService:
                 logger.info(f"GPU memory after cleanup: {memory_after_cleanup:.2f}GB allocated")
 
             logger.info(f"Activation extraction complete. Creating feature records...")
+
+            # Log Stage 2 filtering statistics if enabled
+            if settings.extraction_filter_enabled and hasattr(self, '_extraction_tokens_kept'):
+                total_tokens = self._extraction_tokens_kept + self._extraction_tokens_filtered
+                filter_pct = (self._extraction_tokens_filtered / total_tokens * 100) if total_tokens > 0 else 0
+                logger.info(
+                    f"Stage 2 Token Filtering: {self._extraction_tokens_kept:,} tokens kept, "
+                    f"{self._extraction_tokens_filtered:,} tokens filtered ({filter_pct:.1f}%)"
+                )
 
             # Task 4.9: Calculate activation_frequency per feature
             activation_frequencies = feature_activation_counts / len(dataset)

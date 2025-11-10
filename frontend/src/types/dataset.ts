@@ -129,6 +129,12 @@ export interface Dataset {
   metadata?: DatasetMetadata;
   created_at: string;
   updated_at: string;
+  /** Token filtering enabled for this dataset (applied during tokenization) */
+  tokenization_filter_enabled?: boolean;
+  /** Token filter mode (minimal, conservative) */
+  tokenization_filter_mode?: string;
+  /** Junk ratio threshold (0.0-1.0) */
+  tokenization_junk_ratio_threshold?: number;
 }
 
 export interface DatasetSample {

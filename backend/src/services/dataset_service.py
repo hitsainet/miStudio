@@ -288,9 +288,12 @@ class DatasetService:
 
         # Capture file paths before deletion
         raw_path = db_dataset.raw_path
-        tokenized_path = db_dataset.tokenized_path
+        # Get tokenized paths from tokenizations relationship (if any)
+        tokenized_paths = []
+        if db_dataset.tokenizations:
+            tokenized_paths = [t.tokenized_path for t in db_dataset.tokenizations if t.tokenized_path]
 
-        # Delete database record
+        # Delete database record (cascades to tokenizations)
         await db.delete(db_dataset)
         await db.commit()
 
@@ -298,7 +301,7 @@ class DatasetService:
             "deleted": True,
             "dataset_id": str(dataset_id),
             "raw_path": raw_path,
-            "tokenized_path": tokenized_path,
+            "tokenized_paths": tokenized_paths,  # Return list instead of single path
         }
 
     @staticmethod

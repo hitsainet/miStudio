@@ -670,8 +670,9 @@ def extract_activations(
             model_architecture = model.architecture
             model_quantization = model.quantization
 
-            # Get dataset and tokenized path
-            dataset = db.query(DatasetModel).filter_by(id=dataset_id).first()
+            # Get dataset and tokenized path (with eager loading of tokenizations)
+            from sqlalchemy.orm import joinedload
+            dataset = db.query(DatasetModel).options(joinedload(DatasetModel.tokenizations)).filter_by(id=dataset_id).first()
             if not dataset:
                 raise ActivationExtractionError(f"Dataset {dataset_id} not found in database")
 
@@ -683,16 +684,22 @@ def extract_activations(
                     f"Dataset {dataset_id} is not ready (status: {dataset.status.value})"
                 )
 
-            if not dataset.tokenized_path:
-                raise ActivationExtractionError(f"Dataset {dataset_id} has no tokenized path")
+            # Check if dataset has tokenizations
+            if not dataset.tokenizations or len(dataset.tokenizations) == 0:
+                raise ActivationExtractionError(f"Dataset {dataset_id} has no tokenizations")
+
+            # Get first tokenization's path (most common case is one tokenization per dataset)
+            tokenization = dataset.tokenizations[0]
+            if not tokenization.tokenized_path:
+                raise ActivationExtractionError(f"Dataset {dataset_id} tokenization has no path")
 
             # Get tokenized path - convert relative to absolute if needed
-            if Path(dataset.tokenized_path).is_absolute():
-                dataset_path = dataset.tokenized_path
+            if Path(tokenization.tokenized_path).is_absolute():
+                dataset_path = tokenization.tokenized_path
             else:
                 # If relative, it's relative to project root (parent of backend/)
                 backend_dir = Path(__file__).resolve().parent.parent.parent
-                dataset_path = str(backend_dir / dataset.tokenized_path)
+                dataset_path = str(backend_dir / tokenization.tokenized_path)
 
         if not Path(dataset_path).exists():
             raise ActivationExtractionError(f"Dataset path not found: {dataset_path}")

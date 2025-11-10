@@ -924,15 +924,17 @@ def cancel_dataset_download(self, dataset_id: str, task_id: Optional[str] = None
                     except Exception as e:
                         logger.warning(f"Failed to clean up raw files {raw_path}: {e}")
 
-            # Clean up partial tokenization files
-            if dataset.tokenized_path:
-                tokenized_path = Path(dataset.tokenized_path)
-                if tokenized_path.exists():
-                    try:
-                        shutil.rmtree(tokenized_path)
-                        logger.info(f"Cleaned up tokenized files: {tokenized_path}")
-                    except Exception as e:
-                        logger.warning(f"Failed to clean up tokenized files {tokenized_path}: {e}")
+            # Clean up partial tokenization files from tokenizations relationship
+            if dataset.tokenizations:
+                for tokenization in dataset.tokenizations:
+                    if tokenization.tokenized_path:
+                        tokenized_path = Path(tokenization.tokenized_path)
+                        if tokenized_path.exists():
+                            try:
+                                shutil.rmtree(tokenized_path)
+                                logger.info(f"Cleaned up tokenized files: {tokenized_path}")
+                            except Exception as e:
+                                logger.warning(f"Failed to clean up tokenized files {tokenized_path}: {e}")
 
             # Update dataset status
             dataset.status = DatasetStatus.ERROR

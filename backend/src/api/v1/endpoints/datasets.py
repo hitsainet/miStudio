@@ -486,7 +486,9 @@ async def tokenize_dataset(
 
         # Auto-clear existing tokenization before starting new job
         # This handles both ERROR status (failed tokenization) and already-tokenized datasets
-        if dataset.status == DatasetStatus.ERROR or dataset.tokenized_path:
+        # Check if any tokenization exists by querying the relationship
+        has_tokenization = dataset.tokenizations and len(dataset.tokenizations) > 0
+        if dataset.status == DatasetStatus.ERROR or has_tokenization:
             logger.info(f"Auto-clearing existing tokenization for dataset {dataset_id} before re-tokenization")
             dataset = await DatasetService.clear_tokenization(db, dataset_id)
             if not dataset:
@@ -722,11 +724,14 @@ async def get_dataset_samples(
                     dataset_path = str(hf_cache_path)
                     is_tokenized = False
 
-        # If still not found, try tokenized path
-        if not dataset_path and dataset.tokenized_path and Path(dataset.tokenized_path).exists():
+        # If still not found, try tokenized path from tokenizations relationship
+        if not dataset_path and dataset.tokenizations and len(dataset.tokenizations) > 0:
             # Fallback to tokenized dataset if raw was cleaned up
-            dataset_path = dataset.tokenized_path
-            is_tokenized = True
+            # Use the first tokenization's path (most common case is one tokenization per dataset)
+            tokenization = dataset.tokenizations[0]
+            if tokenization.tokenized_path and Path(tokenization.tokenized_path).exists():
+                dataset_path = tokenization.tokenized_path
+                is_tokenized = True
 
         # Try to load dataset from local path first
         hf_dataset = None

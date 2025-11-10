@@ -242,7 +242,20 @@ class HookManager:
         return None
 
     def clear_activations(self) -> None:
-        """Clear all stored activations."""
+        """
+        Clear all stored activations and explicitly delete tensor references.
+
+        MEMORY FIX: Explicitly delete tensors before clearing the dict to ensure
+        Python GC can immediately free GPU memory instead of waiting for dict cleanup.
+        """
+        # Explicitly delete all tensors in each layer's activation list
+        for layer_name in list(self.activations.keys()):
+            activation_list = self.activations[layer_name]
+            for i in range(len(activation_list)):
+                del activation_list[i]
+            activation_list.clear()
+
+        # Now clear the dict
         self.activations.clear()
 
     def remove_hooks(self) -> None:

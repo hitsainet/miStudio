@@ -28,8 +28,9 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
   const isCancelled = job.status === LabelingStatus.CANCELLED;
 
   // Calculate progress percentage
-  const progress = job.total_features > 0
-    ? (job.features_labeled / job.total_features) * 100
+  const totalFeatures = job.total_features || 0;
+  const progress = totalFeatures > 0
+    ? (job.features_labeled / totalFeatures) * 100
     : 0;
 
   // Get elapsed time
@@ -138,7 +139,7 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
               </p>
               <p>
                 <span className="font-medium">Features:</span>{' '}
-                {job.features_labeled.toLocaleString()} / {job.total_features.toLocaleString()}
+                {job.features_labeled.toLocaleString()} / {totalFeatures.toLocaleString()}
                 {isCompleted && ' ✓'}
               </p>
               <p>Started: {format(new Date(job.created_at), 'MMM d, yyyy • h:mm:ss a')}</p>
@@ -193,7 +194,7 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
         <div className="mt-4">
           <div className="flex items-center justify-between text-sm mb-2">
             <span className={COMPONENTS.text.secondary}>
-              {job.features_labeled.toLocaleString()} / {job.total_features.toLocaleString()} features
+              {job.features_labeled.toLocaleString()} / {totalFeatures.toLocaleString()} features
             </span>
             <span className="text-emerald-400 font-medium">
               {progress.toFixed(1)}%

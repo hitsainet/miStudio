@@ -677,6 +677,7 @@ class ExtractionService:
 
             # Get configuration parameters
             evaluation_samples = config.get("evaluation_samples", 10000)
+            start_sample = config.get("start_sample", 0)  # NEW: Starting sample index for diverse sampling
             top_k_examples = config.get("top_k_examples", 100)
             latent_dim = training.hyperparameters.get("latent_dim", 16384)
             hidden_dim = training.hyperparameters.get("hidden_dim", 768)
@@ -772,9 +773,24 @@ class ExtractionService:
             logger.info(f"Loading dataset from {tokenization.tokenized_path}")
             dataset = load_from_disk(tokenization.tokenized_path)
 
-            # Limit to evaluation_samples
-            if len(dataset) > evaluation_samples:
-                dataset = dataset.select(range(evaluation_samples))
+            # Select sample range for evaluation (supports diverse sampling across dataset)
+            dataset_size = len(dataset)
+            end_sample = min(start_sample + evaluation_samples, dataset_size)
+
+            if start_sample >= dataset_size:
+                raise ValueError(
+                    f"start_sample ({start_sample}) exceeds dataset size ({dataset_size}). "
+                    f"Please use start_sample < {dataset_size}"
+                )
+
+            if start_sample > 0 or end_sample < dataset_size:
+                dataset = dataset.select(range(start_sample, end_sample))
+                logger.info(
+                    f"Selected samples [{start_sample}:{end_sample}] from dataset "
+                    f"({end_sample - start_sample} samples, {start_sample/dataset_size*100:.2f}%-{end_sample/dataset_size*100:.2f}% of dataset)"
+                )
+            else:
+                logger.info(f"Using full dataset: {dataset_size} samples")
 
             logger.info(f"Dataset loaded: {len(dataset)} samples")
 
@@ -999,7 +1015,8 @@ class ExtractionService:
                             sample_activations = sample_activations[:actual_length]  # Remove padding
 
                             # Pass through SAE encoder (ensure same device and dtype as SAE)
-                            sae_features = sae.encode(sample_activations.to(device=device, dtype=torch.float32))  # Shape: (seq_len, latent_dim)
+                            # CRITICAL: .detach() prevents retaining computation graph and allows immediate GC
+                            sae_features = sae.encode(sample_activations.to(device=device, dtype=torch.float32)).detach()  # Shape: (seq_len, latent_dim)
 
                             # Debug: Log SAE output for first sample
                             if batch_start == 0 and batch_idx == 0:
@@ -1057,6 +1074,15 @@ class ExtractionService:
                                         # Replace smallest if new activation is larger
                                         heapq.heapreplace(feature_activations[neuron_idx], (max_activation, heap_counter, example))
                                         heap_counter += 1
+
+                            # MEMORY FIX: Explicitly delete tensor references after processing each sample
+                            # This allows Python GC to free GPU memory immediately instead of waiting for batch end
+                            del sae_features
+                            del sample_activations
+
+                            # Aggressive per-sample GPU cache clearing (every 4 samples to balance performance)
+                            if torch.cuda.is_available() and batch_idx % 4 == 3:
+                                torch.cuda.empty_cache()
 
                         # Task 4.15-4.16: Update progress every 5%
                         progress = batch_end / len(dataset)

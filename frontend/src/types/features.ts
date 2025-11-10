@@ -71,6 +71,7 @@ export interface Feature {
   training_id: string;
   extraction_job_id: string;
   neuron_index: number;
+  category: string | null;
   name: string;
   description: string | null;
   label_source: LabelSource;

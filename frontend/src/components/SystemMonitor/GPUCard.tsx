@@ -11,21 +11,21 @@ import { getTemperatureColor, getUtilizationColor, safeGet } from '../../utils/m
 
 interface GPUCardProps {
   gpuId: number;
-  metrics: GPUMetrics;
-  info: GPUInfo;
+  metrics: GPUMetrics | null;
+  info: GPUInfo | null;
 }
 
 export function GPUCard({ gpuId, metrics, info }: GPUCardProps) {
   // Safely extract metrics with fallbacks
-  const gpuUtil = safeGet(metrics, 'utilization.gpu', 0);
-  const memUsedGb = safeGet(metrics, 'memory.used_gb', 0);
-  const memTotalGb = safeGet(metrics, 'memory.total_gb', 0);
-  const memPercent = safeGet(metrics, 'memory.used_percent', 0);
-  const temperature = safeGet(metrics, 'temperature', null);
-  const powerUsage = safeGet(metrics, 'power.usage', 0);
-  const powerLimit = safeGet(metrics, 'power.limit', 0);
-  const powerPercent = safeGet(metrics, 'power.usage_percent', 0);
-  const fanSpeed = safeGet(metrics, 'fan_speed', null);
+  const gpuUtil = safeGet(metrics || {}, 'utilization.gpu', 0);
+  const memUsedGb = safeGet(metrics || {}, 'memory.used_gb', 0);
+  const memTotalGb = safeGet(metrics || {}, 'memory.total_gb', 0);
+  const memPercent = safeGet(metrics || {}, 'memory.used_percent', 0);
+  const temperature = safeGet(metrics || {}, 'temperature', null);
+  const powerUsage = safeGet(metrics || {}, 'power.usage', 0);
+  const powerLimit = safeGet(metrics || {}, 'power.limit', 0);
+  const powerPercent = safeGet(metrics || {}, 'power.usage_percent', 0);
+  const fanSpeed = safeGet(metrics || {}, 'fan_speed', null);
 
   return (
     <div className="bg-slate-900 rounded-lg border border-slate-800 p-6 space-y-4">
@@ -39,7 +39,7 @@ export function GPUCard({ gpuId, metrics, info }: GPUCardProps) {
             <MetricValue value={temperature} format="temperature" decimals={0} />
           </span>
         </div>
-        <p className="text-sm text-slate-400 truncate">{info.name}</p>
+        <p className="text-sm text-slate-400 truncate">{info?.name || 'Unknown GPU'}</p>
       </div>
 
       {/* Metrics Grid */}

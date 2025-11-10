@@ -240,7 +240,7 @@ export const TrainingPanel: React.FC = () => {
           training_layers: config.training_layers || [0],
           l1_alpha: config.l1_alpha,
           target_l0: config.target_l0,
-          top_k_sparsity: config.top_k_sparsity,
+          top_k_sparsity: (config as any).top_k_sparsity,
           learning_rate: config.learning_rate,
           batch_size: config.batch_size,
           total_steps: config.total_steps,
@@ -670,8 +670,8 @@ export const TrainingPanel: React.FC = () => {
                   <input
                     id="top-k-sparsity"
                     type="number"
-                    value={config.top_k_sparsity ?? ''}
-                    onChange={(e) => updateConfig({ top_k_sparsity: e.target.value ? parseFloat(e.target.value) : undefined })}
+                    value={(config as any).top_k_sparsity ?? ''}
+                    onChange={(e) => updateConfig({ top_k_sparsity: e.target.value ? parseFloat(e.target.value) : undefined } as any)}
                     min={0.1}
                     max={100}
                     step={0.1}

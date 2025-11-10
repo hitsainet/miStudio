@@ -192,7 +192,7 @@ export const HYPERPARAMETER_DOCS: Record<string, HyperparameterDoc> = {
       'Top-K sparsity enforces hard sparsity by selecting only the K largest activations per sample (where K = (top_k_sparsity / 100) × latent_dim). This GUARANTEES the exact sparsity level you specify, unlike L1 penalty which only encourages sparsity. All other neurons are set to zero.',
     examples: [
       {
-        value: null,
+        value: 'none' as any,
         effect: 'Use L1 penalty (soft sparsity)',
         useCase: 'Traditional SAE training with L1 regularization',
       },

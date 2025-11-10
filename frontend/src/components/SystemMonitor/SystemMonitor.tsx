@@ -408,7 +408,7 @@ export function SystemMonitor() {
       )}
 
       {/* GPU Comparison View (when multiple GPUs) */}
-      {gpuAvailable && viewMode === 'comparison' && (
+      {gpuAvailable && viewMode === 'compare' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -430,8 +430,8 @@ export function SystemMonitor() {
               <GPUCard
                 key={gpu.gpu_id}
                 gpuId={gpu.gpu_id}
-                metrics={gpuMetrics}
-                info={gpuInfo}
+                metrics={gpuMetrics || null}
+                info={gpuInfo || null}
               />
             ))}
           </div>

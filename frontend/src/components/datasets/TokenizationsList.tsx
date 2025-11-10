@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { CheckCircle, Loader, AlertCircle, Plus, Trash2, Hash, X } from 'lucide-react';
-import { DatasetTokenization, TokenizationStatus } from '../../types/dataset';
+import { TokenizationStatus } from '../../types/dataset';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { COMPONENTS } from '../../config/brand';

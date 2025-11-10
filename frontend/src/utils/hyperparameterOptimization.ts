@@ -25,7 +25,7 @@
  */
 export function calculateOptimalL1Alpha(
   latentDim: number,
-  targetL0: number = 0.05
+  _targetL0: number = 0.05
 ): number {
   // Base case: latent_dim=65536, l1_alpha=0.10 gives L0=5%
   const BASE_LATENT_DIM = 65536;

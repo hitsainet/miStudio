@@ -20,7 +20,6 @@ import { create } from 'zustand';
 import type {
   LabelingJob,
   LabelingConfigRequest,
-  LabelingListResponse,
 } from '../types/labeling';
 import { LabelingStatus, LabelingMethod } from '../types/labeling';
 import * as labelingAPI from '../api/labeling';
@@ -257,7 +256,7 @@ export const useLabelingStore = create<LabelingStore>((set, get) => ({
       }
 
       // Calculate pagination
-      const totalFiltered = filteredJobs.length;
+      // const totalFiltered = filteredJobs.length;
       const totalPages = Math.ceil(response.meta.total / limit);
 
       // Calculate status counts

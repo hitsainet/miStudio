@@ -9,6 +9,119 @@ This document tracks bugs, defects, and issues discovered during development and
 
 ---
 
+## Recently Resolved Issues (November 2025)
+
+### [ISS-007] Category and Description Columns Missing from Features Table
+- **Status**: `[x]` RESOLVED (2025-11-10)
+- **Severity**: High (critical data not visible to users)
+- **Discovered**: 2025-11-10
+- **Component**: Frontend - Features Table, Backend - Feature Service
+- **Description**:
+  - Category and Description columns existed in database and code but were not visible in browser
+  - Two-part issue affecting both frontend and backend
+
+- **Root Causes**:
+  1. **Backend Schema Issue**: Pydantic response schemas (`FeatureResponse`, `FeatureDetailResponse`) were missing the `category` field entirely
+  2. **Backend Service Issue**: Even after schema fix, service layer wasn't passing `category=feature.category` when constructing response objects
+  3. **Frontend Component Issue**: ExtractionJobCard.tsx was missing Category and Description columns in its features table
+
+- **Fixes Applied**:
+  1. **Backend Schema** (commit ef418cc):
+     - Added `category: Optional[str] = None` to `FeatureResponse` schema (line 100)
+     - Added `category: Optional[str] = None` to `FeatureDetailResponse` schema (line 153)
+     - File: `backend/src/schemas/feature.py`
+
+  2. **Backend Service** (commit ef418cc):
+     - Added `category=feature.category` to 4 locations in feature_service.py (lines 170, 340, 428, 498)
+     - File: `backend/src/services/feature_service.py`
+
+  3. **Frontend Component** (commit 5e2f802):
+     - Added Category column header (line 461) and cell (lines 495-503)
+     - Added Description column header (line 462) and cell (lines 504-512)
+     - Updated colSpan from 6 to 8 (lines 472, 478)
+     - File: `frontend/src/components/features/ExtractionJobCard.tsx`
+
+- **User Verification**: User confirmed fix working: "the page I was having trouble with is working great now. Thank you."
+
+- **Related Commits**:
+  - ef418cc: Backend schema and service fixes
+  - 5e2f802: Frontend ExtractionJobCard fixes
+
+---
+
+### [ISS-008] "Ġ" Characters Appearing in Token Display
+- **Status**: `[x]` RESOLVED (2025-11-10)
+- **Severity**: Low-Medium (cosmetic, affects readability)
+- **Discovered**: 2025-11-10
+- **Component**: Frontend - Token Highlighting
+- **Description**:
+  - BPE tokenizer markers appearing in token displays
+  - "Ġ" (GPT-2 space marker), "▁" (SentencePiece), "##" (BERT) visible to users
+  - Makes token text harder to read
+
+- **Fix Applied** (commit ef418cc):
+  - Added `cleanToken()` function to strip BPE markers (lines 27-32)
+  - Applied to both `TokenHighlight` and `TokenHighlightCompact` components
+  - Markers replaced with appropriate characters (space or nothing)
+  - File: `frontend/src/components/features/TokenHighlight.tsx`
+
+- **Implementation**:
+  ```typescript
+  const cleanToken = (token: string): string => {
+    return token
+      .replace(/^Ġ/g, ' ')  // GPT-2 space marker → space
+      .replace(/^▁/g, ' ')  // SentencePiece space marker → space
+      .replace(/^##/g, '');  // BERT continuation marker → nothing
+  };
+  ```
+
+- **Related Commits**:
+  - ef418cc: Token cleaning implementation
+
+---
+
+### [ISS-009] Documentation Files Scattered Across Multiple Locations
+- **Status**: `[x]` RESOLVED (2025-11-10)
+- **Severity**: Low (organizational)
+- **Discovered**: 2025-11-10
+- **Component**: Project Documentation
+- **Description**:
+  - .md files scattered across `backend/`, `backend/docs/`, `docs/` directories
+  - Difficult to find and maintain documentation
+  - Needed centralization to `0xcc/docs/`
+
+- **Fix Applied** (commit d945163):
+  - Moved 15 .md files to `0xcc/docs/` using `git mv` (preserves history)
+  - Removed empty `backend/docs/` and `docs/` directories
+  - Now 45 total .md files centralized in `0xcc/docs/`
+
+- **Files Moved**:
+  - From `backend/` (8 files):
+    - CELERY_WORKERS.md
+    - HOW_TEXT_CLEANING_WORKS.md
+    - MULTI_TOKENIZATION_REFACTORING_PLAN.md
+    - orphan_analysis.md
+    - TEXT_CLEANING.md
+    - TEXT_CLEANING_IMPLEMENTATION_COMPLETE.md
+    - TEXT_CLEANING_TESTING_WORKFLOW.md
+    - TRAINING_DELETION_FIX.md
+
+  - From `backend/docs/` (6 files):
+    - BUG_FIX_Training_Restart_2025-11-05.md
+    - prompt_specificity_comparison.md
+    - SAE_Hyperparameter_Optimization_Guide.md
+    - steering_prompt_comparison.md
+    - steering_prompt_example.md
+    - TODO_UI_Improvements_2025-11-09.md
+
+  - From `docs/` (1 file):
+    - QUEUE_ARCHITECTURE.md
+
+- **Related Commits**:
+  - d945163: Documentation consolidation
+
+---
+
 ## UI/UX Issues
 
 ### [ISS-001] Feature Labeling Progress Bar Frozen in UI

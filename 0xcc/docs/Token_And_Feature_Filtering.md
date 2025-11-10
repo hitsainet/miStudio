@@ -1,28 +1,155 @@
 # Token and Feature Filtering System
 
 **Created:** 2025-11-10
-**Status:** Implemented (Pre-Labeling Filter Active)
-**Purpose:** Reduce API costs and focus on semantic features by filtering junk tokens and features
+**Updated:** 2025-11-10
+**Status:** Three-Stage Architecture (Pre-Labeling Active, Tokenization & Extraction Pending Integration)
+**Purpose:** Zero-tolerance junk filtering at dataset, extraction, and labeling stages
 
 ---
 
 ## Overview
 
-The filtering system provides two-stage filtering to improve feature labeling quality and reduce costs:
+The filtering system provides **three-stage filtering** to prevent junk tokens and features from entering the SAE training and labeling pipeline:
 
-1. **Stage 1: Tokenization Filter** (Optional, Conservative, Permanent)
-   - Filters tokens during dataset creation
-   - **Status:** Implemented but disabled by default
-   - Use when you know certain tokens are never useful
+1. **Stage 1: Dataset Tokenization Filter** (Optional, Sample-Level, Permanent)
+   - Filters entire samples if >70% tokens are junk during tokenization
+   - **Status:** Configuration ready, integration pending
+   - **Impact:** Prevents junk data from being stored in dataset
+   - Use for zero-tolerance filtering at the source
 
-2. **Stage 2: Pre-Labeling Feature Filter** (Enabled by default, Aggressive, Reversible)
+2. **Stage 2: Extraction Filter** (Optional, Token-Level, Training-Impact)
+   - Filters junk tokens before SAE feature extraction
+   - **Status:** Configuration ready, integration pending
+   - **Impact:** Prevents junk tokens from affecting SAE training
+   - Use to ensure clean data for feature learning
+
+3. **Stage 3: Pre-Labeling Feature Filter** (Enabled by default, Feature-Level, Reversible)
    - Filters features before sending to LLM
-   - **Status:** Implemented and ENABLED by default
-   - Saves API costs by skipping junk features
+   - **Status:** ✅ IMPLEMENTED and ENABLED by default
+   - **Impact:** Saves API costs by skipping junk features (~$0.50-1.00 per extraction)
+   - Already active and working
 
 ---
 
-## Stage 2: Pre-Labeling Feature Filter (ACTIVE)
+## Stage 1: Dataset Tokenization Filter (CONFIGURATION READY)
+
+### Purpose
+Remove entire samples that contain too many junk tokens during dataset tokenization. This is the most aggressive filtering option - it permanently prevents junk data from entering your datasets.
+
+### Status
+**Configuration:** ✅ Complete
+**Integration:** ⏳ Pending (next session)
+**Default:** Disabled (opt-in for zero-tolerance mode)
+
+### How It Works
+
+**Sample-Level Analysis:**
+```python
+# For each sample during tokenization:
+1. Tokenize the text into token IDs
+2. Analyze the token sequence for junk ratio
+3. If >70% of tokens are junk → SKIP entire sample
+4. Otherwise → Keep sample in dataset
+```
+
+**What Gets Filtered:**
+- Samples that are mostly punctuation (e.g., "!!! ??? ...")
+- Samples that are mostly whitespace
+- Samples with >70% single-character tokens
+- Samples with >70% control characters
+
+### Configuration
+
+**Environment Variables** (`.env`):
+```bash
+# Enable tokenization-time filtering (USE WITH CAUTION - permanent!)
+TOKENIZATION_FILTER_ENABLED=false  # Default: false
+
+# Filter mode
+TOKENIZATION_FILTER_MODE=conservative  # Options: minimal, conservative
+
+# Junk ratio threshold (skip if >X% tokens are junk)
+TOKENIZATION_JUNK_RATIO_THRESHOLD=0.7  # Default: 0.7 (70%)
+```
+
+### When to Use
+
+✅ **Enable when:**
+- You want zero-tolerance for junk data in training
+- You're okay with losing some samples permanently
+- Your dataset is large enough to afford sample loss
+- You want smaller, cleaner datasets
+
+❌ **Keep disabled when:**
+- This is your first time using filtering (try Stage 3 first)
+- You have a small dataset
+- You're unsure about token quality
+- You want reversible filtering
+
+---
+
+## Stage 2: Extraction Filter (CONFIGURATION READY)
+
+### Purpose
+Filter junk tokens before they're fed into SAE feature extraction. This prevents junk tokens from affecting SAE training and feature learning.
+
+### Status
+**Configuration:** ✅ Complete
+**Integration:** ⏳ Pending (next session)
+**Default:** Disabled (opt-in for extraction-time filtering)
+
+### How It Works
+
+**Token-Level Filtering:**
+```python
+# During feature extraction:
+1. Load tokenized samples from dataset
+2. For each token in sequence:
+   - Analyze if token is junk (punctuation, whitespace, single-char, etc.)
+   - Skip junk tokens during SAE forward pass
+3. Only meaningful tokens contribute to feature activations
+```
+
+**What Gets Filtered:**
+- All punctuation-only tokens
+- All whitespace-only tokens
+- Single non-alphanumeric characters
+- Control characters
+- Optionally: short tokens, low-entropy tokens (aggressive mode)
+
+### Configuration
+
+**Environment Variables** (`.env`):
+```bash
+# Enable extraction-time filtering
+EXTRACTION_FILTER_ENABLED=false  # Default: false
+
+# Filter mode (how aggressive to be)
+EXTRACTION_FILTER_MODE=standard  # Options: minimal, conservative, standard, aggressive
+```
+
+**Filter Modes:**
+- `minimal`: Only control characters
+- `conservative`: + whitespace-only tokens
+- `standard`: + punctuation, single non-alphanumeric chars
+- `aggressive`: + short tokens (1-2 chars), low-entropy tokens
+
+### When to Use
+
+✅ **Enable when:**
+- You want SAE to focus on semantic features
+- Junk tokens are affecting feature quality
+- You want cleaner feature activations
+- You've already tokenized datasets and don't want to re-process
+
+❌ **Keep disabled when:**
+- You want features to learn punctuation patterns (rare)
+- You're analyzing code/syntax (punctuation matters)
+- First time using filtering (try Stage 3 first)
+
+---
+
+## Stage 3: Pre-Labeling Feature Filter (ACTIVE)
 
 ### Purpose
 Skip features that activate primarily on punctuation, whitespace, or single characters - these waste API calls and clutter results with low-value labels.
@@ -85,7 +212,47 @@ INFO: Labeling 10245 features for extraction extr_20251109_183840_train_55
 
 ---
 
-## Stage 1: Tokenization Filter (OPTIONAL)
+## Integration Status Summary
+
+| Stage | Configuration | Implementation | Integration | Status |
+|-------|--------------|----------------|-------------|--------|
+| **Stage 1: Tokenization** | ✅ Complete | ✅ `is_junk_sequence()` added | ⏳ Pending | Disabled by default |
+| **Stage 2: Extraction** | ✅ Complete | ⏳ Pending | ⏳ Pending | Disabled by default |
+| **Stage 3: Pre-Labeling** | ✅ Complete | ✅ Complete | ✅ Complete | **ACTIVE** ✅ |
+
+---
+
+## Recommended Usage Strategy
+
+### For First-Time Users:
+1. **Start with Stage 3 only** (already enabled)
+   - Monitor filtering statistics in logs
+   - Check filtered features in database
+   - Adjust thresholds if needed
+
+2. **Add Stage 2 if needed** (next session)
+   - Enable if junk features persist
+   - Use `standard` mode initially
+   - Monitor SAE training quality
+
+3. **Add Stage 1 cautiously** (future)
+   - Only if you need permanent filtering
+   - Test on small dataset first
+   - Verify sample quality before full deployment
+
+### For Advanced Users:
+- Enable all three stages for maximum junk elimination
+- Use `aggressive` mode for Stage 2 if analyzing natural language only
+- Adjust thresholds based on your specific dataset characteristics
+
+---
+
+## Legacy Documentation: Original Two-Stage Plan (SUPERSEDED)
+
+_This section documents the original two-stage architecture for reference._
+
+### ~~Stage 1: Tokenization Filter (OPTIONAL)~~
+**Note:** This has been redesigned as the three-stage architecture described above.
 
 ### Purpose
 Remove junk tokens during dataset tokenization (permanent filtering).

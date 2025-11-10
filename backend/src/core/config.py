@@ -129,8 +129,24 @@ class Settings(BaseSettings):
         default="conservative",
         description="Tokenization filter mode: minimal (control chars only), conservative (+ whitespace)"
     )
+    tokenization_junk_ratio_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Skip samples if >X% of tokens are junk during tokenization (0.0-1.0)"
+    )
 
-    # Stage 2: Pre-labeling feature filtering (aggressive, reversible)
+    # Stage 2: Extraction-time token filtering (zero-tolerance, affects SAE training)
+    extraction_filter_enabled: bool = Field(
+        default=False,
+        description="Enable token filtering during feature extraction (prevents junk tokens from SAE analysis)"
+    )
+    extraction_filter_mode: Literal["minimal", "conservative", "standard", "aggressive"] = Field(
+        default="standard",
+        description="Extraction filter mode: minimal/conservative/standard/aggressive"
+    )
+
+    # Stage 3: Pre-labeling feature filtering (aggressive, reversible)
     pre_labeling_filter_enabled: bool = Field(
         default=True,
         description="Enable feature filtering before LLM labeling (saves API costs)"

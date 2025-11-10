@@ -178,6 +178,36 @@ class TokenFilter:
             if not self.is_junk_token(token)
         }
 
+    def is_junk_sequence(
+        self,
+        token_ids: List[int],
+        tokenizer,
+        junk_ratio_threshold: float = 0.7
+    ) -> bool:
+        """
+        Analyze if a token sequence is too junky (for sample-level filtering).
+
+        Args:
+            token_ids: List of token IDs
+            tokenizer: Tokenizer to convert IDs to tokens
+            junk_ratio_threshold: Reject if >X% tokens are junk (default: 0.7)
+
+        Returns:
+            True if sequence should be rejected (too junky)
+        """
+        if not token_ids or len(token_ids) == 0:
+            return True  # Empty sequence is junk
+
+        # Convert token IDs to tokens
+        tokens = [tokenizer.convert_ids_to_tokens(tid) if isinstance(tid, int) else tid
+                  for tid in token_ids]
+
+        # Count junk tokens
+        junk_count = sum(1 for token in tokens if self.is_junk_token(token))
+        junk_ratio = junk_count / len(tokens)
+
+        return junk_ratio >= junk_ratio_threshold
+
     def get_filter_stats(
         self,
         original: Dict[str, Dict[str, float]],

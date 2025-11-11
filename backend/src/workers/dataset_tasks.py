@@ -772,6 +772,12 @@ def tokenize_dataset_task(
                 tokenization_obj.num_tokens = stats["num_tokens"]
                 tokenization_obj.avg_seq_length = stats["avg_seq_length"]
 
+                # Update parent dataset status to READY
+                dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                if dataset_obj:
+                    dataset_obj.status = DatasetStatus.READY
+                    dataset_obj.progress = 100.0
+
                 db.commit()
                 db.refresh(tokenization_obj)
 

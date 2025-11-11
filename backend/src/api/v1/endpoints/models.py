@@ -356,6 +356,23 @@ async def estimate_extraction_resources(
             detail=f"Dataset '{request.dataset_id}' not found"
         )
 
+    # Get tokenization for this dataset and model to get avg_seq_length
+    from ....models.dataset_tokenization import DatasetTokenization
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(DatasetTokenization).where(
+            DatasetTokenization.dataset_id == request.dataset_id,
+            DatasetTokenization.model_id == model_id
+        )
+    )
+    tokenization = result.scalar_one_or_none()
+
+    # Get avg_seq_length from tokenization, or use default
+    avg_seq_length = 512  # Default
+    if tokenization and tokenization.avg_seq_length:
+        avg_seq_length = tokenization.avg_seq_length
+
     # Build model config
     # NOTE: Always use FP16 for GPU memory estimation because activation_service.py
     # loads all models as FP16 (torch_dtype=torch.float16) regardless of storage quantization
@@ -376,7 +393,7 @@ async def estimate_extraction_resources(
 
     # Build dataset config
     dataset_config = {
-        "avg_sequence_length": dataset.avg_seq_length if dataset.avg_seq_length else 512
+        "avg_sequence_length": avg_seq_length
     }
 
     # Calculate estimates

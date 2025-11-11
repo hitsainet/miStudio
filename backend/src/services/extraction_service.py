@@ -169,6 +169,8 @@ class ExtractionService:
             training_id=training_id,
             status=ExtractionStatus.QUEUED,
             config=config,
+            extraction_filter_enabled=config.get('extraction_filter_enabled', False),
+            extraction_filter_mode=config.get('extraction_filter_mode', 'standard'),
             progress=0.0,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)

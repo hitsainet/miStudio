@@ -96,7 +96,7 @@ class TqdmWebSocketCallback(tqdm_original):
             time_delta = current_time - self.last_emit_time
 
             should_emit = (
-                progress_delta >= 10.0  # Progress changed by at least 10%
+                progress_delta >= 1.0  # Progress changed by at least 1% (reduced from 10%)
                 or time_delta >= self.throttle_seconds  # Or throttle period elapsed
                 or tqdm_progress >= 99.9  # Or nearly complete
             )

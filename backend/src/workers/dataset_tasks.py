@@ -967,13 +967,14 @@ def cancel_dataset_download(self, dataset_id: str, task_id: Optional[str] = None
                 current_app.control.revoke(task_id, terminate=True)
                 logger.info(f"Revoked Celery task {task_id} for dataset {dataset_id}")
 
-            # Clean up partial download files
-            if dataset.raw_path:
+            # Clean up partial download files ONLY if dataset was downloading
+            # If dataset was processing (tokenizing), do NOT delete raw files - they're needed!
+            if dataset.status == DatasetStatus.DOWNLOADING and dataset.raw_path:
                 raw_path = Path(dataset.raw_path)
                 if raw_path.exists():
                     try:
                         shutil.rmtree(raw_path)
-                        logger.info(f"Cleaned up raw dataset files: {raw_path}")
+                        logger.info(f"Cleaned up partial raw dataset files: {raw_path}")
                     except Exception as e:
                         logger.warning(f"Failed to clean up raw files {raw_path}: {e}")
 

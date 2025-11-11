@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     BigInteger,
     Float,
+    Boolean,
     DateTime,
     Enum as SQLEnum,
     Index,
@@ -131,6 +132,29 @@ class Dataset(Base):
         nullable=True,
         default=dict,
         comment="Additional metadata (splits, features, etc.)",
+    )
+
+    # Token filtering configuration (per-job)
+    tokenization_filter_enabled = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default='false',
+        comment="Enable sample filtering during tokenization",
+    )
+    tokenization_filter_mode = Column(
+        String(20),
+        nullable=False,
+        default='conservative',
+        server_default='conservative',
+        comment="Filter mode: minimal or conservative",
+    )
+    tokenization_junk_ratio_threshold = Column(
+        Float,
+        nullable=False,
+        default=0.7,
+        server_default='0.7',
+        comment="Junk ratio threshold (0.0-1.0)",
     )
 
     # Timestamps

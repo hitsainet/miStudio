@@ -9,6 +9,9 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
+import signal
+import os
+import psutil
 
 # NOTE: Do NOT import load_dataset at module level!
 # It must be imported inside the task function AFTER patching tqdm
@@ -27,6 +30,40 @@ from ..services.tokenization_service import TokenizationService
 from .base_task import DatabaseTask
 from .websocket_emitter import emit_dataset_progress
 from .tqdm_websocket_bridge import create_tqdm_websocket_callback
+
+
+def cleanup_child_processes():
+    """
+    Terminate all child processes of the current process.
+
+    This is crucial for cleaning up multiprocessing workers spawned by
+    HuggingFace datasets when a tokenization task is cancelled.
+    """
+    try:
+        current_process = psutil.Process(os.getpid())
+        children = current_process.children(recursive=True)
+
+        if children:
+            print(f"[CLEANUP] Terminating {len(children)} child processes")
+            for child in children:
+                try:
+                    child.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+
+            # Wait for processes to terminate gracefully
+            gone, alive = psutil.wait_procs(children, timeout=3)
+
+            # Force kill any remaining processes
+            if alive:
+                print(f"[CLEANUP] Force killing {len(alive)} remaining processes")
+                for child in alive:
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+    except Exception as e:
+        print(f"[CLEANUP] Error cleaning up child processes: {e}")
 
 
 def release_redis_lock(dataset_id: str, redis_client: redis.Redis = None) -> None:
@@ -384,6 +421,15 @@ def tokenize_dataset_task(
     Returns:
         dict: Tokenization result with statistics
     """
+    # Register signal handlers for proper cleanup of child processes
+    def signal_handler(signum, frame):
+        print(f"[SIGNAL] Received signal {signum}, cleaning up child processes...")
+        cleanup_child_processes()
+        raise SystemExit(f"Task terminated by signal {signum}")
+
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     try:
         dataset_uuid = UUID(dataset_id)
 
@@ -785,6 +831,9 @@ def tokenize_dataset_task(
     except Exception as e:
         error_message = f"Tokenization failed: {str(e)}"
         print(f"Tokenization error: {error_message}")
+
+        # Clean up any child processes
+        cleanup_child_processes()
 
         # Update tokenization status to ERROR
         with self.get_db() as db:

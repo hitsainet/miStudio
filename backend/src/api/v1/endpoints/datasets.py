@@ -438,13 +438,32 @@ async def tokenize_dataset(
     Raises:
         HTTPException: If dataset not found or not ready for tokenization
     """
+    logger.info(f"=== START TOKENIZATION REQUEST for dataset {dataset_id} ===")
+
     # Get dataset
-    dataset = await DatasetService.get_dataset(db, dataset_id)
-    if not dataset:
+    try:
+        logger.info(f"Fetching dataset {dataset_id} from database")
+        dataset = await DatasetService.get_dataset(db, dataset_id)
+        logger.info(f"Dataset fetched successfully: {dataset.id if dataset else 'None'}")
+
+        if not dataset:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset {dataset_id} not found"
+            )
+
+        logger.info(f"Dataset status: {dataset.status}, has tokenizations: {hasattr(dataset, 'tokenizations')}")
+        if hasattr(dataset, 'tokenizations'):
+            logger.info(f"Tokenizations count: {len(dataset.tokenizations) if dataset.tokenizations else 0}")
+    except AttributeError as e:
+        logger.error(f"AttributeError while fetching dataset: {e}", exc_info=True)
         raise HTTPException(
-            status_code=404,
-            detail=f"Dataset {dataset_id} not found"
+            status_code=500,
+            detail=f"Failed to fetch dataset: {str(e)}"
         )
+    except Exception as e:
+        logger.error(f"Unexpected error while fetching dataset: {e}", exc_info=True)
+        raise
 
     # Distributed lock: Prevent concurrent tokenization requests
     # This prevents race conditions where two requests arrive simultaneously

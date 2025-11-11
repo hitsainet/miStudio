@@ -307,9 +307,6 @@ export function ActivationExtractionConfig({
         batch_size: batchSize,
         micro_batch_size: microBatchSize === '' ? undefined : microBatchSize,
         top_k_examples: topKExamples,
-        // Token filtering configuration
-        extraction_filter_enabled: filterEnabled,
-        extraction_filter_mode: filterMode,
       };
 
       await onExtract(model.id, config);

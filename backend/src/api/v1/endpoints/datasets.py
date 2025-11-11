@@ -1184,6 +1184,25 @@ async def delete_dataset_tokenization(
 
     # Delete tokenization record
     await db.delete(tokenization)
+
+    # Check if dataset has any remaining tokenizations
+    remaining_result = await db.execute(
+        select(DatasetTokenization)
+        .where(DatasetTokenization.dataset_id == dataset_id)
+    )
+    remaining_tokenizations = remaining_result.scalars().all()
+
+    # If no tokenizations remain and dataset is in PROCESSING/ERROR, reset to READY
+    if not remaining_tokenizations:
+        dataset_result = await db.execute(
+            select(Dataset).where(Dataset.id == dataset_id)
+        )
+        dataset = dataset_result.scalar_one_or_none()
+        if dataset and dataset.status in [DatasetStatus.PROCESSING, DatasetStatus.ERROR]:
+            dataset.status = DatasetStatus.READY
+            dataset.progress = 0.0
+            logger.info(f"Reset dataset {dataset_id} status to READY (no tokenizations remaining)")
+
     await db.commit()
 
     # Queue background file cleanup if there are files to delete

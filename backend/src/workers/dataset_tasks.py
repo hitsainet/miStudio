@@ -503,7 +503,7 @@ def tokenize_dataset_task(
             }
         )
 
-        # Get dataset from database to retrieve raw_path
+        # Get dataset from database to retrieve raw_path and filter config
         with self.get_db() as db:
             dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
             if not dataset_obj:
@@ -511,6 +511,10 @@ def tokenize_dataset_task(
             if not dataset_obj.raw_path:
                 raise ValueError(f"Dataset {dataset_id} has no raw_path")
             raw_path = dataset_obj.raw_path
+            # Load filter configuration while session is open
+            filter_enabled = dataset_obj.tokenization_filter_enabled
+            filter_mode = dataset_obj.tokenization_filter_mode
+            filter_threshold = dataset_obj.tokenization_junk_ratio_threshold
 
         # Update Celery task state: Loading tokenizer
         self.update_state(
@@ -655,10 +659,10 @@ def tokenize_dataset_task(
                 batch_size=1000,
                 progress_callback=None,  # Disabled for multiprocessing (using tqdm bridge instead)
                 num_proc=None,  # Auto-detect CPU cores for parallel processing (prevents OOM)
-                # Use filter config from dataset object (per-job) instead of global settings
-                enable_filtering=dataset_obj.tokenization_filter_enabled,
-                filter_mode=dataset_obj.tokenization_filter_mode,
-                junk_ratio_threshold=dataset_obj.tokenization_junk_ratio_threshold,
+                # Use filter config from dataset (per-job) instead of global settings
+                enable_filtering=filter_enabled,
+                filter_mode=filter_mode,
+                junk_ratio_threshold=filter_threshold,
             )
         finally:
             # Always restore original tqdm regardless of success/failure

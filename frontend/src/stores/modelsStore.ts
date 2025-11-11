@@ -214,30 +214,18 @@ export const useModelsStore = create<ModelsState>()(
       // Extract activations from model
       extractActivations: async (
         modelId: string,
-        datasetId: string,
-        layerIndices: number[],
-        hookTypes: string[],
-        maxSamples: number,
-        batchSize?: number
+        config: any
       ) => {
         console.log('[ModelsStore] extractActivations called for model:', modelId);
         set({ loading: true, error: null });
         try {
-          const body = {
-            dataset_id: datasetId,
-            layer_indices: layerIndices,
-            hook_types: hookTypes,
-            max_samples: maxSamples,
-            ...(batchSize && { batch_size: batchSize }),
-          };
-
           console.log('[ModelsStore] Initiating extraction request...');
           const response = await fetch(`${API_BASE_URL}/api/v1/models/${modelId}/extract-activations`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(body),
+            body: JSON.stringify(config),
           });
 
           if (!response.ok) {

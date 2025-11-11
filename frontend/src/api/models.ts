@@ -122,6 +122,7 @@ export async function extractActivations(
   modelId: string,
   config: ActivationExtractionConfig
 ): Promise<ActivationExtractionResult> {
+  console.log('[extractActivations] Sending request with config:', JSON.stringify(config, null, 2));
   return fetchAPI<ActivationExtractionResult>(`/models/${modelId}/extract-activations`, {
     method: 'POST',
     body: JSON.stringify(config),

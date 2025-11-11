@@ -289,7 +289,7 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                 </div>
 
                 {/* Action buttons */}
-                {tokenization.status === TokenizationStatus.READY && (
+                {(tokenization.status === TokenizationStatus.READY || tokenization.status === TokenizationStatus.ERROR) && (
                   <button
                     onClick={() => handleDelete(tokenization.model_id, tokenization.tokenizer_repo_id)}
                     className={`${COMPONENTS.button.ghost} p-1.5`}

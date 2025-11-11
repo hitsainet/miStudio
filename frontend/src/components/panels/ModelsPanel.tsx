@@ -146,14 +146,7 @@ export function ModelsPanel() {
 
   // Adapter function to match ActivationExtractionConfig's expected signature
   const handleExtractActivationsSubmit = async (modelId: string, config: any) => {
-    await extractActivations(
-      modelId,
-      config.dataset_id,
-      config.layer_indices,
-      config.hook_types,
-      config.max_samples,
-      config.batch_size
-    );
+    await extractActivations(modelId, config);
   };
 
   return (

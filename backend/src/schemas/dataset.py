@@ -49,6 +49,9 @@ class DatasetUpdate(BaseModel):
         None,
         description="Dataset metadata (validated structure or raw dict for backwards compatibility)"
     )
+    tokenization_filter_enabled: Optional[bool] = Field(None, description="Enable sample filtering during tokenization")
+    tokenization_filter_mode: Optional[Literal["minimal", "conservative"]] = Field(None, description="Filter mode: minimal or conservative")
+    tokenization_junk_ratio_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Junk ratio threshold (0.0-1.0)")
 
     @field_validator("metadata", mode="before")
     @classmethod
@@ -180,6 +183,20 @@ class DatasetTokenizeRequest(BaseModel):
     enable_cleaning: bool = Field(
         True,
         description="Enable text cleaning (removes HTML tags, control characters, excessive punctuation, normalizes Unicode) - Recommended for better feature quality"
+    )
+    tokenization_filter_enabled: bool = Field(
+        False,
+        description="Enable sample filtering during tokenization (Stage 1 filtering) - Filters out low-quality samples based on junk ratio threshold"
+    )
+    tokenization_filter_mode: Literal["minimal", "conservative"] = Field(
+        "conservative",
+        description="Filter mode: 'minimal' (permissive, keeps more samples) or 'conservative' (strict, filters more aggressively)"
+    )
+    tokenization_junk_ratio_threshold: float = Field(
+        0.7,
+        ge=0.0,
+        le=1.0,
+        description="Junk ratio threshold for filtering samples (0.0-1.0). Samples with junk ratio above this threshold are filtered out. Higher values = more permissive."
     )
 
     @field_validator("stride")

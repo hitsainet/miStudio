@@ -535,10 +535,13 @@ async def tokenize_dataset(
                 detail=f"Failed to start tokenization: {str(e)}"
             )
 
-        # Update status to processing
+        # Update status to processing and save filter configuration
         updates = DatasetUpdate(
             status=DatasetStatus.PROCESSING.value,
             progress=0.0,
+            tokenization_filter_enabled=request.tokenization_filter_enabled,
+            tokenization_filter_mode=request.tokenization_filter_mode,
+            tokenization_junk_ratio_threshold=request.tokenization_junk_ratio_threshold,
         )
         dataset = await DatasetService.update_dataset(db, dataset_id, updates)
 

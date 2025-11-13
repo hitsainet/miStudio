@@ -91,6 +91,8 @@ export enum TokenizationStatus {
   ERROR = 'error',
 }
 
+export type TokenFilterMode = 'minimal' | 'conservative' | 'standard' | 'aggressive' | 'strict';
+
 export interface DatasetTokenization {
   id: string;
   dataset_id: string;
@@ -107,6 +109,47 @@ export interface DatasetTokenization {
   created_at: string;
   updated_at: string;
   completed_at?: string;
+  remove_all_punctuation?: boolean;
+  custom_filter_chars?: string;
+}
+
+/**
+ * Detailed tokenization progress information for real-time updates.
+ * Extends basic progress with stage information, filtering statistics, and performance metrics.
+ */
+export interface DatasetTokenizationProgress {
+  /** Unique identifier for the tokenization job */
+  tokenization_id: string;
+  /** Dataset ID this tokenization belongs to */
+  dataset_id: string;
+  /** Overall progress percentage (0-100) */
+  progress: number;
+  /** Current processing stage */
+  stage: 'loading' | 'tokenizing' | 'filtering' | 'saving' | 'complete';
+  /** Number of samples processed so far */
+  samples_processed: number;
+  /** Total number of samples to process */
+  total_samples: number;
+  /** Timestamp when tokenization started */
+  started_at?: string;
+  /** Elapsed time in seconds */
+  elapsed_seconds?: number;
+  /** Estimated time remaining in seconds */
+  estimated_seconds_remaining?: number;
+  /** Current processing rate (samples per second) */
+  samples_per_second?: number;
+
+  /** Filtering statistics (when filtering is enabled) */
+  filter_stats?: {
+    /** Number of samples filtered out */
+    samples_filtered: number;
+    /** Number of tokens classified as junk */
+    junk_tokens: number;
+    /** Total number of tokens processed */
+    total_tokens: number;
+    /** Percentage of samples filtered (0-100) */
+    filter_rate: number;
+  };
 }
 
 export interface DatasetTokenizationListResponse {
@@ -135,6 +178,8 @@ export interface Dataset {
   tokenization_filter_mode?: string;
   /** Junk ratio threshold (0.0-1.0) */
   tokenization_junk_ratio_threshold?: number;
+  /** List of tokenizations for this dataset */
+  tokenizations?: DatasetTokenization[];
 }
 
 export interface DatasetSample {

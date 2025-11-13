@@ -16,11 +16,18 @@ export type ExtractionStatus = 'queued' | 'extracting' | 'completed' | 'failed' 
 export type LabelSource = 'auto' | 'user';
 
 /**
+ * Token filter mode for extraction.
+ */
+export type ExtractionFilterMode = 'standard' | 'aggressive';
+
+/**
  * Extraction configuration request.
  */
 export interface ExtractionConfigRequest {
   evaluation_samples: number;  // 1,000 - 100,000
   top_k_examples: number;      // 10 - 1,000
+  extraction_filter_enabled?: boolean;  // Enable token filtering (default: false)
+  extraction_filter_mode?: ExtractionFilterMode;  // Filter mode (default: 'standard')
 }
 
 /**
@@ -41,6 +48,8 @@ export interface ExtractionStatusResponse {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  extraction_filter_enabled?: boolean;
+  extraction_filter_mode?: ExtractionFilterMode;
 }
 
 /**

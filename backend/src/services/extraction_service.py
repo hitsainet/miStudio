@@ -254,7 +254,9 @@ class ExtractionService:
             "statistics": extraction_job.statistics,
             "created_at": extraction_job.created_at,
             "updated_at": extraction_job.updated_at,
-            "completed_at": extraction_job.completed_at
+            "completed_at": extraction_job.completed_at,
+            "extraction_filter_enabled": extraction_job.extraction_filter_enabled,
+            "extraction_filter_mode": extraction_job.extraction_filter_mode
         }
 
     async def list_extractions(
@@ -356,7 +358,9 @@ class ExtractionService:
                 "statistics": extraction_job.statistics,
                 "created_at": extraction_job.created_at,
                 "updated_at": extraction_job.updated_at,
-                "completed_at": extraction_job.completed_at
+                "completed_at": extraction_job.completed_at,
+                "extraction_filter_enabled": extraction_job.extraction_filter_enabled,
+                "extraction_filter_mode": extraction_job.extraction_filter_mode
             })
 
         return extractions_list, total

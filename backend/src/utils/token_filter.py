@@ -18,6 +18,7 @@ class FilterMode(str, Enum):
     CONSERVATIVE = "conservative"  # + obvious junk (for tokenization)
     STANDARD = "standard"    # + punctuation, single chars (for labeling)
     AGGRESSIVE = "aggressive"  # + short tokens, low entropy
+    STRICT = "strict"        # + ALL punctuation (even within words)
 
 
 class TokenFilter:
@@ -32,7 +33,9 @@ class TokenFilter:
         self,
         mode: FilterMode = FilterMode.STANDARD,
         keep_patterns: Optional[List[str]] = None,
-        custom_junk_tokens: Optional[Set[str]] = None
+        custom_junk_tokens: Optional[Set[str]] = None,
+        remove_all_punctuation: bool = False,
+        custom_filter_chars: Optional[str] = None
     ):
         """
         Initialize token filter.
@@ -41,6 +44,8 @@ class TokenFilter:
             mode: Filter aggressiveness level
             keep_patterns: Regex patterns for tokens to always keep (e.g., r'C\+\+', r'\.NET')
             custom_junk_tokens: Additional tokens to always filter
+            remove_all_punctuation: If True, removes ALL punctuation characters (overrides mode)
+            custom_filter_chars: Additional characters to filter (e.g., "~@#$%")
         """
         self.mode = mode
         self.keep_patterns = keep_patterns or [
@@ -50,6 +55,8 @@ class TokenFilter:
             r'\.NET',
         ]
         self.custom_junk_tokens = custom_junk_tokens or set()
+        self.remove_all_punctuation = remove_all_punctuation
+        self.custom_filter_chars = set(custom_filter_chars) if custom_filter_chars else set()
 
         # BPE marker patterns
         self.bpe_markers = ['Ġ', '▁', '##']
@@ -95,6 +102,18 @@ class TokenFilter:
                 return True
         return False
 
+    def _contains_any_punctuation(self, token: str) -> bool:
+        """Check if token contains any punctuation characters."""
+        cleaned = self._clean_bpe_markers(token)
+        return any(c in string.punctuation for c in cleaned)
+
+    def _contains_custom_chars(self, token: str) -> bool:
+        """Check if token contains any custom filter characters."""
+        if not self.custom_filter_chars:
+            return False
+        cleaned = self._clean_bpe_markers(token)
+        return any(c in self.custom_filter_chars for c in cleaned)
+
     def is_junk_token(self, token: str) -> bool:
         """
         Determine if token should be filtered based on mode.
@@ -107,6 +126,14 @@ class TokenFilter:
 
         # Always filter custom junk tokens
         if token in self.custom_junk_tokens:
+            return True
+
+        # Filter tokens containing custom filter characters
+        if self._contains_custom_chars(token):
+            return True
+
+        # If remove_all_punctuation is enabled, filter any token with punctuation
+        if self.remove_all_punctuation and self._contains_any_punctuation(token):
             return True
 
         # MINIMAL mode: Only control chars and nulls
@@ -158,6 +185,17 @@ class TokenFilter:
                 alnum_ratio = sum(c.isalnum() for c in cleaned) / len(cleaned)
                 if alnum_ratio < 0.5:
                     return True
+
+            return False
+
+        # STRICT mode: Filter ANY token containing punctuation
+        if self.mode == FilterMode.STRICT:
+            if self._is_control_char(token) or self._is_whitespace_only(token):
+                return True
+
+            # Filter any token containing ANY punctuation
+            if self._contains_any_punctuation(token):
+                return True
 
             return False
 

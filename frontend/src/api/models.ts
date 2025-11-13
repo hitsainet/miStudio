@@ -270,3 +270,10 @@ export async function deleteExtractions(
     body: JSON.stringify({ extraction_ids: extractionIds }),
   });
 }
+
+/**
+ * Get list of locally cached HuggingFace models
+ */
+export async function getLocalModels(): Promise<{ models: string[] }> {
+  return fetchAPI<{ models: string[] }>('/models/local-cache/list');
+}

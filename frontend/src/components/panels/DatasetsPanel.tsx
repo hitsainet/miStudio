@@ -5,18 +5,58 @@
  * including viewing, downloading, and monitoring dataset operations.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useDatasetsStore } from '../../stores/datasetsStore';
+import { useTokenizationWebSocket } from '../../hooks/useTokenizationWebSocket';
 import { DownloadForm } from '../datasets/DownloadForm';
 import { DatasetCard } from '../datasets/DatasetCard';
 import { DatasetDetailModal } from '../datasets/DatasetDetailModal';
-import { Dataset } from '../../types/dataset';
+import { Dataset, TokenizationStatus } from '../../types/dataset';
 
 export function DatasetsPanel() {
-  const { datasets, loading, error, fetchDatasets, downloadDataset, deleteDataset, cancelDownload } = useDatasetsStore();
+  const {
+    datasets,
+    loading,
+    error,
+    tokenizationProgress,
+    fetchDatasets,
+    downloadDataset,
+    deleteDataset,
+    cancelDownload
+  } = useDatasetsStore();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
 
-  // WebSocket progress updates are now handled globally in App.tsx via useGlobalDatasetProgress()
+  // Get active tokenizations from datasets for WebSocket subscriptions
+  const activeTokenizations = useMemo(() => {
+    const result: Array<{ datasetId: string; tokenizationId: string }> = [];
+
+    console.log('[DatasetsPanel] Computing activeTokenizations, datasets:', datasets.length);
+    datasets.forEach(dataset => {
+      // Check if dataset has tokenizations
+      const tokenizations = dataset.tokenizations || [];
+      console.log(`[DatasetsPanel] Dataset ${dataset.name} has ${tokenizations.length} tokenizations`);
+      tokenizations.forEach(tokenization => {
+        console.log(`[DatasetsPanel] - Tokenization ${tokenization.id} status: ${tokenization.status}`);
+        // Subscribe to processing or queued tokenizations
+        if (
+          tokenization.status === TokenizationStatus.PROCESSING ||
+          tokenization.status === TokenizationStatus.QUEUED
+        ) {
+          console.log(`[DatasetsPanel] - Adding to active list`);
+          result.push({
+            datasetId: dataset.id,
+            tokenizationId: tokenization.id,
+          });
+        }
+      });
+    });
+
+    console.log('[DatasetsPanel] Found', result.length, 'active tokenizations');
+    return result;
+  }, [datasets]);
+
+  // Subscribe to WebSocket updates for active tokenizations
+  useTokenizationWebSocket(activeTokenizations);
 
   // Fetch datasets on mount
   useEffect(() => {
@@ -112,15 +152,40 @@ export function DatasetsPanel() {
                   // Then by creation time (newest first)
                   return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                 })
-                .map((dataset) => (
-                  <DatasetCard
-                    key={dataset.id}
-                    dataset={dataset}
-                    onClick={() => handleDatasetClick(dataset)}
-                    onDelete={handleDelete}
-                    onCancel={handleCancel}
-                  />
-                ))}
+                .map((dataset) => {
+                  // Find the active tokenization for this dataset
+                  const activeTokenization = dataset.tokenizations?.find(
+                    t => t.status === TokenizationStatus.PROCESSING || t.status === TokenizationStatus.QUEUED
+                  );
+
+                  console.log(`[DatasetsPanel] Dataset ${dataset.name}:`, {
+                    hasTokenizations: !!dataset.tokenizations,
+                    tokenizationsCount: dataset.tokenizations?.length,
+                    activeTokenization: activeTokenization?.id,
+                    activeTokenizationStatus: activeTokenization?.status,
+                  });
+
+                  // Get the progress data for the active tokenization
+                  const progress = activeTokenization ? tokenizationProgress[activeTokenization.id] : undefined;
+
+                  console.log(`[DatasetsPanel] Progress for ${dataset.name}:`, progress ? {
+                    tokenizationId: progress.tokenization_id,
+                    stage: progress.stage,
+                    progress: progress.progress,
+                    samples: `${progress.samples_processed}/${progress.total_samples}`,
+                  } : 'No progress data');
+
+                  return (
+                    <DatasetCard
+                      key={dataset.id}
+                      dataset={dataset}
+                      tokenizationProgress={progress}
+                      onClick={() => handleDatasetClick(dataset)}
+                      onDelete={handleDelete}
+                      onCancel={handleCancel}
+                    />
+                  );
+                })}
             </div>
           </div>
         )}

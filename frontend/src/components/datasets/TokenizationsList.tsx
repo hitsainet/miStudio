@@ -7,17 +7,19 @@
 
 import { useEffect, useState } from 'react';
 import { CheckCircle, Loader, AlertCircle, Plus, Trash2, Hash, X } from 'lucide-react';
-import { TokenizationStatus } from '../../types/dataset';
+import { TokenizationStatus, TokenFilterMode } from '../../types/dataset';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { COMPONENTS } from '../../config/brand';
+import { useTokenizationWebSocket } from '../../hooks/useTokenizationWebSocket';
+import { TokenizationProgressDisplay } from './TokenizationProgressDisplay';
 
 interface TokenizationsListProps {
   datasetId: string;
 }
 
 export function TokenizationsList({ datasetId }: TokenizationsListProps) {
-  const { tokenizations, fetchTokenizations, deleteTokenization, cancelTokenization, createTokenization } = useDatasetsStore();
+  const { tokenizations, tokenizationProgress, fetchTokenizations, deleteTokenization, cancelTokenization, createTokenization } = useDatasetsStore();
   const { models, fetchModels } = useModelsStore();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState('');
@@ -25,10 +27,19 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
 
   // Filtering configuration state
   const [filterEnabled, setFilterEnabled] = useState(false);
-  const [filterMode, setFilterMode] = useState<'minimal' | 'conservative'>('conservative');
+  const [filterMode, setFilterMode] = useState<TokenFilterMode>('conservative');
   const [junkRatioThreshold, setJunkRatioThreshold] = useState(0.7);
+  const [removeAllPunctuation, setRemoveAllPunctuation] = useState(false);
+  const [customFilterChars, setCustomFilterChars] = useState('');
 
   const datasetTokenizations = tokenizations[datasetId] || [];
+
+  // Set up WebSocket subscriptions for active tokenizations
+  const activeTokenizations = datasetTokenizations
+    .filter(t => t.status === TokenizationStatus.PROCESSING || t.status === TokenizationStatus.QUEUED)
+    .map(t => ({ datasetId, tokenizationId: t.id }));
+
+  useTokenizationWebSocket(activeTokenizations);
 
   useEffect(() => {
     fetchTokenizations(datasetId);
@@ -72,6 +83,8 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
         tokenization_filter_enabled: filterEnabled,
         tokenization_filter_mode: filterMode,
         tokenization_junk_ratio_threshold: junkRatioThreshold,
+        remove_all_punctuation: removeAllPunctuation,
+        custom_filter_chars: customFilterChars || undefined,
       });
       setShowCreateForm(false);
       setSelectedModelId('');
@@ -79,6 +92,8 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
       setFilterEnabled(false);
       setFilterMode('conservative');
       setJunkRatioThreshold(0.7);
+      setRemoveAllPunctuation(false);
+      setCustomFilterChars('');
     } catch (error) {
       console.error('Failed to create tokenization:', error);
     } finally {
@@ -185,28 +200,93 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                         type="radio"
                         value="minimal"
                         checked={filterMode === 'minimal'}
-                        onChange={(e) => setFilterMode(e.target.value as 'minimal' | 'conservative')}
+                        onChange={(e) => setFilterMode(e.target.value as TokenFilterMode)}
                         className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
                       />
                       <span className="text-sm text-slate-200">Minimal</span>
-                      <span className="text-xs text-slate-500">- Only control characters</span>
+                      <span className="text-xs text-slate-500">- Only control chars</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
                         value="conservative"
                         checked={filterMode === 'conservative'}
-                        onChange={(e) => setFilterMode(e.target.value as 'minimal' | 'conservative')}
+                        onChange={(e) => setFilterMode(e.target.value as TokenFilterMode)}
                         className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
                       />
                       <span className="text-sm text-slate-200">Conservative</span>
                       <span className="text-xs text-slate-500">- + Whitespace tokens</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="standard"
+                        checked={filterMode === 'standard'}
+                        onChange={(e) => setFilterMode(e.target.value as TokenFilterMode)}
+                        className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
+                      />
+                      <span className="text-sm text-slate-200">Standard</span>
+                      <span className="text-xs text-slate-500">- + Pure punctuation</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="aggressive"
+                        checked={filterMode === 'aggressive'}
+                        onChange={(e) => setFilterMode(e.target.value as TokenFilterMode)}
+                        className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
+                      />
+                      <span className="text-sm text-slate-200">Aggressive</span>
+                      <span className="text-xs text-slate-500">- + Short tokens</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="strict"
+                        checked={filterMode === 'strict'}
+                        onChange={(e) => setFilterMode(e.target.value as TokenFilterMode)}
+                        className="w-3.5 h-3.5 text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500"
+                      />
+                      <span className="text-sm text-slate-200">Strict</span>
+                      <span className="text-xs text-slate-500">- + ALL punctuation</span>
+                    </label>
                   </div>
                 </div>
 
+                {/* Remove All Punctuation */}
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-700/50">
+                  <input
+                    type="checkbox"
+                    id="remove-all-punctuation"
+                    checked={removeAllPunctuation}
+                    onChange={(e) => setRemoveAllPunctuation(e.target.checked)}
+                    className="w-4 h-4 bg-slate-900 border-slate-700 rounded text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <label htmlFor="remove-all-punctuation" className="text-sm text-slate-200">
+                    Remove ALL Punctuation
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500 ml-6">
+                  Removes every punctuation character, even within words (overrides mode)
+                </p>
+
+                {/* Custom Filter Characters */}
+                <div className="space-y-2 pt-2 border-t border-slate-700/50">
+                  <label className="text-xs font-medium text-slate-300">Custom Characters to Filter</label>
+                  <input
+                    type="text"
+                    value={customFilterChars}
+                    onChange={(e) => setCustomFilterChars(e.target.value)}
+                    placeholder="e.g., ~@#$%"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-100 text-sm placeholder-slate-500"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Additional characters to remove from tokens (e.g., ~@#$%)
+                  </p>
+                </div>
+
                 {/* Junk Ratio Threshold */}
-                <div className="space-y-2">
+                <div className="space-y-2 pt-2 border-t border-slate-700/50">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-medium text-slate-300">Junk Ratio Threshold</label>
                     <span className="text-xs text-emerald-400 font-mono">{(junkRatioThreshold * 100).toFixed(0)}%</span>
@@ -334,18 +414,24 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
               )}
 
               {/* Progress */}
-              {(tokenization.status === TokenizationStatus.PROCESSING || tokenization.status === TokenizationStatus.QUEUED) && tokenization.progress !== undefined && (
-                <div className="pt-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                    <span>Progress</span>
-                    <span>{tokenization.progress.toFixed(1)}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500 transition-all duration-300"
-                      style={{ width: `${tokenization.progress}%` }}
-                    />
-                  </div>
+              {(tokenization.status === TokenizationStatus.PROCESSING || tokenization.status === TokenizationStatus.QUEUED) && (
+                <div className="pt-2 border-t border-slate-700/50">
+                  {tokenizationProgress[tokenization.id] ? (
+                    <TokenizationProgressDisplay progress={tokenizationProgress[tokenization.id]} />
+                  ) : tokenization.progress !== undefined ? (
+                    <div>
+                      <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                        <span>Progress</span>
+                        <span>{tokenization.progress.toFixed(1)}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 transition-all duration-300"
+                          style={{ width: `${tokenization.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )}
 

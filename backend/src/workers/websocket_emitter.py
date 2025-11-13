@@ -156,6 +156,91 @@ def emit_dataset_progress(
     return emit_progress(channel, namespaced_event, data)
 
 
+def emit_tokenization_progress(
+    dataset_id: str,
+    tokenization_id: str,
+    progress: float,
+    stage: str,
+    samples_processed: int,
+    total_samples: int,
+    started_at: Optional[str] = None,
+    elapsed_seconds: Optional[float] = None,
+    estimated_seconds_remaining: Optional[float] = None,
+    samples_per_second: Optional[float] = None,
+    filter_stats: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    Emit detailed tokenization progress update.
+
+    Sends comprehensive progress information including stage, sample counts,
+    time estimates, processing rate, and filtering statistics.
+
+    Args:
+        dataset_id: Dataset UUID
+        tokenization_id: Tokenization job ID
+        progress: Overall progress percentage (0-100)
+        stage: Current processing stage ('loading', 'tokenizing', 'filtering', 'saving', 'complete')
+        samples_processed: Number of samples processed so far
+        total_samples: Total number of samples to process
+        started_at: ISO timestamp when tokenization started
+        elapsed_seconds: Time elapsed since start
+        estimated_seconds_remaining: Estimated time to completion
+        samples_per_second: Current processing rate
+        filter_stats: Optional filtering statistics dict with keys:
+            - samples_filtered: Number of samples filtered out
+            - junk_tokens: Number of tokens classified as junk
+            - total_tokens: Total tokens processed
+            - filter_rate: Percentage of samples filtered
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Examples:
+        >>> emit_tokenization_progress(
+        ...     dataset_id="abc-123",
+        ...     tokenization_id="tok_abc123",
+        ...     progress=45.5,
+        ...     stage="tokenizing",
+        ...     samples_processed=4550,
+        ...     total_samples=10000,
+        ...     elapsed_seconds=120.5,
+        ...     estimated_seconds_remaining=145.0,
+        ...     samples_per_second=37.8,
+        ...     filter_stats={
+        ...         "samples_filtered": 250,
+        ...         "junk_tokens": 15000,
+        ...         "total_tokens": 500000,
+        ...         "filter_rate": 2.5
+        ...     }
+        ... )
+        True
+    """
+    data = {
+        "tokenization_id": tokenization_id,
+        "dataset_id": dataset_id,
+        "progress": progress,
+        "stage": stage,
+        "samples_processed": samples_processed,
+        "total_samples": total_samples,
+    }
+
+    # Add optional fields if provided
+    if started_at is not None:
+        data["started_at"] = started_at
+    if elapsed_seconds is not None:
+        data["elapsed_seconds"] = elapsed_seconds
+    if estimated_seconds_remaining is not None:
+        data["estimated_seconds_remaining"] = estimated_seconds_remaining
+    if samples_per_second is not None:
+        data["samples_per_second"] = samples_per_second
+    if filter_stats is not None:
+        data["filter_stats"] = filter_stats
+
+    channel = f"datasets/{dataset_id}/tokenization/{tokenization_id}"
+    namespaced_event = "tokenization:progress"
+    return emit_progress(channel, namespaced_event, data)
+
+
 def emit_model_progress(
     model_id: str,
     event: str,

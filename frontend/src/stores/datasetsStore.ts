@@ -11,7 +11,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { Dataset, DatasetStatus, DatasetTokenization, DatasetTokenizationListResponse } from '../types/dataset';
+import { Dataset, DatasetStatus, DatasetTokenization, DatasetTokenizationListResponse, DatasetTokenizationProgress } from '../types/dataset';
 import { API_BASE_URL } from '../config/api';
 import { cancelDatasetDownload, getDataset } from '../api/datasets';
 import { startPolling } from '../utils/polling';
@@ -27,6 +27,7 @@ interface DatasetsState {
   // State
   datasets: Dataset[];
   tokenizations: Record<string, DatasetTokenization[]>; // keyed by dataset_id
+  tokenizationProgress: Record<string, DatasetTokenizationProgress>; // keyed by tokenization_id
   loading: boolean;
   error: string | null;
 
@@ -45,6 +46,7 @@ interface DatasetsState {
   createTokenization: (datasetId: string, modelId: string, params: any) => Promise<void>;
   deleteTokenization: (datasetId: string, modelId: string) => Promise<void>;
   cancelTokenization: (datasetId: string, modelId: string) => Promise<void>;
+  updateTokenizationProgress: (datasetId: string, tokenizationId: string, progress: DatasetTokenizationProgress) => void;
 }
 
 export const useDatasetsStore = create<DatasetsState>()(
@@ -53,6 +55,7 @@ export const useDatasetsStore = create<DatasetsState>()(
       // Initial state
       datasets: [],
       tokenizations: {},
+      tokenizationProgress: {},
       loading: false,
       error: null,
 
@@ -348,6 +351,16 @@ export const useDatasetsStore = create<DatasetsState>()(
           set({ error: errorMessage, loading: false });
           throw error;
         }
+      },
+
+      // Update tokenization progress (called by WebSocket)
+      updateTokenizationProgress: (_datasetId: string, tokenizationId: string, progress: DatasetTokenizationProgress) => {
+        set((state) => ({
+          tokenizationProgress: {
+            ...state.tokenizationProgress,
+            [tokenizationId]: progress,
+          },
+        }));
       },
     }),
     {

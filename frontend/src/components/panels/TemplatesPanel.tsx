@@ -4,13 +4,15 @@
  * This panel provides a tabbed interface for managing different types of templates:
  * - Extraction Templates: For activation extraction configurations
  * - Training Templates: For SAE training configurations
+ * - Labeling Templates: For semantic feature labeling prompt configurations
  */
 
 import { useState } from 'react';
 import { ExtractionTemplatesPanel } from './ExtractionTemplatesPanel';
 import { TrainingTemplatesPanel } from './TrainingTemplatesPanel';
+import { LabelingPromptTemplatesPanel } from './LabelingPromptTemplatesPanel';
 
-type TemplateType = 'extraction' | 'training';
+type TemplateType = 'extraction' | 'training' | 'labeling';
 
 export function TemplatesPanel() {
   const [activeTemplateType, setActiveTemplateType] = useState<TemplateType>('extraction');
@@ -47,6 +49,19 @@ export function TemplatesPanel() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
               )}
             </button>
+            <button
+              onClick={() => setActiveTemplateType('labeling')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activeTemplateType === 'labeling'
+                  ? 'text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Labeling Templates
+              {activeTemplateType === 'labeling' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+              )}
+            </button>
           </nav>
         </div>
       </div>
@@ -55,6 +70,7 @@ export function TemplatesPanel() {
       <div>
         {activeTemplateType === 'extraction' && <ExtractionTemplatesPanel />}
         {activeTemplateType === 'training' && <TrainingTemplatesPanel />}
+        {activeTemplateType === 'labeling' && <LabelingPromptTemplatesPanel />}
       </div>
     </div>
   );

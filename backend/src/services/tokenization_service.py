@@ -41,6 +41,8 @@ class _TokenizationMapper:
         enable_filtering: bool = False,
         filter_mode: str = "conservative",
         junk_ratio_threshold: float = 0.7,
+        remove_all_punctuation: bool = False,
+        custom_filter_chars: Optional[str] = None,
     ):
         """Initialize the tokenization mapper with parameters."""
         self.tokenizer_name = tokenizer_name
@@ -56,6 +58,8 @@ class _TokenizationMapper:
         self.enable_filtering = enable_filtering
         self.filter_mode = filter_mode
         self.junk_ratio_threshold = junk_ratio_threshold
+        self.remove_all_punctuation = remove_all_punctuation
+        self.custom_filter_chars = custom_filter_chars
         self._tokenizer = None  # Lazy-loaded in worker process
         self._text_cleaner = None  # Lazy-loaded in worker process
         self._token_filter = None  # Lazy-loaded in worker process
@@ -83,7 +87,11 @@ class _TokenizationMapper:
         if self._token_filter is None:
             from ..utils.token_filter import TokenFilter, FilterMode
             mode = FilterMode[self.filter_mode.upper()]
-            self._token_filter = TokenFilter(mode=mode)
+            self._token_filter = TokenFilter(
+                mode=mode,
+                remove_all_punctuation=self.remove_all_punctuation,
+                custom_filter_chars=self.custom_filter_chars
+            )
         return self._token_filter
 
     def __call__(self, examples):
@@ -275,6 +283,8 @@ class TokenizationService:
         enable_filtering: bool = False,
         filter_mode: str = "conservative",
         junk_ratio_threshold: float = 0.7,
+        remove_all_punctuation: bool = False,
+        custom_filter_chars: Optional[str] = None,
     ) -> HFDataset:
         """
         Tokenize a dataset using the provided tokenizer.
@@ -428,11 +438,15 @@ class TokenizationService:
                 enable_filtering=enable_filtering,
                 filter_mode=filter_mode,
                 junk_ratio_threshold=junk_ratio_threshold,
+                remove_all_punctuation=remove_all_punctuation,
+                custom_filter_chars=custom_filter_chars,
             )
 
             logger.info(
                 f"Using multiprocessing mode with {num_proc} processes. "
-                f"Text cleaning: {'enabled' if enable_cleaning else 'disabled'}"
+                f"Text cleaning: {'enabled' if enable_cleaning else 'disabled'}, "
+                f"Token filtering: {'enabled' if enable_filtering else 'disabled'}"
+                + (f" (mode={filter_mode}, threshold={junk_ratio_threshold})" if enable_filtering else "")
             )
 
             tokenized_dataset = dataset.map(

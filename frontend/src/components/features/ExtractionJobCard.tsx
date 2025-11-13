@@ -624,6 +624,19 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               <div className="col-span-3">Extraction ID: <span className={`${COMPONENTS.text.primary} font-mono text-xs`}>{extraction.id}</span></div>
               <div>Eval Samples: <span className={COMPONENTS.text.primary}>{extraction.config.evaluation_samples?.toLocaleString() || 'N/A'}</span></div>
               <div className="col-span-2">Top-K Examples: <span className={COMPONENTS.text.primary}>{extraction.config.top_k_examples || 'N/A'}</span></div>
+
+              {/* Token Filtering Configuration */}
+              <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Token Filtering</div>
+              <div className="col-span-2">
+                Filter Enabled: <span className={`${COMPONENTS.text.primary} font-medium ${extraction.extraction_filter_enabled ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  {extraction.extraction_filter_enabled ? 'Yes' : 'No'}
+                </span>
+              </div>
+              {extraction.extraction_filter_enabled && (
+                <div>
+                  Filter Mode: <span className={`${COMPONENTS.text.primary} capitalize`}>{extraction.extraction_filter_mode || 'standard'}</span>
+                </div>
+              )}
             </div>
           </div>
         </details>

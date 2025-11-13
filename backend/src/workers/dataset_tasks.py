@@ -12,6 +12,10 @@ from uuid import UUID
 import signal
 import os
 import psutil
+import logging
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # NOTE: Do NOT import load_dataset at module level!
 # It must be imported inside the task function AFTER patching tqdm
@@ -28,8 +32,9 @@ from ..schemas.dataset import DatasetUpdate
 from ..services.dataset_service import DatasetService
 from ..services.tokenization_service import TokenizationService
 from .base_task import DatabaseTask
-from .websocket_emitter import emit_dataset_progress
+from .websocket_emitter import emit_dataset_progress, emit_tokenization_progress
 from .tqdm_websocket_bridge import create_tqdm_websocket_callback
+import time
 
 
 def cleanup_child_processes():
@@ -436,6 +441,10 @@ def tokenize_dataset_task(
         # Create tokenization ID: tok_{dataset_id}_{model_id}
         tokenization_id = f"tok_{str(dataset_uuid).replace('-', '')}_{model_id}"
 
+        # Track start time for progress estimates
+        start_time = time.time()
+        started_at = datetime.now(UTC).isoformat()
+
         # Get dataset, model, and create/get tokenization record
         with self.get_db() as db:
             dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
@@ -511,10 +520,32 @@ def tokenize_dataset_task(
             if not dataset_obj.raw_path:
                 raise ValueError(f"Dataset {dataset_id} has no raw_path")
             raw_path = dataset_obj.raw_path
-            # Load filter configuration while session is open
-            filter_enabled = dataset_obj.tokenization_filter_enabled
-            filter_mode = dataset_obj.tokenization_filter_mode
-            filter_threshold = dataset_obj.tokenization_junk_ratio_threshold
+            # Load filter configuration from tokenization object (per-job config)
+            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+            if tokenization_obj:
+                filter_enabled = dataset_obj.tokenization_filter_enabled  # Still from dataset for backward compat
+                filter_mode = dataset_obj.tokenization_filter_mode
+                filter_threshold = dataset_obj.tokenization_junk_ratio_threshold
+                # Load new per-tokenization filter settings
+                remove_all_punctuation = tokenization_obj.remove_all_punctuation
+                custom_filter_chars = tokenization_obj.custom_filter_chars
+            else:
+                # Fallback to dataset-level settings
+                filter_enabled = dataset_obj.tokenization_filter_enabled
+                filter_mode = dataset_obj.tokenization_filter_mode
+                filter_threshold = dataset_obj.tokenization_junk_ratio_threshold
+                remove_all_punctuation = False
+                custom_filter_chars = None
+
+            # DEBUG: Log the loaded filter configuration values
+            logger.info(
+                f"[FILTER_CONFIG] Loaded from DB - "
+                f"filter_enabled={filter_enabled} (type={type(filter_enabled).__name__}), "
+                f"filter_mode={filter_mode}, "
+                f"filter_threshold={filter_threshold}, "
+                f"remove_all_punctuation={remove_all_punctuation}, "
+                f"custom_filter_chars={custom_filter_chars}"
+            )
 
         # Update Celery task state: Loading tokenizer
         self.update_state(
@@ -550,6 +581,19 @@ def tokenize_dataset_task(
 
         # Load dataset from disk
         dataset = TokenizationService.load_dataset_from_disk(raw_path)
+
+        # Emit detailed progress: loading stage complete
+        elapsed = time.time() - start_time
+        emit_tokenization_progress(
+            dataset_id=dataset_id,
+            tokenization_id=tokenization_id,
+            progress=20.0,
+            stage="loading",
+            samples_processed=0,
+            total_samples=len(dataset),
+            started_at=started_at,
+            elapsed_seconds=elapsed,
+        )
 
         # Handle DatasetDict (multi-split datasets) - use 'train' split by default
         from datasets import DatasetDict
@@ -616,6 +660,20 @@ def tokenize_dataset_task(
                 tokenization_obj.progress = 40.0
                 db.commit()
 
+        # Emit detailed progress: starting tokenization stage
+        total_samples = len(dataset)
+        elapsed = time.time() - start_time
+        emit_tokenization_progress(
+            dataset_id=dataset_id,
+            tokenization_id=tokenization_id,
+            progress=40.0,
+            stage="tokenizing",
+            samples_processed=0,
+            total_samples=total_samples,
+            started_at=started_at,
+            elapsed_seconds=elapsed,
+        )
+
         # Map truncation strategy to tokenizer parameter
         truncation_config = {
             "longest_first": True,  # Default HuggingFace behavior
@@ -629,9 +687,12 @@ def tokenize_dataset_task(
         # Maps HuggingFace's tqdm (0-100%) to our progress range (40-80%)
         TqdmTokenization = create_tqdm_websocket_callback(
             dataset_id=dataset_id,
+            tokenization_id=tokenization_id,  # Pass tokenization_id for correct WebSocket channel
             base_progress=40.0,
             progress_range=40.0,  # 40% → 80%
-            throttle_seconds=0.5  # Emit at most every 0.5 seconds OR every 10%
+            throttle_seconds=0.5,  # Emit at most every 0.5 seconds OR every 1%
+            stage="tokenizing",  # Current stage
+            started_at=started_at  # Pass start timestamp
         )
 
         # Patch tqdm at multiple locations where datasets might use it
@@ -644,6 +705,15 @@ def tokenize_dataset_task(
 
         # Tokenize dataset using multiprocessing (avoids OOM on large datasets)
         # Progress is now tracked via tqdm WebSocket bridge
+
+        # DEBUG: Log values being passed to tokenizer
+        logger.info(
+            f"[FILTER_CONFIG] Passing to tokenizer - "
+            f"enable_filtering={filter_enabled} (type={type(filter_enabled).__name__}), "
+            f"filter_mode={filter_mode}, "
+            f"junk_ratio_threshold={filter_threshold}"
+        )
+
         try:
             tokenized_dataset = TokenizationService.tokenize_dataset(
                 dataset=dataset,
@@ -659,10 +729,12 @@ def tokenize_dataset_task(
                 batch_size=1000,
                 progress_callback=None,  # Disabled for multiprocessing (using tqdm bridge instead)
                 num_proc=None,  # Auto-detect CPU cores for parallel processing (prevents OOM)
-                # Use filter config from dataset (per-job) instead of global settings
+                # Use filter config from tokenization (per-job) instead of global settings
                 enable_filtering=filter_enabled,
                 filter_mode=filter_mode,
                 junk_ratio_threshold=filter_threshold,
+                remove_all_punctuation=remove_all_punctuation,
+                custom_filter_chars=custom_filter_chars,
             )
         finally:
             # Always restore original tqdm regardless of success/failure
@@ -709,6 +781,21 @@ def tokenize_dataset_task(
                         tokenization_obj.progress = mapped_progress
                         db.commit()
                         print(f"[STATS CALLBACK] Updated progress from {old_progress} to {mapped_progress}")
+
+                        # Emit WebSocket progress update
+                        elapsed = time.time() - start_time
+                        samples_per_sec = total_samples / elapsed if elapsed > 0 else 0
+                        emit_tokenization_progress(
+                            dataset_id=dataset_id,
+                            tokenization_id=tokenization_id,
+                            progress=mapped_progress,
+                            stage="saving",  # Statistics calculation is part of saving stage
+                            samples_processed=total_samples,  # All samples are processed at this point
+                            total_samples=total_samples,
+                            started_at=started_at,
+                            elapsed_seconds=elapsed,
+                            samples_per_second=samples_per_sec,
+                        )
                     else:
                         print(f"[STATS CALLBACK] ERROR: Tokenization {tokenization_id} not found")
             except Exception as e:
@@ -718,6 +805,19 @@ def tokenize_dataset_task(
         stats = TokenizationService.calculate_statistics(
             tokenized_dataset,
             progress_callback=stats_progress_callback
+        )
+
+        # Emit detailed progress: saving stage
+        elapsed = time.time() - start_time
+        emit_tokenization_progress(
+            dataset_id=dataset_id,
+            tokenization_id=tokenization_id,
+            progress=90.0,
+            stage="saving",
+            samples_processed=total_samples,
+            total_samples=total_samples,
+            started_at=started_at,
+            elapsed_seconds=elapsed,
         )
 
         # Update Celery task state: Saving dataset
@@ -780,6 +880,19 @@ def tokenize_dataset_task(
 
                 db.commit()
                 db.refresh(tokenization_obj)
+
+                # Emit detailed progress: complete
+                elapsed = time.time() - start_time
+                emit_tokenization_progress(
+                    dataset_id=dataset_id,
+                    tokenization_id=tokenization_id,
+                    progress=100.0,
+                    stage="complete",
+                    samples_processed=total_samples,
+                    total_samples=total_samples,
+                    started_at=started_at,
+                    elapsed_seconds=elapsed,
+                )
 
                 # Update Celery task state: Complete
                 self.update_state(

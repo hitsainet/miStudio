@@ -163,6 +163,36 @@ async def list_models(
     )
 
 
+@router.get("/local-cache/list", response_model=dict)
+async def list_local_models(db: AsyncSession = Depends(get_db)):
+    """
+    List models downloaded through the application.
+
+    Returns models from the database that have been successfully downloaded
+    and are available for local LLM labeling.
+
+    Returns:
+        dict with 'models' list containing model names
+    """
+    try:
+        # Query database for downloaded models
+        from ....models.model import Model
+
+        result = await db.execute(
+            select(Model.name)
+            .where(Model.status == ModelStatus.READY.value)
+            .order_by(Model.name)
+        )
+
+        model_names = [row[0] for row in result.fetchall()]
+
+        return {"models": model_names}
+
+    except Exception as e:
+        logger.error(f"Error listing local models: {e}")
+        return {"models": [], "error": str(e)}
+
+
 @router.get("/{model_id}", response_model=ModelResponse)
 async def get_model(
     model_id: str,

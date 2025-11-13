@@ -1185,6 +1185,13 @@ async def delete_dataset_tokenization(
     # Delete tokenization record
     await db.delete(tokenization)
 
+    # Release Redis lock
+    from ....core.config import settings
+    lock_key = f"tokenization_lock:{dataset_id}"
+    redis_client = get_redis_client()
+    redis_client.delete(lock_key)
+    logger.info(f"Released tokenization lock for dataset {dataset_id}")
+
     # Check if dataset has any remaining tokenizations
     remaining_result = await db.execute(
         select(DatasetTokenization)
@@ -1201,6 +1208,7 @@ async def delete_dataset_tokenization(
         if dataset and dataset.status in [DatasetStatus.PROCESSING, DatasetStatus.ERROR]:
             dataset.status = DatasetStatus.READY
             dataset.progress = 0.0
+            dataset.error_message = None  # Clear error message when resetting status
             logger.info(f"Reset dataset {dataset_id} status to READY (no tokenizations remaining)")
 
     await db.commit()
@@ -1286,6 +1294,13 @@ async def cancel_dataset_tokenization(
     tokenization.error_message = "Cancelled by user"
     tokenization.progress = None
     await db.commit()
+
+    # Release Redis lock
+    from ....core.config import settings
+    lock_key = f"tokenization_lock:{dataset_id}"
+    redis_client = get_redis_client()
+    redis_client.delete(lock_key)
+    logger.info(f"Released tokenization lock for dataset {dataset_id}")
 
     # Clean up partial tokenization files if they exist
     if tokenization.tokenized_path:

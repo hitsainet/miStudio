@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     BigInteger,
     Float,
+    Boolean,
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
@@ -164,6 +165,20 @@ class DatasetTokenization(Base):
         DateTime(timezone=True),
         nullable=True,
         comment="Timestamp when tokenization completed",
+    )
+
+    # Token filtering configuration
+    remove_all_punctuation = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="If true, removes ALL punctuation characters from tokens",
+    )
+    custom_filter_chars = Column(
+        String(255),
+        nullable=True,
+        comment="Custom characters to filter (e.g., '~@#$%')",
     )
 
     # Relationships

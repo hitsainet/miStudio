@@ -152,8 +152,8 @@ class DatasetService:
         Returns:
             Tuple of (list of datasets, total count)
         """
-        # Build base query
-        query = select(Dataset)
+        # Build base query with eager loading of tokenizations
+        query = select(Dataset).options(selectinload(Dataset.tokenizations))
         count_query = select(func.count()).select_from(Dataset)
 
         # Apply filters

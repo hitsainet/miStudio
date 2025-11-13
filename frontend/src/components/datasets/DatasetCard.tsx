@@ -6,20 +6,34 @@
 
 import React from 'react';
 import { Database, CheckCircle, Loader, Activity, Trash2, Settings, X } from 'lucide-react';
-import { Dataset } from '../../types/dataset';
+import { Dataset, DatasetTokenizationProgress } from '../../types/dataset';
 import { StatusBadge } from '../common/StatusBadge';
 import { ProgressBar } from '../common/ProgressBar';
+import { TokenizationProgressDisplay } from './TokenizationProgressDisplay';
 import { formatFileSize } from '../../utils/formatters';
 import { COMPONENTS } from '../../config/brand';
 
 interface DatasetCardProps {
   dataset: Dataset;
+  tokenizationProgress?: DatasetTokenizationProgress; // Optional tokenization progress
   onClick?: () => void;
   onDelete?: (id: string) => void;
   onCancel?: (id: string) => void;
 }
 
-export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCardProps) {
+export function DatasetCard({ dataset, tokenizationProgress, onClick, onDelete, onCancel }: DatasetCardProps) {
+  // Log props
+  console.log(`[DatasetCard] Rendering ${dataset.name}:`, {
+    status: dataset.status,
+    progress: dataset.progress,
+    hasTokenizationProgress: !!tokenizationProgress,
+    tokenizationProgress: tokenizationProgress ? {
+      stage: tokenizationProgress.stage,
+      progress: tokenizationProgress.progress,
+      samples: `${tokenizationProgress.samples_processed}/${tokenizationProgress.total_samples}`,
+    } : null,
+  });
+
   // Normalize status to string for consistent comparisons
   const statusString = String(dataset.status).toLowerCase();
 
@@ -132,9 +146,13 @@ export function DatasetCard({ dataset, onClick, onDelete, onCancel }: DatasetCar
             </div>
           )}
 
-          {showProgress && dataset.progress !== undefined && (
+          {showProgress && (
             <div className="mt-3">
-              <ProgressBar progress={dataset.progress} />
+              {tokenizationProgress ? (
+                <TokenizationProgressDisplay progress={tokenizationProgress} />
+              ) : dataset.progress !== undefined ? (
+                <ProgressBar progress={dataset.progress} />
+              ) : null}
             </div>
           )}
 

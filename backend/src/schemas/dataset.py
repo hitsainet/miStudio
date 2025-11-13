@@ -50,7 +50,7 @@ class DatasetUpdate(BaseModel):
         description="Dataset metadata (validated structure or raw dict for backwards compatibility)"
     )
     tokenization_filter_enabled: Optional[bool] = Field(None, description="Enable sample filtering during tokenization")
-    tokenization_filter_mode: Optional[Literal["minimal", "conservative"]] = Field(None, description="Filter mode: minimal or conservative")
+    tokenization_filter_mode: Optional[Literal["minimal", "conservative", "standard", "aggressive", "strict"]] = Field(None, description="Filter mode: minimal, conservative, standard, aggressive, or strict")
     tokenization_junk_ratio_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Junk ratio threshold (0.0-1.0)")
 
     @field_validator("metadata", mode="before")
@@ -121,6 +121,9 @@ class DatasetResponse(DatasetBase):
     tokenization_filter_mode: str = Field("conservative", description="Filter mode: minimal or conservative")
     tokenization_junk_ratio_threshold: float = Field(0.7, description="Junk ratio threshold (0.0-1.0)")
 
+    # Relationship - tokenizations for this dataset
+    tokenizations: Optional[list['DatasetTokenizationResponse']] = Field(None, description="List of tokenizations for this dataset")
+
     @field_serializer('status')
     def serialize_status(self, status: DatasetStatus | str, _info) -> str:
         """Serialize status enum to lowercase value for frontend compatibility."""
@@ -188,15 +191,24 @@ class DatasetTokenizeRequest(BaseModel):
         False,
         description="Enable sample filtering during tokenization (Stage 1 filtering) - Filters out low-quality samples based on junk ratio threshold"
     )
-    tokenization_filter_mode: Literal["minimal", "conservative"] = Field(
+    tokenization_filter_mode: Literal["minimal", "conservative", "standard", "aggressive", "strict"] = Field(
         "conservative",
-        description="Filter mode: 'minimal' (permissive, keeps more samples) or 'conservative' (strict, filters more aggressively)"
+        description="Filter mode: 'minimal' (only control chars), 'conservative' (+ whitespace), 'standard' (+ punctuation), 'aggressive' (+ short tokens), 'strict' (+ ALL punctuation)"
     )
     tokenization_junk_ratio_threshold: float = Field(
         0.7,
         ge=0.0,
         le=1.0,
         description="Junk ratio threshold for filtering samples (0.0-1.0). Samples with junk ratio above this threshold are filtered out. Higher values = more permissive."
+    )
+    remove_all_punctuation: bool = Field(
+        False,
+        description="Remove ALL punctuation characters from tokens (overrides filter_mode setting)"
+    )
+    custom_filter_chars: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="Custom characters to filter from tokens (e.g., '~@#$%')"
     )
 
     @field_validator("stride")
@@ -258,6 +270,8 @@ class DatasetTokenizationResponse(BaseModel):
     created_at: datetime = Field(..., description="Record creation timestamp")
     updated_at: datetime = Field(..., description="Record last update timestamp")
     completed_at: Optional[datetime] = Field(None, description="Timestamp when tokenization completed")
+    remove_all_punctuation: bool = Field(False, description="If true, removes ALL punctuation characters from tokens")
+    custom_filter_chars: Optional[str] = Field(None, description="Custom characters to filter (e.g., '~@#$%')")
 
     model_config = {
         "from_attributes": True,  # Enable ORM mode for SQLAlchemy models

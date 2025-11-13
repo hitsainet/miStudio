@@ -36,6 +36,16 @@ class LabelingConfigRequest(BaseModel):
         description="OpenAI API key for labeling when labeling_method='openai'. If not provided, uses environment variable OPENAI_API_KEY"
     )
 
+    # OpenAI-compatible configuration
+    openai_compatible_endpoint: Optional[str] = Field(
+        default=None,
+        description="OpenAI-compatible endpoint URL for labeling when labeling_method='openai_compatible'. Must include /v1 suffix. Example: 'http://ollama.mcslab.io/v1'"
+    )
+    openai_compatible_model: Optional[str] = Field(
+        default=None,
+        description="Model name for OpenAI-compatible endpoint when labeling_method='openai_compatible'. Example: 'llama3.2'"
+    )
+
     # Local model configuration
     local_model: Optional[str] = Field(
         default="meta-llama/Llama-3.2-1B",
@@ -54,7 +64,7 @@ class LabelingConfigRequest(BaseModel):
     @classmethod
     def validate_labeling_method(cls, v: str) -> str:
         """Validate labeling method is supported."""
-        valid_methods = ['openai', 'local', 'manual']
+        valid_methods = ['openai', 'openai_compatible', 'local', 'manual']
         if v not in valid_methods:
             raise ValueError(f"labeling_method must be one of {valid_methods}")
         return v

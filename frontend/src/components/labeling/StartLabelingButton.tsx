@@ -5,10 +5,12 @@
  * Opens a modal to configure labeling options.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tag, AlertCircle } from 'lucide-react';
 import { useLabelingStore } from '../../stores/labelingStore';
+import { useLabelingPromptTemplatesStore } from '../../stores/labelingPromptTemplatesStore';
 import { LabelingMethod } from '../../types/labeling';
+import { getLocalModels } from '../../api/models';
 
 interface StartLabelingButtonProps {
   extractionId: string;
@@ -27,9 +29,108 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
   );
   const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [localModel, setLocalModel] = useState('meta-llama/Llama-3.2-1B');
+  const [openaiCompatibleEndpoint, setOpenaiCompatibleEndpoint] = useState('http://ollama.mcslab.io/v1');
+  const [openaiCompatibleModel, setOpenaiCompatibleModel] = useState('llama3.2');
+  const [localModel, setLocalModel] = useState('');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [compatibleModels, setCompatibleModels] = useState<string[]>([]);
+  const [loadingCompatibleModels, setLoadingCompatibleModels] = useState(false);
+  const [compatibleModelsError, setCompatibleModelsError] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   const { startLabeling, isLoading, error, clearError } = useLabelingStore();
+  const { templates, fetchTemplates } = useLabelingPromptTemplatesStore();
+
+  // Fetch templates when modal opens
+  useEffect(() => {
+    if (isOpen && templates.length === 0) {
+      fetchTemplates();
+    }
+  }, [isOpen]);
+
+  // Fetch locally cached models when modal opens
+  useEffect(() => {
+    if (isOpen && labelingMethod === LabelingMethod.LOCAL && availableModels.length === 0) {
+      setLoadingModels(true);
+      getLocalModels()
+        .then((response) => {
+          setAvailableModels(response.models);
+          // Set first model as default if none selected
+          if (!localModel && response.models.length > 0) {
+            setLocalModel(response.models[0]);
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to fetch local models:', err);
+        })
+        .finally(() => {
+          setLoadingModels(false);
+        });
+    }
+  }, [isOpen, labelingMethod, availableModels.length, localModel]);
+
+  // Fetch models from OpenAI-compatible endpoint
+  const fetchCompatibleModels = async () => {
+    if (!openaiCompatibleEndpoint) {
+      setCompatibleModelsError('Please enter an endpoint URL first');
+      return;
+    }
+
+    setLoadingCompatibleModels(true);
+    setCompatibleModelsError(null);
+
+    try {
+      // Normalize endpoint URL (remove trailing slash, ensure /v1 suffix for consistency)
+      let baseUrl = openaiCompatibleEndpoint.trim();
+      if (baseUrl.endsWith('/')) {
+        baseUrl = baseUrl.slice(0, -1);
+      }
+      // Ensure URL ends with /v1 for OpenAI-compatible API standard
+      if (!baseUrl.endsWith('/v1')) {
+        baseUrl = `${baseUrl}/v1`;
+      }
+
+      // Query the /v1/models endpoint
+      const response = await fetch(`${baseUrl}/models`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      // OpenAI API format: { "data": [{ "id": "model-name", ... }] }
+      // Ollama format: { "models": [{ "name": "model-name", ... }] }
+      let models: string[] = [];
+
+      if (data.data && Array.isArray(data.data)) {
+        // OpenAI/vLLM format
+        models = data.data.map((m: any) => m.id || m.name).filter(Boolean);
+      } else if (data.models && Array.isArray(data.models)) {
+        // Ollama format
+        models = data.models.map((m: any) => m.name || m.id).filter(Boolean);
+      } else {
+        throw new Error('Unexpected response format from endpoint');
+      }
+
+      if (models.length === 0) {
+        setCompatibleModelsError('No models found on this endpoint');
+      } else {
+        setCompatibleModels(models);
+        // Auto-select first model if current value is default or empty
+        if (!openaiCompatibleModel || openaiCompatibleModel === 'llama3.2') {
+          setOpenaiCompatibleModel(models[0]);
+        }
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch models';
+      setCompatibleModelsError(errorMessage);
+      console.error('Failed to fetch compatible models:', err);
+    } finally {
+      setLoadingCompatibleModels(false);
+    }
+  };
 
   const handleStartLabeling = async () => {
     try {
@@ -43,7 +144,12 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
           labelingMethod === LabelingMethod.OPENAI && openaiApiKey
             ? openaiApiKey
             : undefined,
+        openai_compatible_endpoint:
+          labelingMethod === LabelingMethod.OPENAI_COMPATIBLE ? openaiCompatibleEndpoint : undefined,
+        openai_compatible_model:
+          labelingMethod === LabelingMethod.OPENAI_COMPATIBLE ? openaiCompatibleModel : undefined,
         local_model: labelingMethod === LabelingMethod.LOCAL ? localModel : undefined,
+        prompt_template_id: selectedTemplateId || undefined,
         batch_size: 10,
       });
 
@@ -82,6 +188,28 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Prompt Template
+                </label>
+                <select
+                  value={selectedTemplateId || ''}
+                  onChange={(e) => setSelectedTemplateId(e.target.value || null)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">Use Default Template</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                      {template.is_default && ' (Default)'}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">
+                  Select a prompt template for labeling features
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
                   Labeling Method
                 </label>
                 <select
@@ -90,6 +218,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
                   <option value={LabelingMethod.OPENAI}>OpenAI (requires api-key)</option>
+                  <option value={LabelingMethod.OPENAI_COMPATIBLE}>OpenAI-Compatible (Ollama, vLLM, etc.)</option>
                   <option value={LabelingMethod.LOCAL}>Local Model</option>
                 </select>
               </div>
@@ -129,18 +258,107 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
                 </>
               )}
 
+              {labelingMethod === LabelingMethod.OPENAI_COMPATIBLE && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Endpoint URL
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={openaiCompatibleEndpoint}
+                        onChange={(e) => {
+                          setOpenaiCompatibleEndpoint(e.target.value);
+                          // Reset models when endpoint changes
+                          setCompatibleModels([]);
+                          setCompatibleModelsError(null);
+                        }}
+                        placeholder="http://ollama.mcslab.io/v1"
+                        className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={fetchCompatibleModels}
+                        disabled={loadingCompatibleModels || !openaiCompatibleEndpoint}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                      >
+                        {loadingCompatibleModels ? 'Loading...' : 'Fetch Models'}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">
+                      OpenAI-compatible API endpoint (Ollama, vLLM, etc.)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Model Name
+                    </label>
+                    {compatibleModels.length > 0 ? (
+                      <select
+                        value={openaiCompatibleModel}
+                        onChange={(e) => setOpenaiCompatibleModel(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      >
+                        {compatibleModels.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={openaiCompatibleModel}
+                        onChange={(e) => setOpenaiCompatibleModel(e.target.value)}
+                        placeholder="llama3.2"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    )}
+                    {compatibleModelsError && (
+                      <p className="mt-1 text-xs text-red-400">{compatibleModelsError}</p>
+                    )}
+                    {!compatibleModelsError && (
+                      <p className="mt-1 text-xs text-slate-400">
+                        {compatibleModels.length > 0
+                          ? `${compatibleModels.length} model(s) available`
+                          : 'Click "Fetch Models" or enter model name manually'}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
               {labelingMethod === LabelingMethod.LOCAL && (
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
                     Local Model
                   </label>
-                  <input
-                    type="text"
-                    value={localModel}
-                    onChange={(e) => setLocalModel(e.target.value)}
-                    placeholder="meta-llama/Llama-3.2-1B"
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                  {loadingModels ? (
+                    <div className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400">
+                      Loading models...
+                    </div>
+                  ) : availableModels.length > 0 ? (
+                    <select
+                      value={localModel}
+                      onChange={(e) => setLocalModel(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      {availableModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400">
+                      No local models found
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-slate-400">
+                    Locally cached HuggingFace models
+                  </p>
                 </div>
               )}
             </div>

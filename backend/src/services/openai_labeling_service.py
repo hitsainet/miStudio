@@ -36,24 +36,43 @@ class OpenAILabelingService:
         "gpt35": "gpt-3.5-turbo"
     }
 
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        system_message: Optional[str] = None,
+        user_prompt_template: Optional[str] = None,
+        temperature: float = 0.3,
+        max_tokens: int = 50,
+        top_p: float = 0.9
+    ):
         """
         Initialize OpenAI labeling service.
 
         Args:
             api_key: OpenAI API key (defaults to settings.openai_api_key)
             model: Model identifier or full model name
+            base_url: Optional base URL for OpenAI-compatible endpoints (e.g., Ollama, vLLM)
+            system_message: Custom system message (overrides default)
+            user_prompt_template: Custom user prompt template (overrides default, must contain {tokens_table})
+            temperature: Sampling temperature (0.0-2.0)
+            max_tokens: Maximum tokens in response (10-500)
+            top_p: Nucleus sampling parameter (0.0-1.0)
         """
-        # Set API key
+        # Set API key (not required for OpenAI-compatible endpoints)
         self.api_key = api_key or getattr(settings, 'openai_api_key', None)
-        if not self.api_key:
+        if not self.api_key and not base_url:
             raise ValueError(
                 "OpenAI API key required. Set OPENAI_API_KEY environment variable "
                 "or pass api_key parameter."
             )
 
-        # Initialize async client
-        self.client = AsyncOpenAI(api_key=self.api_key)
+        # Initialize async client with optional base_url for OpenAI-compatible endpoints
+        client_kwargs = {"api_key": self.api_key or "not-needed"}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self.client = AsyncOpenAI(**client_kwargs)
 
         # Resolve model name
         if model is None or model == "gpt4-mini":
@@ -63,7 +82,19 @@ class OpenAILabelingService:
         else:
             self.model = model
 
+        # Store prompt template configuration
+        self.system_message = system_message
+        self.user_prompt_template = user_prompt_template
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.top_p = top_p
+
         logger.info(f"Initialized OpenAI labeling service with model: {self.model}")
+        logger.info(f"  Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}")
+        if system_message:
+            logger.info(f"  Using custom system message (length: {len(system_message)} chars)")
+        if user_prompt_template:
+            logger.info(f"  Using custom user prompt template (length: {len(user_prompt_template)} chars)")
 
     async def generate_label(
         self,
@@ -99,29 +130,49 @@ class OpenAILabelingService:
             return {"category": "no_activations", "specific": fallback_label}
 
         # Build prompt with token frequency table
-        prompt = self._build_prompt(sorted_tokens)
+        if self.user_prompt_template:
+            # Use custom template
+            prompt = self._build_prompt_from_template(sorted_tokens, neuron_index)
+        else:
+            # Use default prompt
+            prompt = self._build_prompt(sorted_tokens)
 
         try:
+            # Prepare system message (use custom or default)
+            system_message = self.system_message or "You are an expert in mechanistic interpretability analyzing sparse autoencoder features. Provide both category and specific labels in JSON format."
+
+            # Log API call details for debugging
+            logger.info(f"🔍 OpenAI API Call Debug Info:")
+            logger.info(f"  - Base URL: {self.client.base_url}")
+            logger.info(f"  - Model: {self.model}")
+            logger.info(f"  - Neuron Index: {neuron_index}")
+            logger.info(f"  - Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}")
+            logger.info(f"  - Prompt length: {len(prompt)} chars, Top tokens: {len(sorted_tokens)}")
+            logger.info(f"\n📝 SYSTEM MESSAGE:\n{system_message}")
+            logger.info(f"\n📝 USER PROMPT:\n{prompt}")
+
             # Call OpenAI API (new v1+ syntax)
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert in mechanistic interpretability analyzing sparse autoencoder features. Provide both category and specific labels in JSON format."
+                        "content": system_message
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                temperature=0.3,  # Low temperature for consistency
-                max_tokens=50,  # Allow JSON response
-                top_p=0.9
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                top_p=self.top_p
             )
 
             # Extract label from response (new v1+ syntax)
-            label_text = response.choices[0].message.content.strip()
+            label_text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+            logger.info(f"✅ API Response received (length: {len(label_text)} chars):")
+            logger.info(f"📤 FULL RESPONSE:\n{label_text}")
 
             # Parse JSON response
             labels = self._parse_dual_label(label_text, fallback_label)
@@ -129,16 +180,20 @@ class OpenAILabelingService:
             logger.debug(f"Generated labels: category='{labels['category']}', specific='{labels['specific']}' from GPT response")
             return labels
 
-        except RateLimitError:
-            logger.warning("OpenAI rate limit reached, using fallback")
+        except RateLimitError as e:
+            logger.warning(f"⚠️ OpenAI rate limit reached: {e}")
             return {"category": "rate_limited", "specific": fallback_label}
 
-        except AuthenticationError:
-            logger.error("OpenAI authentication failed - check API key")
+        except AuthenticationError as e:
+            logger.error(f"❌ OpenAI authentication failed: {e}")
             raise
 
         except Exception as e:
-            logger.error(f"Error calling OpenAI API: {e}", exc_info=True)
+            logger.error(f"❌ Error calling OpenAI API:")
+            logger.error(f"   Base URL: {self.client.base_url}")
+            logger.error(f"   Model: {self.model}")
+            logger.error(f"   Error Type: {type(e).__name__}")
+            logger.error(f"   Error Message: {e}", exc_info=True)
             return {"category": "error_feature", "specific": fallback_label}
 
     def _build_prompt(self, sorted_tokens: List[tuple]) -> str:
@@ -210,6 +265,37 @@ Respond in JSON format:
 
 Both labels must be lowercase_with_underscores (1-3 words max each).
 """
+
+        return prompt
+
+    def _build_prompt_from_template(self, sorted_tokens: List[tuple], neuron_index: Optional[int] = None) -> str:
+        """
+        Build analysis prompt using custom template.
+
+        Substitutes {tokens_table} placeholder with formatted token data.
+
+        Args:
+            sorted_tokens: List of (token, stats_dict) tuples sorted by activation
+            neuron_index: Optional neuron index for context
+
+        Returns:
+            Formatted prompt string from template
+        """
+        # Build token table
+        tokens_table = ""
+        for token, stats in sorted_tokens[:30]:  # Show top 30 for better context
+            avg_act = stats["total_activation"] / stats["count"]
+            token_display = repr(token)[:20].ljust(20)
+            tokens_table += f"{token_display} | count={stats['count']:4d} | avg={avg_act:6.3f} | max={stats['max_activation']:6.3f}\n"
+
+        # Substitute placeholders in template
+        prompt = self.user_prompt_template.replace("{tokens_table}", tokens_table)
+
+        # Add optional placeholders if they exist in template
+        if "{neuron_index}" in prompt:
+            prompt = prompt.replace("{neuron_index}", str(neuron_index) if neuron_index is not None else "unknown")
+        if "{layer_name}" in prompt:
+            prompt = prompt.replace("{layer_name}", "unknown")  # Can be extended with actual layer info
 
         return prompt
 

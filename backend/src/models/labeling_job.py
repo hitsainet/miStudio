@@ -27,9 +27,10 @@ class LabelingStatus(str, Enum):
 
 class LabelingMethod(str, Enum):
     """Feature labeling method."""
-    OPENAI = "openai"
-    LOCAL = "local"
-    MANUAL = "manual"
+    OPENAI = "openai"           # OpenAI API
+    OPENAI_COMPATIBLE = "openai_compatible"  # OpenAI-compatible endpoint (Ollama, vLLM, etc.)
+    LOCAL = "local"             # Local HuggingFace model
+    MANUAL = "manual"           # Manual labeling
 
 
 class LabelingJob(Base):
@@ -54,10 +55,18 @@ class LabelingJob(Base):
     celery_task_id = Column(String(255), nullable=True)
 
     # Labeling configuration
-    labeling_method = Column(String(50), nullable=False)  # openai, local, manual
+    labeling_method = Column(String(50), nullable=False)  # openai, openai_compatible, local, manual
     openai_model = Column(String(100), nullable=True)  # e.g., "gpt-4o-mini"
     openai_api_key = Column(String(500), nullable=True)  # Encrypted API key
+    openai_compatible_endpoint = Column(String(500), nullable=True)  # e.g., "http://ollama.mcslab.io"
+    openai_compatible_model = Column(String(100), nullable=True)  # e.g., "llama3.2"
     local_model = Column(String(100), nullable=True)  # e.g., "meta-llama/Llama-3.2-1B"
+    prompt_template_id = Column(
+        String(255),
+        ForeignKey("labeling_prompt_templates.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True
+    )
 
     # Processing status
     status = Column(String(50), nullable=False, default=LabelingStatus.QUEUED.value)
@@ -80,6 +89,7 @@ class LabelingJob(Base):
     # Relationships
     extraction_job = relationship("ExtractionJob", back_populates="labeling_jobs")
     features = relationship("Feature", back_populates="labeling_job")
+    prompt_template = relationship("LabelingPromptTemplate", back_populates="labeling_jobs")
 
     def __repr__(self) -> str:
         return f"<LabelingJob(id={self.id}, extraction_job_id={self.extraction_job_id}, status={self.status}, progress={self.progress})>"

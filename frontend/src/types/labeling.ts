@@ -40,6 +40,7 @@ export enum LabelingStatus {
  */
 export enum LabelingMethod {
   OPENAI = 'openai',
+  OPENAI_COMPATIBLE = 'openai_compatible',
   LOCAL = 'local',
   MANUAL = 'manual',
 }
@@ -52,7 +53,7 @@ export interface LabelingConfigRequest {
   /** Extraction job ID to label features from */
   extraction_job_id: string;
 
-  /** Labeling method (openai, local, manual) */
+  /** Labeling method (openai, openai_compatible, local, manual) */
   labeling_method: LabelingMethod;
 
   /** OpenAI model to use (default: gpt-4o-mini) */
@@ -61,8 +62,17 @@ export interface LabelingConfigRequest {
   /** OpenAI API key (optional, uses server default if not provided) */
   openai_api_key?: string;
 
+  /** OpenAI-compatible endpoint (e.g., http://ollama.mcslab.io) */
+  openai_compatible_endpoint?: string;
+
+  /** OpenAI-compatible model (e.g., llama3.2) */
+  openai_compatible_model?: string;
+
   /** Local model to use (default: meta-llama/Llama-3.2-1B) */
   local_model?: string;
+
+  /** Prompt template ID to use for labeling (optional, uses default if not specified) */
+  prompt_template_id?: string;
 
   /** Batch size for labeling (1-100, default: 10) */
   batch_size?: number;
@@ -88,6 +98,9 @@ export interface LabelingJob {
 
   /** Local model used (if applicable) */
   local_model?: string | null;
+
+  /** Prompt template ID used (if applicable) */
+  prompt_template_id?: string | null;
 
   // Status and progress
   /** Current labeling status */

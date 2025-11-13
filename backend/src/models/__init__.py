@@ -15,6 +15,7 @@ from .training_metric import TrainingMetric
 from .checkpoint import Checkpoint
 from .extraction_job import ExtractionJob, ExtractionStatus
 from .labeling_job import LabelingJob, LabelingStatus, LabelingMethod
+from .labeling_prompt_template import LabelingPromptTemplate
 from .feature import Feature, LabelSource
 from .feature_activation import FeatureActivation
 from .feature_analysis_cache import FeatureAnalysisCache, AnalysisType
@@ -40,6 +41,7 @@ __all__ = [
     "LabelingJob",
     "LabelingStatus",
     "LabelingMethod",
+    "LabelingPromptTemplate",
     "Feature",
     "LabelSource",
     "FeatureActivation",

@@ -55,7 +55,7 @@ class LabelingService:
 
         Args:
             extraction_job_id: ID of the extraction to label features from
-            config: Labeling configuration (labeling_method, openai_model, etc.)
+            config: Labeling configuration (labeling_method, openai_model, prompt_template_id, etc.)
 
         Returns:
             LabelingJob: Created labeling job record
@@ -120,7 +120,10 @@ class LabelingService:
             labeling_method=config.get("labeling_method", "openai"),
             openai_model=config.get("openai_model"),
             openai_api_key=config.get("openai_api_key"),
+            openai_compatible_endpoint=config.get("openai_compatible_endpoint"),
+            openai_compatible_model=config.get("openai_compatible_model"),
             local_model=config.get("local_model"),
+            prompt_template_id=config.get("prompt_template_id"),
             status=LabelingStatus.QUEUED.value,
             progress=0.0,
             features_labeled=0,
@@ -296,7 +299,7 @@ class LabelingService:
                     for feature in skipped_features:
                         feature.name = "unlabeled_junk"
                         feature.category = "system"
-                        feature.label_source = "filter"
+                        feature.label_source = "auto"  # Automatically determined by filter
                         feature.labeled_at = datetime.now(timezone.utc)
                     self.db.commit()
 
@@ -423,7 +426,7 @@ class LabelingService:
                         neuron_indices=neuron_indices,
                         progress_callback=labeling_progress_callback
                     )
-                    label_source_value = LabelSource.LLM.value
+                    label_source_value = LabelSource.LOCAL_LLM.value
 
                 elif labeling_method == LabelingMethod.OPENAI.value:
                     # Get API key from labeling job, fallback to settings if invalid/missing
@@ -438,10 +441,36 @@ class LabelingService:
                         raise ValueError("OpenAI API key not provided and not found in settings")
 
                     openai_model = labeling_job.openai_model or "gpt-4o-mini"
+
+                    # Fetch prompt template if specified
+                    system_message = None
+                    user_prompt_template = None
+                    temperature = 0.3
+                    max_tokens = 50
+                    top_p = 0.9
+
+                    if labeling_job.prompt_template_id:
+                        from src.models.labeling_prompt_template import LabelingPromptTemplate
+                        template = self.db.query(LabelingPromptTemplate).filter(
+                            LabelingPromptTemplate.id == labeling_job.prompt_template_id
+                        ).first()
+                        if template:
+                            system_message = template.system_message
+                            user_prompt_template = template.user_prompt_template
+                            temperature = template.temperature
+                            max_tokens = template.max_tokens
+                            top_p = template.top_p
+                            logger.info(f"Using prompt template: {template.name} (ID: {template.id})")
+
                     logger.info(f"Initializing OpenAI labeling service with model: {openai_model}")
                     labeling_service = OpenAILabelingService(
                         api_key=openai_api_key,
-                        model=openai_model
+                        model=openai_model,
+                        system_message=system_message,
+                        user_prompt_template=user_prompt_template,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        top_p=top_p
                     )
 
                     # Generate labels asynchronously with progress tracking
@@ -451,7 +480,58 @@ class LabelingService:
                         progress_callback=labeling_progress_callback,
                         batch_size=10
                     ))
-                    label_source_value = LabelSource.LLM.value
+                    label_source_value = LabelSource.OPENAI.value
+
+                elif labeling_method == LabelingMethod.OPENAI_COMPATIBLE.value:
+                    # OpenAI-compatible endpoint (Ollama, vLLM, etc.)
+                    endpoint = labeling_job.openai_compatible_endpoint
+                    model_name = labeling_job.openai_compatible_model
+
+                    if not endpoint:
+                        raise ValueError("OpenAI-compatible endpoint not provided")
+                    if not model_name:
+                        raise ValueError("OpenAI-compatible model name not provided")
+
+                    # Fetch prompt template if specified
+                    system_message = None
+                    user_prompt_template = None
+                    temperature = 0.3
+                    max_tokens = 50
+                    top_p = 0.9
+
+                    if labeling_job.prompt_template_id:
+                        from src.models.labeling_prompt_template import LabelingPromptTemplate
+                        template = self.db.query(LabelingPromptTemplate).filter(
+                            LabelingPromptTemplate.id == labeling_job.prompt_template_id
+                        ).first()
+                        if template:
+                            system_message = template.system_message
+                            user_prompt_template = template.user_prompt_template
+                            temperature = template.temperature
+                            max_tokens = template.max_tokens
+                            top_p = template.top_p
+                            logger.info(f"Using prompt template: {template.name} (ID: {template.id})")
+
+                    logger.info(f"Initializing OpenAI-compatible labeling service with endpoint: {endpoint}, model: {model_name}")
+                    labeling_service = OpenAILabelingService(
+                        api_key="dummy-key-not-required",  # Most local endpoints don't require auth
+                        model=model_name,
+                        base_url=endpoint,
+                        system_message=system_message,
+                        user_prompt_template=user_prompt_template,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        top_p=top_p
+                    )
+
+                    # Generate labels asynchronously with progress tracking
+                    labels = asyncio.run(labeling_service.batch_generate_labels(
+                        features_token_stats=features_token_stats,
+                        neuron_indices=neuron_indices,
+                        progress_callback=labeling_progress_callback,
+                        batch_size=10
+                    ))
+                    label_source_value = LabelSource.OPENAI.value  # Use OPENAI source for compatible endpoints
 
                 else:
                     raise ValueError(f"Unsupported labeling method: {labeling_method}")

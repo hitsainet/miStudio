@@ -44,6 +44,14 @@ from .training import (
     TrainingControlRequest,
     TrainingControlResponse,
 )
+from .labeling_prompt_template import (
+    LabelingPromptTemplateCreate,
+    LabelingPromptTemplateUpdate,
+    LabelingPromptTemplateResponse,
+    LabelingPromptTemplateListResponse,
+    LabelingPromptTemplateDeleteResponse,
+    LabelingPromptTemplateSetDefaultResponse,
+)
 
 __all__ = [
     "DatasetBase",
@@ -78,4 +86,10 @@ __all__ = [
     "CheckpointListResponse",
     "TrainingControlRequest",
     "TrainingControlResponse",
+    "LabelingPromptTemplateCreate",
+    "LabelingPromptTemplateUpdate",
+    "LabelingPromptTemplateResponse",
+    "LabelingPromptTemplateListResponse",
+    "LabelingPromptTemplateDeleteResponse",
+    "LabelingPromptTemplateSetDefaultResponse",
 ]

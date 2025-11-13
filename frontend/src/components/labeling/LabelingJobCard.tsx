@@ -4,12 +4,13 @@
  * Displays an individual labeling job with status, progress, and actions.
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Tag, Loader, CheckCircle, XCircle, Trash2, Clock, Ban } from 'lucide-react';
 import type { LabelingJob } from '../../types/labeling';
 import { LabelingStatus } from '../../types/labeling';
 import { format, intervalToDuration } from 'date-fns';
 import { COMPONENTS } from '../../config/brand';
+import { useLabelingPromptTemplatesStore } from '../../stores/labelingPromptTemplatesStore';
 
 interface LabelingJobCardProps {
   job: LabelingJob;
@@ -22,10 +23,36 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
   onCancel,
   onDelete,
 }) => {
+  const [templateName, setTemplateName] = useState<string>('Default Template');
+  const { templates, fetchTemplate } = useLabelingPromptTemplatesStore();
+
   const isActive = job.status === LabelingStatus.QUEUED || job.status === LabelingStatus.LABELING;
   const isCompleted = job.status === LabelingStatus.COMPLETED;
   const isFailed = job.status === LabelingStatus.FAILED;
   const isCancelled = job.status === LabelingStatus.CANCELLED;
+
+  // Fetch template name if template ID is present
+  useEffect(() => {
+    if (job.prompt_template_id) {
+      // First check if we already have it in the store
+      const existingTemplate = templates.find(t => t.id === job.prompt_template_id);
+      if (existingTemplate) {
+        setTemplateName(existingTemplate.name);
+      } else {
+        // Fetch from API if not in store
+        fetchTemplate(job.prompt_template_id)
+          .then(() => {
+            const template = templates.find(t => t.id === job.prompt_template_id);
+            if (template) {
+              setTemplateName(template.name);
+            }
+          })
+          .catch(() => {
+            setTemplateName('Unknown Template');
+          });
+      }
+    }
+  }, [job.prompt_template_id, templates]);
 
   // Calculate progress percentage
   const totalFeatures = job.total_features || 0;
@@ -136,6 +163,9 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
                 {job.labeling_method === 'openai'
                   ? 'OpenAI (requires api-key)'
                   : `Local LLM (${job.local_model || 'meta-llama/Llama-3.2-1B'})`}
+              </p>
+              <p>
+                <span className="font-medium">Template:</span> {templateName}
               </p>
               <p>
                 <span className="font-medium">Features:</span>{' '}

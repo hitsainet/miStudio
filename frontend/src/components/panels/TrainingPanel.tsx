@@ -67,6 +67,9 @@ export const TrainingPanel: React.FC = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [selectedTrainingIds, setSelectedTrainingIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [latentMultiplier, setLatentMultiplier] = useState(8);
+  const [availableExtractions, setAvailableExtractions] = useState<any[]>([]);
+  const [isLoadingExtractions, setIsLoadingExtractions] = useState(false);
 
   // Memory estimation
   const memoryEstimate = useMemo(() => {
@@ -84,6 +87,38 @@ export const TrainingPanel: React.FC = () => {
     fetchDatasets();
     fetchTrainings();
   }, [fetchModels, fetchDatasets, fetchTrainings]);
+
+  // Fetch available extractions when model is selected
+  useEffect(() => {
+    const fetchExtractions = async () => {
+      if (!config.model_id) {
+        setAvailableExtractions([]);
+        return;
+      }
+
+      setIsLoadingExtractions(true);
+      try {
+        const response = await fetch(`/api/v1/models/${config.model_id}/extractions`);
+        if (response.ok) {
+          const data = await response.json();
+          // Filter to only completed extractions
+          const completedExtractions = (data.extractions || []).filter(
+            (ext: any) => ext.status === 'completed'
+          );
+          setAvailableExtractions(completedExtractions);
+        } else {
+          setAvailableExtractions([]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch extractions:', error);
+        setAvailableExtractions([]);
+      } finally {
+        setIsLoadingExtractions(false);
+      }
+    };
+
+    fetchExtractions();
+  }, [config.model_id]);
 
   // Subscribe to WebSocket updates for all trainings
   useTrainingWebSocket(trainings.map((t) => t.id));
@@ -103,9 +138,9 @@ export const TrainingPanel: React.FC = () => {
     }
   }, [config.model_id, numLayers]);
 
-  // Autodiscover hidden dimension from extraction metadata
+  // Autodiscover hidden dimension and training layers from extraction metadata
   useEffect(() => {
-    const autodiscoverHiddenDim = async () => {
+    const autodiscoverFromExtraction = async () => {
       if (!config.extraction_id || config.extraction_id.trim() === '') return;
       if (!config.model_id) return;
 
@@ -124,30 +159,62 @@ export const TrainingPanel: React.FC = () => {
         const data = await response.json();
         const extraction = data.extractions?.find((e: any) => e.extraction_id === config.extraction_id);
 
-        if (extraction?.statistics) {
-          // Find first layer with statistics and extract hidden_dim from shape
-          const layerNames = Object.keys(extraction.statistics);
-          if (layerNames.length > 0) {
-            const firstLayerStats = extraction.statistics[layerNames[0]];
-            if (firstLayerStats?.shape && Array.isArray(firstLayerStats.shape) && firstLayerStats.shape.length === 3) {
-              // Shape format: [n_samples, seq_len, hidden_dim]
-              const hiddenDim = firstLayerStats.shape[2];
+        if (extraction) {
+          const updates: any = {};
 
-              // Only update if different from current value
-              if (hiddenDim !== config.hidden_dim) {
-                console.log(`[TrainingPanel] Autodiscovered hidden_dim=${hiddenDim} from extraction ${config.extraction_id}`);
-                updateConfig({ hidden_dim: hiddenDim });
+          // Autodiscover training_layers from extraction layer_indices
+          if (extraction.layer_indices && Array.isArray(extraction.layer_indices)) {
+            const extractionLayers = extraction.layer_indices.sort((a: number, b: number) => a - b);
+            const currentLayers = config.training_layers || [];
+
+            // Check if current layers differ from extraction layers
+            const layersDiffer = extractionLayers.length !== currentLayers.length ||
+              extractionLayers.some((layer: number, i: number) => layer !== currentLayers[i]);
+
+            if (layersDiffer) {
+              console.log(`[TrainingPanel] Autodiscovered training_layers=${JSON.stringify(extractionLayers)} from extraction ${config.extraction_id}`);
+              updates.training_layers = extractionLayers;
+            }
+          }
+
+          // Autodiscover hidden_dim from extraction statistics
+          if (extraction.statistics) {
+            const layerNames = Object.keys(extraction.statistics);
+            if (layerNames.length > 0) {
+              const firstLayerStats = extraction.statistics[layerNames[0]];
+              if (firstLayerStats?.shape && Array.isArray(firstLayerStats.shape) && firstLayerStats.shape.length === 3) {
+                // Shape format: [n_samples, seq_len, hidden_dim]
+                const hiddenDim = firstLayerStats.shape[2];
+
+                // Only update if different from current value
+                if (hiddenDim !== config.hidden_dim) {
+                  console.log(`[TrainingPanel] Autodiscovered hidden_dim=${hiddenDim} from extraction ${config.extraction_id}`);
+                  updates.hidden_dim = hiddenDim;
+                }
               }
             }
           }
+
+          // Apply all updates at once if any
+          if (Object.keys(updates).length > 0) {
+            updateConfig(updates);
+          }
         }
       } catch (error) {
-        console.error('Failed to autodiscover hidden dimension:', error);
+        console.error('Failed to autodiscover from extraction:', error);
       }
     };
 
-    autodiscoverHiddenDim();
+    autodiscoverFromExtraction();
   }, [config.extraction_id, config.model_id]);
+
+  // Update latent_dim when hidden_dim or latent multiplier changes
+  useEffect(() => {
+    const calculatedLatentDim = config.hidden_dim * latentMultiplier;
+    if (calculatedLatentDim !== config.latent_dim) {
+      updateConfig({ latent_dim: calculatedLatentDim });
+    }
+  }, [config.hidden_dim, latentMultiplier]);
 
   // Check for tokenizer/model vocabulary mismatch
   const selectedDataset = datasets.find((d) => d.id === config.dataset_id);
@@ -404,14 +471,44 @@ export const TrainingPanel: React.FC = () => {
                   Use pre-extracted activations from an extraction job instead of extracting on-the-fly during training. This dramatically speeds up training but requires a completed extraction for the selected model and dataset.
                 </p>
                 {(config.extraction_id !== undefined) && (
-                  <input
-                    type="text"
-                    id="extraction-id"
-                    value={config.extraction_id || ''}
-                    onChange={(e) => updateConfig({ extraction_id: e.target.value || undefined })}
-                    placeholder="Enter extraction ID (e.g., ext_m_6d64e8d9_20251027_023246)"
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm focus:outline-none focus:border-emerald-500 transition-colors font-mono"
-                  />
+                  <>
+                    {availableExtractions.length > 0 ? (
+                      <select
+                        id="extraction-id"
+                        value={config.extraction_id || ''}
+                        onChange={(e) => updateConfig({ extraction_id: e.target.value || undefined })}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                      >
+                        <option value="">Select an extraction...</option>
+                        {availableExtractions.map((extraction) => {
+                          const layerCount = extraction.layer_indices?.length || 0;
+                          const sampleCount = extraction.num_samples_processed || extraction.samples_processed || 0;
+                          const createdDate = extraction.created_at
+                            ? new Date(extraction.created_at).toLocaleDateString()
+                            : 'Unknown date';
+
+                          return (
+                            <option key={extraction.extraction_id} value={extraction.extraction_id}>
+                              {extraction.extraction_id} ({layerCount} layer{layerCount !== 1 ? 's' : ''}, {sampleCount.toLocaleString()} samples, {createdDate})
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : isLoadingExtractions ? (
+                      <div className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm flex items-center gap-2">
+                        <Loader size={14} className="animate-spin" />
+                        <span>Loading available extractions...</span>
+                      </div>
+                    ) : config.model_id ? (
+                      <div className="text-sm text-slate-400 italic">
+                        No completed extractions available for this model. Please complete an extraction first in the Extractions panel.
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-400 italic">
+                        Select a model first to see available extractions.
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -572,24 +669,29 @@ export const TrainingPanel: React.FC = () => {
                   )}
                 </div>
 
-                {/* Latent Dimension */}
+                {/* Latent Dimension Multiplier */}
                 <div>
                   <HyperparameterLabel
                     paramName="latent_dim"
-                    label="Latent Dimension"
+                    label="Latent Dimension Multiplier"
                     htmlFor="latent-dim"
                     className="mb-2"
                   />
-                  <input
-                    id="latent-dim"
-                    type="number"
-                    value={config.latent_dim}
-                    onChange={(e) => updateConfig({ latent_dim: parseInt(e.target.value) })}
-                    min={512}
-                    max={65536}
-                    step={512}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
-                  />
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="latent-dim"
+                      type="number"
+                      value={latentMultiplier}
+                      onChange={(e) => setLatentMultiplier(parseInt(e.target.value) || 1)}
+                      min={1}
+                      max={32}
+                      step={1}
+                      className="w-24 px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                    />
+                    <span className="text-slate-400 text-sm font-mono">
+                      × {config.hidden_dim} = <span className="text-emerald-400">{config.latent_dim}</span>
+                    </span>
+                  </div>
                 </div>
 
                 {/* L1 Alpha with Auto-Calculate */}

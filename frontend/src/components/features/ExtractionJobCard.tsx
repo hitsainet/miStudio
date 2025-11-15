@@ -176,6 +176,74 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
     fetchExtractionFeatures(extraction.id, newFilters);
   };
 
+  /**
+   * Handle "Go to" page/feature navigation.
+   */
+  const [goToFeatureInput, setGoToFeatureInput] = useState('');
+  const [goToPageInput, setGoToPageInput] = useState('');
+
+  const handleGoToFeature = () => {
+    if (!metadata || !goToFeatureInput.trim()) return;
+
+    const featureNum = parseInt(goToFeatureInput.trim(), 10);
+    if (isNaN(featureNum) || featureNum < 1) {
+      setGoToFeatureInput('');
+      return;
+    }
+
+    // Navigate to specific feature number (1-indexed)
+    let newOffset: number;
+    if (featureNum > metadata.total) {
+      // Invalid feature number, go to last page
+      newOffset = Math.max(0, metadata.total - filters.limit!);
+    } else {
+      newOffset = (featureNum - 1);
+    }
+
+    const newFilters: FeatureSearchRequest = {
+      ...filters,
+      offset: Math.max(0, Math.min(newOffset, metadata.total - 1)),
+    };
+    setSearchFilters(extraction.id, newFilters);
+    fetchExtractionFeatures(extraction.id, newFilters);
+    setGoToFeatureInput('');
+  };
+
+  const handleGoToPage = () => {
+    if (!metadata || !goToPageInput.trim()) return;
+
+    const pageNum = parseInt(goToPageInput.trim(), 10);
+    const totalPages = Math.ceil(metadata.total / filters.limit!);
+
+    if (isNaN(pageNum) || pageNum < 1 || pageNum > totalPages) {
+      setGoToPageInput('');
+      return;
+    }
+
+    // Navigate to specific page number (1-indexed)
+    const newOffset = (pageNum - 1) * filters.limit!;
+
+    const newFilters: FeatureSearchRequest = {
+      ...filters,
+      offset: newOffset,
+    };
+    setSearchFilters(extraction.id, newFilters);
+    fetchExtractionFeatures(extraction.id, newFilters);
+    setGoToPageInput('');
+  };
+
+  const handleGoToFeatureKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleGoToFeature();
+    }
+  };
+
+  const handleGoToPageKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleGoToPage();
+    }
+  };
+
   // Calculate elapsed time
   const getElapsedTime = () => {
     const startTime = new Date(extraction.created_at);
@@ -450,6 +518,87 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             </button>
           </div>
 
+          {/* Top Navigation Controls */}
+          {features.length > 0 && metadata && (
+            <div className="flex items-center justify-between mb-3">
+              <div className={`text-sm ${COMPONENTS.text.secondary}`}>
+                Showing {filters.offset! + 1}-{Math.min(filters.offset! + filters.limit!, metadata.total)} of {metadata.total} features
+              </div>
+              <div className="flex items-center gap-3">
+                {/* Go to Feature input */}
+                <div className="flex items-center gap-2">
+                  <label htmlFor={`goto-feature-top-${extraction.id}`} className={`text-sm ${COMPONENTS.text.secondary}`}>
+                    Go to Feature:
+                  </label>
+                  <input
+                    id={`goto-feature-top-${extraction.id}`}
+                    type="number"
+                    min="1"
+                    value={goToFeatureInput}
+                    onChange={(e) => {
+                      setGoToFeatureInput(e.target.value);
+                      setGoToPageInput(''); // Clear the other input
+                    }}
+                    onKeyPress={handleGoToFeatureKeyPress}
+                    placeholder="#"
+                    className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={handleGoToFeature}
+                    disabled={!goToFeatureInput.trim()}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-sm text-white rounded transition-colors"
+                  >
+                    Go
+                  </button>
+                </div>
+                {/* Go to Page input */}
+                <div className="flex items-center gap-2">
+                  <label htmlFor={`goto-page-top-${extraction.id}`} className={`text-sm ${COMPONENTS.text.secondary}`}>
+                    Page:
+                  </label>
+                  <input
+                    id={`goto-page-top-${extraction.id}`}
+                    type="number"
+                    min="1"
+                    max={Math.ceil(metadata.total / filters.limit!)}
+                    value={goToPageInput}
+                    onChange={(e) => {
+                      setGoToPageInput(e.target.value);
+                      setGoToFeatureInput(''); // Clear the other input
+                    }}
+                    onKeyPress={handleGoToPageKeyPress}
+                    placeholder={`of ${Math.ceil(metadata.total / filters.limit!)}`}
+                    className="w-24 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={handleGoToPage}
+                    disabled={!goToPageInput.trim()}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-sm text-white rounded transition-colors"
+                  >
+                    Go
+                  </button>
+                </div>
+                {/* Previous/Next buttons */}
+                <div className="flex gap-2 border-l border-slate-700 pl-3">
+                  <button
+                    onClick={handlePreviousPage}
+                    disabled={filters.offset === 0}
+                    className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={handleNextPage}
+                    disabled={filters.offset! + filters.limit! >= metadata.total}
+                    className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Feature Table */}
           <div className={`${COMPONENTS.surface.card} rounded-lg overflow-hidden`}>
             <div className="overflow-x-auto">
@@ -554,27 +703,83 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             </div>
           </div>
 
-          {/* Pagination */}
+          {/* Bottom Navigation Controls */}
           {features.length > 0 && metadata && (
             <div className={`flex items-center justify-between border-t ${COMPONENTS.border.default} pt-4`}>
               <div className={`text-sm ${COMPONENTS.text.secondary}`}>
-                Showing {features.length} of {metadata.total} features
+                Showing {filters.offset! + 1}-{Math.min(filters.offset! + filters.limit!, metadata.total)} of {metadata.total} features
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={handlePreviousPage}
-                  disabled={filters.offset === 0}
-                  className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={handleNextPage}
-                  disabled={filters.offset! + filters.limit! >= metadata.total}
-                  className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
-                >
-                  Next
-                </button>
+              <div className="flex items-center gap-3">
+                {/* Go to Feature input */}
+                <div className="flex items-center gap-2">
+                  <label htmlFor={`goto-feature-bottom-${extraction.id}`} className={`text-sm ${COMPONENTS.text.secondary}`}>
+                    Go to Feature:
+                  </label>
+                  <input
+                    id={`goto-feature-bottom-${extraction.id}`}
+                    type="number"
+                    min="1"
+                    value={goToFeatureInput}
+                    onChange={(e) => {
+                      setGoToFeatureInput(e.target.value);
+                      setGoToPageInput(''); // Clear the other input
+                    }}
+                    onKeyPress={handleGoToFeatureKeyPress}
+                    placeholder="#"
+                    className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={handleGoToFeature}
+                    disabled={!goToFeatureInput.trim()}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-sm text-white rounded transition-colors"
+                  >
+                    Go
+                  </button>
+                </div>
+                {/* Go to Page input */}
+                <div className="flex items-center gap-2">
+                  <label htmlFor={`goto-page-bottom-${extraction.id}`} className={`text-sm ${COMPONENTS.text.secondary}`}>
+                    Page:
+                  </label>
+                  <input
+                    id={`goto-page-bottom-${extraction.id}`}
+                    type="number"
+                    min="1"
+                    max={Math.ceil(metadata.total / filters.limit!)}
+                    value={goToPageInput}
+                    onChange={(e) => {
+                      setGoToPageInput(e.target.value);
+                      setGoToFeatureInput(''); // Clear the other input
+                    }}
+                    onKeyPress={handleGoToPageKeyPress}
+                    placeholder={`of ${Math.ceil(metadata.total / filters.limit!)}`}
+                    className="w-24 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={handleGoToPage}
+                    disabled={!goToPageInput.trim()}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-sm text-white rounded transition-colors"
+                  >
+                    Go
+                  </button>
+                </div>
+                {/* Previous/Next buttons */}
+                <div className="flex gap-2 border-l border-slate-700 pl-3">
+                  <button
+                    onClick={handlePreviousPage}
+                    disabled={filters.offset === 0}
+                    className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={handleNextPage}
+                    disabled={filters.offset! + filters.limit! >= metadata.total}
+                    className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary}`}
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             </div>
           )}

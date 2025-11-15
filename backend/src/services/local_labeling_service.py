@@ -157,11 +157,15 @@ class LocalLabelingService:
             reverse=True
         )[:top_k]
 
-        if not sorted_tokens:
-            return f"feature_{neuron_index}" if neuron_index is not None else "no_activations"
+        # Filter out junk tokens (stopwords, punctuation, digits, artifacts)
+        filtered_tokens = self._filter_junk_tokens(sorted_tokens)
 
-        # Build prompt with token frequency table
-        prompt = self._build_prompt(sorted_tokens)
+        if not filtered_tokens:
+            logger.warning(f"All tokens filtered as junk for neuron {neuron_index}, using fallback label")
+            return f"feature_{neuron_index}" if neuron_index is not None else "filtered_feature"
+
+        # Build prompt with filtered token frequency table
+        prompt = self._build_prompt(filtered_tokens)
 
         # Ensure model is loaded
         if not self.is_loaded:
@@ -263,6 +267,111 @@ Respond with ONLY one word or short phrase (max 3 words). Examples:
 Concept:"""
 
         return prompt
+
+    def _filter_junk_tokens(self, sorted_tokens: List[tuple]) -> List[tuple]:
+        """
+        Filter out junk tokens (punctuation, artifacts, stopwords, digits).
+
+        Removes:
+        - Punctuation-only tokens
+        - Tokenization artifacts (##, Ġ, etc.)
+        - High-frequency stopwords (the, a, and, etc.)
+        - Single characters (except $ and %)
+        - Pure digit tokens (0-9, 10, 2023, etc.)
+        - Whitespace-only tokens
+        - Junk characters with no cognitive meaning
+
+        Args:
+            sorted_tokens: List of (token, stats_dict) tuples
+
+        Returns:
+            Filtered list of (token, stats_dict) tuples
+        """
+        import string
+
+        # Define stopwords (common function words with little semantic value)
+        stopwords = {
+            # Articles, determiners, conjunctions
+            'the', 'a', 'an', 'and', 'or', 'but', 'nor', 'yet', 'so',
+            # Prepositions
+            'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about',
+            'into', 'through', 'during', 'before', 'after', 'above', 'below', 'between',
+            'under', 'over', 'off', 'down', 'near', 'onto', 'upon',
+            # Common verbs (to be, to have, modals)
+            'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+            'have', 'has', 'had', 'having',
+            'do', 'does', 'did', 'doing', 'done',
+            'will', 'would', 'should', 'can', 'could', 'may', 'might', 'must', 'shall',
+            # Pronouns
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'them', 'their', 'theirs',
+            'my', 'mine', 'your', 'yours', 'his', 'her', 'hers', 'its', 'our', 'ours',
+            'me', 'him', 'us', 'themselves', 'myself', 'yourself', 'himself', 'herself', 'itself',
+            # Demonstratives & interrogatives
+            'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom', 'whose',
+            'when', 'where', 'why', 'how',
+            # Common adverbs & adjectives
+            'as', 'if', 'than', 'so', 'just', 'very', 'too', 'also', 'only', 'own', 'same',
+            'such', 'no', 'not', 'more', 'most', 'less', 'least', 'other', 'some', 'any',
+            'each', 'every', 'all', 'both', 'few', 'many', 'much', 'several', 'another',
+            'even', 'while', 'out', 'there', 'here', 'now', 'then', 'still', 'again',
+            # Common verbs (action)
+            'get', 'got', 'getting', 'make', 'made', 'making', 'go', 'going', 'went', 'gone',
+            'take', 'took', 'taken', 'taking', 'see', 'saw', 'seen', 'seeing', 'come', 'came', 'coming',
+            'give', 'gave', 'given', 'giving', 'use', 'used', 'using', 'find', 'found', 'finding',
+            'tell', 'told', 'telling', 'ask', 'asked', 'asking', 'work', 'worked', 'working',
+            'seem', 'seemed', 'seeming', 'feel', 'felt', 'feeling', 'try', 'tried', 'trying',
+            'leave', 'left', 'leaving', 'call', 'called', 'calling', 'put', 'putting'
+        }
+
+        # Define punctuation set
+        punctuation_set = set(string.punctuation)
+
+        filtered = []
+        for token, stats in sorted_tokens:
+            # Strip spaces for analysis
+            token_stripped = token.strip()
+
+            # Skip empty or whitespace-only tokens
+            if not token_stripped or token_stripped.isspace():
+                continue
+
+            # Skip pure punctuation (but keep if mixed with other chars)
+            if all(c in punctuation_set or c.isspace() for c in token_stripped):
+                continue
+
+            # Skip tokenization artifacts
+            # - WordPiece markers: ##word, word##
+            # - Special whitespace: Ġ (GPT-2 style), ▁ (SentencePiece alone)
+            # - BPE markers: </w>, <w>
+            if ('##' in token_stripped or
+                'Ġ' in token_stripped or
+                token_stripped == '▁' or  # SentencePiece marker alone
+                token_stripped.startswith(('</w>', '<w>')) or
+                token_stripped.endswith(('</w>', '<w>'))):
+                continue
+
+            # Skip single characters (except meaningful ones like $ and %)
+            # Handle both regular tokens and SentencePiece tokens (▁X)
+            token_without_marker = token_stripped.lstrip().lstrip('▁')
+            if len(token_without_marker) == 1 and token_without_marker not in {'$', '%', '€', '£', '¥'}:
+                continue
+
+            # Skip pure digit tokens (0, 1, 10, 2023, etc.)
+            # Remove leading space/SentencePiece marker and check if rest is all digits
+            token_no_marker = token_stripped.lstrip().lstrip('▁')
+            if token_no_marker.isdigit():
+                continue
+
+            # Skip stopwords (case-insensitive, removing leading space/SentencePiece marker)
+            # Handle both regular spaces and SentencePiece marker (▁)
+            token_lower = token_stripped.lstrip().lstrip('▁').lower()
+            if token_lower in stopwords:
+                continue
+
+            # Keep this token!
+            filtered.append((token, stats))
+
+        return filtered
 
     def _clean_label(self, response: str) -> str:
         """

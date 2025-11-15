@@ -119,23 +119,27 @@ class OpenAILabelingService:
             logger.warning("Empty token stats, using fallback label")
             return {"category": "empty_features", "specific": fallback_label}
 
-        # Sort tokens by total activation strength
+        # Sort tokens by frequency (count) instead of activation strength
         sorted_tokens = sorted(
             token_stats.items(),
-            key=lambda x: x[1]["total_activation"],
+            key=lambda x: x[1]["count"],
             reverse=True
-        )[:top_k]
+        )  # No limit here - show all tokens
 
-        if not sorted_tokens:
-            return {"category": "no_activations", "specific": fallback_label}
+        # Filter out junk tokens (punctuation, artifacts, stopwords)
+        filtered_tokens = self._filter_junk_tokens(sorted_tokens)
 
-        # Build prompt with token frequency table
+        if not filtered_tokens:
+            logger.warning(f"All tokens filtered as junk for neuron {neuron_index}, using fallback label")
+            return {"category": "filtered_junk", "specific": fallback_label}
+
+        # Build prompt with token frequency table (using filtered tokens)
         if self.user_prompt_template:
             # Use custom template
-            prompt = self._build_prompt_from_template(sorted_tokens, neuron_index)
+            prompt = self._build_prompt_from_template(filtered_tokens, neuron_index)
         else:
             # Use default prompt
-            prompt = self._build_prompt(sorted_tokens)
+            prompt = self._build_prompt(filtered_tokens)
 
         try:
             # Prepare system message (use custom or default)
@@ -147,7 +151,8 @@ class OpenAILabelingService:
             logger.info(f"  - Model: {self.model}")
             logger.info(f"  - Neuron Index: {neuron_index}")
             logger.info(f"  - Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}")
-            logger.info(f"  - Prompt length: {len(prompt)} chars, Top tokens: {len(sorted_tokens)}")
+            logger.info(f"  - Tokens: {len(sorted_tokens)} total, {len(filtered_tokens)} after filtering ({len(sorted_tokens) - len(filtered_tokens)} junk removed)")
+            logger.info(f"  - Prompt length: {len(prompt)} chars")
             logger.info(f"\n📝 SYSTEM MESSAGE:\n{system_message}")
             logger.info(f"\n📝 USER PROMPT:\n{prompt}")
 
@@ -281,12 +286,11 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         Returns:
             Formatted prompt string from template
         """
-        # Build token table
+        # Build token frequency table (showing all unique tokens sorted by frequency)
         tokens_table = ""
-        for token, stats in sorted_tokens[:30]:  # Show top 30 for better context
-            avg_act = stats["total_activation"] / stats["count"]
-            token_display = repr(token)[:20].ljust(20)
-            tokens_table += f"{token_display} | count={stats['count']:4d} | avg={avg_act:6.3f} | max={stats['max_activation']:6.3f}\n"
+        for token, stats in sorted_tokens:  # Show ALL tokens
+            token_display = repr(token)[:40].ljust(42)  # Longer display for readability
+            tokens_table += f"{token_display} → {stats['count']} times\n"
 
         # Substitute placeholders in template
         prompt = self.user_prompt_template.replace("{tokens_table}", tokens_table)
@@ -301,40 +305,69 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
 
     def _parse_dual_label(self, response: str, fallback_label: str) -> Dict[str, str]:
         """
-        Parse JSON response containing category and specific labels.
+        Parse JSON response containing category, specific labels, and description.
+
+        Supports two formats:
+        1. {"category": "...", "specific": "...", "description": "..."}
+        2. {"category": "...", "label": "...", "description": "..."} (Custom_V1 format)
 
         Args:
             response: Raw JSON response from GPT
             fallback_label: Fallback if parsing fails
 
         Returns:
-            Dict with cleaned {"category": "...", "specific": "..."}
+            Dict with cleaned {"category": "...", "specific": "...", "description": "..."}
         """
         import json
         import re
 
         try:
+            # Clean markdown code blocks if present (common with Ollama/local models)
+            cleaned_response = response.strip()
+            if cleaned_response.startswith("```"):
+                # Remove markdown code fence
+                lines = cleaned_response.split('\n')
+                # Remove first line (```json or ```)
+                lines = lines[1:]
+                # Remove last line if it's just ```
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                cleaned_response = '\n'.join(lines).strip()
+
             # Try to parse JSON
-            data = json.loads(response)
+            data = json.loads(cleaned_response)
 
-            # Extract and clean both labels
+            # Extract category
             category = self._clean_label(data.get("category", "uncategorized"))
-            specific = self._clean_label(data.get("specific", fallback_label))
 
-            return {"category": category, "specific": specific}
+            # Extract specific label (accept both "specific" and "label" keys for compatibility)
+            specific = data.get("specific") or data.get("label")
+            if specific:
+                specific = self._clean_label(specific)
+            else:
+                specific = fallback_label
+
+            # Extract description (optional, not cleaned)
+            description = data.get("description", "")
+            if description:
+                description = description.strip()
+
+            return {"category": category, "specific": specific, "description": description}
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.warning(f"Failed to parse dual label from response: {response[:100]}, error: {e}")
 
             # Try to extract from plain text if JSON parsing fails
-            # Look for patterns like: category: "X", specific: "Y"
+            # Look for patterns like: category: "X", specific: "Y" or label: "Y"
             category_match = re.search(r'category["\s:]+([a-z_]+)', response.lower())
-            specific_match = re.search(r'specific["\s:]+([a-z_]+)', response.lower())
+            specific_match = re.search(r'(?:specific|label)["\s:]+([a-z_]+)', response.lower())
+            description_match = re.search(r'description["\s:]+["\']([^"\']+)["\']', response, re.IGNORECASE)
 
             category = self._clean_label(category_match.group(1)) if category_match else "uncategorized"
             specific = self._clean_label(specific_match.group(1)) if specific_match else fallback_label
+            description = description_match.group(1).strip() if description_match else ""
 
-            return {"category": category, "specific": specific}
+            return {"category": category, "specific": specific, "description": description}
 
     def _clean_label(self, response: str) -> str:
         """
@@ -379,6 +412,112 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             label = "unknown_feature"
 
         return label
+
+    def _filter_junk_tokens(self, sorted_tokens: List[tuple]) -> List[tuple]:
+        """
+        Filter out junk tokens (punctuation, artifacts, stopwords, digits).
+
+        Removes:
+        - Punctuation-only tokens
+        - Tokenization artifacts (##, Ġ, etc.)
+        - High-frequency stopwords (the, a, and, etc.)
+        - Single characters (except $ and %)
+        - Pure digit tokens (0-9, 10, 2023, etc.)
+        - Whitespace-only tokens
+        - Junk characters with no cognitive meaning
+
+        Args:
+            sorted_tokens: List of (token, stats_dict) tuples
+
+        Returns:
+            Filtered list of (token, stats_dict) tuples
+        """
+        import re
+        import string
+
+        # Define stopwords (common function words with little semantic value)
+        stopwords = {
+            # Articles, determiners, conjunctions
+            'the', 'a', 'an', 'and', 'or', 'but', 'nor', 'yet', 'so',
+            # Prepositions
+            'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about',
+            'into', 'through', 'during', 'before', 'after', 'above', 'below', 'between',
+            'under', 'over', 'off', 'down', 'near', 'onto', 'upon',
+            # Common verbs (to be, to have, modals)
+            'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+            'have', 'has', 'had', 'having',
+            'do', 'does', 'did', 'doing', 'done',
+            'will', 'would', 'should', 'can', 'could', 'may', 'might', 'must', 'shall',
+            # Pronouns
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'them', 'their', 'theirs',
+            'my', 'mine', 'your', 'yours', 'his', 'her', 'hers', 'its', 'our', 'ours',
+            'me', 'him', 'us', 'themselves', 'myself', 'yourself', 'himself', 'herself', 'itself',
+            # Demonstratives & interrogatives
+            'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom', 'whose',
+            'when', 'where', 'why', 'how',
+            # Common adverbs & adjectives
+            'as', 'if', 'than', 'so', 'just', 'very', 'too', 'also', 'only', 'own', 'same',
+            'such', 'no', 'not', 'more', 'most', 'less', 'least', 'other', 'some', 'any',
+            'each', 'every', 'all', 'both', 'few', 'many', 'much', 'several', 'another',
+            'even', 'while', 'out', 'there', 'here', 'now', 'then', 'still', 'again',
+            # Common verbs (action)
+            'get', 'got', 'getting', 'make', 'made', 'making', 'go', 'going', 'went', 'gone',
+            'take', 'took', 'taken', 'taking', 'see', 'saw', 'seen', 'seeing', 'come', 'came', 'coming',
+            'give', 'gave', 'given', 'giving', 'use', 'used', 'using', 'find', 'found', 'finding',
+            'tell', 'told', 'telling', 'ask', 'asked', 'asking', 'work', 'worked', 'working',
+            'seem', 'seemed', 'seeming', 'feel', 'felt', 'feeling', 'try', 'tried', 'trying',
+            'leave', 'left', 'leaving', 'call', 'called', 'calling', 'put', 'putting'
+        }
+
+        # Define punctuation set
+        punctuation_set = set(string.punctuation)
+
+        filtered = []
+        for token, stats in sorted_tokens:
+            # Strip spaces for analysis
+            token_stripped = token.strip()
+
+            # Skip empty or whitespace-only tokens
+            if not token_stripped or token_stripped.isspace():
+                continue
+
+            # Skip pure punctuation (but keep if mixed with other chars)
+            if all(c in punctuation_set or c.isspace() for c in token_stripped):
+                continue
+
+            # Skip tokenization artifacts
+            # - WordPiece markers: ##word, word##
+            # - Special whitespace: Ġ (GPT-2 style), ▁ (SentencePiece alone)
+            # - BPE markers: </w>, <w>
+            if ('##' in token_stripped or
+                'Ġ' in token_stripped or
+                token_stripped == '▁' or  # SentencePiece marker alone
+                token_stripped.startswith(('</w>', '<w>')) or
+                token_stripped.endswith(('</w>', '<w>'))):
+                continue
+
+            # Skip single characters (except meaningful ones like $ and %)
+            # Handle both regular tokens and SentencePiece tokens (▁X)
+            token_without_marker = token_stripped.lstrip().lstrip('▁')
+            if len(token_without_marker) == 1 and token_without_marker not in {'$', '%', '€', '£', '¥'}:
+                continue
+
+            # Skip pure digit tokens (0, 1, 10, 2023, etc.)
+            # Remove leading space/SentencePiece marker and check if rest is all digits
+            token_no_marker = token_stripped.lstrip().lstrip('▁')
+            if token_no_marker.isdigit():
+                continue
+
+            # Skip stopwords (case-insensitive, removing leading space/SentencePiece marker)
+            # Handle both regular spaces and SentencePiece marker (▁)
+            token_lower = token_stripped.lstrip().lstrip('▁').lower()
+            if token_lower in stopwords:
+                continue
+
+            # Keep this token!
+            filtered.append((token, stats))
+
+        return filtered
 
     async def batch_generate_labels(
         self,

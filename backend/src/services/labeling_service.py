@@ -22,7 +22,7 @@ from src.models.feature_activation import FeatureActivation
 from src.core.config import settings
 from src.services.local_labeling_service import LocalLabelingService
 from src.services.openai_labeling_service import OpenAILabelingService
-from src.workers.websocket_emitter import emit_labeling_progress
+from src.workers.websocket_emitter import emit_labeling_progress, emit_labeling_result
 
 logger = logging.getLogger(__name__)
 
@@ -420,13 +420,78 @@ class LabelingService:
                     logger.info(f"Initializing local labeling service with model: {local_model}")
                     labeling_service = LocalLabelingService(model_name=local_model)
 
-                    # Generate labels with progress tracking
-                    labels = labeling_service.batch_generate_labels(
-                        features_token_stats=features_token_stats,
-                        neuron_indices=neuron_indices,
-                        progress_callback=labeling_progress_callback
-                    )
-                    label_source_value = LabelSource.LOCAL_LLM.value
+                    # Load model once for the entire job
+                    labeling_service.load_model()
+
+                    try:
+                        # Generate and persist labels in batches
+                        # This ensures progress is saved incrementally if the job fails
+                        label_source_value = LabelSource.LOCAL_LLM.value
+                        labeled_at = datetime.now(timezone.utc)
+                        LABEL_BATCH_SIZE = 10
+
+                        logger.info(f"Starting incremental labeling: {total_features} features in batches of {LABEL_BATCH_SIZE}")
+
+                        for batch_start in range(0, total_features, LABEL_BATCH_SIZE):
+                            batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
+                            batch_features = features[batch_start:batch_end]
+                            batch_token_stats = features_token_stats[batch_start:batch_end]
+                            batch_neuron_indices = neuron_indices[batch_start:batch_end]
+
+                            # Generate labels for this batch (model already loaded)
+                            batch_labels = []
+                            for token_stats, neuron_idx in zip(batch_token_stats, batch_neuron_indices):
+                                label = labeling_service.generate_label(token_stats, neuron_index=neuron_idx)
+                                batch_labels.append({"category": "unknown", "specific": label, "description": ""})
+
+                            # Persist this batch immediately
+                            for feature, label, token_stats in zip(batch_features, batch_labels, batch_token_stats):
+                                feature.category = label["category"]
+                                feature.name = label["specific"]
+                                feature.description = label.get("description", "")
+                                feature.label_source = label_source_value
+                                feature.labeling_job_id = labeling_job.id
+                                feature.labeled_at = labeled_at
+                                feature.updated_at = labeled_at
+
+                                # Emit individual result for real-time display
+                                # Extract top 5 tokens for example
+                                sorted_tokens = sorted(
+                                    token_stats.items(),
+                                    key=lambda x: x[1].get("count", 0),
+                                    reverse=True
+                                )[:5]
+                                example_tokens = [token for token, _ in sorted_tokens]
+
+                                emit_labeling_result(
+                                    labeling_job_id=labeling_job.id,
+                                    feature_data={
+                                        "feature_id": feature.neuron_index,
+                                        "label": feature.name,
+                                        "category": feature.category,
+                                        "description": feature.description or "",
+                                        "example_tokens": example_tokens
+                                    }
+                                )
+
+                            # Commit this batch
+                            self.db.commit()
+
+                            # Update progress
+                            current_labeled = batch_end
+                            labeling_progress_callback(current_labeled, total_features)
+
+                            logger.info(f"Batch {batch_start//LABEL_BATCH_SIZE + 1}/{(total_features + LABEL_BATCH_SIZE - 1)//LABEL_BATCH_SIZE}: Labeled and persisted features {batch_start+1}-{batch_end}/{total_features}")
+
+                        logger.info(f"All {total_features} features labeled and persisted successfully")
+
+                        # Create labels list for statistics calculation (now we need to query back from DB)
+                        labels = [{"category": f.category, "specific": f.name} for f in features]
+
+                    finally:
+                        # Always unload model to free GPU memory
+                        logger.info("Unloading local labeling model from GPU memory")
+                        labeling_service.unload_model()
 
                 elif labeling_method == LabelingMethod.OPENAI.value:
                     # Get API key from labeling job, fallback to settings if invalid/missing
@@ -473,14 +538,71 @@ class LabelingService:
                         top_p=top_p
                     )
 
-                    # Generate labels asynchronously with progress tracking
-                    labels = asyncio.run(labeling_service.batch_generate_labels(
-                        features_token_stats=features_token_stats,
-                        neuron_indices=neuron_indices,
-                        progress_callback=labeling_progress_callback,
-                        batch_size=10
-                    ))
+                    # Generate and persist labels in batches of 10
+                    # This ensures progress is saved incrementally if the job fails
                     label_source_value = LabelSource.OPENAI.value
+                    labeled_at = datetime.now(timezone.utc)
+                    LABEL_BATCH_SIZE = 10
+
+                    logger.info(f"Starting incremental labeling: {total_features} features in batches of {LABEL_BATCH_SIZE}")
+
+                    for batch_start in range(0, total_features, LABEL_BATCH_SIZE):
+                        batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
+                        batch_features = features[batch_start:batch_end]
+                        batch_token_stats = features_token_stats[batch_start:batch_end]
+                        batch_neuron_indices = neuron_indices[batch_start:batch_end]
+
+                        # Generate labels for this batch
+                        batch_labels = asyncio.run(labeling_service.batch_generate_labels(
+                            features_token_stats=batch_token_stats,
+                            neuron_indices=batch_neuron_indices,
+                            progress_callback=None,  # We'll handle progress below
+                            batch_size=LABEL_BATCH_SIZE
+                        ))
+
+                        # Persist this batch immediately
+                        for feature, label, token_stats in zip(batch_features, batch_labels, batch_token_stats):
+                            feature.category = label["category"]
+                            feature.name = label["specific"]
+                            feature.description = label.get("description", "")
+                            feature.label_source = label_source_value
+                            feature.labeling_job_id = labeling_job.id
+                            feature.labeled_at = labeled_at
+                            feature.updated_at = labeled_at
+
+                            # Emit individual result for real-time display
+                            # Extract top 5 tokens for example
+                            sorted_tokens = sorted(
+                                token_stats.items(),
+                                key=lambda x: x[1].get("count", 0),
+                                reverse=True
+                            )[:5]
+                            example_tokens = [token for token, _ in sorted_tokens]
+
+                            emit_labeling_result(
+                                labeling_job_id=labeling_job.id,
+                                feature_data={
+                                    "feature_id": feature.neuron_index,
+                                    "label": feature.name,
+                                    "category": feature.category,
+                                    "description": feature.description or "",
+                                    "example_tokens": example_tokens
+                                }
+                            )
+
+                        # Commit this batch
+                        self.db.commit()
+
+                        # Update progress
+                        current_labeled = batch_end
+                        labeling_progress_callback(current_labeled, total_features)
+
+                        logger.info(f"Batch {batch_start//LABEL_BATCH_SIZE + 1}/{(total_features + LABEL_BATCH_SIZE - 1)//LABEL_BATCH_SIZE}: Labeled and persisted features {batch_start+1}-{batch_end}/{total_features}")
+
+                    logger.info(f"All {total_features} features labeled and persisted successfully")
+
+                    # Create labels list for statistics calculation (now we need to query back from DB)
+                    labels = [{"category": f.category, "specific": f.name} for f in features]
 
                 elif labeling_method == LabelingMethod.OPENAI_COMPATIBLE.value:
                     # OpenAI-compatible endpoint (Ollama, vLLM, etc.)
@@ -524,54 +646,85 @@ class LabelingService:
                         top_p=top_p
                     )
 
-                    # Generate labels asynchronously with progress tracking
-                    labels = asyncio.run(labeling_service.batch_generate_labels(
-                        features_token_stats=features_token_stats,
-                        neuron_indices=neuron_indices,
-                        progress_callback=labeling_progress_callback,
-                        batch_size=10
-                    ))
+                    # Generate and persist labels in batches of 10
+                    # This ensures progress is saved incrementally if the job fails
                     label_source_value = LabelSource.OPENAI.value  # Use OPENAI source for compatible endpoints
+                    labeled_at = datetime.now(timezone.utc)
+                    LABEL_BATCH_SIZE = 10
+
+                    logger.info(f"Starting incremental labeling: {total_features} features in batches of {LABEL_BATCH_SIZE}")
+
+                    for batch_start in range(0, total_features, LABEL_BATCH_SIZE):
+                        batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
+                        batch_features = features[batch_start:batch_end]
+                        batch_token_stats = features_token_stats[batch_start:batch_end]
+                        batch_neuron_indices = neuron_indices[batch_start:batch_end]
+
+                        # Generate labels for this batch
+                        batch_labels = asyncio.run(labeling_service.batch_generate_labels(
+                            features_token_stats=batch_token_stats,
+                            neuron_indices=batch_neuron_indices,
+                            progress_callback=None,  # We'll handle progress below
+                            batch_size=LABEL_BATCH_SIZE
+                        ))
+
+                        # Persist this batch immediately
+                        for feature, label, token_stats in zip(batch_features, batch_labels, batch_token_stats):
+                            feature.category = label["category"]
+                            feature.name = label["specific"]
+                            feature.description = label.get("description", "")
+                            feature.label_source = label_source_value
+                            feature.labeling_job_id = labeling_job.id
+                            feature.labeled_at = labeled_at
+                            feature.updated_at = labeled_at
+
+                            # Emit individual result for real-time display
+                            # Extract top 5 tokens for example
+                            sorted_tokens = sorted(
+                                token_stats.items(),
+                                key=lambda x: x[1].get("count", 0),
+                                reverse=True
+                            )[:5]
+                            example_tokens = [token for token, _ in sorted_tokens]
+
+                            emit_labeling_result(
+                                labeling_job_id=labeling_job.id,
+                                feature_data={
+                                    "feature_id": feature.neuron_index,
+                                    "label": feature.name,
+                                    "category": feature.category,
+                                    "description": feature.description or "",
+                                    "example_tokens": example_tokens
+                                }
+                            )
+
+                        # Commit this batch
+                        self.db.commit()
+
+                        # Update progress
+                        current_labeled = batch_end
+                        labeling_progress_callback(current_labeled, total_features)
+
+                        logger.info(f"Batch {batch_start//LABEL_BATCH_SIZE + 1}/{(total_features + LABEL_BATCH_SIZE - 1)//LABEL_BATCH_SIZE}: Labeled and persisted features {batch_start+1}-{batch_end}/{total_features}")
+
+                    logger.info(f"All {total_features} features labeled and persisted successfully")
+
+                    # Create labels list for statistics calculation (now we need to query back from DB)
+                    labels = [{"category": f.category, "specific": f.name} for f in features]
 
                 else:
                     raise ValueError(f"Unsupported labeling method: {labeling_method}")
 
-                # Update feature names, categories, label_source, and labeling_job_id
-                # Commit in batches to provide fault tolerance and enable viewing partial results
-                COMMIT_BATCH_SIZE = 1000
-                labeled_at = datetime.now(timezone.utc)
+                # Note: Feature persistence now happens incrementally in each method branch above
+                logger.info(f"Successfully labeled and persisted {len(features)} features using {labeling_method}")
 
-                logger.info(f"Persisting {len(labels)} dual-label pairs (category + specific) to database in batches of {COMMIT_BATCH_SIZE}")
-
-                for idx, (feature, label) in enumerate(zip(features, labels), start=1):
-                    # label is now a dict with {"category": "...", "specific": "..."}
-                    feature.category = label["category"]
-                    feature.name = label["specific"]
-                    feature.label_source = label_source_value
-                    feature.labeling_job_id = labeling_job.id
-                    feature.labeled_at = labeled_at
-                    feature.updated_at = labeled_at
-
-                    # Log sample labels for debugging (first 5 labels of each batch)
-                    if idx % COMMIT_BATCH_SIZE <= 5:
-                        logger.info(f"Sample label {idx}: Feature {feature.neuron_index} = category:'{label['category']}', specific:'{label['specific']}'")
-
-                    # Commit every COMMIT_BATCH_SIZE features
-                    if idx % COMMIT_BATCH_SIZE == 0:
-                        self.db.commit()
-                        logger.info(f"Committed batch {idx // COMMIT_BATCH_SIZE}: {idx}/{len(labels)} features persisted to database")
-
-                        # Update job with committed progress
-                        labeling_job.features_labeled = idx
-                        labeling_job.updated_at = datetime.now(timezone.utc)
-                        self.db.commit()
-
-                # Final commit for remaining features
-                if len(labels) % COMMIT_BATCH_SIZE != 0:
-                    self.db.commit()
-                    logger.info(f"Final commit: {len(labels)}/{len(labels)} features persisted to database")
-
-                logger.info(f"Successfully labeled and persisted {len(labels)} features using {labeling_method}")
+                # Unload OpenAI-compatible model (Ollama) from VRAM after completion
+                if labeling_method == LabelingMethod.OPENAI_COMPATIBLE.value:
+                    logger.info("Unloading OpenAI-compatible model from VRAM")
+                    asyncio.run(self._unload_ollama_model(
+                        labeling_job.openai_compatible_endpoint,
+                        labeling_job.openai_compatible_model
+                    ))
 
                 # Calculate statistics
                 end_time = datetime.now(timezone.utc)
@@ -737,12 +890,54 @@ class LabelingService:
                 signal='SIGTERM'
             )
 
+        # Unload model from VRAM if using OpenAI-compatible endpoint (Ollama)
+        if labeling_job.labeling_method == LabelingMethod.OPENAI_COMPATIBLE.value:
+            await self._unload_ollama_model(
+                labeling_job.openai_compatible_endpoint,
+                labeling_job.openai_compatible_model
+            )
+
         labeling_job.status = LabelingStatus.CANCELLED.value
         labeling_job.updated_at = datetime.now(timezone.utc)
         await self.db.commit()
 
         logger.info(f"Cancelled labeling job {labeling_job_id}")
         return True
+
+    async def _unload_ollama_model(self, endpoint: Optional[str], model_name: Optional[str]) -> None:
+        """
+        Unload model from Ollama VRAM by sending a request with keep_alive=0.
+
+        Args:
+            endpoint: Ollama endpoint URL
+            model_name: Model name to unload
+        """
+        if not endpoint or not model_name:
+            return
+
+        try:
+            import httpx
+            # Extract base URL (remove /v1 or /api suffix if present)
+            base_url = endpoint.rstrip('/').replace('/v1', '').replace('/api', '')
+            unload_url = f"{base_url}/api/generate"
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Send empty prompt with keep_alive=0 to unload model
+                response = await client.post(
+                    unload_url,
+                    json={
+                        "model": model_name,
+                        "prompt": "",
+                        "keep_alive": 0  # Unload immediately
+                    }
+                )
+                if response.status_code == 200:
+                    logger.info(f"Successfully unloaded model {model_name} from VRAM")
+                else:
+                    logger.warning(f"Failed to unload model {model_name}: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Could not unload model from VRAM: {e}")
+            # Non-critical error, don't raise
 
     async def delete_labeling_job(self, labeling_job_id: str) -> bool:
         """

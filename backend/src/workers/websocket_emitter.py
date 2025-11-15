@@ -722,6 +722,48 @@ def emit_labeling_progress(
     return emit_progress(channel, event, data)
 
 
+def emit_labeling_result(
+    labeling_job_id: str,
+    feature_data: Dict[str, Any],
+) -> bool:
+    """
+    Emit individual feature labeling result in real-time.
+
+    Emits each labeled feature as it's completed, allowing frontend
+    to display a live feed of labeling results.
+
+    Args:
+        labeling_job_id: Labeling job ID
+        feature_data: Feature labeling result containing:
+            - feature_id: Neuron index (e.g., 23319)
+            - label: Assigned feature name
+            - category: Feature category (e.g., "semantic", "syntactic")
+            - description: Feature description (optional)
+            - example_tokens: List of top activating tokens
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        labeling/{labeling_job_id}/results
+
+    Examples:
+        >>> emit_labeling_result(
+        ...     labeling_job_id="label_extr_abc123_20250108",
+        ...     feature_data={
+        ...         "feature_id": 23319,
+        ...         "label": "common_prepositions",
+        ...         "category": "semantic",
+        ...         "description": "Detects common prepositions like 'of', 'to', 'at'",
+        ...         "example_tokens": ["▁of", "▁to", "▁at", "▁in", "▁on"]
+        ...     }
+        ... )
+        True
+    """
+    channel = f"labeling/{labeling_job_id}/results"
+    return emit_progress(channel, "result", feature_data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -740,4 +782,5 @@ __all__ = [
     "emit_network_metrics",
     # Feature labeling functions
     "emit_labeling_progress",
+    "emit_labeling_result",
 ]

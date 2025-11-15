@@ -52,6 +52,12 @@ class LabelingConfigRequest(BaseModel):
         description="Local model to use for labeling when labeling_method='local'. Example: 'meta-llama/Llama-3.2-1B', 'microsoft/Phi-3-mini-4k-instruct'"
     )
 
+    # Prompt template configuration
+    prompt_template_id: Optional[str] = Field(
+        default=None,
+        description="ID of the labeling prompt template to use. If not specified, uses the default template."
+    )
+
     # Optional resource configuration
     batch_size: Optional[int] = Field(
         default=10,
@@ -90,6 +96,7 @@ class LabelingStatusResponse(BaseModel):
     labeling_method: str
     openai_model: Optional[str] = None
     local_model: Optional[str] = None
+    prompt_template_id: Optional[str] = None
     status: str
     progress: float
     features_labeled: int

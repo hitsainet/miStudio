@@ -35,10 +35,11 @@ cd /home/x-sean/app/miStudio
 
 The startup script automatically starts all required services in the correct order:
 
-### 1. Docker Services (via docker-compose.dev.yml)
-- **PostgreSQL** (port 5432) - Database
-- **Redis** (port 6379) - Message broker for Celery
-- **Nginx** (port 80) - Reverse proxy
+### 1. Docker Services
+- **PostgreSQL** (port 5432) - Database (via docker-compose)
+- **Redis** (port 6379) - Message broker for Celery (via docker-compose)
+- **Nginx** (port 80) - Reverse proxy (via docker-compose)
+- **Ollama** (port 11434) - LLM inference server with GPU support (via docker run)
 
 ### 2. Celery Worker
 - Background task processor
@@ -66,6 +67,8 @@ The startup script automatically starts all required services in the correct ord
 | API Docs | http://localhost:8000/docs | Swagger/OpenAPI docs |
 | PostgreSQL | localhost:5432 | Database (user: postgres, db: mistudio) |
 | Redis | localhost:6379 | Message broker |
+| Ollama API | http://localhost:11434 | LLM inference (direct) |
+| Ollama via Nginx | http://mistudio.mcslab.io/ollama/v1 | LLM inference (proxied) |
 
 ## Checking Service Status
 
@@ -80,7 +83,7 @@ The startup script automatically starts all required services in the correct ord
 **Docker services:**
 ```bash
 docker ps
-# Should show: mistudio-postgres, mistudio-redis, mistudio-nginx
+# Should show: mistudio-postgres, mistudio-redis, mistudio-nginx, mistudio-ollama
 ```
 
 **Backend:**
@@ -105,6 +108,13 @@ pgrep -f "celery.*src.core.celery_app"
 docker exec mistudio-nginx nginx -t
 ```
 
+**Ollama:**
+```bash
+docker exec mistudio-ollama ollama list
+curl http://localhost:11434/api/tags
+curl http://mistudio.mcslab.io/ollama/v1/models
+```
+
 ## Viewing Logs
 
 ```bash
@@ -121,6 +131,7 @@ tail -f /tmp/celery-worker.log
 docker logs -f mistudio-postgres
 docker logs -f mistudio-redis
 docker logs -f mistudio-nginx
+docker logs -f mistudio-ollama
 ```
 
 ## Troubleshooting
@@ -142,6 +153,11 @@ pkill -f "vite"
 **Port 80 (Nginx):**
 ```bash
 docker restart mistudio-nginx
+```
+
+**Port 11434 (Ollama):**
+```bash
+docker restart mistudio-ollama
 ```
 
 ### Domain Not Resolving
@@ -200,6 +216,54 @@ docker exec mistudio-redis redis-cli ping
 # Should return: PONG
 ```
 
+### Ollama Connection Issues
+
+Check Ollama is running and models are available:
+```bash
+# Check container status
+docker ps | grep ollama
+
+# Check Ollama API
+curl http://localhost:11434/api/tags
+
+# Check models list
+docker exec mistudio-ollama ollama list
+
+# Check via Nginx proxy
+curl http://mistudio.mcslab.io/ollama/v1/models
+
+# Pull a model if none available
+docker exec mistudio-ollama ollama pull gemma2:2b
+```
+
+### Ollama GPU Support
+
+Ollama is configured with GPU acceleration for faster inference:
+
+**Check GPU is accessible:**
+```bash
+# Check nvidia-smi inside container
+docker exec mistudio-ollama nvidia-smi
+
+# Should show RTX 3090 with VRAM usage
+```
+
+**Check model is loaded in VRAM:**
+```bash
+# Run inference to load model
+docker exec mistudio-ollama ollama run gemma2:2b "test"
+
+# Check GPU memory usage (should show ~2.8GB for gemma2:2b)
+nvidia-smi --query-gpu=memory.used --format=csv,noheader
+```
+
+**Technical Details:**
+- Ollama runs via `docker run --gpus all` (not docker-compose due to ContainerConfig bug)
+- GPU support requires nvidia-container-toolkit installed
+- Models automatically load into VRAM on first inference
+- Performance: ~50x faster than CPU-only mode
+- gemma2:2b uses ~2.8GB VRAM with Q4_0 quantization
+
 ## Complete Reset
 
 If you need to completely reset everything:
@@ -212,14 +276,21 @@ If you need to completely reset everything:
 cd /home/x-sean/app/miStudio
 docker-compose -f docker-compose.dev.yml down -v
 
+# Remove Ollama container and volumes
+docker stop mistudio-ollama 2>/dev/null || true
+docker rm mistudio-ollama 2>/dev/null || true
+docker volume rm ollama_data 2>/dev/null || true  # WARNING: Deletes downloaded models!
+
 # Kill any remaining processes
-pkill -f uvicorn
-pkill -f vite
-pkill -f celery
+pkill -f uvicorn 2>/dev/null || true
+pkill -f vite 2>/dev/null || true
+pkill -f celery 2>/dev/null || true
 
 # Restart everything
 ./start-mistudio.sh
 ```
+
+**Note:** Removing `ollama_data` volume will delete all downloaded models (~1.6GB for gemma2:2b). They will need to be re-downloaded on next start.
 
 ## Development Workflow
 
@@ -258,23 +329,24 @@ alembic upgrade head
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  http://mistudio.mcslab.io (Port 80)               │
-│                    ↓                                │
-│  ┌──────────────────────────────────────────────┐  │
-│  │  Nginx (Docker)                              │  │
-│  │  - Proxies / → Frontend (port 3000)         │  │
-│  │  - Proxies /api/ → Backend (port 8000)      │  │
-│  │  - Proxies /ws/ → Backend WebSocket         │  │
-│  └──────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-           ↓                          ↓
-  ┌────────────────┐        ┌─────────────────┐
-  │ Frontend       │        │ Backend         │
-  │ Vite Dev       │        │ FastAPI         │
-  │ Port 3000      │        │ Port 8000       │
-  │ (React + TS)   │        │ (Python)        │
-  └────────────────┘        └─────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  http://mistudio.mcslab.io (Port 80)                    │
+│                    ↓                                     │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  Nginx (Docker)                                  │   │
+│  │  - Proxies / → Frontend (port 3000)             │   │
+│  │  - Proxies /api/ → Backend (port 8000)          │   │
+│  │  - Proxies /ws/ → Backend WebSocket             │   │
+│  │  - Proxies /ollama/ → Ollama (port 11434)       │   │
+│  └──────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────┘
+           ↓                          ↓               ↓
+  ┌────────────────┐        ┌─────────────────┐  ┌──────────┐
+  │ Frontend       │        │ Backend         │  │ Ollama   │
+  │ Vite Dev       │        │ FastAPI         │  │ (Docker) │
+  │ Port 3000      │        │ Port 8000       │  │ Port     │
+  │ (React + TS)   │        │ (Python)        │  │ 11434    │
+  └────────────────┘        └─────────────────┘  └──────────┘
                                      ↓
                     ┌────────────────┼────────────────┐
                     ↓                ↓                ↓

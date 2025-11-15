@@ -139,6 +139,27 @@ export class WebSocketClient {
     this.socket.off(channel);
   }
 
+  subscribeToLabelingResults(
+    labelingJobId: string,
+    callback: (data: any) => void
+  ): void {
+    if (!this.socket) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const channel = `labeling/${labelingJobId}/results`;
+    this.socket.on(channel, callback);
+  }
+
+  unsubscribeFromLabelingResults(labelingJobId: string): void {
+    if (!this.socket) {
+      return;
+    }
+
+    const channel = `labeling/${labelingJobId}/results`;
+    this.socket.off(channel);
+  }
+
   getSocket(): Socket | null {
     return this.socket;
   }

@@ -29,8 +29,8 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
   );
   const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [openaiCompatibleEndpoint, setOpenaiCompatibleEndpoint] = useState('http://ollama.mcslab.io/v1');
-  const [openaiCompatibleModel, setOpenaiCompatibleModel] = useState('llama3.2');
+  const [openaiCompatibleEndpoint, setOpenaiCompatibleEndpoint] = useState('http://mistudio.mcslab.io/ollama/v1');
+  const [openaiCompatibleModel, setOpenaiCompatibleModel] = useState('gemma2:2b');
   const [localModel, setLocalModel] = useState('');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -119,7 +119,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
       } else {
         setCompatibleModels(models);
         // Auto-select first model if current value is default or empty
-        if (!openaiCompatibleModel || openaiCompatibleModel === 'llama3.2') {
+        if (!openaiCompatibleModel || openaiCompatibleModel === 'gemma2:2b' || openaiCompatibleModel === 'llama3.2') {
           setOpenaiCompatibleModel(models[0]);
         }
       }

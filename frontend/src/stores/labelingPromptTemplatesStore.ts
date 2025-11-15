@@ -65,6 +65,14 @@ export const useLabelingPromptTemplatesStore = create<LabelingPromptTemplatesSta
         set({ loading: true, error: null });
         try {
           const response = await api.getLabelingPromptTemplates(params);
+          // Debug logging
+          console.log('[LabelingPromptTemplatesStore] Fetched templates:',
+            response.data?.map(t => ({
+              id: t.id,
+              name: t.name,
+              user_prompt_first_100: t.user_prompt_template?.substring(0, 100)
+            }))
+          );
           set({
             templates: response.data || [],
             pagination: response.meta || null,

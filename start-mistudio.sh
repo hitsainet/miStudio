@@ -69,12 +69,36 @@ fi
 echo ""
 echo "Step 2: Starting Docker services (PostgreSQL, Redis, Nginx)..."
 cd "$PROJECT_ROOT"
-docker-compose -f docker-compose.dev.yml up -d
+docker-compose -f docker-compose.dev.yml up -d postgres redis nginx
 
 # Wait for services to be healthy
 wait_for_service "PostgreSQL" "docker exec mistudio-postgres pg_isready -U postgres"
 wait_for_service "Redis" "docker exec mistudio-redis redis-cli ping"
-echo -e "${GREEN}✓${NC} Docker services are healthy"
+echo -e "${GREEN}✓${NC} PostgreSQL and Redis are healthy"
+
+# Start Ollama separately with GPU support (docker-compose has a bug with GPU config)
+echo ""
+echo "Starting Ollama with GPU support..."
+if docker ps -a --format '{{.Names}}' | grep -q "^mistudio-ollama$"; then
+    if docker ps --format '{{.Names}}' | grep -q "^mistudio-ollama$"; then
+        echo -e "${GREEN}✓${NC} Ollama already running"
+    else
+        docker start mistudio-ollama > /dev/null
+        echo -e "${GREEN}✓${NC} Ollama restarted"
+    fi
+else
+    docker run -d --name mistudio-ollama --gpus all \
+        -p 11434:11434 \
+        -v ollama_data:/root/.ollama \
+        -e OLLAMA_ORIGINS="http://mistudio.mcslab.io,http://localhost:3000" \
+        --network mistudio_default \
+        --restart unless-stopped \
+        ollama/ollama:latest > /dev/null
+    echo -e "${GREEN}✓${NC} Ollama started with GPU support"
+fi
+
+wait_for_service "Ollama" "curl -s http://localhost:11434/api/tags"
+echo -e "${GREEN}✓${NC} All Docker services are healthy"
 
 echo ""
 echo "Step 3: Starting Celery worker..."
@@ -126,6 +150,7 @@ echo ""
 check_service "PostgreSQL (Docker)" "docker exec mistudio-postgres pg_isready -U postgres"
 check_service "Redis (Docker)" "docker exec mistudio-redis redis-cli ping"
 check_service "Nginx (Docker)" "docker exec mistudio-nginx nginx -t"
+check_service "Ollama (Docker)" "curl -s http://localhost:11434/api/tags"
 check_service "Celery Worker" "pgrep -f 'celery.*src.core.celery_app'"
 check_service "Backend (FastAPI)" "curl -s http://localhost:8000/api/v1/datasets"
 check_service "Frontend (Vite)" "curl -s http://localhost:3000"
@@ -138,9 +163,11 @@ echo "  Primary: http://$DOMAIN"
 echo "  Frontend: http://localhost:3000"
 echo "  Backend: http://localhost:8000"
 echo "  API Docs: http://localhost:8000/docs"
+echo "  Ollama API: http://localhost:11434"
 echo ""
 echo "Logs:"
 echo "  Backend: /tmp/backend.log"
 echo "  Frontend: /tmp/frontend.log"
 echo "  Celery: /tmp/celery-worker.log"
+echo "  Ollama: docker logs mistudio-ollama"
 echo ""

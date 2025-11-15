@@ -815,10 +815,18 @@ export function LabelingPromptTemplatesPanel() {
                 </h4>
                 <div className="bg-slate-900/50 p-3 rounded border border-slate-700">
                   <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap">
-                    {previewTemplate.user_prompt_template.replace(
-                      '{tokens_table}',
-                      `Token #1: "the" → Activation: 0.89\nToken #2: "quick" → Activation: 0.76\nToken #3: "brown" → Activation: 0.82\nToken #4: "fox" → Activation: 0.91\nToken #5: "jumps" → Activation: 0.68`
-                    )}
+                    {(() => {
+                      // Debug logging
+                      console.log('[LabelingPromptTemplatesPanel] Preview Template:', {
+                        id: previewTemplate.id,
+                        name: previewTemplate.name,
+                        user_prompt_first_100: previewTemplate.user_prompt_template.substring(0, 100)
+                      });
+                      return previewTemplate.user_prompt_template.replace(
+                        '{tokens_table}',
+                        `'▁money'                                   → 43 times\n'▁with'                                    → 38 times\n'▁spend'                                   → 27 times\n'▁on'                                      → 24 times\n'▁people'                                  → 21 times\n'▁had'                                     → 19 times\n'▁about'                                   → 18 times\n'▁much'                                    → 16 times\n'▁dealing'                                 → 14 times\n'▁want'                                    → 12 times\n'▁take'                                    → 11 times\n'▁attract'                                 → 9 times\n'es'                                       → 8 times\n'▁influenced'                              → 7 times\n'▁sir'                                     → 6 times`
+                      );
+                    })()}
                   </pre>
                 </div>
               </div>

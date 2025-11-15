@@ -30,6 +30,13 @@ pkill -f "celery.*src.core.celery_app" || echo -e "${YELLOW}⚠${NC}  No Celery 
 echo ""
 echo "Stopping Docker services (keeping data)..."
 cd "$PROJECT_ROOT"
+
+# Stop Ollama separately (started with docker run)
+if docker ps --format '{{.Names}}' | grep -q "^mistudio-ollama$"; then
+    docker stop mistudio-ollama > /dev/null
+fi
+
+# Stop docker-compose services
 docker-compose -f docker-compose.dev.yml stop
 
 echo ""
@@ -37,4 +44,5 @@ echo -e "${GREEN}✓${NC} All services stopped"
 echo ""
 echo "To completely remove containers and volumes:"
 echo "  cd $PROJECT_ROOT && docker-compose -f docker-compose.dev.yml down -v"
+echo "  docker rm mistudio-ollama  # Remove Ollama container"
 echo ""

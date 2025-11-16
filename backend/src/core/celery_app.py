@@ -105,6 +105,10 @@ celery_app.conf.update(
             "queue": "low_priority",
             "priority": 3,
         },
+        "src.workers.cleanup_stuck_trainings.*": {
+            "queue": "low_priority",
+            "priority": 3,
+        },
     },
 
     # Task priority queues (higher priority = processed first)
@@ -151,6 +155,15 @@ celery_app.conf.update(
                 "priority": 3,
             },
         },
+        # Cleanup stuck training jobs - runs every 10 minutes
+        "cleanup-stuck-trainings": {
+            "task": "cleanup_stuck_trainings",
+            "schedule": 600.0,  # Run every 10 minutes (600 seconds)
+            "options": {
+                "queue": "low_priority",
+                "priority": 3,
+            },
+        },
     },
 
     # Worker settings
@@ -172,6 +185,7 @@ celery_app.autodiscover_tasks(
         "src.workers.labeling_tasks",
         "src.workers.system_monitor_tasks",
         "src.workers.cleanup_stuck_extractions",
+        "src.workers.cleanup_stuck_trainings",
     ],
     force=True,
 )

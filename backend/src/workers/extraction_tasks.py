@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @celery_app.task(
     bind=True,
     base=DatabaseTask,
-    name="extract_features",
+    name="src.workers.extraction_tasks.extract_features",
     max_retries=0,  # No automatic retries
     autoretry_for=(),  # Explicit no auto-retry (empty tuple)
 )

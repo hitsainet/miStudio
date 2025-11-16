@@ -299,7 +299,7 @@ export function ActivationExtractionHistory({
                   {/* Configuration Summary */}
                   <div className="grid grid-cols-4 gap-4 mb-4">
                     <div className="bg-slate-900/50 rounded p-3">
-                      <div className="text-xs text-slate-500 mb-1">Layers</div>
+                      <div className="text-xs text-slate-500 mb-1">Layer(s)</div>
                       <div className="text-sm font-mono text-slate-300">
                         {extraction.layer_indices.join(', ')}
                       </div>

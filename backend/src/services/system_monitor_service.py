@@ -173,8 +173,10 @@ class SystemMonitorService:
             SystemMetrics object containing current metrics
         """
         try:
-            # Get CPU usage (interval=1 ensures accurate reading)
-            cpu_percent = psutil.cpu_percent(interval=0.1)
+            # Get CPU usage per-core and sum them (100% = 1 full core)
+            # On 16-core system: max is 1600% (all cores at 100%)
+            per_core_percents = psutil.cpu_percent(interval=0.1, percpu=True)
+            cpu_percent = sum(per_core_percents)  # Sum all core percentages
             cpu_count = psutil.cpu_count()
 
             # Get RAM usage

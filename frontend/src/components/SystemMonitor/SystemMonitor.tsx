@@ -174,11 +174,11 @@ export function SystemMonitor() {
               <div className="text-3xl font-bold text-slate-100 mb-1">
                 {systemMetrics.cpu.percent.toFixed(1)}%
               </div>
-              <div className="text-xs text-slate-400 mb-2">{systemMetrics.cpu.count} cores</div>
+              <div className="text-xs text-slate-400 mb-2">{systemMetrics.cpu.count} cores (max {systemMetrics.cpu.count * 100}%)</div>
               <div className="w-full bg-slate-800 rounded-full h-2">
                 <div
                   className="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(systemMetrics.cpu.percent, 100)}%` }}
+                  style={{ width: `${Math.min((systemMetrics.cpu.percent / (systemMetrics.cpu.count * 100)) * 100, 100)}%` }}
                 ></div>
               </div>
             </div>

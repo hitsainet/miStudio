@@ -52,7 +52,8 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
   const [evaluationSamples, setEvaluationSamples] = useState(10000);
   const [topKExamples, setTopKExamples] = useState(100);
   const [labelingMethod, setLabelingMethod] = useState<'pattern' | 'local' | 'openai'>('pattern');
-  const [localLabelingModel, setLocalLabelingModel] = useState<'phi3' | 'llama' | 'qwen'>('phi3');
+  const [ollamaEndpointUrl, setOllamaEndpointUrl] = useState<string>('http://mistudio.mcslab.io/ollama/');
+  const [localLabelingModel, setLocalLabelingModel] = useState<string>('gemma2:2b');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState<'gpt4-mini' | 'gpt4' | 'gpt35'>('gpt4-mini');
   const [resourceConfig, setResourceConfig] = useState<{
@@ -60,6 +61,8 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
     num_workers?: number;
     db_commit_batch?: number;
   }>({});
+  const [availableOllamaModels, setAvailableOllamaModels] = useState<Array<{name: string; display_name: string}>>([]);
+  const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
 
   // Local state for search
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,6 +80,32 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
   useEffect(() => {
     getExtractionStatus(training.id);
   }, [training.id]);
+
+  /**
+   * Manually fetch Ollama models from the specified endpoint.
+   */
+  const handleFetchOllamaModels = async () => {
+    setIsLoadingOllamaModels(true);
+    try {
+      const response = await fetch('/api/v1/labeling/models/available');
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableOllamaModels(data.models || []);
+        // Set first model as default if available
+        if (data.models && data.models.length > 0) {
+          setLocalLabelingModel(data.models[0].name);
+        }
+      } else {
+        console.error('Failed to fetch Ollama models');
+        setAvailableOllamaModels([]);
+      }
+    } catch (error) {
+      console.error('Error fetching Ollama models:', error);
+      setAvailableOllamaModels([]);
+    } finally {
+      setIsLoadingOllamaModels(false);
+    }
+  };
 
   // Load features if extraction is completed
   useEffect(() => {
@@ -322,29 +351,70 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
               >
                 <option value="pattern">Pattern Matching (fast, simple patterns)</option>
-                <option value="local">Local LLM (slow, high quality, zero cost)</option>
+                <option value="local">OpenAI-Compatible (Ollama, vLLM, etc.)</option>
                 <option value="openai">OpenAI API (fast, high quality, costs money)</option>
               </select>
               <p className="text-xs text-slate-500 mt-1">
                 {labelingMethod === 'pattern' && 'Uses 8 hardcoded patterns for quick labeling'}
-                {labelingMethod === 'local' && 'Uses Phi-3-mini locally (~5.5 hours for 16K features, ~2GB VRAM)'}
+                {labelingMethod === 'local' && `Uses ${localLabelingModel || 'local LLM'} via Ollama for high-quality labeling (~5.5 hours for 16K features)`}
                 {labelingMethod === 'openai' && 'Uses GPT-4o-mini API (~55 minutes for 16K features, ~$1.64 cost)'}
               </p>
             </div>
 
-            {/* Local Model Selector (shown when labeling_method=local) */}
+            {/* Local Model Configuration (shown when labeling_method=local) */}
             {labelingMethod === 'local' && (
-              <div className="mb-3">
-                <label className="block text-xs text-slate-400 mb-1">Local Model</label>
-                <select
-                  value={localLabelingModel}
-                  onChange={(e) => setLocalLabelingModel(e.target.value as 'phi3' | 'llama' | 'qwen')}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="phi3">Phi-3-mini (recommended, 3.8B params)</option>
-                  <option value="llama">Llama 3.2 3B</option>
-                  <option value="qwen">Qwen 2.5 3B</option>
-                </select>
+              <div className="space-y-3">
+                {/* Endpoint URL */}
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Endpoint URL</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={ollamaEndpointUrl}
+                      onChange={(e) => setOllamaEndpointUrl(e.target.value)}
+                      placeholder="http://mistudio.mcslab.io/ollama/"
+                      className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleFetchOllamaModels}
+                      disabled={isLoadingOllamaModels}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white rounded transition-colors"
+                    >
+                      {isLoadingOllamaModels ? 'Fetching...' : 'Fetch Models'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    OpenAI-compatible API endpoint (Ollama, vLLM, etc.)
+                  </p>
+                </div>
+
+                {/* Model Name */}
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Model Name</label>
+                  {availableOllamaModels.length > 0 ? (
+                    <>
+                      <select
+                        value={localLabelingModel}
+                        onChange={(e) => setLocalLabelingModel(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                      >
+                        {availableOllamaModels.map((model) => (
+                          <option key={model.name} value={model.name}>
+                            {model.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {availableOllamaModels.length} model(s) available
+                      </p>
+                    </>
+                  ) : (
+                    <div className="text-xs text-slate-400 p-2 bg-slate-800 border border-slate-700 rounded">
+                      Click "Fetch Models" to load available models
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -567,15 +637,15 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
             />
           </button>
 
-          {/* Favorites Filter */}
+          {/* Of Interest Filter */}
           <button
             onClick={handleFavoriteFilterToggle}
             className={`px-3 py-2 border rounded transition-colors ${
               filters.is_favorite
-                ? 'bg-yellow-600/20 border-yellow-600 text-yellow-400'
+                ? 'bg-emerald-600/20 border-emerald-600 text-emerald-400'
                 : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
             }`}
-            title="Filter favorites"
+            title="Filter Of Interest"
           >
             <Star className={`w-4 h-4 ${filters.is_favorite ? 'fill-current' : ''}`} />
           </button>
@@ -748,13 +818,13 @@ export const FeaturesPanel: React.FC<FeaturesPanelProps> = ({ training }) => {
                         <button
                           onClick={(e) => handleToggleFavorite(feature.id, feature.is_favorite, e)}
                           className="p-1 hover:bg-slate-700 rounded transition-colors"
-                          title={feature.is_favorite ? "Remove from favorites" : "Mark as favorite"}
+                          title={feature.is_favorite ? "Remove from Of Interest" : "Mark as Of Interest"}
                         >
                           <Star
                             className={`w-5 h-5 transition-all ${
                               feature.is_favorite
-                                ? 'fill-yellow-400 text-yellow-400'
-                                : 'text-slate-500 hover:text-yellow-400'
+                                ? 'fill-emerald-500 text-emerald-500'
+                                : 'text-slate-500 hover:text-emerald-500'
                             }`}
                           />
                         </button>

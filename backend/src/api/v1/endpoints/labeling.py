@@ -6,6 +6,7 @@ Provides REST API for independent semantic labeling of extracted SAE features.
 
 import logging
 from typing import Optional
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -288,3 +289,70 @@ async def label_extraction(
 
     # Delegate to main labeling endpoint
     return await start_labeling(config, db)
+
+
+@router.get(
+    "/labeling/models/available",
+    summary="List available Ollama models"
+)
+async def list_available_ollama_models():
+    """
+    List available Ollama models for local labeling.
+
+    Queries the Ollama API to get all available models. Returns both
+    the raw model list and a formatted list with display names.
+
+    Returns:
+        Dict with 'models' array containing model information
+
+    Raises:
+        503: Ollama service unavailable
+    """
+    try:
+        # Query Ollama API for available models
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("http://localhost:11434/api/tags")
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract model information
+            models = []
+            for model in data.get("models", []):
+                model_name = model.get("name", "")
+                model_size = model.get("size", 0)
+                modified_at = model.get("modified_at", "")
+
+                # Format size in GB
+                size_gb = model_size / (1024**3) if model_size else 0
+
+                # Create display name
+                display_name = f"{model_name}"
+                if size_gb > 0:
+                    display_name += f" ({size_gb:.1f}GB)"
+
+                models.append({
+                    "name": model_name,
+                    "display_name": display_name,
+                    "size": model_size,
+                    "size_gb": round(size_gb, 2),
+                    "modified_at": modified_at,
+                    "details": model.get("details", {})
+                })
+
+            return {
+                "models": models,
+                "total": len(models)
+            }
+
+    except httpx.RequestError as e:
+        logger.error(f"Failed to connect to Ollama: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Ollama service is not available. Please ensure Ollama is running."
+        )
+    except Exception as e:
+        logger.error(f"Error listing Ollama models: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list Ollama models: {str(e)}"
+        )

@@ -99,6 +99,12 @@ celery_app.conf.update(
             "queue": "low_priority",
             "priority": 2,
         },
+
+        # Cleanup operations: Periodic maintenance tasks
+        "src.workers.cleanup_stuck_extractions.*": {
+            "queue": "low_priority",
+            "priority": 3,
+        },
     },
 
     # Task priority queues (higher priority = processed first)
@@ -136,6 +142,15 @@ celery_app.conf.update(
                 "priority": 2,
             },
         },
+        # Cleanup stuck extraction jobs - runs every 10 minutes
+        "cleanup-stuck-extractions": {
+            "task": "cleanup_stuck_extractions",
+            "schedule": 600.0,  # Run every 10 minutes (600 seconds)
+            "options": {
+                "queue": "low_priority",
+                "priority": 3,
+            },
+        },
     },
 
     # Worker settings
@@ -156,6 +171,7 @@ celery_app.autodiscover_tasks(
         "src.workers.extraction_tasks",
         "src.workers.labeling_tasks",
         "src.workers.system_monitor_tasks",
+        "src.workers.cleanup_stuck_extractions",
     ],
     force=True,
 )

@@ -13,23 +13,33 @@ Tab>Extractions>Features Table Pagination: Add "Go to" functionality to navigate
   - Page number (e.g., "Go to page: [___]")
   - OR Feature number/record number (e.g., "Go to feature: [___]")
 This would be especially useful for large datasets with thousands of features where sequential pagination is slow.
-**Status:** Implemented in FeaturesPanel.tsx with smart detection (page number if ≤ total pages, otherwise feature number)#
+**Status:** Implemented in FeaturesPanel.tsx with smart detection (page number if ≤ total pages, otherwise feature number)
+
+✅ **Extraction Display - Layer(s) Label Clarification**
+@0xcc/img/Extraction_Layer(s).jpg Tab>Models>Extraction History: Changed "Layers" label to "Layer(s)" to disambiguate that the display shows layer numbers (e.g., "7, 14, 18") rather than the count of layers.
+**Status:** Updated in ActivationExtractionHistory.tsx line 302
+
+✅ **Features Table - "Of Interest" Star Toggle**
+@0xcc/img/DiscoveredFeaturesActionsStarFavorites.jpg Tab>Features>Features Table: Implemented star toggle feature under "Of Interest" column with bright green (emerald-500) color when toggled on. Toggle state persists via API calls to backend. Filter button also updated to use emerald colors.
+**Status:** Updated in FeaturesPanel.tsx - star colors changed from yellow to emerald, tooltips updated, column already labeled "Of Interest"
+
+✅ **Labeling Job Progress - Real-time Results Window**
+Tab>Labeling>Labeling Job Progress Tile: Implemented scrolling results window that displays real-time results from the feature labeling process via WebSocket. Window shows recently labeled features with:
+  - Feature ID (e.g., #23319)
+  - Label (the assigned feature name)
+  - Category (e.g., semantic, syntactic, positional) with color coding
+  - Description (if available)
+  - Example tokens (top activating tokens that represent the feature)
+The results window displays the last 20 labeled features in a compact, readable format, with auto-scroll to show most recent results at the top.
+**Status:** Fully implemented in LabelingResultsWindow.tsx component with WebSocket subscription via useLabelingResultsWebSocket hook
+
+✅ **CPU Utilization Display - Per-Core Calculation**
+Tab>Monitor>CPU Utilization: Updated CPU utilization display to work on a per-core basis where 100% = 1 full core utilized. On a 16-core system, maximum is 1600% (all cores at 100%). Backend now sums per-core percentages from psutil, and frontend progress bar scales based on core count.
+**Status:** Implemented in [system_monitor_service.py:176-180](backend/src/services/system_monitor_service.py#L176-L180) and [SystemMonitor.tsx:181](frontend/src/components/SystemMonitor/SystemMonitor.tsx#L181)
 
 # Outstanding Enhancements
 
-0xcc/img/DiscoveredFeaturesActionsStarFavorites.jpg I want to be able to toggle the stars under the "Actions" column to bright green when on, and have the toggle persist. The column should be changed to "Of Interest".
-
 Please normalize the interface to that when zoomed to 100%, all text is comfortable to read, but is not too large either. Where it makes sense compress the width. Do this to most page elements by taking advantage of blank spaces. Focus especially on the various tiles.
-
-@0xcc/img/Extraction_Layer(s).jpg shows "Layers: 20", but I think it should be "Layer(s): 20" to disambiguate that its the layer number rather than number of layers.
-
-Tab>Labeling>Labeling Job Progress Tile: Add a scrolling results window to the labeling job progress tile that displays real-time results from the feature labeling process. This window should show recently labeled features as they are being processed, allowing users to monitor the quality and progress of the labeling in real-time. The window should auto-scroll to show the most recent results and display key information for each labeled feature:
-  - Feature ID (e.g., #23319)
-  - Label (the assigned feature name)
-  - Category (e.g., semantic, syntactic, positional)
-  - Description (if available)
-  - Example tokens (top activating tokens that represent the feature)
-The results window should display the last 10-20 labeled features in a compact, readable format, updating in real-time as new features are labeled.
 
 **Multi-Layer Training: Per-Layer Metrics Tracking**
 Tab>Training>Training Job Detail/Metrics: For multi-layer training jobs (e.g., training layers 7, 14, 18 simultaneously), track and display layer-wise differences explicitly. While using the same hyperparameters across all layers is appropriate, we need visibility into how each layer performs individually to determine if any layer needs different tuning later. Implement per-layer tracking and visualization for:

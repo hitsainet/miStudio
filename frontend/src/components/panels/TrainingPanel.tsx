@@ -483,13 +483,17 @@ export const TrainingPanel: React.FC = () => {
                         {availableExtractions.map((extraction) => {
                           const layerCount = extraction.layer_indices?.length || 0;
                           const sampleCount = extraction.num_samples_processed || extraction.samples_processed || 0;
-                          const createdDate = extraction.created_at
-                            ? new Date(extraction.created_at).toLocaleDateString()
-                            : 'Unknown date';
+                          const createdDateTime = extraction.created_at
+                            ? new Date(extraction.created_at).toLocaleString()
+                            : 'Unknown date/time';
+
+                          // Look up model name from models store
+                          const extractionModel = models.find(m => m.id === extraction.model_id);
+                          const modelName = extractionModel?.name || extraction.model_id || 'Unknown model';
 
                           return (
                             <option key={extraction.extraction_id} value={extraction.extraction_id}>
-                              {extraction.extraction_id} ({layerCount} layer{layerCount !== 1 ? 's' : ''}, {sampleCount.toLocaleString()} samples, {createdDate})
+                              {extraction.extraction_id} | {modelName} | {layerCount} layer{layerCount !== 1 ? 's' : ''}, {sampleCount.toLocaleString()} samples | {createdDateTime}
                             </option>
                           );
                         })}

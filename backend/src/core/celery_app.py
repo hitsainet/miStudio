@@ -47,73 +47,64 @@ celery_app.conf.update(
     enable_utc=True,
 
     # Task routing - Multi-queue architecture for optimal resource allocation
+    # NOTE: Priority values removed since task_queue_max_priority is disabled
     task_routes={
         # High priority: Quick operations, metadata updates
         "src.workers.quick_tasks.*": {
             "queue": "high_priority",
-            "priority": 10,
         },
 
         # Dataset operations: I/O bound, medium concurrency
         "src.workers.dataset_tasks.download_dataset_task": {
             "queue": "datasets",
-            "priority": 7,
         },
         "src.workers.dataset_tasks.tokenize_dataset_task": {
             "queue": "datasets",  # Changed from "processing" to "datasets" for consistency
-            "priority": 7,
         },
 
         # Model operations: GPU bound, high priority
         "src.workers.model_tasks.download_and_load_model": {
             "queue": "high_priority",
-            "priority": 8,
         },
 
         # Training operations: GPU bound, low concurrency
         "src.workers.training_tasks.*": {
             "queue": "training",
-            "priority": 5,
         },
 
         # Extraction operations: GPU bound, medium concurrency
         "src.workers.extraction_tasks.*": {
             "queue": "extraction",
-            "priority": 5,
         },
 
         # Labeling operations: LLM bound, medium priority
         "src.workers.labeling_tasks.*": {
             "queue": "processing",
-            "priority": 6,
         },
 
         # Maintenance operations: Background tasks
         "src.workers.maintenance_tasks.*": {
             "queue": "low_priority",
-            "priority": 3,
         },
 
         # System monitoring operations: Background metrics collection
         "src.workers.system_monitor_tasks.*": {
             "queue": "low_priority",
-            "priority": 2,
         },
 
         # Cleanup operations: Periodic maintenance tasks
         "src.workers.cleanup_stuck_extractions.*": {
             "queue": "low_priority",
-            "priority": 3,
         },
         "src.workers.cleanup_stuck_trainings.*": {
             "queue": "low_priority",
-            "priority": 3,
         },
     },
 
     # Task priority queues (higher priority = processed first)
-    task_queue_max_priority=10,
-    task_default_priority=5,
+    # NOTE: Disabled priority suffixes to prevent Kombu from creating priority-based queue names
+    # task_queue_max_priority=10,
+    # task_default_priority=5,
 
     # Queue configuration
     task_default_queue="datasets",  # Default queue for unrouted tasks
@@ -143,7 +134,6 @@ celery_app.conf.update(
             "schedule": settings.system_monitor_interval_seconds,  # Run every 2 seconds (default)
             "options": {
                 "queue": "low_priority",
-                "priority": 2,
             },
         },
         # Cleanup stuck extraction jobs - runs every 10 minutes
@@ -152,7 +142,6 @@ celery_app.conf.update(
             "schedule": 600.0,  # Run every 10 minutes (600 seconds)
             "options": {
                 "queue": "low_priority",
-                "priority": 3,
             },
         },
         # Cleanup stuck training jobs - runs every 10 minutes
@@ -161,7 +150,6 @@ celery_app.conf.update(
             "schedule": 600.0,  # Run every 10 minutes (600 seconds)
             "options": {
                 "queue": "low_priority",
-                "priority": 3,
             },
         },
     },

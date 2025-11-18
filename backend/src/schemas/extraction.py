@@ -51,9 +51,14 @@ class ExtractionConfigRequest(BaseModel):
         description="Number of features to commit at once (500-5000). If not provided, will use recommended value"
     )
 
-    # Token filtering configuration
-    extraction_filter_enabled: bool = Field(False, description="Enable token filtering during extraction")
-    extraction_filter_mode: Literal["minimal", "conservative", "standard", "aggressive"] = Field("standard", description="Filter mode: minimal, conservative, standard, or aggressive")
+    # Token filtering configuration (matches labeling filter structure)
+    # These filters control which tokens are stored in FeatureActivation records during extraction
+    filter_special: bool = Field(True, description="Filter special tokens (<s>, </s>, etc.)")
+    filter_single_char: bool = Field(True, description="Filter single character tokens")
+    filter_punctuation: bool = Field(True, description="Filter pure punctuation")
+    filter_numbers: bool = Field(True, description="Filter pure numeric tokens")
+    filter_fragments: bool = Field(True, description="Filter word fragments (BPE subwords)")
+    filter_stop_words: bool = Field(False, description="Filter common stop words (the, and, is, etc.)")
 
     # NOTE: Labeling configuration has been removed from extraction
     # Features are created unlabeled and can be labeled separately via LabelingService
@@ -83,9 +88,13 @@ class ExtractionStatusResponse(BaseModel):
     updated_at: datetime
     completed_at: Optional[datetime] = None
 
-    # Token filtering configuration
-    extraction_filter_enabled: Optional[bool] = False
-    extraction_filter_mode: Optional[str] = "standard"
+    # Token filtering configuration (matches labeling filter structure)
+    filter_special: Optional[bool] = True
+    filter_single_char: Optional[bool] = True
+    filter_punctuation: Optional[bool] = True
+    filter_numbers: Optional[bool] = True
+    filter_fragments: Optional[bool] = True
+    filter_stop_words: Optional[bool] = False
 
 
 class ExtractionListResponse(BaseModel):

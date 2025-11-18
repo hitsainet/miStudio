@@ -45,7 +45,15 @@ class OpenAILabelingService:
         user_prompt_template: Optional[str] = None,
         temperature: float = 0.3,
         max_tokens: int = 50,
-        top_p: float = 0.9
+        top_p: float = 0.9,
+        filter_special: bool = True,
+        filter_single_char: bool = True,
+        filter_punctuation: bool = True,
+        filter_numbers: bool = True,
+        filter_fragments: bool = True,
+        filter_stop_words: bool = False,
+        save_requests_for_testing: bool = False,
+        labeling_job_id: Optional[str] = None
     ):
         """
         Initialize OpenAI labeling service.
@@ -59,6 +67,14 @@ class OpenAILabelingService:
             temperature: Sampling temperature (0.0-2.0)
             max_tokens: Maximum tokens in response (10-500)
             top_p: Nucleus sampling parameter (0.0-1.0)
+            filter_special: Filter special tokens (<s>, </s>, etc.) from token analysis
+            filter_single_char: Filter single character tokens from token analysis
+            filter_punctuation: Filter pure punctuation tokens from token analysis
+            filter_numbers: Filter pure numeric tokens from token analysis
+            filter_fragments: Filter word fragments (BPE subwords) from token analysis
+            filter_stop_words: Filter common stop words from token analysis
+            save_requests_for_testing: Save API requests to tmp_api/ for testing and debugging
+            labeling_job_id: Labeling job ID for organizing saved requests
         """
         # Set API key (not required for OpenAI-compatible endpoints)
         self.api_key = api_key or getattr(settings, 'openai_api_key', None)
@@ -89,12 +105,182 @@ class OpenAILabelingService:
         self.max_tokens = max_tokens
         self.top_p = top_p
 
+        # Store token filtering configuration
+        self.filter_special = filter_special
+        self.filter_single_char = filter_single_char
+        self.filter_punctuation = filter_punctuation
+        self.filter_numbers = filter_numbers
+        self.filter_fragments = filter_fragments
+        self.filter_stop_words = filter_stop_words
+
+        # Store debugging configuration
+        self.save_requests_for_testing = save_requests_for_testing
+        self.labeling_job_id = labeling_job_id
+        self._request_dir = None  # Cached directory path for saved requests (created once per job)
+
         logger.info(f"Initialized OpenAI labeling service with model: {self.model}")
         logger.info(f"  Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}")
         if system_message:
             logger.info(f"  Using custom system message (length: {len(system_message)} chars)")
         if user_prompt_template:
             logger.info(f"  Using custom user prompt template (length: {len(user_prompt_template)} chars)")
+            logger.info(f"  Token Filtering: special={filter_special}, fragments={filter_fragments}, stop_words={filter_stop_words}")
+
+    def _save_request_for_testing(
+        self,
+        request_payload: Dict[str, Any],
+        neuron_index: Optional[int] = None
+    ) -> None:
+        """
+        Save API request to file for testing in Postman or cURL.
+
+        Creates three files in tmp_api/{datetime}_{job_id}/
+        - JSON file: Ready to import into Postman
+        - Shell script: cURL command ready to execute
+        - Postman collection: Import into Postman app
+
+        Args:
+            request_payload: The request payload dict
+            neuron_index: Optional neuron index for filename
+        """
+        import json
+        import os
+        from pathlib import Path
+        from datetime import datetime
+
+        try:
+            # Get application root (parent of backend/)
+            app_root = Path(__file__).parent.parent.parent.parent
+
+            # Create base tmp_api directory
+            tmp_api_dir = app_root / "tmp_api"
+            tmp_api_dir.mkdir(exist_ok=True)
+
+            # Create subfolder ONCE per labeling job (reuse for all neurons)
+            # Format: YYYYMMDD_HHMMSS_{job_id}
+            if self._request_dir is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                job_id_str = self.labeling_job_id or "unknown_job"
+                folder_name = f"{timestamp}_{job_id_str}"
+                request_dir = tmp_api_dir / folder_name
+                request_dir.mkdir(exist_ok=True)
+                # Cache for reuse across all neurons in this job
+                self._request_dir = request_dir
+                self._request_timestamp = timestamp
+                self._request_folder_name = folder_name
+                logger.info(f"📁 Created API request folder for labeling job: tmp_api/{folder_name}/")
+            else:
+                # Reuse cached values
+                request_dir = self._request_dir
+                timestamp = self._request_timestamp
+                folder_name = self._request_folder_name
+
+            # Create filename with folder name prefix for self-identification
+            # Format: {folder_name}_neuron_{idx}.json (ties file to labeling job and SAE)
+            neuron_str = f"neuron_{neuron_index}" if neuron_index is not None else "request"
+            base_filename = request_dir / f"{folder_name}_{neuron_str}"
+
+            # Determine endpoint URL
+            base_url = str(self.client.base_url).rstrip('/')
+            endpoint_url = f"{base_url}/chat/completions"
+
+            # 1. Save JSON payload for Postman
+            json_file = f"{base_filename}.json"
+            with open(json_file, 'w') as f:
+                json.dump(request_payload, f, indent=2)
+
+            # 2. Create cURL command
+            curl_file = f"{base_filename}.sh"
+            headers = []
+            if self.api_key and self.api_key != "not-needed" and self.api_key != "dummy-key-not-required":
+                headers.append(f"-H 'Authorization: Bearer {self.api_key}'")
+            headers.append("-H 'Content-Type: application/json'")
+
+            # Use just the filename (not full path) so script runs from within its folder
+            filename_only = f"{folder_name}_{neuron_str}"
+
+            curl_command = f"""#!/bin/bash
+# OpenAI API Request - Generated {timestamp}
+# Labeling Job ID: {self.labeling_job_id or 'N/A'}
+# Neuron Index: {neuron_index if neuron_index is not None else 'N/A'}
+# Base URL: {base_url}
+# Model: {self.model}
+# Folder: {folder_name}
+
+curl -X POST '{endpoint_url}' \\
+  {' '.join(headers)} \\
+  -d @{filename_only}.json
+
+# Alternative: Inline JSON (if you want to modify the request directly)
+# curl -X POST '{endpoint_url}' \\
+#   {' '.join(headers)} \\
+#   -d '{json.dumps(request_payload)}'
+"""
+
+            with open(curl_file, 'w') as f:
+                f.write(curl_command)
+
+            # Make shell script executable
+            import os
+            os.chmod(curl_file, 0o755)
+
+            # 3. Create Postman-ready collection
+            postman_file = f"{base_filename}_postman.json"
+            postman_collection = {
+                "info": {
+                    "name": f"OpenAI Labeling Request - {timestamp}",
+                    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+                },
+                "item": [
+                    {
+                        "name": f"Label Feature (Neuron {neuron_index})",
+                        "request": {
+                            "method": "POST",
+                            "header": [
+                                {
+                                    "key": "Content-Type",
+                                    "value": "application/json"
+                                }
+                            ],
+                            "body": {
+                                "mode": "raw",
+                                "raw": json.dumps(request_payload, indent=2)
+                            },
+                            "url": {
+                                "raw": endpoint_url,
+                                "protocol": "https" if "https" in endpoint_url else "http",
+                                "host": [endpoint_url.split("://")[1].split("/")[0]],
+                                "path": endpoint_url.split("://")[1].split("/")[1:]
+                            }
+                        }
+                    }
+                ]
+            }
+
+            # Add Authorization header if API key exists
+            if self.api_key and self.api_key not in ["not-needed", "dummy-key-not-required"]:
+                postman_collection["item"][0]["request"]["header"].append({
+                    "key": "Authorization",
+                    "value": f"Bearer {self.api_key}",
+                    "type": "text"
+                })
+
+            with open(postman_file, 'w') as f:
+                json.dump(postman_collection, f, indent=2)
+
+            logger.info(f"💾 Saved API request for testing:")
+            logger.info(f"   Folder: tmp_api/{folder_name}/")
+            logger.info(f"   JSON Payload: {json_file}")
+            logger.info(f"   cURL Script: {curl_file}")
+            logger.info(f"   Postman Collection: {postman_file}")
+            logger.info(f"")
+            logger.info(f"   Quick test: bash {curl_file}")
+            logger.info(f"   Or import {postman_file} into Postman")
+
+        except Exception as e:
+            logger.warning(f"Failed to save request for testing: {e}")
+            # Don't fail the actual labeling if saving fails
+            pass
 
     async def generate_label(
         self,
@@ -126,8 +312,22 @@ class OpenAILabelingService:
             reverse=True
         )  # No limit here - show all tokens
 
-        # Filter out junk tokens (punctuation, artifacts, stopwords)
-        filtered_tokens = self._filter_junk_tokens(sorted_tokens)
+        # DEBUG: Log instance configuration
+        logger.info(f"🔧 OpenAILabelingService filter configuration:")
+        logger.info(f"   self.filter_stop_words = {self.filter_stop_words}")
+        logger.info(f"   self.filter_special = {self.filter_special}")
+        logger.info(f"   self.filter_fragments = {self.filter_fragments}")
+
+        # Filter out junk tokens based on user configuration
+        filtered_tokens = self._filter_junk_tokens(
+            sorted_tokens,
+            filter_special=self.filter_special,
+            filter_single_char=self.filter_single_char,
+            filter_punctuation=self.filter_punctuation,
+            filter_numbers=self.filter_numbers,
+            filter_fragments=self.filter_fragments,
+            filter_stop_words=self.filter_stop_words
+        )
 
         if not filtered_tokens:
             logger.warning(f"All tokens filtered as junk for neuron {neuron_index}, using fallback label")
@@ -145,6 +345,24 @@ class OpenAILabelingService:
             # Prepare system message (use custom or default)
             system_message = self.system_message or "You are an expert in mechanistic interpretability analyzing sparse autoencoder features. Provide both category and specific labels in JSON format."
 
+            # Prepare request payload
+            request_payload = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_message
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "top_p": self.top_p
+            }
+
             # Log API call details for debugging
             logger.info(f"🔍 OpenAI API Call Debug Info:")
             logger.info(f"  - Base URL: {self.client.base_url}")
@@ -155,6 +373,10 @@ class OpenAILabelingService:
             logger.info(f"  - Prompt length: {len(prompt)} chars")
             logger.info(f"\n📝 SYSTEM MESSAGE:\n{system_message}")
             logger.info(f"\n📝 USER PROMPT:\n{prompt}")
+
+            # Save request to file for Postman/cURL testing (if enabled)
+            if self.save_requests_for_testing:
+                self._save_request_for_testing(request_payload, neuron_index)
 
             # Call OpenAI API (new v1+ syntax)
             response = await self.client.chat.completions.create(
@@ -278,19 +500,30 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         Build analysis prompt using custom template.
 
         Substitutes {tokens_table} placeholder with formatted token data.
+        NOTE: Tokens are already filtered by the caller, no need to filter again.
 
         Args:
-            sorted_tokens: List of (token, stats_dict) tuples sorted by activation
+            sorted_tokens: List of (token, stats_dict) tuples sorted by activation (already filtered)
             neuron_index: Optional neuron index for context
 
         Returns:
             Formatted prompt string from template
         """
-        # Build token frequency table (showing all unique tokens sorted by frequency)
+        # Build token frequency table with the already-filtered tokens
         tokens_table = ""
-        for token, stats in sorted_tokens:  # Show ALL tokens
-            token_display = repr(token)[:40].ljust(42)  # Longer display for readability
-            tokens_table += f"{token_display} → {stats['count']} times\n"
+        for token, stats in sorted_tokens:  # Use sorted_tokens directly (already filtered)
+            # Clean token for display (remove SentencePiece underscore prefix)
+            display_token = token.replace('▁', ' ').strip()
+            if not display_token:
+                display_token = token
+
+            # Format: 'token'                                    → count times
+            token_str = f"'{display_token}'"
+            padded_token = token_str.ljust(42)
+            tokens_table += f"{padded_token} → {stats['count']} {'time' if stats['count'] == 1 else 'times'}\n"
+
+        if not tokens_table:
+            tokens_table = "(No tokens found after filtering)"
 
         # Substitute placeholders in template
         prompt = self.user_prompt_template.replace("{tokens_table}", tokens_table)
@@ -413,27 +646,48 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
 
         return label
 
-    def _filter_junk_tokens(self, sorted_tokens: List[tuple]) -> List[tuple]:
+    def _filter_junk_tokens(
+        self,
+        sorted_tokens: List[tuple],
+        filter_special: bool = True,
+        filter_single_char: bool = True,
+        filter_punctuation: bool = True,
+        filter_numbers: bool = True,
+        filter_fragments: bool = True,
+        filter_stop_words: bool = False
+    ) -> List[tuple]:
         """
-        Filter out junk tokens (punctuation, artifacts, stopwords, digits).
+        Filter out junk tokens based on configuration flags.
 
-        Removes:
-        - Punctuation-only tokens
-        - Tokenization artifacts (##, Ġ, etc.)
-        - High-frequency stopwords (the, a, and, etc.)
-        - Single characters (except $ and %)
-        - Pure digit tokens (0-9, 10, 2023, etc.)
-        - Whitespace-only tokens
-        - Junk characters with no cognitive meaning
+        Each filter can be independently enabled/disabled:
+        - filter_special: Remove tokenization artifacts (##, Ġ, ▁, etc.)
+        - filter_single_char: Remove single character tokens (except $ and %)
+        - filter_punctuation: Remove punctuation-only tokens
+        - filter_numbers: Remove pure digit tokens (0-9, 10, 2023, etc.)
+        - filter_fragments: Remove word fragments (BPE subwords like 'tion', 'ing')
+        - filter_stop_words: Remove high-frequency stop words (the, a, and, etc.)
 
         Args:
             sorted_tokens: List of (token, stats_dict) tuples
+            filter_special: Remove tokenization artifacts
+            filter_single_char: Remove single character tokens
+            filter_punctuation: Remove punctuation-only tokens
+            filter_numbers: Remove pure digit tokens
+            filter_fragments: Remove word fragments (BPE subwords)
+            filter_stop_words: Remove common stop words
 
         Returns:
             Filtered list of (token, stats_dict) tuples
         """
         import re
         import string
+
+        # DEBUG: Log filter configuration
+        logger.info(f"🔍 _filter_junk_tokens called with:")
+        logger.info(f"   filter_stop_words={filter_stop_words}")
+        logger.info(f"   Total input tokens: {len(sorted_tokens)}")
+        if sorted_tokens:
+            logger.info(f"   First 5 tokens: {[token for token, _ in sorted_tokens[:5]]}")
 
         # Define stopwords (common function words with little semantic value)
         stopwords = {
@@ -477,45 +731,74 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             # Strip spaces for analysis
             token_stripped = token.strip()
 
-            # Skip empty or whitespace-only tokens
+            # Skip empty or whitespace-only tokens (always filter these)
             if not token_stripped or token_stripped.isspace():
                 continue
 
-            # Skip pure punctuation (but keep if mixed with other chars)
-            if all(c in punctuation_set or c.isspace() for c in token_stripped):
-                continue
+            # Apply filters based on configuration flags
+            skip_token = False
 
-            # Skip tokenization artifacts
-            # - WordPiece markers: ##word, word##
-            # - Special whitespace: Ġ (GPT-2 style), ▁ (SentencePiece alone)
-            # - BPE markers: </w>, <w>
-            if ('##' in token_stripped or
-                'Ġ' in token_stripped or
-                token_stripped == '▁' or  # SentencePiece marker alone
-                token_stripped.startswith(('</w>', '<w>')) or
-                token_stripped.endswith(('</w>', '<w>'))):
-                continue
+            # Filter 1: Pure punctuation
+            if filter_punctuation:
+                if all(c in punctuation_set or c.isspace() for c in token_stripped):
+                    skip_token = True
 
-            # Skip single characters (except meaningful ones like $ and %)
-            # Handle both regular tokens and SentencePiece tokens (▁X)
-            token_without_marker = token_stripped.lstrip().lstrip('▁')
-            if len(token_without_marker) == 1 and token_without_marker not in {'$', '%', '€', '£', '¥'}:
-                continue
+            # Filter 2: Tokenization artifacts (special tokens)
+            if filter_special and not skip_token:
+                # - WordPiece markers: ##word, word##
+                # - Special whitespace: Ġ (GPT-2 style), ▁ (SentencePiece alone)
+                # - BPE markers: </w>, <w>
+                if ('##' in token_stripped or
+                    'Ġ' in token_stripped or
+                    token_stripped == '▁' or  # SentencePiece marker alone
+                    token_stripped.startswith(('</w>', '<w>')) or
+                    token_stripped.endswith(('</w>', '<w>'))):
+                    skip_token = True
 
-            # Skip pure digit tokens (0, 1, 10, 2023, etc.)
-            # Remove leading space/SentencePiece marker and check if rest is all digits
-            token_no_marker = token_stripped.lstrip().lstrip('▁')
-            if token_no_marker.isdigit():
-                continue
+            # Filter 3: Single characters (except meaningful ones)
+            if filter_single_char and not skip_token:
+                # Handle both regular tokens and SentencePiece tokens (▁X)
+                token_without_marker = token_stripped.lstrip().lstrip('▁')
+                if len(token_without_marker) == 1 and token_without_marker not in {'$', '%', '€', '£', '¥'}:
+                    skip_token = True
 
-            # Skip stopwords (case-insensitive, removing leading space/SentencePiece marker)
-            # Handle both regular spaces and SentencePiece marker (▁)
-            token_lower = token_stripped.lstrip().lstrip('▁').lower()
-            if token_lower in stopwords:
-                continue
+            # Filter 4: Pure digit tokens
+            if filter_numbers and not skip_token:
+                # Remove leading space/SentencePiece marker and check if rest is all digits
+                token_no_marker = token_stripped.lstrip().lstrip('▁')
+                if token_no_marker.isdigit():
+                    skip_token = True
 
-            # Keep this token!
-            filtered.append((token, stats))
+            # Filter 5: Word fragments (BPE subwords)
+            if filter_fragments and not skip_token:
+                # Common BPE fragment patterns (subword pieces)
+                # These typically appear as: 'tion', 'ing', 'ed', 'ly', etc.
+                token_clean = token_stripped.lstrip().lstrip('▁').lower()
+                # Fragment patterns: starts/ends with common morphemes, or very short without vowels
+                fragment_patterns = {
+                    'tion', 'sion', 'ment', 'ness', 'less', 'ful', 'able', 'ible',
+                    'ing', 'ed', 'er', 'est', 'ly', 'al', 'ous', 'ive', 'ic'
+                }
+                if token_clean in fragment_patterns:
+                    skip_token = True
+
+            # Filter 6: Stop words (high-frequency function words)
+            if filter_stop_words and not skip_token:
+                # Case-insensitive, removing quotes, spaces, and SentencePiece markers
+                # Tokens can appear as: '" and"' or ' and' or '▁and' or 'and'
+                token_clean = token_stripped.strip().strip('"').strip("'").lstrip('▁').strip().lower()
+                if token_clean in stopwords:
+                    logger.info(f"   🚫 Filtering stop word: '{token}' (original: '{token}', cleaned: '{token_clean}')")
+                    skip_token = True
+
+            # Keep this token if it passed all enabled filters
+            if not skip_token:
+                filtered.append((token, stats))
+
+        # DEBUG: Log filtering results
+        logger.info(f"   ✅ Filtering complete: {len(filtered)} tokens kept, {len(sorted_tokens) - len(filtered)} filtered out")
+        if filtered:
+            logger.info(f"   First 5 filtered tokens: {[token for token, _ in filtered[:5]]}")
 
         return filtered
 

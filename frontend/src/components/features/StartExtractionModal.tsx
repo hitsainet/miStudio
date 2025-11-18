@@ -59,6 +59,15 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
+  // Token filtering configuration
+  const [filterSpecial, setFilterSpecial] = useState(true);
+  const [filterSingleChar, setFilterSingleChar] = useState(true);
+  const [filterPunctuation, setFilterPunctuation] = useState(true);
+  const [filterNumbers, setFilterNumbers] = useState(true);
+  const [filterFragments, setFilterFragments] = useState(true);
+  const [filterStopWords, setFilterStopWords] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+
   /**
    * Manually fetch Ollama models from the specified endpoint.
    */
@@ -96,6 +105,13 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         vectorization_batch_size: vectorizationBatchSize === 'auto' ? 'auto' : parseInt(vectorizationBatchSize),
         soft_time_limit: softTimeLimit * 3600, // Convert hours to seconds
         time_limit: hardTimeLimit * 3600, // Convert hours to seconds
+        // Token filtering configuration
+        filter_special: filterSpecial,
+        filter_single_char: filterSingleChar,
+        filter_punctuation: filterPunctuation,
+        filter_numbers: filterNumbers,
+        filter_fragments: filterFragments,
+        filter_stop_words: filterStopWords,
         ...resourceConfig,
       } as any);
 
@@ -190,6 +206,82 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
+                </div>
+
+                {/* Token Filtering Configuration */}
+                <div className="bg-slate-900 rounded-lg border border-slate-700 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="flex items-center justify-between w-full text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-300">Token Filtering</span>
+                      <span className="text-xs text-slate-500">
+                        ({[filterSpecial, filterSingleChar, filterPunctuation, filterNumbers, filterFragments, filterStopWords].filter(Boolean).length}/6 enabled)
+                      </span>
+                    </div>
+                    <span className="text-slate-400">{showFilters ? '▼' : '▶'}</span>
+                  </button>
+
+                  {showFilters && (
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterSpecial}
+                          onChange={(e) => setFilterSpecial(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                        />
+                        <span>Special tokens</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterSingleChar}
+                          onChange={(e) => setFilterSingleChar(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                        />
+                        <span>Single characters</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterPunctuation}
+                          onChange={(e) => setFilterPunctuation(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                        />
+                        <span>Punctuation</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterNumbers}
+                          onChange={(e) => setFilterNumbers(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                        />
+                        <span>Numbers</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterFragments}
+                          onChange={(e) => setFilterFragments(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                        />
+                        <span>Word fragments</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterStopWords}
+                          onChange={(e) => setFilterStopWords(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                        />
+                        <span>Stop words</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 {/* Labeling Configuration */}

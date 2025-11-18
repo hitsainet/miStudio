@@ -764,6 +764,64 @@ def emit_labeling_result(
     return emit_progress(channel, "result", feature_data)
 
 
+def emit_deletion_progress(
+    training_id: str,
+    task: str,
+    status: str = "completed",
+    message: Optional[str] = None,
+    count: Optional[int] = None,
+) -> bool:
+    """
+    Emit deletion progress update for a training operation.
+
+    This function emits real-time progress updates as different deletion
+    sub-tasks complete (checkpoints, metrics, features, files, etc.).
+
+    Args:
+        training_id: Training job ID being deleted
+        task: Deletion task identifier (e.g., "checkpoints", "metrics", "features", "files")
+        status: Task status ("in_progress" or "completed")
+        message: Optional human-readable status message
+        count: Optional count of items deleted (e.g., number of features)
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Examples:
+        >>> # Mark task as in progress
+        >>> emit_deletion_progress(
+        ...     training_id="train_abc123",
+        ...     task="features",
+        ...     status="in_progress",
+        ...     message="Deleting features..."
+        ... )
+        True
+
+        >>> # Mark task as completed
+        >>> emit_deletion_progress(
+        ...     training_id="train_abc123",
+        ...     task="features",
+        ...     status="completed",
+        ...     message="Deleted 23,308 features",
+        ...     count=23308
+        ... )
+        True
+    """
+    channel = f"trainings/{training_id}/deletion"
+    data = {
+        "training_id": training_id,
+        "task": task,
+        "status": status,
+    }
+
+    if message:
+        data["message"] = message
+    if count is not None:
+        data["count"] = count
+
+    return emit_progress(channel, "task_update", data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -773,6 +831,7 @@ __all__ = [
     "emit_extraction_failed",
     "emit_training_progress",
     "emit_checkpoint_created",
+    "emit_deletion_progress",
     # System monitoring functions
     "emit_system_metrics",
     "emit_gpu_metrics",

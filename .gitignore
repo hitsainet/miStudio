@@ -119,6 +119,9 @@ tmp/
 temp/
 *.tmp
 
+# API request testing files
+/tmp_api/
+
 # OS
 .DS_Store
 Thumbs.db

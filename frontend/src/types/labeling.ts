@@ -74,6 +74,27 @@ export interface LabelingConfigRequest {
   /** Prompt template ID to use for labeling (optional, uses default if not specified) */
   prompt_template_id?: string;
 
+  /** Filter special tokens (<s>, </s>, etc.) from token analysis (default: true) */
+  filter_special?: boolean;
+
+  /** Filter single character tokens from token analysis (default: true) */
+  filter_single_char?: boolean;
+
+  /** Filter pure punctuation tokens from token analysis (default: true) */
+  filter_punctuation?: boolean;
+
+  /** Filter pure numeric tokens from token analysis (default: true) */
+  filter_numbers?: boolean;
+
+  /** Filter word fragments (BPE subwords) from token analysis (default: true) */
+  filter_fragments?: boolean;
+
+  /** Filter common stop words from token analysis (default: false) */
+  filter_stop_words?: boolean;
+
+  /** Save API requests to /tmp/ for testing and debugging (default: false) */
+  save_requests_for_testing?: boolean;
+
   /** Batch size for labeling (1-100, default: 10) */
   batch_size?: number;
 }
@@ -101,6 +122,28 @@ export interface LabelingJob {
 
   /** Prompt template ID used (if applicable) */
   prompt_template_id?: string | null;
+
+  // Token filtering configuration
+  /** Filter special tokens */
+  filter_special: boolean;
+
+  /** Filter single character tokens */
+  filter_single_char: boolean;
+
+  /** Filter pure punctuation */
+  filter_punctuation: boolean;
+
+  /** Filter pure numeric tokens */
+  filter_numbers: boolean;
+
+  /** Filter word fragments */
+  filter_fragments: boolean;
+
+  /** Filter common stop words */
+  filter_stop_words: boolean;
+
+  /** Save API requests for testing */
+  save_requests_for_testing: boolean;
 
   // Status and progress
   /** Current labeling status */

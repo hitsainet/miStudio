@@ -49,8 +49,8 @@ class LabelingPromptTemplateCreate(BaseModel):
     max_tokens: int = Field(
         default=50,
         ge=10,
-        le=500,
-        description="Maximum tokens in response (10-500)"
+        le=1000,
+        description="Maximum tokens in response (10-1000)"
     )
     top_p: float = Field(
         default=0.9,
@@ -119,8 +119,8 @@ class LabelingPromptTemplateUpdate(BaseModel):
     max_tokens: Optional[int] = Field(
         default=None,
         ge=10,
-        le=500,
-        description="Updated max tokens (10-500)"
+        le=1000,
+        description="Updated max tokens (10-1000)"
     )
     top_p: Optional[float] = Field(
         default=None,

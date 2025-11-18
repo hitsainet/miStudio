@@ -32,6 +32,7 @@ import type {
   FeatureDetail,
   FeatureUpdateRequest,
   FeatureActivationExample,
+  TokenAnalysisResponse,
 } from '../types/features';
 
 /**
@@ -73,6 +74,9 @@ interface FeaturesStoreState {
   // Max-activating examples for selected feature
   featureExamples: FeatureActivationExample[];
 
+  // Token analysis for selected feature
+  featureTokenAnalysis: TokenAnalysisResponse | null;
+
   // Search filters
   searchFilters: Record<string, FeatureSearchRequest>;
 
@@ -82,6 +86,7 @@ interface FeaturesStoreState {
   isLoadingFeatures: boolean;
   isLoadingFeatureDetail: boolean;
   isLoadingExamples: boolean;
+  isLoadingTokenAnalysis: boolean;
 
   // Error states
   extractionError: string | null;
@@ -99,6 +104,7 @@ interface FeaturesStoreState {
   fetchExtractionFeatures: (extractionId: string, filters?: FeatureSearchRequest) => Promise<void>;
   fetchFeatureDetail: (featureId: string) => Promise<void>;
   fetchFeatureExamples: (featureId: string, limit?: number) => Promise<void>;
+  fetchFeatureTokenAnalysis: (featureId: string, applyFilters?: boolean) => Promise<void>;
   updateFeature: (featureId: string, updates: FeatureUpdateRequest) => Promise<void>;
   toggleFavorite: (featureId: string, isFavorite: boolean) => Promise<void>;
   setSearchFilters: (trainingId: string, filters: FeatureSearchRequest) => void;
@@ -123,12 +129,14 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
   featureListMetadata: {},
   selectedFeature: null,
   featureExamples: [],
+  featureTokenAnalysis: null,
   searchFilters: {},
   isLoadingExtraction: false,
   isLoadingExtractions: false,
   isLoadingFeatures: false,
   isLoadingFeatureDetail: false,
   isLoadingExamples: false,
+  isLoadingTokenAnalysis: false,
   extractionError: null,
   extractionsError: null,
   featuresError: null,
@@ -391,6 +399,49 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
       });
     } catch (error: any) {
       set({ isLoadingExamples: false });
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch token analysis for a feature.
+   */
+  fetchFeatureTokenAnalysis: async (
+    featureId: string,
+    filters?: {
+      applyFilters?: boolean;
+      filterSpecial?: boolean;
+      filterSingleChar?: boolean;
+      filterPunctuation?: boolean;
+      filterNumbers?: boolean;
+      filterFragments?: boolean;
+      filterStopWords?: boolean;
+    }
+  ) => {
+    set({ isLoadingTokenAnalysis: true });
+
+    try {
+      const params = {
+        apply_filters: filters?.applyFilters ?? true,
+        filter_special: filters?.filterSpecial ?? true,
+        filter_single_char: filters?.filterSingleChar ?? true,
+        filter_punctuation: filters?.filterPunctuation ?? true,
+        filter_numbers: filters?.filterNumbers ?? true,
+        filter_fragments: filters?.filterFragments ?? true,
+        filter_stop_words: filters?.filterStopWords ?? false,
+      };
+
+      const response = await axios.get<TokenAnalysisResponse>(
+        `/api/v1/features/${featureId}/token-analysis`,
+        { params }
+      );
+
+      set({
+        featureTokenAnalysis: response.data,
+        isLoadingTokenAnalysis: false,
+      });
+    } catch (error: any) {
+      set({ isLoadingTokenAnalysis: false });
       throw error;
     }
   },

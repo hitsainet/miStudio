@@ -515,6 +515,77 @@ async def get_feature_examples(
 
 
 @router.get(
+    "/features/{feature_id}/token-analysis",
+    summary="Get token analysis for feature"
+)
+async def get_token_analysis(
+    feature_id: str,
+    apply_filters: bool = Query(True, description="Master switch for all filtering"),
+    filter_special: bool = Query(True, description="Filter special tokens (<s>, </s>, etc.)"),
+    filter_single_char: bool = Query(True, description="Filter single character tokens"),
+    filter_punctuation: bool = Query(True, description="Filter pure punctuation"),
+    filter_numbers: bool = Query(True, description="Filter pure numeric tokens"),
+    filter_fragments: bool = Query(True, description="Filter word fragments (BPE subwords)"),
+    filter_stop_words: bool = Query(False, description="Filter common stop words (the, and, is, etc.)"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get token analysis for a feature's activation examples with granular filter control.
+
+    Analyzes all tokens from the feature's max-activating examples,
+    applies filtering to remove junk tokens based on selected categories,
+    and returns statistics and a ranked token list.
+
+    Args:
+        feature_id: ID of the feature
+        apply_filters: Master switch for all filtering (default: True)
+        filter_special: Filter special tokens (<s>, </s>, <pad>, <unk>, etc.)
+        filter_single_char: Filter single character tokens
+        filter_punctuation: Filter pure punctuation tokens
+        filter_numbers: Filter pure numeric tokens
+        filter_fragments: Filter word fragments (BPE subwords like "tion", "ing")
+        filter_stop_words: Filter common stop words (a, the, and, is, it, etc.)
+
+    Returns:
+        Dictionary with:
+        - summary: Statistics (total_examples, original_token_count, filtered_token_count,
+                  junk_removed, total_token_occurrences, filtered_token_occurrences,
+                  diversity_percent, filter_stats per category)
+        - tokens: List of tokens with rank, token, count, and percentage
+
+    Raises:
+        404: Feature not found
+
+    Example:
+        # Filter everything except stop words
+        GET /features/feat_123/token-analysis?filter_stop_words=false
+
+        # Only filter special tokens and punctuation
+        GET /features/feat_123/token-analysis?filter_single_char=false&filter_numbers=false&filter_fragments=false
+    """
+    feature_service = FeatureService(db)
+
+    analysis = await feature_service.get_feature_token_analysis(
+        feature_id,
+        apply_filters=apply_filters,
+        filter_special=filter_special,
+        filter_single_char=filter_single_char,
+        filter_punctuation=filter_punctuation,
+        filter_numbers=filter_numbers,
+        filter_fragments=filter_fragments,
+        filter_stop_words=filter_stop_words
+    )
+
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Feature {feature_id} not found"
+        )
+
+    return analysis
+
+
+@router.get(
     "/features/{feature_id}/logit-lens",
     response_model=LogitLensResponse,
     summary="Get logit lens analysis"

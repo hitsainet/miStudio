@@ -1174,7 +1174,7 @@ def delete_training_files(training_id: str, training_dir: Optional[str] = None) 
     Delete training files from disk after database deletion.
 
     This task runs in the background to clean up training files without
-    blocking the API response.
+    blocking the API response. Emits WebSocket progress updates.
 
     Args:
         training_id: Training job ID
@@ -1185,6 +1185,7 @@ def delete_training_files(training_id: str, training_dir: Optional[str] = None) 
     """
     import shutil
     from pathlib import Path
+    from .websocket_emitter import emit_deletion_progress
 
     logger.info(f"Starting file cleanup for training: {training_id}")
     deleted_files = []
@@ -1197,16 +1198,23 @@ def delete_training_files(training_id: str, training_dir: Optional[str] = None) 
                 shutil.rmtree(training_dir)
                 deleted_files.append(training_dir)
                 logger.info(f"Deleted training directory: {training_dir}")
+                # Emit success
+                emit_deletion_progress(training_id, "files", "completed", "Deleted training files")
             except Exception as e:
                 error_msg = f"Failed to delete training directory {training_dir}: {str(e)}"
                 logger.error(error_msg)
                 errors.append(error_msg)
+                # Emit error
+                emit_deletion_progress(training_id, "files", "completed", f"Error deleting files: {str(e)}")
         elif training_dir:
             logger.warning(f"Training directory does not exist: {training_dir}")
+            # Still emit completion since there's nothing to delete
+            emit_deletion_progress(training_id, "files", "completed", "No files to delete")
         else:
             error_msg = "No training directory path provided"
             logger.error(error_msg)
             errors.append(error_msg)
+            emit_deletion_progress(training_id, "files", "completed", "No directory path provided")
 
         result = {
             "training_id": training_id,
@@ -1225,6 +1233,7 @@ def delete_training_files(training_id: str, training_dir: Optional[str] = None) 
         error_msg = f"Failed to delete files for training {training_id}: {str(e)}"
         logger.error(error_msg)
         errors.append(error_msg)
+        emit_deletion_progress(training_id, "files", "completed", f"Error: {str(e)}")
 
         return {
             "training_id": training_id,

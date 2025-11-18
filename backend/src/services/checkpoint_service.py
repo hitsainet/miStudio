@@ -5,6 +5,7 @@ This module contains the CheckpointService class which handles
 checkpoint saving, loading, and management operations.
 """
 
+import logging
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 from pathlib import Path
@@ -17,6 +18,9 @@ import torch
 
 from ..models.checkpoint import Checkpoint
 from ..ml.sparse_autoencoder import SparseAutoencoder, SkipAutoencoder, Transcoder
+
+
+logger = logging.getLogger(__name__)
 
 
 class CheckpointService:
@@ -234,24 +238,61 @@ class CheckpointService:
         delete_file: bool = True
     ) -> bool:
         """
-        Delete a checkpoint record and optionally its file.
+        Delete a checkpoint record and optionally its file and parent directories.
+
+        For multi-layer checkpoints, this will:
+        1. Delete the checkpoint file (e.g., checkpoint.safetensors)
+        2. Delete the layer directory if empty (e.g., layer_7/)
+        3. Delete the checkpoint step directory if empty (e.g., checkpoint_498000/)
 
         Args:
             db: Database session
             checkpoint_id: Checkpoint ID
-            delete_file: Whether to delete the checkpoint file
+            delete_file: Whether to delete the checkpoint file and empty directories
 
         Returns:
             True if deleted, False if not found
+
+        Example structure:
+            checkpoints/
+            └── checkpoint_498000/         # Checkpoint step directory
+                ├── layer_7/               # Layer directory
+                │   └── checkpoint.safetensors  # Checkpoint file
+                ├── layer_14/
+                │   └── checkpoint.safetensors
+                └── layer_18/
+                    └── checkpoint.safetensors
         """
         db_checkpoint = await CheckpointService.get_checkpoint(db, checkpoint_id)
         if not db_checkpoint:
             return False
 
-        # Delete file if requested and exists
+        # Delete file and parent directories if requested
         if delete_file and os.path.exists(db_checkpoint.storage_path):
-            os.remove(db_checkpoint.storage_path)
+            storage_path = Path(db_checkpoint.storage_path)
 
+            try:
+                # Step 1: Delete the checkpoint file
+                storage_path.unlink()
+                logger.info(f"Deleted checkpoint file: {storage_path}")
+
+                # Step 2: Delete layer directory if empty (e.g., layer_7/)
+                layer_dir = storage_path.parent
+                if layer_dir.exists() and not any(layer_dir.iterdir()):
+                    layer_dir.rmdir()
+                    logger.info(f"Deleted empty layer directory: {layer_dir}")
+
+                    # Step 3: Delete checkpoint step directory if empty (e.g., checkpoint_498000/)
+                    checkpoint_dir = layer_dir.parent
+                    if checkpoint_dir.exists() and not any(checkpoint_dir.iterdir()):
+                        checkpoint_dir.rmdir()
+                        logger.info(f"Deleted empty checkpoint directory: {checkpoint_dir}")
+
+            except OSError as e:
+                logger.warning(f"Error deleting checkpoint files/directories: {e}")
+                # Continue with database deletion even if file deletion fails
+
+        # Delete database record
         await db.delete(db_checkpoint)
         await db.commit()
 

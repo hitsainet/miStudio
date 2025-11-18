@@ -58,6 +58,38 @@ class LabelingConfigRequest(BaseModel):
         description="ID of the labeling prompt template to use. If not specified, uses the default template."
     )
 
+    # Token filtering configuration
+    filter_special: bool = Field(
+        default=True,
+        description="Filter special tokens (<s>, </s>, etc.) from token analysis"
+    )
+    filter_single_char: bool = Field(
+        default=True,
+        description="Filter single character tokens from token analysis"
+    )
+    filter_punctuation: bool = Field(
+        default=True,
+        description="Filter pure punctuation tokens from token analysis"
+    )
+    filter_numbers: bool = Field(
+        default=True,
+        description="Filter pure numeric tokens from token analysis"
+    )
+    filter_fragments: bool = Field(
+        default=True,
+        description="Filter word fragments (BPE subwords like 'tion', 'ing') from token analysis"
+    )
+    filter_stop_words: bool = Field(
+        default=False,
+        description="Filter common stop words (the, and, is, etc.) from token analysis"
+    )
+
+    # Debugging configuration
+    save_requests_for_testing: bool = Field(
+        default=False,
+        description="Save API requests to /tmp/ for testing and debugging in Postman/cURL"
+    )
+
     # Optional resource configuration
     batch_size: Optional[int] = Field(
         default=10,
@@ -97,6 +129,13 @@ class LabelingStatusResponse(BaseModel):
     openai_model: Optional[str] = None
     local_model: Optional[str] = None
     prompt_template_id: Optional[str] = None
+    filter_special: bool = True
+    filter_single_char: bool = True
+    filter_punctuation: bool = True
+    filter_numbers: bool = True
+    filter_fragments: bool = True
+    filter_stop_words: bool = False
+    save_requests_for_testing: bool = False
     status: str
     progress: float
     features_labeled: int

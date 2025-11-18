@@ -49,9 +49,14 @@ class ExtractionJob(Base):
     config = Column(JSONB, nullable=False)
     # Contains: {evaluation_samples: int, top_k_examples: int}
 
-    # Token filtering configuration (per-job)
-    extraction_filter_enabled = Column(Boolean, nullable=False, default=False, server_default='false')
-    extraction_filter_mode = Column(String(20), nullable=False, default='standard', server_default='standard')
+    # Token filtering configuration (per-job) - matches labeling filter structure
+    # These filters control which tokens are stored in FeatureActivation records during extraction
+    filter_special = Column(Boolean, nullable=False, default=True, server_default='true')  # Filter special tokens (<s>, </s>, etc.)
+    filter_single_char = Column(Boolean, nullable=False, default=True, server_default='true')  # Filter single character tokens
+    filter_punctuation = Column(Boolean, nullable=False, default=True, server_default='true')  # Filter pure punctuation
+    filter_numbers = Column(Boolean, nullable=False, default=True, server_default='true')  # Filter pure numeric tokens
+    filter_fragments = Column(Boolean, nullable=False, default=True, server_default='true')  # Filter word fragments (BPE subwords)
+    filter_stop_words = Column(Boolean, nullable=False, default=False, server_default='false')  # Filter common stop words
 
     # Processing status
     status = Column(

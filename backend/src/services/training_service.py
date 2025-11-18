@@ -251,11 +251,13 @@ class TrainingService:
         training_id: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Delete a training job from database and return file paths for background cleanup.
+        Delete a training job from database with progress tracking and return file paths for background cleanup.
 
         This method:
-        1. Deletes the database record
-        2. Returns training directory path for the caller to queue background deletion
+        1. Manually deletes related records (extraction jobs, checkpoints, metrics, features)
+        2. Emits WebSocket progress after each deletion step
+        3. Deletes the training database record
+        4. Returns training directory path for the caller to queue background deletion
 
         Args:
             db: Database session
@@ -264,6 +266,13 @@ class TrainingService:
         Returns:
             Dictionary with deletion info, or None if not found
         """
+        from sqlalchemy import text
+        from ..workers.websocket_emitter import emit_deletion_progress
+        from ..models.extraction_job import ExtractionJob
+        from ..models.checkpoint import Checkpoint
+        from pathlib import Path
+        from ..core.config import settings
+
         db_training = await TrainingService.get_training(db, training_id)
         if not db_training:
             return None
@@ -271,9 +280,6 @@ class TrainingService:
         # Capture training directory path before deletion
         # Training directory structure: /data/trainings/{training_id}/
         # checkpoint_dir is: /data/trainings/{training_id}/checkpoints/
-        from pathlib import Path
-        from ..core.config import settings
-
         if db_training.checkpoint_dir:
             # Extract training dir from checkpoint_dir
             training_dir = str(Path(db_training.checkpoint_dir).parent)
@@ -281,9 +287,65 @@ class TrainingService:
             # Construct training dir if checkpoint_dir was never set
             training_dir = str(settings.data_dir / "trainings" / training_id)
 
-        # Delete database record
+        # Manual deletion with progress tracking
+        # Step 1: Delete extraction jobs
+        extraction_count_result = await db.execute(
+            select(func.count()).select_from(ExtractionJob).where(ExtractionJob.training_id == training_id)
+        )
+        extraction_count = extraction_count_result.scalar() or 0
+        if extraction_count > 0:
+            await db.execute(
+                text("DELETE FROM extraction_jobs WHERE training_id = :training_id"),
+                {"training_id": training_id}
+            )
+            await db.commit()
+            emit_deletion_progress(training_id, "extractions", "completed", f"Deleted {extraction_count} extraction job(s)", extraction_count)
+
+        # Step 2: Delete checkpoints
+        checkpoint_count_result = await db.execute(
+            select(func.count()).select_from(Checkpoint).where(Checkpoint.training_id == training_id)
+        )
+        checkpoint_count = checkpoint_count_result.scalar() or 0
+        if checkpoint_count > 0:
+            await db.execute(
+                text("DELETE FROM checkpoints WHERE training_id = :training_id"),
+                {"training_id": training_id}
+            )
+            await db.commit()
+            emit_deletion_progress(training_id, "checkpoints", "completed", f"Deleted {checkpoint_count} checkpoint(s)", checkpoint_count)
+
+        # Step 3: Delete training metrics
+        metrics_count_result = await db.execute(
+            select(func.count()).select_from(TrainingMetric).where(TrainingMetric.training_id == training_id)
+        )
+        metrics_count = metrics_count_result.scalar() or 0
+        if metrics_count > 0:
+            await db.execute(
+                text("DELETE FROM training_metrics WHERE training_id = :training_id"),
+                {"training_id": training_id}
+            )
+            await db.commit()
+            emit_deletion_progress(training_id, "metrics", "completed", f"Deleted {metrics_count} training metric(s)", metrics_count)
+
+        # Step 4: Delete features (cascades to activations and analysis cache)
+        from ..models.feature import Feature
+        feature_count_result = await db.execute(
+            select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
+        )
+        feature_count = feature_count_result.scalar() or 0
+        if feature_count > 0:
+            # This will cascade delete feature_activations and feature_analysis_cache
+            await db.execute(
+                text("DELETE FROM features WHERE training_id = :training_id"),
+                {"training_id": training_id}
+            )
+            await db.commit()
+            emit_deletion_progress(training_id, "features", "completed", f"Deleted {feature_count} feature(s)", feature_count)
+
+        # Step 5: Delete training database record
         await db.delete(db_training)
         await db.commit()
+        emit_deletion_progress(training_id, "database", "completed", "Removed training record")
 
         return {
             "deleted": True,

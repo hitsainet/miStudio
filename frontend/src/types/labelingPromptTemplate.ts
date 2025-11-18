@@ -21,7 +21,7 @@ export interface LabelingPromptTemplate {
   user_prompt_template: string;
   /** Temperature for LLM generation (0.0-2.0) */
   temperature: number;
-  /** Maximum tokens for LLM response (10-500) */
+  /** Maximum tokens for LLM response (10-1000) */
   max_tokens: number;
   /** Top-p sampling parameter (0.0-1.0) */
   top_p: number;
@@ -54,7 +54,7 @@ export interface LabelingPromptTemplateCreate {
   user_prompt_template: string;
   /** Temperature for LLM generation (0.0-2.0, default: 0.3) */
   temperature?: number;
-  /** Maximum tokens for LLM response (10-500, default: 50) */
+  /** Maximum tokens for LLM response (10-1000, default: 50) */
   max_tokens?: number;
   /** Top-p sampling parameter (0.0-1.0, default: 0.9) */
   top_p?: number;
@@ -186,7 +186,7 @@ export const LabelingPromptTemplateConstraints = {
   },
   max_tokens: {
     min: 10,
-    max: 500,
+    max: 1000,
   },
   top_p: {
     min: 0.0,

@@ -13,8 +13,8 @@
  * eliminating redundancy and providing a consistent user experience.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown } from 'lucide-react';
 import type { ExtractionStatusResponse, FeatureSearchRequest } from '../../types/features';
 import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
@@ -47,6 +47,11 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const [searchDebounceTimer, setSearchDebounceTimer] = useState<number | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
 
+  // Sort state (client-side sorting)
+  type SortColumn = 'id' | 'label' | 'category' | 'description' | 'activation_frequency' | 'interpretability_score' | 'is_favorite';
+  const [sortColumn, setSortColumn] = useState<SortColumn>('id');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
   // Get features store methods and state
   const {
     featuresByExtraction,
@@ -66,8 +71,105 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const metadata = featureListMetadata[extraction.id];
   const filters = searchFilters[extraction.id] || { sort_by: 'feature_id', sort_order: 'asc', limit: 50, offset: 0 };
 
+  // Client-side sorting logic
+  const sortedFeatures = useMemo(() => {
+    if (features.length === 0) return [];
+
+    const sorted = [...features].sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+
+      switch (sortColumn) {
+        case 'id':
+          aVal = a.neuron_index;
+          bVal = b.neuron_index;
+          break;
+        case 'label':
+          aVal = (a.name || '').toLowerCase();
+          bVal = (b.name || '').toLowerCase();
+          break;
+        case 'category':
+          aVal = (a.category || '').toLowerCase();
+          bVal = (b.category || '').toLowerCase();
+          break;
+        case 'description':
+          aVal = (a.description || '').toLowerCase();
+          bVal = (b.description || '').toLowerCase();
+          break;
+        case 'activation_frequency':
+          aVal = a.activation_frequency;
+          bVal = b.activation_frequency;
+          break;
+        case 'interpretability_score':
+          aVal = a.interpretability_score;
+          bVal = b.interpretability_score;
+          break;
+        case 'is_favorite':
+          // Favorites first (true > false), then by neuron_index
+          if (a.is_favorite === b.is_favorite) {
+            return a.neuron_index - b.neuron_index;
+          }
+          aVal = a.is_favorite ? 1 : 0;
+          bVal = b.is_favorite ? 1 : 0;
+          break;
+        default:
+          return 0;
+      }
+
+      // Compare values
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      } else {
+        // String comparison
+        if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      }
+    });
+
+    return sorted;
+  }, [features, sortColumn, sortOrder]);
+
+  // Handle sort column click
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      // Toggle sort order
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortOrder('asc');
+    }
+  };
+
   // Find the associated training job
   const training = trainings.find((t) => t.id === extraction.training_id);
+
+  // Sortable Column Header Component
+  const SortableColumnHeader: React.FC<{ column: SortColumn; label: string; className?: string }> = ({
+    column,
+    label,
+    className = '',
+  }) => {
+    const isActive = sortColumn === column;
+    const Icon = isActive ? (sortOrder === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+    return (
+      <th
+        className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase cursor-pointer hover:bg-slate-800/30 transition-colors ${className}`}
+        onClick={() => handleSort(column)}
+      >
+        <div className="flex items-center gap-2">
+          <span>{label}</span>
+          <Icon
+            className={`w-3 h-3 ${
+              isActive ? 'text-emerald-400' : 'text-slate-600'
+            } transition-colors`}
+          />
+        </div>
+      </th>
+    );
+  };
 
   // Load features when expanded and completed
   useEffect(() => {
@@ -110,29 +212,6 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
     setSearchDebounceTimer(timer);
   };
 
-  /**
-   * Handle sort change.
-   */
-  const handleSortChange = (sortBy: 'activation_freq' | 'interpretability' | 'feature_id') => {
-    const newFilters: FeatureSearchRequest = {
-      ...filters,
-      sort_by: sortBy,
-    };
-    setSearchFilters(extraction.id, newFilters);
-    fetchExtractionFeatures(extraction.id, newFilters);
-  };
-
-  /**
-   * Handle sort order toggle.
-   */
-  const handleSortOrderToggle = () => {
-    const newFilters: FeatureSearchRequest = {
-      ...filters,
-      sort_order: filters.sort_order === 'desc' ? 'asc' : 'desc',
-    };
-    setSearchFilters(extraction.id, newFilters);
-    fetchExtractionFeatures(extraction.id, newFilters);
-  };
 
   /**
    * Handle favorite filter toggle.
@@ -490,28 +569,6 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               />
             </div>
 
-            {/* Sort Dropdown */}
-            <select
-              value={filters.sort_by || 'activation_freq'}
-              onChange={(e) => handleSortChange(e.target.value as any)}
-              className={`px-3 py-2 bg-slate-100 dark:bg-slate-800 border ${COMPONENTS.border.default} rounded ${COMPONENTS.text.primary} focus:outline-none focus:border-emerald-600 dark:focus:border-emerald-400`}
-            >
-              <option value="activation_freq">Activation Freq</option>
-              <option value="interpretability">Interpretability</option>
-              <option value="feature_id">Feature ID</option>
-            </select>
-
-            {/* Sort Order Toggle */}
-            <button
-              onClick={handleSortOrderToggle}
-              className={`border border-slate-700 ${COMPONENTS.button.secondary}`}
-              title={filters.sort_order === 'desc' ? 'Descending' : 'Ascending'}
-            >
-              <ArrowUpDown
-                className={`w-4 h-4 transition-transform ${filters.sort_order === 'asc' ? 'rotate-180' : ''}`}
-              />
-            </button>
-
             {/* Favorites Filter */}
             <button
               onClick={handleFavoriteFilterToggle}
@@ -613,14 +670,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               <table className="w-full">
                 <thead className={COMPONENTS.surface.card}>
                   <tr>
-                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>ID</th>
-                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Label</th>
-                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Category</th>
-                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Description</th>
+                    <SortableColumnHeader column="id" label="ID" />
+                    <SortableColumnHeader column="label" label="Label" />
+                    <SortableColumnHeader column="category" label="Category" />
+                    <SortableColumnHeader column="description" label="Description" />
                     <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Example Context</th>
-                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Activation Freq</th>
-                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Interpretability</th>
-                    <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Actions</th>
+                    <SortableColumnHeader column="activation_frequency" label="Activation Freq" />
+                    <SortableColumnHeader column="interpretability_score" label="Interpretability" />
+                    <SortableColumnHeader column="is_favorite" label="Tag" />
                   </tr>
                 </thead>
                 <tbody>
@@ -637,7 +694,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    features.map((feature) => (
+                    sortedFeatures.map((feature) => (
                       <tr
                         key={feature.id}
                         onClick={() => setSelectedFeatureId(feature.id)}
@@ -840,16 +897,56 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
               {/* Token Filtering Configuration */}
               <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Token Filtering</div>
-              <div className="col-span-2">
-                Filter Enabled: <span className={`${COMPONENTS.text.primary} font-medium ${extraction.extraction_filter_enabled ? 'text-emerald-400' : 'text-slate-500'}`}>
-                  {extraction.extraction_filter_enabled ? 'Yes' : 'No'}
-                </span>
-              </div>
-              {extraction.extraction_filter_enabled && (
-                <div>
-                  Filter Mode: <span className={`${COMPONENTS.text.primary} capitalize`}>{extraction.extraction_filter_mode || 'standard'}</span>
+              <div className="col-span-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className={extraction.filter_special !== false ? 'text-emerald-400' : 'text-slate-500'}>
+                    {extraction.filter_special !== false ? '✓' : '○'}
+                  </span>
+                  <span className={extraction.filter_special !== false ? 'text-slate-300' : 'text-slate-500'}>
+                    Special tokens
+                  </span>
                 </div>
-              )}
+                <div className="flex items-center gap-1.5">
+                  <span className={extraction.filter_single_char !== false ? 'text-emerald-400' : 'text-slate-500'}>
+                    {extraction.filter_single_char !== false ? '✓' : '○'}
+                  </span>
+                  <span className={extraction.filter_single_char !== false ? 'text-slate-300' : 'text-slate-500'}>
+                    Single characters
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={extraction.filter_punctuation !== false ? 'text-emerald-400' : 'text-slate-500'}>
+                    {extraction.filter_punctuation !== false ? '✓' : '○'}
+                  </span>
+                  <span className={extraction.filter_punctuation !== false ? 'text-slate-300' : 'text-slate-500'}>
+                    Punctuation
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={extraction.filter_numbers !== false ? 'text-emerald-400' : 'text-slate-500'}>
+                    {extraction.filter_numbers !== false ? '✓' : '○'}
+                  </span>
+                  <span className={extraction.filter_numbers !== false ? 'text-slate-300' : 'text-slate-500'}>
+                    Numbers
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={extraction.filter_fragments !== false ? 'text-emerald-400' : 'text-slate-500'}>
+                    {extraction.filter_fragments !== false ? '✓' : '○'}
+                  </span>
+                  <span className={extraction.filter_fragments !== false ? 'text-slate-300' : 'text-slate-500'}>
+                    Word fragments
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={extraction.filter_stop_words === true ? 'text-emerald-400' : 'text-slate-500'}>
+                    {extraction.filter_stop_words === true ? '✓' : '○'}
+                  </span>
+                  <span className={extraction.filter_stop_words === true ? 'text-slate-300' : 'text-slate-500'}>
+                    Stop words
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </details>

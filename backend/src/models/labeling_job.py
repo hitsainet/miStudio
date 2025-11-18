@@ -8,7 +8,7 @@ Labeling jobs apply semantic labels to features extracted from SAE models.
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -67,6 +67,17 @@ class LabelingJob(Base):
         nullable=True,
         index=True
     )
+
+    # Token filtering configuration
+    filter_special = Column(Boolean, nullable=False, default=True)  # Filter special tokens (<s>, </s>, etc.)
+    filter_single_char = Column(Boolean, nullable=False, default=True)  # Filter single character tokens
+    filter_punctuation = Column(Boolean, nullable=False, default=True)  # Filter pure punctuation
+    filter_numbers = Column(Boolean, nullable=False, default=True)  # Filter pure numeric tokens
+    filter_fragments = Column(Boolean, nullable=False, default=True)  # Filter word fragments (BPE subwords)
+    filter_stop_words = Column(Boolean, nullable=False, default=False)  # Filter common stop words
+
+    # Debugging configuration
+    save_requests_for_testing = Column(Boolean, nullable=False, default=False)  # Save API requests to /tmp/ for testing
 
     # Processing status
     status = Column(String(50), nullable=False, default=LabelingStatus.QUEUED.value)

@@ -581,10 +581,11 @@ export function LabelingPromptTemplatesPanel() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Max Tokens (10-500)
+                  Max Tokens (10-1000)
                 </label>
                 <input
                   type="number"
+                  step="100"
                   min={LabelingPromptTemplateConstraints.max_tokens.min}
                   max={LabelingPromptTemplateConstraints.max_tokens.max}
                   value={formData.max_tokens}
@@ -714,8 +715,9 @@ export function LabelingPromptTemplatesPanel() {
                   <label className="block text-sm font-medium text-slate-300 mb-2">Max Tokens</label>
                   <input
                     type="number"
+                    step="100"
                     min="10"
-                    max="500"
+                    max="1000"
                     value={formData.max_tokens}
                     onChange={(e) => setFormData({ ...formData, max_tokens: parseInt(e.target.value) })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-100"

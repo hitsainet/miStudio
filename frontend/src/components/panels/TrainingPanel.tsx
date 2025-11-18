@@ -31,10 +31,12 @@ import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useTrainingWebSocket } from '../../hooks/useTrainingWebSocket';
+import { useDeletionProgressWebSocket } from '../../hooks/useDeletionProgressWebSocket';
 import { useWebSocketContext } from '../../contexts/WebSocketContext';
 import { TrainingStatus, SAEArchitectureType } from '../../types/training';
 import type { TrainingCreateRequest } from '../../types/training';
 import { TrainingCard } from '../training/TrainingCard';
+import DeletionProgressModal from '../training/DeletionProgressModal';
 import { estimateMultilayerTrainingMemory, formatMemorySize } from '../../utils/memoryEstimation';
 import { HyperparameterLabel, HyperparameterTooltip } from '../common/HyperparameterTooltip';
 import { calculateOptimalL1Alpha, validateSparsityConfig } from '../../utils/hyperparameterOptimization';
@@ -70,6 +72,23 @@ export const TrainingPanel: React.FC = () => {
   const [latentMultiplier, setLatentMultiplier] = useState(8);
   const [availableExtractions, setAvailableExtractions] = useState<any[]>([]);
   const [isLoadingExtractions, setIsLoadingExtractions] = useState(false);
+
+  // Deletion progress state
+  const [deletingTrainingId, setDeletingTrainingId] = useState<string | null>(null);
+  const [deletionTasks, setDeletionTasks] = useState<Array<{
+    id: string;
+    label: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    message?: string;
+    count?: number;
+  }>>([
+    { id: 'extractions', label: 'Extraction Jobs', status: 'pending' },
+    { id: 'checkpoints', label: 'Checkpoints', status: 'pending' },
+    { id: 'metrics', label: 'Training Metrics', status: 'pending' },
+    { id: 'features', label: 'Features', status: 'pending' },
+    { id: 'database', label: 'Database Record', status: 'pending' },
+    { id: 'files', label: 'Training Files', status: 'pending' },
+  ]);
 
   // Memory estimation
   const memoryEstimate = useMemo(() => {
@@ -122,6 +141,31 @@ export const TrainingPanel: React.FC = () => {
 
   // Subscribe to WebSocket updates for all trainings
   useTrainingWebSocket(trainings.map((t) => t.id));
+
+  // Handle deletion progress updates via WebSocket
+  const handleDeletionTaskUpdate = React.useCallback((update: {
+    training_id: string;
+    task: string;
+    status: 'in_progress' | 'completed';
+    message?: string;
+    count?: number;
+  }) => {
+    setDeletionTasks((prevTasks) =>
+      prevTasks.map((task) =>
+        task.id === update.task
+          ? {
+              ...task,
+              status: update.status,
+              message: update.message,
+              count: update.count,
+            }
+          : task
+      )
+    );
+  }, []);
+
+  // Subscribe to deletion progress WebSocket for the training being deleted
+  useDeletionProgressWebSocket(deletingTrainingId, handleDeletionTaskUpdate);
 
   // Filter ready models and datasets
   const readyModels = models.filter((m) => m.status === 'ready');
@@ -274,6 +318,15 @@ export const TrainingPanel: React.FC = () => {
     if (!confirm(`Are you sure you want to delete ${count} training job${count > 1 ? 's' : ''}? This will remove all associated data and cannot be undone.`)) {
       return;
     }
+
+    // Track the first training for progress modal
+    const firstTrainingId = Array.from(selectedTrainingIds)[0];
+
+    // Reset deletion tasks to pending
+    setDeletionTasks((tasks) => tasks.map(task => ({ ...task, status: 'pending', message: undefined, count: undefined })));
+
+    // Show modal for first training
+    setDeletingTrainingId(firstTrainingId);
 
     setIsDeleting(true);
     try {
@@ -469,6 +522,14 @@ export const TrainingPanel: React.FC = () => {
                 </label>
                 <p className="text-xs text-slate-500 mb-2">
                   Use pre-extracted activations from an extraction job instead of extracting on-the-fly during training. This dramatically speeds up training but requires a completed extraction for the selected model and dataset.
+                  {config.extraction_id && availableExtractions.length > 0 && (() => {
+                    const selectedExtraction = availableExtractions.find(ext => ext.extraction_id === config.extraction_id);
+                    if (selectedExtraction?.layer_indices && selectedExtraction.layer_indices.length > 0) {
+                      const layerLabels = selectedExtraction.layer_indices.map((idx: number) => `L${idx}`).join(', ');
+                      return <span className="text-emerald-400"> Cached layers: {layerLabels}</span>;
+                    }
+                    return null;
+                  })()}
                 </p>
                 {(config.extraction_id !== undefined) && (
                   <>
@@ -1186,6 +1247,14 @@ export const TrainingPanel: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Deletion Progress Modal */}
+      <DeletionProgressModal
+        isOpen={!!deletingTrainingId}
+        onClose={() => setDeletingTrainingId(null)}
+        trainingId={deletingTrainingId || ''}
+        tasks={deletionTasks}
+      />
     </div>
   );
 };

@@ -9,12 +9,13 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Save, Star, Info, Activity, GitBranch, Zap } from 'lucide-react';
+import { X, Save, Star, Info, Activity, GitBranch, Zap, Hash } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { TokenHighlight } from './TokenHighlight';
 import { LogitLensView } from './LogitLensView';
 import { FeatureCorrelations } from './FeatureCorrelations';
 import { AblationAnalysis } from './AblationAnalysis';
+import { FeatureTokenAnalysis } from './FeatureTokenAnalysis';
 
 interface FeatureDetailModalProps {
   featureId: string;
@@ -22,7 +23,7 @@ interface FeatureDetailModalProps {
   onClose: () => void;
 }
 
-type TabType = 'examples' | 'logit-lens' | 'correlations' | 'ablation';
+type TabType = 'examples' | 'logit-lens' | 'token-analysis' | 'correlations' | 'ablation';
 
 export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
   featureId,
@@ -300,6 +301,17 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
               <span>Logit Lens</span>
             </button>
             <button
+              onClick={() => setActiveTab('token-analysis')}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                activeTab === 'token-analysis'
+                  ? 'border-emerald-500 text-emerald-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <Hash className="w-4 h-4" />
+              <span>Token Analysis</span>
+            </button>
+            <button
               onClick={() => setActiveTab('correlations')}
               className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
                 activeTab === 'correlations'
@@ -374,6 +386,13 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-white mb-4">Logit Lens Analysis</h3>
               <LogitLensView featureId={featureId} />
+            </div>
+          )}
+
+          {activeTab === 'token-analysis' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white mb-4">Token Analysis</h3>
+              <FeatureTokenAnalysis featureId={featureId} />
             </div>
           )}
 

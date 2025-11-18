@@ -28,6 +28,7 @@ from src.schemas.feature import (
     FeatureStatistics,
     FeatureActivationExample
 )
+from src.utils.token_filters import analyze_feature_tokens
 
 
 logger = logging.getLogger(__name__)
@@ -143,24 +144,35 @@ class FeatureService:
         # Task 9.8: For each feature, include one example_context
         feature_responses = []
         for feature in features:
-            # Get first max-activating example
-            example_query = (
-                select(FeatureActivation)
-                .where(FeatureActivation.feature_id == feature.id)
-                .order_by(desc(FeatureActivation.max_activation))
-                .limit(1)
-            )
-            example_result = await self.db.execute(example_query)
-            example = example_result.scalar_one_or_none()
-
             example_context = None
-            if example:
+
+            # Priority 1: Use example_tokens_summary if available (filtered top tokens from labeling)
+            if feature.example_tokens_summary:
+                summary = feature.example_tokens_summary
                 example_context = FeatureActivationExample(
-                    tokens=example.tokens,
-                    activations=example.activations,
-                    max_activation=example.max_activation,
-                    sample_index=example.sample_index
+                    tokens=summary.get('tokens', []),
+                    activations=summary.get('activations', []),
+                    max_activation=summary.get('max_activation', 0.0),
+                    sample_index=-1  # -1 indicates this is a summary, not a specific sample
                 )
+            else:
+                # Priority 2: Fall back to max-activating example from FeatureActivation table
+                example_query = (
+                    select(FeatureActivation)
+                    .where(FeatureActivation.feature_id == feature.id)
+                    .order_by(desc(FeatureActivation.max_activation))
+                    .limit(1)
+                )
+                example_result = await self.db.execute(example_query)
+                example = example_result.scalar_one_or_none()
+
+                if example:
+                    example_context = FeatureActivationExample(
+                        tokens=example.tokens,
+                        activations=example.activations,
+                        max_activation=example.max_activation,
+                        sample_index=example.sample_index
+                    )
 
             feature_response = FeatureResponse(
                 id=feature.id,
@@ -314,24 +326,35 @@ class FeatureService:
         # For each feature, include one example_context
         feature_responses = []
         for feature in features:
-            # Get first max-activating example
-            example_query = (
-                select(FeatureActivation)
-                .where(FeatureActivation.feature_id == feature.id)
-                .order_by(desc(FeatureActivation.max_activation))
-                .limit(1)
-            )
-            example_result = await self.db.execute(example_query)
-            example = example_result.scalar_one_or_none()
-
             example_context = None
-            if example:
+
+            # Priority 1: Use example_tokens_summary if available (filtered top tokens from labeling)
+            if feature.example_tokens_summary:
+                summary = feature.example_tokens_summary
                 example_context = FeatureActivationExample(
-                    tokens=example.tokens,
-                    activations=example.activations,
-                    max_activation=example.max_activation,
-                    sample_index=example.sample_index
+                    tokens=summary.get('tokens', []),
+                    activations=summary.get('activations', []),
+                    max_activation=summary.get('max_activation', 0.0),
+                    sample_index=-1  # -1 indicates this is a summary, not a specific sample
                 )
+            else:
+                # Priority 2: Fall back to max-activating example from FeatureActivation table
+                example_query = (
+                    select(FeatureActivation)
+                    .where(FeatureActivation.feature_id == feature.id)
+                    .order_by(desc(FeatureActivation.max_activation))
+                    .limit(1)
+                )
+                example_result = await self.db.execute(example_query)
+                example = example_result.scalar_one_or_none()
+
+                if example:
+                    example_context = FeatureActivationExample(
+                        tokens=example.tokens,
+                        activations=example.activations,
+                        max_activation=example.max_activation,
+                        sample_index=example.sample_index
+                    )
 
             feature_response = FeatureResponse(
                 id=feature.id,
@@ -574,6 +597,71 @@ class FeatureService:
             )
             for example in examples
         ]
+
+    async def get_feature_token_analysis(
+        self,
+        feature_id: str,
+        apply_filters: bool = True,
+        filter_special: bool = True,
+        filter_single_char: bool = True,
+        filter_punctuation: bool = True,
+        filter_numbers: bool = True,
+        filter_fragments: bool = True,
+        filter_stop_words: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get token analysis for a feature's activation examples.
+
+        Analyzes all tokens from the feature's max-activating examples,
+        applies filtering to remove junk tokens, and returns statistics
+        and ranked token list.
+
+        Args:
+            feature_id: ID of the feature
+            apply_filters: Master switch for all filtering (default: True)
+            filter_special: Filter special tokens (<s>, </s>, etc.)
+            filter_single_char: Filter single character tokens
+            filter_punctuation: Filter pure punctuation
+            filter_numbers: Filter pure numeric tokens
+            filter_fragments: Filter word fragments (BPE subwords)
+            filter_stop_words: Filter common stop words (the, and, is, etc.)
+
+        Returns:
+            Dictionary with summary statistics and ranked token list, or None if feature not found
+        """
+        # Verify feature exists
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
+
+        if not feature:
+            return None
+
+        # Query all activations for this feature
+        activations_query = (
+            select(FeatureActivation)
+            .where(FeatureActivation.feature_id == feature_id)
+            .order_by(desc(FeatureActivation.max_activation))
+        )
+        activations_result = await self.db.execute(activations_query)
+        activations = activations_result.scalars().all()
+
+        # Extract tokens from each activation
+        tokens_list = [activation.tokens for activation in activations if activation.tokens]
+
+        # Analyze tokens using utility function with filter options
+        analysis = analyze_feature_tokens(
+            tokens_list,
+            apply_filters=apply_filters,
+            filter_special=filter_special,
+            filter_single_char=filter_single_char,
+            filter_punctuation=filter_punctuation,
+            filter_numbers=filter_numbers,
+            filter_fragments=filter_fragments,
+            filter_stop_words=filter_stop_words
+        )
+
+        return analysis
 
 
 def get_feature_service(db: Union[AsyncSession, Session]) -> FeatureService:

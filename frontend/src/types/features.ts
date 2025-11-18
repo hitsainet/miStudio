@@ -16,18 +16,21 @@ export type ExtractionStatus = 'queued' | 'extracting' | 'completed' | 'failed' 
 export type LabelSource = 'auto' | 'user';
 
 /**
- * Token filter mode for extraction.
- */
-export type ExtractionFilterMode = 'standard' | 'aggressive';
-
-/**
  * Extraction configuration request.
  */
 export interface ExtractionConfigRequest {
   evaluation_samples: number;  // 1,000 - 100,000
   top_k_examples: number;      // 10 - 1,000
-  extraction_filter_enabled?: boolean;  // Enable token filtering (default: false)
-  extraction_filter_mode?: ExtractionFilterMode;  // Filter mode (default: 'standard')
+  // Token filtering configuration (matches labeling filter structure)
+  filter_special?: boolean;     // Filter special tokens (<s>, </s>, etc.) (default: true)
+  filter_single_char?: boolean; // Filter single character tokens (default: true)
+  filter_punctuation?: boolean; // Filter pure punctuation (default: true)
+  filter_numbers?: boolean;     // Filter pure numeric tokens (default: true)
+  filter_fragments?: boolean;   // Filter word fragments (BPE subwords) (default: true)
+  filter_stop_words?: boolean;  // Filter common stop words (the, and, is, etc.) (default: false)
+  vectorization_batch_size?: string | number;  // 'auto' or 1-256 (default: 'auto')
+  soft_time_limit?: number;  // Soft time limit in seconds (default: 144000 = 40 hours)
+  time_limit?: number;  // Hard time limit in seconds (default: 172800 = 48 hours)
 }
 
 /**
@@ -48,8 +51,13 @@ export interface ExtractionStatusResponse {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-  extraction_filter_enabled?: boolean;
-  extraction_filter_mode?: ExtractionFilterMode;
+  // Token filtering configuration (matches labeling filter structure)
+  filter_special?: boolean;
+  filter_single_char?: boolean;
+  filter_punctuation?: boolean;
+  filter_numbers?: boolean;
+  filter_fragments?: boolean;
+  filter_stop_words?: boolean;
 }
 
 /**
@@ -179,4 +187,35 @@ export interface AblationResponse {
   baseline_perplexity: number;
   ablated_perplexity: number;
   computed_at: string;
+}
+
+/**
+ * Token analysis token entry.
+ */
+export interface TokenAnalysisToken {
+  rank: number;
+  token: string;
+  count: number;
+  percentage: number;
+}
+
+/**
+ * Token analysis summary statistics.
+ */
+export interface TokenAnalysisSummary {
+  total_examples: number;
+  original_token_count: number;
+  filtered_token_count: number;
+  junk_removed: number;
+  total_token_occurrences: number;
+  filtered_token_occurrences: number;
+  diversity_percent: number;
+}
+
+/**
+ * Token analysis response.
+ */
+export interface TokenAnalysisResponse {
+  summary: TokenAnalysisSummary;
+  tokens: TokenAnalysisToken[];
 }

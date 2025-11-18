@@ -23,8 +23,74 @@ from src.core.config import settings
 from src.services.local_labeling_service import LocalLabelingService
 from src.services.openai_labeling_service import OpenAILabelingService
 from src.workers.websocket_emitter import emit_labeling_progress, emit_labeling_result
+from src.utils.token_filters import filter_token_stats
 
 logger = logging.getLogger(__name__)
+
+
+def create_example_tokens_summary(
+    token_stats: Dict[str, Dict],
+    filter_special: bool = True,
+    filter_single_char: bool = True,
+    filter_punctuation: bool = True,
+    filter_numbers: bool = True,
+    filter_fragments: bool = True,
+    filter_stop_words: bool = False,
+    top_n: int = 7
+) -> Optional[Dict]:
+    """
+    Create example tokens summary from token statistics with filtering.
+
+    Args:
+        token_stats: Dict mapping token to {'count': N, 'total_activation': X}
+        filter_*: Token filtering flags
+        top_n: Number of top tokens to include (default 7)
+
+    Returns:
+        Dict with keys: 'tokens', 'counts', 'activations', 'max_activation'
+        Returns None if no tokens remain after filtering
+    """
+    # Apply filters to token_stats
+    filtered_stats = filter_token_stats(
+        token_stats,
+        filter_special=filter_special,
+        filter_single_char=filter_single_char,
+        filter_punctuation=filter_punctuation,
+        filter_numbers=filter_numbers,
+        filter_fragments=filter_fragments,
+        filter_stop_words=filter_stop_words
+    )
+
+    if not filtered_stats:
+        return None
+
+    # Sort by count descending
+    sorted_tokens = sorted(
+        filtered_stats.items(),
+        key=lambda x: x[1]['count'],
+        reverse=True
+    )[:top_n]
+
+    # Extract tokens, counts, and average activations
+    tokens = []
+    counts = []
+    activations = []
+
+    for token, stats in sorted_tokens:
+        tokens.append(token)
+        counts.append(stats['count'])
+        # Calculate average activation: total_activation / count
+        avg_activation = stats['total_activation'] / stats['count'] if stats['count'] > 0 else 0.0
+        activations.append(float(avg_activation))
+
+    max_activation = max(activations) if activations else 0.0
+
+    return {
+        'tokens': tokens,
+        'counts': counts,
+        'activations': activations,
+        'max_activation': float(max_activation)
+    }
 
 
 class LabelingService:
@@ -124,6 +190,13 @@ class LabelingService:
             openai_compatible_model=config.get("openai_compatible_model"),
             local_model=config.get("local_model"),
             prompt_template_id=config.get("prompt_template_id"),
+            filter_special=config.get("filter_special", True),
+            filter_single_char=config.get("filter_single_char", True),
+            filter_punctuation=config.get("filter_punctuation", True),
+            filter_numbers=config.get("filter_numbers", True),
+            filter_fragments=config.get("filter_fragments", True),
+            filter_stop_words=config.get("filter_stop_words", False),
+            save_requests_for_testing=config.get("save_requests_for_testing", False),
             status=LabelingStatus.QUEUED.value,
             progress=0.0,
             features_labeled=0,
@@ -209,6 +282,79 @@ class LabelingService:
             token_stats_map[feature_id] = token_stats
 
         return token_stats_map
+
+    def _format_tokens_table(
+        self,
+        token_stats: Dict[str, Dict[str, float]],
+        filter_special: bool = True,
+        filter_single_char: bool = True,
+        filter_punctuation: bool = True,
+        filter_numbers: bool = True,
+        filter_fragments: bool = True,
+        filter_stop_words: bool = False,
+        max_tokens: int = 15
+    ) -> str:
+        """
+        Format token statistics as a table string for prompt replacement.
+
+        Args:
+            token_stats: Dict mapping token to stats dict (count, total_activation, max_activation)
+            filter_special: Filter special tokens (<s>, </s>, etc.)
+            filter_single_char: Filter single character tokens
+            filter_punctuation: Filter pure punctuation
+            filter_numbers: Filter pure numeric tokens
+            filter_fragments: Filter word fragments (BPE subwords)
+            filter_stop_words: Filter common stop words
+            max_tokens: Maximum number of tokens to include in table
+
+        Returns:
+            Formatted table string with filtered tokens
+        """
+        from src.utils.token_filters import is_junk_token
+
+        # Filter tokens and sort by count
+        filtered_tokens = []
+        for token, stats in token_stats.items():
+            # Clean token for display (remove SentencePiece underscore prefix)
+            display_token = token.replace('▁', ' ').strip()
+            if not display_token:
+                display_token = token
+
+            # Apply filters
+            if is_junk_token(
+                token,
+                filter_special=filter_special,
+                filter_single_char=filter_single_char,
+                filter_punctuation=filter_punctuation,
+                filter_numbers=filter_numbers,
+                filter_fragments=filter_fragments,
+                filter_stop_words=filter_stop_words
+            ):
+                continue
+
+            count = stats.get("count", 0)
+            filtered_tokens.append((display_token, count))
+
+        # Sort by count descending, then by token ascending
+        filtered_tokens.sort(key=lambda x: (-x[1], x[0]))
+
+        # Take top N tokens
+        top_tokens = filtered_tokens[:max_tokens]
+
+        # Format as table
+        if not top_tokens:
+            return "(No tokens found after filtering)"
+
+        lines = []
+        for token, count in top_tokens:
+            # Format: 'token'                                    → count times
+            # Pad token to 40 characters for alignment
+            token_str = f"'{token}'"
+            padded_token = token_str.ljust(42)
+            line = f"{padded_token} → {count} {'time' if count == 1 else 'times'}"
+            lines.append(line)
+
+        return '\n'.join(lines)
 
     def label_features_for_extraction(
         self,
@@ -454,6 +600,19 @@ class LabelingService:
                                 feature.labeled_at = labeled_at
                                 feature.updated_at = labeled_at
 
+                                # Create example tokens summary with filtered top 7 tokens
+                                example_summary = create_example_tokens_summary(
+                                    token_stats,
+                                    filter_special=labeling_job.filter_special,
+                                    filter_single_char=labeling_job.filter_single_char,
+                                    filter_punctuation=labeling_job.filter_punctuation,
+                                    filter_numbers=labeling_job.filter_numbers,
+                                    filter_fragments=labeling_job.filter_fragments,
+                                    filter_stop_words=labeling_job.filter_stop_words,
+                                    top_n=7
+                                )
+                                feature.example_tokens_summary = example_summary
+
                                 # Emit individual result for real-time display
                                 # Extract top 5 tokens for example
                                 sorted_tokens = sorted(
@@ -535,7 +694,15 @@ class LabelingService:
                         user_prompt_template=user_prompt_template,
                         temperature=temperature,
                         max_tokens=max_tokens,
-                        top_p=top_p
+                        top_p=top_p,
+                        filter_special=labeling_job.filter_special,
+                        filter_single_char=labeling_job.filter_single_char,
+                        filter_punctuation=labeling_job.filter_punctuation,
+                        filter_numbers=labeling_job.filter_numbers,
+                        filter_fragments=labeling_job.filter_fragments,
+                        filter_stop_words=labeling_job.filter_stop_words,
+                        save_requests_for_testing=labeling_job.save_requests_for_testing,
+                        labeling_job_id=labeling_job.id
                     )
 
                     # Generate and persist labels in batches of 10
@@ -569,6 +736,19 @@ class LabelingService:
                             feature.labeling_job_id = labeling_job.id
                             feature.labeled_at = labeled_at
                             feature.updated_at = labeled_at
+
+                            # Create example tokens summary with filtered top 7 tokens
+                            example_summary = create_example_tokens_summary(
+                                token_stats,
+                                filter_special=labeling_job.filter_special,
+                                filter_single_char=labeling_job.filter_single_char,
+                                filter_punctuation=labeling_job.filter_punctuation,
+                                filter_numbers=labeling_job.filter_numbers,
+                                filter_fragments=labeling_job.filter_fragments,
+                                filter_stop_words=labeling_job.filter_stop_words,
+                                top_n=7
+                            )
+                            feature.example_tokens_summary = example_summary
 
                             # Emit individual result for real-time display
                             # Extract top 5 tokens for example
@@ -643,7 +823,15 @@ class LabelingService:
                         user_prompt_template=user_prompt_template,
                         temperature=temperature,
                         max_tokens=max_tokens,
-                        top_p=top_p
+                        top_p=top_p,
+                        filter_special=labeling_job.filter_special,
+                        filter_single_char=labeling_job.filter_single_char,
+                        filter_punctuation=labeling_job.filter_punctuation,
+                        filter_numbers=labeling_job.filter_numbers,
+                        filter_fragments=labeling_job.filter_fragments,
+                        filter_stop_words=labeling_job.filter_stop_words,
+                        save_requests_for_testing=labeling_job.save_requests_for_testing,
+                        labeling_job_id=labeling_job.id
                     )
 
                     # Generate and persist labels in batches of 10
@@ -677,6 +865,19 @@ class LabelingService:
                             feature.labeling_job_id = labeling_job.id
                             feature.labeled_at = labeled_at
                             feature.updated_at = labeled_at
+
+                            # Create example tokens summary with filtered top 7 tokens
+                            example_summary = create_example_tokens_summary(
+                                token_stats,
+                                filter_special=labeling_job.filter_special,
+                                filter_single_char=labeling_job.filter_single_char,
+                                filter_punctuation=labeling_job.filter_punctuation,
+                                filter_numbers=labeling_job.filter_numbers,
+                                filter_fragments=labeling_job.filter_fragments,
+                                filter_stop_words=labeling_job.filter_stop_words,
+                                top_n=7
+                            )
+                            feature.example_tokens_summary = example_summary
 
                             # Emit individual result for real-time display
                             # Extract top 5 tokens for example

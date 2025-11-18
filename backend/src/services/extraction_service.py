@@ -6,6 +6,7 @@ Sparse Autoencoders, including activation analysis, feature labeling, and
 statistics calculation.
 """
 
+import gc
 import logging
 import os
 from pathlib import Path
@@ -110,6 +111,8 @@ class ExtractionService:
                     ExtractionStatus.EXTRACTING
                 ])
             )
+            .order_by(desc(ExtractionJob.created_at))
+            .limit(1)
         )
         active_extraction = result.scalar_one_or_none()
 
@@ -169,8 +172,13 @@ class ExtractionService:
             training_id=training_id,
             status=ExtractionStatus.QUEUED,
             config=config,
-            extraction_filter_enabled=config.get('extraction_filter_enabled', False),
-            extraction_filter_mode=config.get('extraction_filter_mode', 'standard'),
+            # Token filtering configuration (matches labeling filter structure)
+            filter_special=config.get('filter_special', True),
+            filter_single_char=config.get('filter_single_char', True),
+            filter_punctuation=config.get('filter_punctuation', True),
+            filter_numbers=config.get('filter_numbers', True),
+            filter_fragments=config.get('filter_fragments', True),
+            filter_stop_words=config.get('filter_stop_words', False),
             progress=0.0,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
@@ -187,7 +195,23 @@ class ExtractionService:
 
         # Enqueue Celery task for async extraction
         from src.workers.extraction_tasks import extract_features_task
-        task_result = extract_features_task.delay(training_id, config)
+
+        # Get soft time limit from config (default: 40 hours = 144000 seconds)
+        # This allows long extractions to complete without timing out
+        soft_time_limit = config.get("soft_time_limit", 144000)  # 40 hours default
+        time_limit = config.get("time_limit", 172800)  # 48 hours hard limit
+
+        logger.info(
+            f"Starting extraction task with soft_time_limit={soft_time_limit}s "
+            f"({soft_time_limit/3600:.1f}h), time_limit={time_limit}s ({time_limit/3600:.1f}h)"
+        )
+
+        # Submit task with custom time limits
+        task_result = extract_features_task.apply_async(
+            args=(training_id, config),
+            soft_time_limit=soft_time_limit,
+            time_limit=time_limit
+        )
 
         # Store task ID in database for tracking
         extraction_job.celery_task_id = task_result.id
@@ -213,6 +237,7 @@ class ExtractionService:
             select(ExtractionJob)
             .where(ExtractionJob.training_id == training_id)
             .order_by(desc(ExtractionJob.created_at))
+            .limit(1)
         )
         extraction_job = result.scalar_one_or_none()
 
@@ -255,8 +280,13 @@ class ExtractionService:
             "created_at": extraction_job.created_at,
             "updated_at": extraction_job.updated_at,
             "completed_at": extraction_job.completed_at,
-            "extraction_filter_enabled": extraction_job.extraction_filter_enabled,
-            "extraction_filter_mode": extraction_job.extraction_filter_mode
+            # Token filtering configuration (matches labeling filter structure)
+            "filter_special": extraction_job.filter_special,
+            "filter_single_char": extraction_job.filter_single_char,
+            "filter_punctuation": extraction_job.filter_punctuation,
+            "filter_numbers": extraction_job.filter_numbers,
+            "filter_fragments": extraction_job.filter_fragments,
+            "filter_stop_words": extraction_job.filter_stop_words
         }
 
     async def list_extractions(
@@ -359,8 +389,13 @@ class ExtractionService:
                 "created_at": extraction_job.created_at,
                 "updated_at": extraction_job.updated_at,
                 "completed_at": extraction_job.completed_at,
-                "extraction_filter_enabled": extraction_job.extraction_filter_enabled,
-                "extraction_filter_mode": extraction_job.extraction_filter_mode
+                # Token filtering configuration (matches labeling filter structure)
+                "filter_special": extraction_job.filter_special,
+                "filter_single_char": extraction_job.filter_single_char,
+                "filter_punctuation": extraction_job.filter_punctuation,
+                "filter_numbers": extraction_job.filter_numbers,
+                "filter_fragments": extraction_job.filter_fragments,
+                "filter_stop_words": extraction_job.filter_stop_words
             })
 
         return extractions_list, total
@@ -689,10 +724,6 @@ class ExtractionService:
             hidden_dim = training.hyperparameters.get("hidden_dim", 768)
             max_length = config.get("max_length", 512)
 
-            # Get token filter configuration from config (per-job) instead of global settings
-            extraction_filter_enabled = config.get("extraction_filter_enabled", False)
-            extraction_filter_mode = config.get("extraction_filter_mode", "standard")
-
             # Calculate recommended resource settings based on available system resources
             recommended_settings = ResourceConfig.get_optimal_settings(
                 training_config=training.hyperparameters,
@@ -863,11 +894,37 @@ class ExtractionService:
                 f"model vocab_size={model_vocab_size}"
             )
 
+            # Import vectorized extraction utilities
+            from src.services.extraction_vectorized import (
+                IncrementalTopKHeap,
+                batch_process_features,
+                get_vectorization_config
+            )
+
+            # Get vectorization batch size from config (configurable per-extraction)
+            available_vram_gb = None
+            if torch.cuda.is_available():
+                gpu_props = torch.cuda.get_device_properties(0)
+                total_vram_gb = gpu_props.total_memory / (1024**3)
+                allocated_gb = torch.cuda.memory_allocated(0) / (1024**3)
+                available_vram_gb = max(1.0, total_vram_gb - allocated_gb)
+
+            vectorization_batch_size = get_vectorization_config(
+                config=config,
+                available_vram_gb=available_vram_gb,
+                latent_dim=latent_dim,
+                seq_len=config.get("max_length", 512)
+            )
+
+            logger.info(f"Using vectorization batch size: {vectorization_batch_size}")
+
             # Data structures for accumulating feature activations
-            # feature_activations[neuron_idx] = heap of (max_activation, counter, example_dict)
-            feature_activations = defaultdict(list)
+            # NEW: Use IncrementalTopKHeap for memory-efficient vectorized processing (10-50x speedup)
+            incremental_heap = IncrementalTopKHeap(
+                num_features=latent_dim,
+                top_k=top_k_examples
+            )
             feature_activation_counts = np.zeros(latent_dim)  # Count activations > threshold per feature
-            heap_counter = 0  # Counter for heap tiebreaking
 
             # Process dataset in batches with real model activations
             logger.info(f"Extracting features from {len(dataset)} samples...")
@@ -951,75 +1008,6 @@ class ExtractionService:
                         if not batch_input_ids:
                             continue
 
-                        # NEW: Stage 2 Token Filtering - Filter junk tokens if enabled
-                        if extraction_filter_enabled:
-                            from src.utils.token_filter import TokenFilter, FilterMode
-
-                            # Lazy-load filter once per extraction
-                            if not hasattr(self, '_token_filter'):
-                                mode = FilterMode[extraction_filter_mode.upper()]
-                                self._token_filter = TokenFilter(mode=mode)
-                                logger.info(f"Token filtering enabled for extraction: mode={extraction_filter_mode}")
-
-                            # Track filtering statistics
-                            tokens_before = sum(len(ids) for ids in batch_input_ids)
-
-                            # Filter tokens from each sequence
-                            filtered_batch_input_ids = []
-                            filtered_batch_texts = []
-
-                            for idx, input_ids in enumerate(batch_input_ids):
-                                # Get token strings for filtering
-                                token_strings = tokenizer.convert_ids_to_tokens(input_ids)
-
-                                # Filter junk tokens
-                                filtered_indices = [
-                                    i for i, token_str in enumerate(token_strings)
-                                    if not self._token_filter.is_junk_token(token_str)
-                                ]
-
-                                # Keep only non-junk tokens
-                                if filtered_indices:
-                                    filtered_ids = [input_ids[i] for i in filtered_indices]
-                                    filtered_batch_input_ids.append(filtered_ids)
-
-                                    # Update text representation
-                                    if idx < len(batch_texts):
-                                        filtered_batch_texts.append(batch_texts[idx])
-                                else:
-                                    # All tokens filtered - keep at least BOS/EOS if they exist
-                                    if input_ids:
-                                        filtered_batch_input_ids.append([input_ids[0]])  # Keep first token (usually BOS)
-                                    else:
-                                        filtered_batch_input_ids.append([])
-
-                                    if idx < len(batch_texts):
-                                        filtered_batch_texts.append("[filtered]")
-
-                            # Update batch with filtered tokens
-                            batch_input_ids = filtered_batch_input_ids
-                            batch_texts = filtered_batch_texts
-
-                            # Track filtering statistics
-                            tokens_after = sum(len(ids) for ids in batch_input_ids)
-                            tokens_filtered = tokens_before - tokens_after
-
-                            # Accumulate statistics (initialize if first batch)
-                            if not hasattr(self, '_extraction_tokens_kept'):
-                                self._extraction_tokens_kept = 0
-                                self._extraction_tokens_filtered = 0
-
-                            self._extraction_tokens_kept += tokens_after
-                            self._extraction_tokens_filtered += tokens_filtered
-
-                            # Log periodically (every 10 batches)
-                            if batch_start // batch_size % 10 == 0 and tokens_before > 0:
-                                filter_pct = (tokens_filtered / tokens_before) * 100
-                                logger.debug(
-                                    f"Batch {batch_start//batch_size}: {tokens_after} tokens kept, "
-                                    f"{tokens_filtered} filtered ({filter_pct:.1f}%)"
-                                )
-
                         # Pad sequences to same length
                         max_length = max(len(ids) for ids in batch_input_ids)
 
@@ -1082,10 +1070,13 @@ class ExtractionService:
                             logger.info(f"Captured activations max: {base_model_activations.max().item():.6f}")
 
                         # Task 4.8: Pass through SAE encoder to get feature activations
-                        # Process each sample in the batch
-                        for batch_idx in range(len(batch_input_ids)):
-                            global_sample_idx = batch_start + batch_idx
+                        # VECTORIZED: Process entire batch at once (10-50x faster than sequential)
 
+                        # Process each sample through SAE encoder (keep on GPU)
+                        batch_sae_features = []
+                        batch_token_strings = []
+
+                        for batch_idx in range(len(batch_input_ids)):
                             # Get activations for this sample
                             sample_activations = base_model_activations[batch_idx]  # Shape: (seq_len, hidden_dim)
 
@@ -1108,59 +1099,62 @@ class ExtractionService:
                                 total_features = sae_features.numel()
                                 logger.info(f"SAE non-zero activations: {non_zero_features} / {total_features} ({100*non_zero_features/total_features:.2f}%)")
 
+                            batch_sae_features.append(sae_features)
+
                             # Get token strings for this sample
                             token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
+                            batch_token_strings.append(token_strings)
 
-                            # Process each SAE neuron (feature)
-                            # Log progress periodically to show we're not stuck
-                            log_interval = max(1, latent_dim // 20)  # Log every 5% of neurons
-                            for neuron_idx in range(latent_dim):
-                                neuron_activations = sae_features[:, neuron_idx].cpu().numpy()  # Shape: (seq_len,)
-                                max_activation = float(neuron_activations.max())
+                        # Stack into batch tensor (handle variable sequence lengths with padding if needed)
+                        if batch_sae_features:
+                            # Find max sequence length in this batch
+                            max_seq_len = max(f.shape[0] for f in batch_sae_features)
 
-                                # Periodic progress logging inside neuron loop
-                                if neuron_idx > 0 and neuron_idx % log_interval == 0:
-                                    neuron_progress = neuron_idx / latent_dim
-                                    logger.info(
-                                        f"Sample {global_sample_idx+1}/{len(dataset)}: "
-                                        f"Processing features {neuron_idx}/{latent_dim} ({neuron_progress*100:.1f}%)"
+                            # Pad sequences to same length
+                            padded_features = []
+                            for features in batch_sae_features:
+                                if features.shape[0] < max_seq_len:
+                                    padding = torch.zeros(
+                                        (max_seq_len - features.shape[0], features.shape[1]),
+                                        device=features.device,
+                                        dtype=features.dtype
                                     )
+                                    features = torch.cat([features, padding], dim=0)
+                                padded_features.append(features)
 
-                                # Task 4.9: Count activations above threshold
-                                if max_activation > 0:
-                                    feature_activation_counts[neuron_idx] += 1
+                            # Stack into batch: (batch_size, seq_len, latent_dim)
+                            batch_sae_features_tensor = torch.stack(padded_features, dim=0)
 
-                                # Task 4.11: Store top-K examples per feature using heap for memory efficiency
-                                if max_activation > 0:  # Only store if feature activated
-                                    # Find top-5 activating token positions to reduce memory (instead of all 512)
-                                    top_positions = np.argsort(neuron_activations)[-5:][::-1]  # Top 5 positions
+                            # VECTORIZED FEATURE PROCESSING (replaces 16,384-iteration loop!)
+                            feature_indices, max_activations, examples = batch_process_features(
+                                batch_sae_features=batch_sae_features_tensor,
+                                token_strings_batch=batch_token_strings,
+                                sample_indices=list(range(batch_start, batch_end)),
+                                vectorization_batch_size=vectorization_batch_size,
+                                top_k=5,
+                                # Token filtering settings from extraction job
+                                filter_special=extraction_job.filter_special,
+                                filter_single_char=extraction_job.filter_single_char,
+                                filter_punctuation=extraction_job.filter_punctuation,
+                                filter_numbers=extraction_job.filter_numbers,
+                                filter_fragments=extraction_job.filter_fragments,
+                                filter_stop_words=extraction_job.filter_stop_words
+                            )
 
-                                    example = {
-                                        "sample_index": global_sample_idx,
-                                        "max_activation": max_activation,
-                                        "tokens": [token_strings[i] for i in top_positions],  # Only top 5 tokens
-                                        "activations": neuron_activations[top_positions].tolist(),  # Only top 5 activations
-                                        "token_positions": top_positions.tolist()  # Store positions for context
-                                    }
+                            # Update activation counts (vectorized)
+                            for feat_idx in feature_indices:
+                                feature_activation_counts[feat_idx] += 1
 
-                                    # Use min-heap to keep only top-k examples (limits memory usage)
-                                    # Tuple format: (max_activation, counter, example) - counter prevents dict comparison
-                                    if len(feature_activations[neuron_idx]) < top_k_examples:
-                                        # Heap not full yet, just add
-                                        heapq.heappush(feature_activations[neuron_idx], (max_activation, heap_counter, example))
-                                        heap_counter += 1
-                                    elif max_activation > feature_activations[neuron_idx][0][0]:
-                                        # Replace smallest if new activation is larger
-                                        heapq.heapreplace(feature_activations[neuron_idx], (max_activation, heap_counter, example))
-                                        heap_counter += 1
+                            # Add to incremental heap (updates top-k heaps in place)
+                            incremental_heap.add_batch(feature_indices, max_activations, examples)
 
-                            # MEMORY FIX: Explicitly delete tensor references after processing each sample
-                            # This allows Python GC to free GPU memory immediately instead of waiting for batch end
-                            del sae_features
-                            del sample_activations
+                            # MEMORY FIX: Explicitly delete tensor references
+                            del batch_sae_features_tensor
+                            del padded_features
+                            del batch_sae_features
 
-                            # Aggressive per-sample GPU cache clearing (every 4 samples to balance performance)
-                            if torch.cuda.is_available() and batch_idx % 4 == 3:
+                            # GPU cache clearing
+                            if torch.cuda.is_available():
                                 torch.cuda.empty_cache()
 
                         # Task 4.15-4.16: Update progress every 5%
@@ -1194,22 +1188,37 @@ class ExtractionService:
             base_model.cpu()
             del base_model
             del tokenizer
+
             if torch.cuda.is_available():
+                # Force garbage collection before CUDA cleanup
+                gc.collect()
+
+                # Empty CUDA cache and synchronize
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
+
                 memory_after_cleanup = torch.cuda.memory_allocated(0) / (1024**3)
-                logger.info(f"GPU memory after cleanup: {memory_after_cleanup:.2f}GB allocated")
+                logger.info(f"GPU memory after base model cleanup: {memory_after_cleanup:.2f}GB allocated")
 
-            logger.info(f"Activation extraction complete. Creating feature records...")
+            logger.info(f"Activation extraction complete. Building final top-k heaps...")
 
-            # Log Stage 2 filtering statistics if enabled
-            if extraction_filter_enabled and hasattr(self, '_extraction_tokens_kept'):
-                total_tokens = self._extraction_tokens_kept + self._extraction_tokens_filtered
-                filter_pct = (self._extraction_tokens_filtered / total_tokens * 100) if total_tokens > 0 else 0
-                logger.info(
-                    f"Stage 2 Token Filtering: {self._extraction_tokens_kept:,} tokens kept, "
-                    f"{self._extraction_tokens_filtered:,} tokens filtered ({filter_pct:.1f}%)"
-                )
+            # Get final heaps (already maintained incrementally during processing)
+            # The incremental approach avoids memory explosion while maintaining vectorization speedup
+            final_heaps = incremental_heap.get_heaps()
+
+            # Convert to legacy format for compatibility with downstream code
+            # Format: feature_activations[neuron_idx] = [(activation, counter, example), ...]
+            feature_activations = defaultdict(list)
+            heap_counter = 0
+
+            for feat_idx, examples in final_heaps.items():
+                # examples is List[(activation, example_dict)]
+                # Convert to heap format: [(activation, counter, example_dict), ...]
+                for activation, example_dict in examples:
+                    feature_activations[feat_idx].append((activation, heap_counter, example_dict))
+                    heap_counter += 1
+
+            logger.info(f"Final heaps built successfully. Processing {len(final_heaps)} features...")
 
             # Task 4.9: Calculate activation_frequency per feature
             activation_frequencies = feature_activation_counts / len(dataset)
@@ -1238,8 +1247,11 @@ class ExtractionService:
                 label_source = LabelSource.AUTO.value
 
                 # Task 4.13: Create feature record
+                # Extract timestamp from extraction_job.id (format: extr_YYYYMMDD_HHMMSS_train_XX)
+                # to create unique feature IDs per extraction: feat_YYYYMMDD_HHMMSS_XXXXX
+                extraction_timestamp = extraction_job.id[5:20]  # Extract "YYYYMMDD_HHMMSS"
                 feature = Feature(
-                    id=f"feat_{training_id[:8]}_{neuron_idx:05d}",
+                    id=f"feat_{extraction_timestamp}_{neuron_idx:05d}",
                     training_id=training_id,
                     extraction_job_id=extraction_job.id,
                     neuron_index=neuron_idx,
@@ -1303,15 +1315,31 @@ class ExtractionService:
 
             logger.info(f"Extraction statistics: {statistics}")
 
-            # Clean up SAE from GPU memory
-            logger.info("Cleaning up SAE from GPU memory")
+            # Aggressive cleanup of GPU and CPU memory
+            logger.info("Performing aggressive memory cleanup...")
             if torch.cuda.is_available():
+                # Move SAE to CPU first to release GPU tensors
                 sae.cpu()
                 del sae
+
+                # Delete heap to free CPU memory
+                del incremental_heap
+
+                # Force Python garbage collection
+                gc.collect()
+
+                # Clean up CUDA IPC memory (shared memory between processes)
+                if hasattr(torch.cuda, 'ipc_collect'):
+                    torch.cuda.ipc_collect()
+
+                # Empty CUDA cache and synchronize
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
+
+                # Log final memory state
                 final_memory = torch.cuda.memory_allocated(0) / (1024**3)
                 logger.info(f"Final GPU memory: {final_memory:.2f}GB allocated (freed {initial_memory - final_memory:.2f}GB)")
+                logger.info("Memory cleanup complete - CUDA cache cleared, IPC memory released, garbage collected")
 
             # NOTE: Feature labeling is now a separate independent process
             # All features are created with fallback names (feature_XXXXX)
@@ -1344,13 +1372,24 @@ class ExtractionService:
         except Exception as e:
             logger.error(f"Feature extraction failed for training {training_id}: {e}", exc_info=True)
 
-            # Clean up GPU memory on failure to prevent leaks
+            # Aggressive cleanup of GPU and CPU memory on failure to prevent leaks
             if torch.cuda.is_available():
-                logger.info("Cleaning up GPU memory after extraction failure")
+                logger.info("Performing aggressive memory cleanup after extraction failure")
+
+                # Force Python garbage collection
+                gc.collect()
+
+                # Clean up CUDA IPC memory
+                if hasattr(torch.cuda, 'ipc_collect'):
+                    torch.cuda.ipc_collect()
+
+                # Empty CUDA cache and synchronize
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
+
                 error_memory = torch.cuda.memory_allocated(0) / (1024**3)
                 logger.info(f"GPU memory after error cleanup: {error_memory:.2f}GB allocated")
+                logger.info("Error cleanup complete - CUDA cache cleared, IPC memory released, garbage collected")
 
             # Update status to failed
             self.update_extraction_status_sync(

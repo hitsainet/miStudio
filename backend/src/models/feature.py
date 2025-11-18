@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import Column, String, Float, Integer, DateTime, Text, Boolean, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -70,6 +71,9 @@ class Feature(Base):
     # User metadata
     is_favorite = Column(Boolean, nullable=False, default=False, index=True)
     notes = Column(Text, nullable=True)
+
+    # Example tokens summary (populated during labeling with filtered top tokens)
+    example_tokens_summary = Column(JSONB, nullable=True)  # Format: {'tokens': [...], 'counts': [...], 'activations': [...], 'max_activation': X}
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

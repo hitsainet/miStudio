@@ -3,6 +3,14 @@
  *
  * Displays an individual extraction job with status, progress, and actions.
  * Can be expanded to show discovered features.
+ *
+ * IMPORTANT: This component contains the EXCLUSIVE features browser for the application.
+ * The features browser is ONLY accessible from the Extractions tab via this component.
+ * Users must navigate to the Extractions tab to browse, search, filter, and analyze
+ * discovered features from their extraction jobs.
+ *
+ * This ensures a single, centralized location for all feature viewing and management,
+ * eliminating redundancy and providing a consistent user experience.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -56,7 +64,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
   const features = featuresByExtraction[extraction.id] || [];
   const metadata = featureListMetadata[extraction.id];
-  const filters = searchFilters[extraction.id] || { sort_by: 'activation_freq', sort_order: 'desc', limit: 50, offset: 0 };
+  const filters = searchFilters[extraction.id] || { sort_by: 'feature_id', sort_order: 'asc', limit: 50, offset: 0 };
 
   // Find the associated training job
   const training = trainings.find((t) => t.id === extraction.training_id);

@@ -34,11 +34,12 @@ import {
   Zap,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
+import { useFeaturesStore } from '../../stores/featuresStore';
 import { TrainingStatus } from '../../types/training';
 import type { Training } from '../../types/training';
 import type { Model } from '../../types/model';
 import type { Dataset } from '../../types/dataset';
-import { FeaturesPanel } from '../features/FeaturesPanel';
+import { StartExtractionModal } from '../features/StartExtractionModal';
 import { COMPONENTS } from '../../config/brand';
 
 interface TrainingCardProps {
@@ -66,10 +67,15 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     deleteCheckpoint,
   } = useTrainingsStore();
 
+  const {
+    extractionStatus,
+    getExtractionStatus,
+  } = useFeaturesStore();
+
   // UI state
   const [showMetrics, setShowMetrics] = useState(false);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
-  const [showFeatures, setShowFeatures] = useState(false);
+  const [showExtractionModal, setShowExtractionModal] = useState(false);
   const [showHyperparameters, setShowHyperparameters] = useState(false);
   const [autoSave, setAutoSave] = useState(false);
   const [autoSaveInterval, setAutoSaveInterval] = useState(1000);
@@ -265,6 +271,13 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       });
     }
   }, [training.current_loss, training.current_l0_sparsity, training.current_step]);
+
+  // Fetch extraction status on mount for completed trainings
+  useEffect(() => {
+    if (training.status === TrainingStatus.COMPLETED) {
+      getExtractionStatus(training.id);
+    }
+  }, [training.id, training.status]);
 
   // Handle save checkpoint
   const handleSaveCheckpoint = async () => {
@@ -537,15 +550,33 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 <span>Checkpoints ({checkpoints.length})</span>
               </button>
             )}
-            {/* Show features for completed trainings */}
+            {/* Start extraction for completed trainings
+
+                Workflow:
+                1. Training completes successfully
+                2. User clicks "Start Extraction" button (opens modal)
+                3. User configures extraction parameters in modal
+                4. User clicks "Start Extraction" in modal
+                5. User navigates to "Extractions" tab to view progress and browse features
+
+                Note: The features browser is ONLY available on the Extractions tab.
+                      This ensures a single, centralized location for all extraction viewing.
+            */}
             {training.status === TrainingStatus.COMPLETED && (
               <button
                 type="button"
-                onClick={() => setShowFeatures(!showFeatures)}
-                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary}`}
+                onClick={() => setShowExtractionModal(true)}
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} relative`}
               >
                 <Zap className="w-4 h-4" />
-                <span>{showFeatures ? 'Hide' : 'Discover'} Features</span>
+                <span>Start Extraction</span>
+                {/* Visual indicator if extraction already exists */}
+                {extractionStatus[training.id] && (
+                  <span
+                    className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full"
+                    title="Extraction exists for this training"
+                  />
+                )}
               </button>
             )}
           </div>
@@ -1061,14 +1092,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
         </div>
       )}
 
-      {/* Features Section */}
-      {showFeatures && training.status === TrainingStatus.COMPLETED && (
-        <div className="border-t border-slate-700 pt-3 mt-3">
-          <h5 className="text-sm font-medium text-slate-300 mb-4">Feature Discovery</h5>
-          <FeaturesPanel training={training} />
-        </div>
-      )}
-
       {/* Error Display */}
       {training.error_message && (
         <div className="bg-red-900/20 border border-red-900/50 rounded-lg p-3">
@@ -1076,6 +1099,13 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           <div className="text-xs text-red-300">{training.error_message}</div>
         </div>
       )}
+
+      {/* Start Extraction Modal */}
+      <StartExtractionModal
+        training={training}
+        isOpen={showExtractionModal}
+        onClose={() => setShowExtractionModal(false)}
+      />
     </div>
   );
 };

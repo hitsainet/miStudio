@@ -588,15 +588,32 @@ class FeatureService:
         examples_result = await self.db.execute(examples_query)
         examples = examples_result.scalars().all()
 
-        return [
-            FeatureActivationExample(
-                tokens=example.tokens,
-                activations=example.activations,
-                max_activation=example.max_activation,
-                sample_index=example.sample_index
-            )
-            for example in examples
-        ]
+        result = []
+        for example in examples:
+            # Check if tokens is an object (enhanced format) or array (legacy format)
+            if isinstance(example.tokens, dict):
+                # Enhanced format with context window
+                result.append(FeatureActivationExample(
+                    tokens=example.tokens.get("all_tokens", []),
+                    activations=example.activations,
+                    max_activation=example.max_activation,
+                    sample_index=example.sample_index,
+                    prefix_tokens=example.tokens.get("prefix_tokens"),
+                    prime_token=example.tokens.get("prime_token"),
+                    suffix_tokens=example.tokens.get("suffix_tokens"),
+                    prime_activation_index=example.tokens.get("prime_activation_index"),
+                    token_positions=example.tokens.get("token_positions")
+                ))
+            else:
+                # Legacy format (simple array)
+                result.append(FeatureActivationExample(
+                    tokens=example.tokens,
+                    activations=example.activations,
+                    max_activation=example.max_activation,
+                    sample_index=example.sample_index
+                ))
+
+        return result
 
     async def get_feature_token_analysis(
         self,

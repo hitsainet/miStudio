@@ -72,12 +72,23 @@ export interface ExtractionStatistics {
 
 /**
  * Feature activation example.
+ *
+ * Supports both legacy (simple token list) and enhanced (context window) formats.
+ * Enhanced format includes prefix/prime/suffix breakdown with positions.
  */
 export interface FeatureActivationExample {
+  // Legacy format (always present for backward compatibility)
   tokens: string[];
   activations: number[];
   max_activation: number;
   sample_index: number;
+
+  // Enhanced context window format (optional, present in new extractions)
+  prefix_tokens?: string[];
+  prime_token?: string;
+  suffix_tokens?: string[];
+  prime_activation_index?: number;
+  token_positions?: number[];
 }
 
 /**

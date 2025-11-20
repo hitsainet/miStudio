@@ -49,6 +49,11 @@ export function ExtractionTemplateForm({
     template?.extraction_filter_mode || 'standard'
   );
 
+  // Context window configuration state
+  const [contextPrefixTokens, setContextPrefixTokens] = useState(template?.context_prefix_tokens || 5);
+  const [contextSuffixTokens, setContextSuffixTokens] = useState(template?.context_suffix_tokens || 3);
+  const [contextPreset, setContextPreset] = useState<'quick' | 'standard' | 'deep' | 'symmetric' | 'custom'>('standard');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +71,11 @@ export function ExtractionTemplateForm({
       setMetadataJson(template.extra_metadata ? JSON.stringify(template.extra_metadata, null, 2) : '{}');
       setFilterEnabled(template.extraction_filter_enabled || false);
       setFilterMode(template.extraction_filter_mode || 'standard');
+      const prefixTokens = template.context_prefix_tokens || 5;
+      const suffixTokens = template.context_suffix_tokens || 3;
+      setContextPrefixTokens(prefixTokens);
+      setContextSuffixTokens(suffixTokens);
+      setContextPreset(detectContextPreset(prefixTokens, suffixTokens));
     }
   }, [template]);
 
@@ -108,6 +118,45 @@ export function ExtractionTemplateForm({
     );
   };
 
+  // Context window preset definitions
+  const contextPresets = {
+    quick: { prefix: 3, suffix: 2 },
+    standard: { prefix: 5, suffix: 3 },
+    deep: { prefix: 10, suffix: 5 },
+    symmetric: { prefix: 5, suffix: 5 },
+  };
+
+  // Detect which preset matches current token values
+  const detectContextPreset = (prefix: number, suffix: number): typeof contextPreset => {
+    for (const [presetName, presetValues] of Object.entries(contextPresets)) {
+      if (presetValues.prefix === prefix && presetValues.suffix === suffix) {
+        return presetName as typeof contextPreset;
+      }
+    }
+    return 'custom';
+  };
+
+  // Handle preset selection
+  const handleContextPresetChange = (preset: typeof contextPreset) => {
+    setContextPreset(preset);
+    if (preset !== 'custom') {
+      const values = contextPresets[preset];
+      setContextPrefixTokens(values.prefix);
+      setContextSuffixTokens(values.suffix);
+    }
+  };
+
+  // Handle manual token changes
+  const handleContextPrefixChange = (value: number) => {
+    setContextPrefixTokens(value);
+    setContextPreset(detectContextPreset(value, contextSuffixTokens));
+  };
+
+  const handleContextSuffixChange = (value: number) => {
+    setContextSuffixTokens(value);
+    setContextPreset(detectContextPreset(contextPrefixTokens, value));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -144,6 +193,16 @@ export function ExtractionTemplateForm({
       return;
     }
 
+    if (contextPrefixTokens < 1 || contextPrefixTokens > 20) {
+      setError('Context prefix tokens must be between 1 and 20');
+      return;
+    }
+
+    if (contextSuffixTokens < 1 || contextSuffixTokens > 20) {
+      setError('Context suffix tokens must be between 1 and 20');
+      return;
+    }
+
     const metadata = validateMetadata(metadataJson);
     if (metadata === null) {
       setError('Invalid JSON in metadata field');
@@ -162,6 +221,8 @@ export function ExtractionTemplateForm({
         batch_size: batchSize,
         top_k_examples: topKExamples,
         is_favorite: isFavorite,
+        context_prefix_tokens: contextPrefixTokens,
+        context_suffix_tokens: contextSuffixTokens,
         extraction_filter_enabled: filterEnabled,
         extraction_filter_mode: filterMode,
         extra_metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
@@ -179,6 +240,9 @@ export function ExtractionTemplateForm({
         setBatchSize(32);
         setTopKExamples(10);
         setIsFavorite(false);
+        setContextPrefixTokens(5);
+        setContextSuffixTokens(3);
+        setContextPreset('standard');
         setFilterEnabled(false);
         setFilterMode('standard');
         setMetadataJson('{}');
@@ -358,6 +422,88 @@ export function ExtractionTemplateForm({
             />
             <span className="text-sm text-slate-300">Mark as favorite</span>
           </label>
+        </div>
+
+        {/* Context Window Configuration */}
+        <div className="border-t border-slate-700 pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-slate-100">
+              Context Window Configuration
+            </label>
+            <span className="text-xs text-slate-500">
+              Tokens to capture around max activation
+            </span>
+          </div>
+
+          <div className="space-y-3 bg-slate-800/50 p-4 rounded border border-slate-700/50">
+            {/* Preset Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-300">Preset</label>
+              <select
+                value={contextPreset}
+                onChange={(e) => handleContextPresetChange(e.target.value as typeof contextPreset)}
+                disabled={isSubmitting}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              >
+                <option value="quick">Quick (3 before, 2 after)</option>
+                <option value="standard">Standard (5 before, 3 after) - Recommended</option>
+                <option value="deep">Deep (10 before, 5 after)</option>
+                <option value="symmetric">Symmetric (5 before, 5 after)</option>
+                <option value="custom">Custom</option>
+              </select>
+              <p className="text-xs text-slate-500">
+                {contextPreset === 'quick' && 'Minimal context for quick extraction'}
+                {contextPreset === 'standard' && 'Research-backed asymmetric window (default)'}
+                {contextPreset === 'deep' && 'Extended context for complex features'}
+                {contextPreset === 'symmetric' && 'Equal tokens before and after'}
+                {contextPreset === 'custom' && 'Custom token counts'}
+              </p>
+            </div>
+
+            {/* Custom Token Inputs */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="context-prefix" className="block text-xs font-medium text-slate-300 mb-1">
+                  Tokens Before
+                </label>
+                <input
+                  id="context-prefix"
+                  type="number"
+                  value={contextPrefixTokens}
+                  onChange={(e) => handleContextPrefixChange(parseInt(e.target.value, 10))}
+                  min="1"
+                  max="20"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  disabled={isSubmitting}
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="context-suffix" className="block text-xs font-medium text-slate-300 mb-1">
+                  Tokens After
+                </label>
+                <input
+                  id="context-suffix"
+                  type="number"
+                  value={contextSuffixTokens}
+                  onChange={(e) => handleContextSuffixChange(parseInt(e.target.value, 10))}
+                  min="1"
+                  max="20"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  disabled={isSubmitting}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded">
+              <div className="text-blue-400 text-xs leading-relaxed">
+                <strong>Total window:</strong> {contextPrefixTokens + 1 + contextSuffixTokens} tokens
+                ({contextPrefixTokens} prefix + 1 prime + {contextSuffixTokens} suffix)
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Token Filtering Settings */}

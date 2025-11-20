@@ -52,6 +52,18 @@ export const ResourceConfigPanel: React.FC<ResourceConfigPanelProps> = ({
    */
   const fetchEstimate = useCallback(
     async (batch?: number | null, workers?: number | null, commit?: number | null) => {
+      // Validate parameters before making API call
+      if (evaluationSamples < 1000 || evaluationSamples > 100000) {
+        setError('Evaluation samples must be between 1,000 and 100,000');
+        setIsLoading(false);
+        return;
+      }
+      if (topKExamples < 10 || topKExamples > 1000) {
+        setError('Top-K examples must be between 10 and 1,000');
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 

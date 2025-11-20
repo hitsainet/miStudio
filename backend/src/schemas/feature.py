@@ -76,13 +76,26 @@ class FeatureSearchRequest(BaseModel):
 
 
 class FeatureActivationExample(BaseModel):
-    """Single max-activating example for a feature."""
+    """
+    Single max-activating example for a feature.
+
+    Supports both legacy (simple token list) and enhanced (context window) formats.
+    Enhanced format includes prefix/prime/suffix breakdown with positions.
+    """
     model_config = ConfigDict(from_attributes=True)
 
+    # Legacy format (always present for backward compatibility)
     tokens: List[str]
     activations: List[float]
     max_activation: float
     sample_index: int
+
+    # Enhanced context window format (optional, present in new extractions)
+    prefix_tokens: Optional[List[str]] = None
+    prime_token: Optional[str] = None
+    suffix_tokens: Optional[List[str]] = None
+    prime_activation_index: Optional[int] = None
+    token_positions: Optional[List[int]] = None
 
 
 class FeatureResponse(BaseModel):

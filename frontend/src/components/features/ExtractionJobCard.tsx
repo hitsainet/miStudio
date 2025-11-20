@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown } from 'lucide-react';
+import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import type { ExtractionStatusResponse, FeatureSearchRequest } from '../../types/features';
 import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
@@ -261,6 +261,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
     };
     setSearchFilters(extraction.id, newFilters);
     fetchExtractionFeatures(extraction.id, newFilters);
+  };
+
+  /**
+   * Handle refresh - reload current page of features.
+   */
+  const handleRefresh = () => {
+    fetchExtractionFeatures(extraction.id, filters);
   };
 
   /**
@@ -643,6 +650,15 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                     Go
                   </button>
                 </div>
+                {/* Refresh button */}
+                <button
+                  onClick={handleRefresh}
+                  className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary} flex items-center gap-1.5`}
+                  title="Refresh features"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Refresh
+                </button>
                 {/* Previous/Next buttons */}
                 <div className="flex gap-2 border-l border-slate-700 pl-3">
                   <button
@@ -828,6 +844,15 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                     Go
                   </button>
                 </div>
+                {/* Refresh button */}
+                <button
+                  onClick={handleRefresh}
+                  className={`px-3 py-1 text-sm ${COMPONENTS.button.secondary} flex items-center gap-1.5`}
+                  title="Refresh features"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Refresh
+                </button>
                 {/* Previous/Next buttons */}
                 <div className="flex gap-2 border-l border-slate-700 pl-3">
                   <button

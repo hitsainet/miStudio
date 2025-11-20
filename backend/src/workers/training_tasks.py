@@ -1191,6 +1191,9 @@ def delete_training_files(training_id: str, training_dir: Optional[str] = None) 
     deleted_files = []
     errors = []
 
+    # Emit in_progress status first
+    emit_deletion_progress(training_id, "files", "in_progress", "Deleting training files...")
+
     try:
         # Delete training directory
         if training_dir and Path(training_dir).exists():

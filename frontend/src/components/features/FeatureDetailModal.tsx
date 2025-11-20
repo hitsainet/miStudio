@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Save, Star, Info, Activity, GitBranch, Zap, Hash } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
-import { TokenHighlight } from './TokenHighlight';
+import { TokenHighlightContext } from './TokenHighlight';
 import { LogitLensView } from './LogitLensView';
 import { FeatureCorrelations } from './FeatureCorrelations';
 import { AblationAnalysis } from './AblationAnalysis';
@@ -362,7 +362,7 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
                 <div className="space-y-4">
                   {featureExamples.map((example, index) => (
                     <div key={index} className="bg-slate-800 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-3">
                         <span className="text-xs text-slate-400">
                           Sample #{example.sample_index}
                         </span>
@@ -370,10 +370,15 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
                           Max: {example.max_activation.toFixed(3)}
                         </span>
                       </div>
-                      <TokenHighlight
-                        tokens={example.tokens}
+                      <TokenHighlightContext
+                        prefixTokens={example.prefix_tokens}
+                        primeToken={example.prime_token}
+                        suffixTokens={example.suffix_tokens}
                         activations={example.activations}
                         maxActivation={example.max_activation}
+                        primeActivationIndex={example.prime_activation_index}
+                        tokens={example.tokens}
+                        showGradient={true}
                       />
                     </div>
                   ))}

@@ -724,6 +724,11 @@ class ExtractionService:
             hidden_dim = training.hyperparameters.get("hidden_dim", 768)
             max_length = config.get("max_length", 512)
 
+            # Context window configuration (based on Anthropic/OpenAI research)
+            # Default: 5 tokens before + 3 tokens after = asymmetric window
+            context_prefix_tokens = config.get("context_prefix_tokens", 5)
+            context_suffix_tokens = config.get("context_suffix_tokens", 3)
+
             # Calculate recommended resource settings based on available system resources
             recommended_settings = ResourceConfig.get_optimal_settings(
                 training_config=training.hyperparameters,
@@ -1138,7 +1143,10 @@ class ExtractionService:
                                 filter_punctuation=extraction_job.filter_punctuation,
                                 filter_numbers=extraction_job.filter_numbers,
                                 filter_fragments=extraction_job.filter_fragments,
-                                filter_stop_words=extraction_job.filter_stop_words
+                                filter_stop_words=extraction_job.filter_stop_words,
+                                # Context window configuration
+                                context_prefix_tokens=context_prefix_tokens,
+                                context_suffix_tokens=context_suffix_tokens
                             )
 
                             # Update activation counts (vectorized)
@@ -1272,11 +1280,26 @@ class ExtractionService:
 
                 # Task 4.14: Store top-K examples in feature_activations table
                 for example in top_examples:
+                    # Check if example has enhanced context window format
+                    if "prefix_tokens" in example and "prime_token" in example:
+                        # Store enhanced format as structured object
+                        tokens_data = {
+                            "all_tokens": example["tokens"],
+                            "prefix_tokens": example["prefix_tokens"],
+                            "prime_token": example["prime_token"],
+                            "suffix_tokens": example["suffix_tokens"],
+                            "prime_activation_index": example["prime_activation_index"],
+                            "token_positions": example["token_positions"]
+                        }
+                    else:
+                        # Store legacy format as simple array
+                        tokens_data = example["tokens"]
+
                     activation_record = FeatureActivation(
                         feature_id=feature.id,
                         sample_index=example["sample_index"],
                         max_activation=example["max_activation"],
-                        tokens=example["tokens"],
+                        tokens=tokens_data,
                         activations=example["activations"]
                     )
                     self.db.add(activation_record)

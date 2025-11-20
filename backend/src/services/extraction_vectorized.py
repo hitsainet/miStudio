@@ -217,7 +217,10 @@ def batch_process_features(
     filter_punctuation: bool = True,
     filter_numbers: bool = True,
     filter_fragments: bool = True,
-    filter_stop_words: bool = False
+    filter_stop_words: bool = False,
+    # Context window parameters (based on Anthropic/OpenAI research)
+    context_prefix_tokens: int = 5,
+    context_suffix_tokens: int = 3
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
     """
     Vectorized feature processing - replaces sequential loop over features.
@@ -298,49 +301,67 @@ def batch_process_features(
                 max_act = max_activations_cpu[i, feat_idx]
 
                 if max_act > 0:
-                    # Get top-k token positions for this feature
-                    top_positions = top_k_indices_cpu[i, feat_idx, :top_k]
-                    top_activations = top_k_values_cpu[i, feat_idx, :top_k]
+                    # Get position of maximum activation (prime token)
+                    max_pos = int(max_positions_cpu[i, feat_idx])
 
-                    # Ensure positions are within token range
-                    valid_mask = top_positions < len(token_strings)
-                    top_positions = top_positions[valid_mask]
-                    top_activations = top_activations[valid_mask]
-
-                    # Apply token filtering - only keep non-filtered tokens
-                    filtered_tokens = []
-                    filtered_activations = []
-                    filtered_positions = []
-
-                    for pos, activation in zip(top_positions, top_activations):
-                        token = token_strings[pos]
-
-                        # Check if token should be filtered
-                        if not is_junk_token(
-                            token,
-                            filter_special=filter_special,
-                            filter_single_char=filter_single_char,
-                            filter_punctuation=filter_punctuation,
-                            filter_numbers=filter_numbers,
-                            filter_fragments=filter_fragments,
-                            filter_stop_words=filter_stop_words
-                        ):
-                            # Token passes filters - include it
-                            filtered_tokens.append(token)
-                            filtered_activations.append(float(activation))
-                            filtered_positions.append(int(pos))
-
-                    # Skip example if all tokens were filtered
-                    if not filtered_tokens:
+                    # Ensure max_pos is within valid range
+                    if max_pos >= len(token_strings):
                         continue
 
-                    # Build example dictionary with filtered tokens
+                    # Get prime token and check if it should be filtered
+                    prime_token = token_strings[max_pos]
+
+                    # Apply token filtering to prime token only
+                    if is_junk_token(
+                        prime_token,
+                        filter_special=filter_special,
+                        filter_single_char=filter_single_char,
+                        filter_punctuation=filter_punctuation,
+                        filter_numbers=filter_numbers,
+                        filter_fragments=filter_fragments,
+                        filter_stop_words=filter_stop_words
+                    ):
+                        # Skip if prime token is junk
+                        continue
+
+                    # Calculate context window boundaries
+                    prefix_start = max(0, max_pos - context_prefix_tokens)
+                    suffix_end = min(len(token_strings), max_pos + context_suffix_tokens + 1)
+
+                    # Extract context window tokens
+                    context_tokens = token_strings[prefix_start:suffix_end]
+
+                    # Get activation values for context window from the permuted tensor
+                    # vec_batch_permuted shape: (vec_batch_size, latent_dim, seq_len)
+                    context_activations = vec_batch_permuted[i, feat_idx, prefix_start:suffix_end].cpu().numpy()
+
+                    # Build token positions array
+                    token_positions = list(range(prefix_start, suffix_end))
+
+                    # Calculate prime token index within context
+                    prime_index = max_pos - prefix_start
+
+                    # Split into prefix, prime, suffix
+                    prefix_tokens = context_tokens[:prime_index]
+                    suffix_tokens = context_tokens[prime_index + 1:]
+
+                    # Build enhanced example dictionary with context window
+                    # Combine all context tokens for backward compatibility
+                    all_tokens = list(prefix_tokens) + [prime_token] + list(suffix_tokens)
+
                     example = {
                         "sample_index": global_sample_idx,
                         "max_activation": float(max_act),
-                        "tokens": filtered_tokens,
-                        "activations": filtered_activations,
-                        "token_positions": filtered_positions
+                        # New context window structure
+                        "prefix_tokens": [str(t) for t in prefix_tokens],
+                        "prime_token": str(prime_token),
+                        "suffix_tokens": [str(t) for t in suffix_tokens],
+                        "activation_values": [float(a) for a in context_activations],
+                        "prime_activation_index": int(prime_index),
+                        "token_positions": [int(p) for p in token_positions],
+                        # Backward compatibility (for database insertion)
+                        "tokens": [str(t) for t in all_tokens],
+                        "activations": [float(a) for a in context_activations]
                     }
 
                     all_feature_indices.append(feat_idx)

@@ -38,6 +38,10 @@ export interface ExtractionTemplate {
   top_k_examples: number;
   /** Whether this template is marked as favorite */
   is_favorite: boolean;
+  /** Number of tokens before max activation (context window prefix, default: 5) */
+  context_prefix_tokens?: number;
+  /** Number of tokens after max activation (context window suffix, default: 3) */
+  context_suffix_tokens?: number;
   /** Enable token filtering during extraction (default: false) */
   extraction_filter_enabled?: boolean;
   /** Filter mode: minimal, conservative, standard, or aggressive (default: 'standard') */
@@ -73,6 +77,10 @@ export interface ExtractionTemplateCreate {
   top_k_examples?: number;
   /** Whether this template is marked as favorite (default: false) */
   is_favorite?: boolean;
+  /** Number of tokens before max activation (context window prefix, default: 5) */
+  context_prefix_tokens?: number;
+  /** Number of tokens after max activation (context window suffix, default: 3) */
+  context_suffix_tokens?: number;
   /** Enable token filtering during extraction (default: false) */
   extraction_filter_enabled?: boolean;
   /** Filter mode: minimal, conservative, standard, or aggressive (default: 'standard') */
@@ -104,6 +112,10 @@ export interface ExtractionTemplateUpdate {
   top_k_examples?: number;
   /** Whether this template is marked as favorite */
   is_favorite?: boolean;
+  /** Number of tokens before max activation (context window prefix) */
+  context_prefix_tokens?: number;
+  /** Number of tokens after max activation (context window suffix) */
+  context_suffix_tokens?: number;
   /** Enable token filtering during extraction */
   extraction_filter_enabled?: boolean;
   /** Filter mode: minimal, conservative, standard, or aggressive */

@@ -68,6 +68,11 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [filterStopWords, setFilterStopWords] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
+  // Context window configuration
+  const [contextPrefixTokens, setContextPrefixTokens] = useState(5);
+  const [contextSuffixTokens, setContextSuffixTokens] = useState(3);
+  const [showContextWindow, setShowContextWindow] = useState(false);
+
   /**
    * Manually fetch Ollama models from the specified endpoint.
    */
@@ -112,6 +117,9 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         filter_numbers: filterNumbers,
         filter_fragments: filterFragments,
         filter_stop_words: filterStopWords,
+        // Context window configuration
+        context_prefix_tokens: contextPrefixTokens,
+        context_suffix_tokens: contextSuffixTokens,
         ...resourceConfig,
       } as any);
 
@@ -206,6 +214,70 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
+                </div>
+
+                {/* Context Window Configuration */}
+                <div className="bg-slate-900 rounded-lg border border-slate-700 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowContextWindow(!showContextWindow)}
+                    className="flex items-center justify-between w-full text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-300">Context Window</span>
+                      <span className="text-xs text-emerald-500">
+                        ({contextPrefixTokens} prefix + prime + {contextSuffixTokens} suffix)
+                      </span>
+                    </div>
+                    <span className="text-slate-400">{showContextWindow ? '▼' : '▶'}</span>
+                  </button>
+
+                  {showContextWindow && (
+                    <div className="mt-4 space-y-3">
+                      <p className="text-xs text-slate-400">
+                        Capture tokens before and after the prime token (max activation) to provide context for interpretation.
+                        Based on research from Anthropic/OpenAI showing asymmetric windows improve interpretability.
+                      </p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs text-slate-400 mb-1">Prefix Tokens (before prime)</label>
+                          <input
+                            type="number"
+                            value={contextPrefixTokens}
+                            onChange={(e) => setContextPrefixTokens(Number(e.target.value))}
+                            min={0}
+                            max={20}
+                            step={1}
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">
+                            Default: 5 tokens (recommended)
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-400 mb-1">Suffix Tokens (after prime)</label>
+                          <input
+                            type="number"
+                            value={contextSuffixTokens}
+                            onChange={(e) => setContextSuffixTokens(Number(e.target.value))}
+                            min={0}
+                            max={20}
+                            step={1}
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">
+                            Default: 3 tokens (recommended)
+                          </p>
+                        </div>
+                      </div>
+                      <div className="p-2 bg-slate-800/50 border border-slate-700 rounded text-xs text-slate-400">
+                        <span className="font-semibold text-emerald-400">Example:</span> With 5 prefix + 3 suffix, capturing "the quick brown fox" would show:
+                        <div className="mt-1 font-mono text-slate-300">
+                          <span className="opacity-60">[the quick brown]</span> <span className="text-emerald-400 font-bold">fox</span> <span className="opacity-60">[jumps over]</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Token Filtering Configuration */}

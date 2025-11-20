@@ -7,8 +7,8 @@ Stores top-K max-activating examples for each feature.
 
 from datetime import datetime
 
-from sqlalchemy import Column, BigInteger, String, Float, Integer, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, BigInteger, String, Float, Integer, DateTime, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import JSON, JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -40,8 +40,15 @@ class FeatureActivation(Base):
 
     # Activation data
     max_activation = Column(Float, nullable=False)
-    tokens = Column(JSONB, nullable=False)  # Array of token strings
+    tokens = Column(JSONB, nullable=False)  # Array of token strings (legacy format)
     activations = Column(JSONB, nullable=False)  # Array of activation values
+
+    # Context window data (enhanced format for better interpretability)
+    # Based on Anthropic/OpenAI research showing asymmetric context windows improve feature understanding
+    prefix_tokens = Column(JSON, nullable=True)  # Array of tokens before the prime token
+    prime_token = Column(Text, nullable=True)  # The prime token (token with max activation)
+    suffix_tokens = Column(JSON, nullable=True)  # Array of tokens after the prime token
+    prime_activation_index = Column(Integer, nullable=True)  # Index of prime token in original activation sequence
 
     # Timestamp
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

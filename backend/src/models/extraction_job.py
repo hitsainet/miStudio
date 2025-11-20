@@ -58,6 +58,12 @@ class ExtractionJob(Base):
     filter_fragments = Column(Boolean, nullable=False, default=True, server_default='true')  # Filter word fragments (BPE subwords)
     filter_stop_words = Column(Boolean, nullable=False, default=False, server_default='false')  # Filter common stop words
 
+    # Context window configuration (per-job)
+    # Captures tokens before and after the prime token (max activation) for better interpretability
+    # Based on Anthropic/OpenAI research showing asymmetric windows improve feature understanding
+    context_prefix_tokens = Column(Integer, nullable=False, default=5, server_default='5')  # Tokens before prime token
+    context_suffix_tokens = Column(Integer, nullable=False, default=3, server_default='3')  # Tokens after prime token
+
     # Processing status
     status = Column(
         SQLEnum(

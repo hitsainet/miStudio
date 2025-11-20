@@ -179,6 +179,9 @@ class ExtractionService:
             filter_numbers=config.get('filter_numbers', True),
             filter_fragments=config.get('filter_fragments', True),
             filter_stop_words=config.get('filter_stop_words', False),
+            # Context window configuration
+            context_prefix_tokens=config.get('context_prefix_tokens', 5),
+            context_suffix_tokens=config.get('context_suffix_tokens', 3),
             progress=0.0,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
@@ -726,8 +729,9 @@ class ExtractionService:
 
             # Context window configuration (based on Anthropic/OpenAI research)
             # Default: 5 tokens before + 3 tokens after = asymmetric window
-            context_prefix_tokens = config.get("context_prefix_tokens", 5)
-            context_suffix_tokens = config.get("context_suffix_tokens", 3)
+            # Read from extraction_job columns (preferred) or fall back to config
+            context_prefix_tokens = extraction_job.context_prefix_tokens
+            context_suffix_tokens = extraction_job.context_suffix_tokens
 
             # Calculate recommended resource settings based on available system resources
             recommended_settings = ResourceConfig.get_optimal_settings(

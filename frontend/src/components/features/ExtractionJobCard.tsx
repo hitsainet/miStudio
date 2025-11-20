@@ -920,6 +920,12 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               <div>Eval Samples: <span className={COMPONENTS.text.primary}>{extraction.config.evaluation_samples?.toLocaleString() || 'N/A'}</span></div>
               <div className="col-span-2">Top-K Examples: <span className={COMPONENTS.text.primary}>{extraction.config.top_k_examples || 'N/A'}</span></div>
 
+              {/* Context Window Configuration */}
+              <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Context Window</div>
+              <div>Prefix Tokens: <span className={COMPONENTS.text.primary}>{extraction.context_prefix_tokens ?? 5}</span></div>
+              <div>Prime Token: <span className="text-emerald-400">1</span></div>
+              <div>Suffix Tokens: <span className={COMPONENTS.text.primary}>{extraction.context_suffix_tokens ?? 3}</span></div>
+
               {/* Token Filtering Configuration */}
               <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Token Filtering</div>
               <div className="col-span-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
@@ -937,14 +943,6 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   </span>
                   <span className={extraction.filter_single_char !== false ? 'text-slate-300' : 'text-slate-500'}>
                     Single characters
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className={extraction.filter_punctuation !== false ? 'text-emerald-400' : 'text-slate-500'}>
-                    {extraction.filter_punctuation !== false ? '✓' : '○'}
-                  </span>
-                  <span className={extraction.filter_punctuation !== false ? 'text-slate-300' : 'text-slate-500'}>
-                    Punctuation
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -969,6 +967,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   </span>
                   <span className={extraction.filter_stop_words === true ? 'text-slate-300' : 'text-slate-500'}>
                     Stop words
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={extraction.filter_punctuation !== false ? 'text-emerald-400' : 'text-slate-500'}>
+                    {extraction.filter_punctuation !== false ? '✓' : '○'}
+                  </span>
+                  <span className={extraction.filter_punctuation !== false ? 'text-slate-300' : 'text-slate-500'}>
+                    Punctuation
                   </span>
                 </div>
               </div>

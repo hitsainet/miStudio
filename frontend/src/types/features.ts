@@ -58,6 +58,9 @@ export interface ExtractionStatusResponse {
   filter_numbers?: boolean;
   filter_fragments?: boolean;
   filter_stop_words?: boolean;
+  // Context window configuration
+  context_prefix_tokens?: number;
+  context_suffix_tokens?: number;
 }
 
 /**

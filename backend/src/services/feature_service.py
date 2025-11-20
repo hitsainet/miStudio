@@ -167,12 +167,35 @@ class FeatureService:
                 example = example_result.scalar_one_or_none()
 
                 if example:
-                    example_context = FeatureActivationExample(
-                        tokens=example.tokens,
-                        activations=example.activations,
-                        max_activation=example.max_activation,
-                        sample_index=example.sample_index
-                    )
+                    # Handle both legacy and new data formats
+                    # Legacy: tokens is a dict with all_tokens key (from old extraction code)
+                    # New: tokens is a simple list, context window in dedicated columns
+                    if isinstance(example.tokens, dict):
+                        # Old extraction format: tokens field is a dict
+                        tokens_list = example.tokens.get("all_tokens", example.tokens.get("tokens", []))
+                        example_context = FeatureActivationExample(
+                            tokens=tokens_list,
+                            activations=example.activations,
+                            max_activation=example.max_activation,
+                            sample_index=example.sample_index,
+                            prefix_tokens=example.tokens.get("prefix_tokens"),
+                            prime_token=example.tokens.get("prime_token"),
+                            suffix_tokens=example.tokens.get("suffix_tokens"),
+                            prime_activation_index=example.tokens.get("prime_activation_index"),
+                            token_positions=example.tokens.get("token_positions")
+                        )
+                    else:
+                        # New extraction format or legacy: tokens is a list, check dedicated columns
+                        example_context = FeatureActivationExample(
+                            tokens=example.tokens,
+                            activations=example.activations,
+                            max_activation=example.max_activation,
+                            sample_index=example.sample_index,
+                            prefix_tokens=example.prefix_tokens,
+                            prime_token=example.prime_token,
+                            suffix_tokens=example.suffix_tokens,
+                            prime_activation_index=example.prime_activation_index
+                        )
 
             feature_response = FeatureResponse(
                 id=feature.id,
@@ -349,12 +372,35 @@ class FeatureService:
                 example = example_result.scalar_one_or_none()
 
                 if example:
-                    example_context = FeatureActivationExample(
-                        tokens=example.tokens,
-                        activations=example.activations,
-                        max_activation=example.max_activation,
-                        sample_index=example.sample_index
-                    )
+                    # Handle both legacy and new data formats
+                    # Legacy: tokens is a dict with all_tokens key (from old extraction code)
+                    # New: tokens is a simple list, context window in dedicated columns
+                    if isinstance(example.tokens, dict):
+                        # Old extraction format: tokens field is a dict
+                        tokens_list = example.tokens.get("all_tokens", example.tokens.get("tokens", []))
+                        example_context = FeatureActivationExample(
+                            tokens=tokens_list,
+                            activations=example.activations,
+                            max_activation=example.max_activation,
+                            sample_index=example.sample_index,
+                            prefix_tokens=example.tokens.get("prefix_tokens"),
+                            prime_token=example.tokens.get("prime_token"),
+                            suffix_tokens=example.tokens.get("suffix_tokens"),
+                            prime_activation_index=example.tokens.get("prime_activation_index"),
+                            token_positions=example.tokens.get("token_positions")
+                        )
+                    else:
+                        # New extraction format or legacy: tokens is a list, check dedicated columns
+                        example_context = FeatureActivationExample(
+                            tokens=example.tokens,
+                            activations=example.activations,
+                            max_activation=example.max_activation,
+                            sample_index=example.sample_index,
+                            prefix_tokens=example.prefix_tokens,
+                            prime_token=example.prime_token,
+                            suffix_tokens=example.suffix_tokens,
+                            prime_activation_index=example.prime_activation_index
+                        )
 
             feature_response = FeatureResponse(
                 id=feature.id,

@@ -1286,26 +1286,28 @@ class ExtractionService:
                 for example in top_examples:
                     # Check if example has enhanced context window format
                     if "prefix_tokens" in example and "prime_token" in example:
-                        # Store enhanced format as structured object
-                        tokens_data = {
-                            "all_tokens": example["tokens"],
-                            "prefix_tokens": example["prefix_tokens"],
-                            "prime_token": example["prime_token"],
-                            "suffix_tokens": example["suffix_tokens"],
-                            "prime_activation_index": example["prime_activation_index"],
-                            "token_positions": example["token_positions"]
-                        }
+                        # Store enhanced format in dedicated columns
+                        activation_record = FeatureActivation(
+                            feature_id=feature.id,
+                            sample_index=example["sample_index"],
+                            max_activation=example["max_activation"],
+                            tokens=example["tokens"],  # Legacy format: simple array
+                            activations=example["activations"],
+                            # Enhanced context window fields
+                            prefix_tokens=example["prefix_tokens"],
+                            prime_token=example["prime_token"],
+                            suffix_tokens=example["suffix_tokens"],
+                            prime_activation_index=example["prime_activation_index"]
+                        )
                     else:
-                        # Store legacy format as simple array
-                        tokens_data = example["tokens"]
-
-                    activation_record = FeatureActivation(
-                        feature_id=feature.id,
-                        sample_index=example["sample_index"],
-                        max_activation=example["max_activation"],
-                        tokens=tokens_data,
-                        activations=example["activations"]
-                    )
+                        # Store legacy format (no context window)
+                        activation_record = FeatureActivation(
+                            feature_id=feature.id,
+                            sample_index=example["sample_index"],
+                            max_activation=example["max_activation"],
+                            tokens=example["tokens"],
+                            activations=example["activations"]
+                        )
                     self.db.add(activation_record)
 
                 # Accumulate statistics

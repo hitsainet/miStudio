@@ -289,7 +289,10 @@ class ExtractionService:
             "filter_punctuation": extraction_job.filter_punctuation,
             "filter_numbers": extraction_job.filter_numbers,
             "filter_fragments": extraction_job.filter_fragments,
-            "filter_stop_words": extraction_job.filter_stop_words
+            "filter_stop_words": extraction_job.filter_stop_words,
+            # Context window configuration
+            "context_prefix_tokens": extraction_job.context_prefix_tokens,
+            "context_suffix_tokens": extraction_job.context_suffix_tokens
         }
 
     async def list_extractions(
@@ -398,7 +401,10 @@ class ExtractionService:
                 "filter_punctuation": extraction_job.filter_punctuation,
                 "filter_numbers": extraction_job.filter_numbers,
                 "filter_fragments": extraction_job.filter_fragments,
-                "filter_stop_words": extraction_job.filter_stop_words
+                "filter_stop_words": extraction_job.filter_stop_words,
+                # Context window configuration
+                "context_prefix_tokens": extraction_job.context_prefix_tokens,
+                "context_suffix_tokens": extraction_job.context_suffix_tokens
             })
 
         return extractions_list, total

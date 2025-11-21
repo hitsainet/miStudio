@@ -60,6 +60,12 @@ class ExtractionConfigRequest(BaseModel):
     filter_fragments: bool = Field(True, description="Filter word fragments (BPE subwords)")
     filter_stop_words: bool = Field(False, description="Filter common stop words (the, and, is, etc.)")
 
+    # Context window configuration
+    # Captures tokens before and after the prime token (max activation) for better interpretability
+    # Based on Anthropic/OpenAI research showing asymmetric windows improve feature understanding
+    context_prefix_tokens: int = Field(5, ge=0, le=50, description="Number of tokens before the prime token (0-50)")
+    context_suffix_tokens: int = Field(3, ge=0, le=50, description="Number of tokens after the prime token (0-50)")
+
     # NOTE: Labeling configuration has been removed from extraction
     # Features are created unlabeled and can be labeled separately via LabelingService
     # This allows re-labeling without re-extraction
@@ -95,6 +101,10 @@ class ExtractionStatusResponse(BaseModel):
     filter_numbers: Optional[bool] = True
     filter_fragments: Optional[bool] = True
     filter_stop_words: Optional[bool] = False
+
+    # Context window configuration
+    context_prefix_tokens: Optional[int] = 5
+    context_suffix_tokens: Optional[int] = 3
 
 
 class ExtractionListResponse(BaseModel):

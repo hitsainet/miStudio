@@ -56,11 +56,13 @@ class LabelingContextFormatter:
             # Build context string: "prefix <<prime>> suffix"
             context_parts = []
             if prefix_tokens:
-                context_parts.append(' '.join(prefix_tokens))
+                context_parts.append(LabelingContextFormatter._join_tokens_naturally(prefix_tokens))
             if prime_token:
-                context_parts.append(f'{marker_left}{prime_token}{marker_right}')
+                # Clean the prime token for display
+                clean_prime = LabelingContextFormatter._clean_token(prime_token)
+                context_parts.append(f'{marker_left}{clean_prime}{marker_right}')
             if suffix_tokens:
-                context_parts.append(' '.join(suffix_tokens))
+                context_parts.append(LabelingContextFormatter._join_tokens_naturally(suffix_tokens))
 
             context = ' '.join(context_parts)
 
@@ -188,6 +190,63 @@ class LabelingContextFormatter:
 
         # Otherwise, treat entire marker as suffix only
         return ('', marker)
+
+    @staticmethod
+    def _join_tokens_naturally(tokens: List[str]) -> str:
+        """
+        Join tokens with proper spacing, reuniting subword tokens.
+
+        Many tokenizers (GPT-2, GPT-3, etc.) use special characters to mark word boundaries:
+        - 'Ġ' (U+0120) indicates the start of a new word (GPT-2)
+        - '▁' indicates word start (SentencePiece)
+        - '##' indicates word continuation (BERT)
+        - Tokens without these markers continue the previous word
+
+        Examples:
+            ["Ġtoken", "ization"] → "tokenization"
+            ["Ġhello", "Ġworld"] → "hello world"
+            ["Ġun", "der", "stand", "ing"] → "understanding"
+
+        Args:
+            tokens: List of token strings
+
+        Returns:
+            Human-readable text with proper spacing
+        """
+        if not tokens:
+            return ''
+
+        result_parts = []
+
+        for token in tokens:
+            # Check if this token starts a new word
+            if token.startswith('Ġ'):
+                # GPT-2 style: Remove marker and add space before (except at start)
+                clean_token = token[1:]
+                if result_parts:
+                    result_parts.append(' ')
+                result_parts.append(clean_token)
+            elif token.startswith('▁'):
+                # SentencePiece style: Remove marker and add space before (except at start)
+                clean_token = token[1:]
+                if result_parts:
+                    result_parts.append(' ')
+                result_parts.append(clean_token)
+            elif token.startswith('##'):
+                # BERT style: Remove marker and append directly (continuation)
+                clean_token = token[2:]
+                result_parts.append(clean_token)
+            elif token.startswith(' '):
+                # Some tokenizers use actual space
+                clean_token = token[1:]
+                if result_parts:
+                    result_parts.append(' ')
+                result_parts.append(clean_token)
+            else:
+                # No marker - continuation of previous word
+                result_parts.append(token)
+
+        return ''.join(result_parts)
 
     @staticmethod
     def _clean_token(token: str) -> str:

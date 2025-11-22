@@ -762,7 +762,11 @@ class LabelingService:
                             label_tasks.append(task)
 
                         # Execute all labeling tasks concurrently
-                        batch_labels = asyncio.run(asyncio.gather(*label_tasks, return_exceptions=True))
+                        # Wrap gather in an async function for asyncio.run()
+                        async def run_batch():
+                            return await asyncio.gather(*label_tasks, return_exceptions=True)
+
+                        batch_labels = asyncio.run(run_batch())
 
                         # Persist this batch immediately
                         for feature, label, examples in zip(batch_features, batch_labels, batch_examples):
@@ -898,7 +902,11 @@ class LabelingService:
                             label_tasks.append(task)
 
                         # Execute all labeling tasks concurrently
-                        batch_labels = asyncio.run(asyncio.gather(*label_tasks, return_exceptions=True))
+                        # Wrap gather in an async function for asyncio.run()
+                        async def run_batch():
+                            return await asyncio.gather(*label_tasks, return_exceptions=True)
+
+                        batch_labels = asyncio.run(run_batch())
 
                         # Persist this batch immediately
                         for feature, label, examples in zip(batch_features, batch_labels, batch_examples):

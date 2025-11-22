@@ -106,7 +106,12 @@ class SparseAutoencoder(nn.Module):
         if self.normalize_activations == 'constant_norm_rescale':
             # SAELens standard: E(||x||) = sqrt(hidden_dim)
             import math
-            norm_coeff = math.sqrt(self.hidden_dim) / x.norm(dim=-1, keepdim=True)
+            x_norm = x.norm(dim=-1, keepdim=True)
+
+            # Safety: Prevent division by zero
+            x_norm = torch.clamp(x_norm, min=1e-6)
+
+            norm_coeff = math.sqrt(self.hidden_dim) / x_norm
             x_normalized = x * norm_coeff
             return x_normalized, norm_coeff
         elif self.normalize_activations == 'none':
@@ -210,10 +215,11 @@ class SparseAutoencoder(nn.Module):
             # Reconstruction loss (MSE)
             loss_reconstruction = F.mse_loss(x_reconstructed, x, reduction='mean')
 
-            # L1 sparsity penalty (SAELens standard)
-            # Mean across both features and batch
-            # This normalizes penalty by number of features, making l1_alpha transferable
-            l1_penalty = z.abs().mean()
+            # L1 sparsity penalty (per-sample L1 norm, then averaged over batch)
+            # This is the correct formulation from Anthropic's "Towards Monosemanticity"
+            # Sum L1 norm per sample, then average across batch
+            # Shape: [batch, latent_dim] -> sum over latent_dim -> [batch] -> mean over batch -> scalar
+            l1_penalty = z.abs().sum(dim=-1).mean()
 
             # L0 sparsity (fraction of active features)
             l0_sparsity = (z > 0).float().mean()
@@ -355,7 +361,8 @@ class SkipAutoencoder(SparseAutoencoder):
         losses = {}
         if return_loss:
             loss_reconstruction = F.mse_loss(x_reconstructed, x, reduction='mean')
-            l1_penalty = z.abs().mean()
+            # L1 penalty: per-sample L1 norm, averaged over batch
+            l1_penalty = z.abs().sum(dim=-1).mean()
             l0_sparsity = (z > 0).float().mean()
 
             # Zero ablation: just the skip connection
@@ -482,10 +489,8 @@ class Transcoder(nn.Module):
             # Reconstruction loss (how well do we predict layer j from layer i?)
             loss_reconstruction = F.mse_loss(x_transcoded, x_target, reduction='mean')
 
-            # L1 sparsity penalty (SAELens standard)
-            # Mean across both features and batch
-            # This normalizes penalty by number of features, making l1_alpha transferable
-            l1_penalty = z.abs().mean()
+            # L1 sparsity penalty: per-sample L1 norm, averaged over batch
+            l1_penalty = z.abs().sum(dim=-1).mean()
 
             # L0 sparsity
             l0_sparsity = (z > 0).float().mean()

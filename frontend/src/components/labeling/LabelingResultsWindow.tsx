@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Copy } from 'lucide-react';
 import { LabelingResult, useLabelingResultsWebSocket } from '../../hooks/useLabelingResultsWebSocket';
+import { joinTokensWithProperSpacing } from '../../utils/tokenDisplay';
 
 interface LabelingResultsWindowProps {
   labelingJobId: string | null;
@@ -51,10 +52,14 @@ export const LabelingResultsWindow: React.FC<LabelingResultsWindowProps> = ({
       if (examples.length > 0) {
         text += 'Examples:\n';
         examples.slice(0, 10).forEach((ex, idx) => {
-          const prefix = ex.prefix_tokens?.slice(-10).join(' ') || '';
+          const prefix = joinTokensWithProperSpacing(ex.prefix_tokens?.slice(-10) || []);
           const prime = ex.prime_token || '';
-          const suffix = ex.suffix_tokens?.slice(0, 10).join(' ') || '';
-          text += `${String(idx + 1).padStart(2, '0')}: ${prefix} ${prime} ${suffix}\n`;
+          const suffix = joinTokensWithProperSpacing(ex.suffix_tokens?.slice(0, 10) || []);
+          // Add space before prime if it starts a new word
+          const spaceBeforePrime = prime.startsWith('Ġ') || prime.startsWith(' ') ? ' ' : '';
+          // Add space before suffix if it starts a new word
+          const spaceBeforeSuffix = (ex.suffix_tokens?.[0]?.startsWith('Ġ') || ex.suffix_tokens?.[0]?.startsWith(' ')) ? ' ' : '';
+          text += `${String(idx + 1).padStart(2, '0')}: ${prefix}${spaceBeforePrime}${prime}${spaceBeforeSuffix}${suffix}\n`;
         });
         if (examples.length > 10) {
           text += `... +${examples.length - 10} more examples\n`;
@@ -141,18 +146,27 @@ export const LabelingResultsWindow: React.FC<LabelingResultsWindowProps> = ({
               {/* Display numbered list of examples with prefix, prime, and suffix tokens */}
               {examples.length > 0 && (
                 <div className="space-y-0.5 mt-2">
-                  {examples.slice(0, 10).map((example, idx) => (
-                    <div key={idx} className="text-xs font-mono text-slate-300">
-                      <span className="text-slate-500">{String(idx + 1).padStart(2, '0')}:</span>{' '}
-                      <span className="text-slate-400">
-                        {example.prefix_tokens?.slice(-10).join(' ')}
-                      </span>{' '}
-                      <span className="text-emerald-400 font-semibold">{example.prime_token}</span>{' '}
-                      <span className="text-slate-400">
-                        {example.suffix_tokens?.slice(0, 10).join(' ')}
-                      </span>
-                    </div>
-                  ))}
+                  {examples.slice(0, 10).map((example, idx) => {
+                    const prefix = joinTokensWithProperSpacing(example.prefix_tokens?.slice(-10) || []);
+                    const prime = example.prime_token || '';
+                    const suffix = joinTokensWithProperSpacing(example.suffix_tokens?.slice(0, 10) || []);
+                    // Check if we need spaces around the prime token
+                    const spaceBeforePrime = prime.startsWith('Ġ') || prime.startsWith(' ');
+                    const spaceBeforeSuffix = example.suffix_tokens?.[0]?.startsWith('Ġ') || example.suffix_tokens?.[0]?.startsWith(' ');
+                    // Clean the prime token of space markers for display
+                    const cleanPrime = prime.replace(/^Ġ/, '').trim() || prime;
+
+                    return (
+                      <div key={idx} className="text-xs font-mono text-slate-300">
+                        <span className="text-slate-500">{String(idx + 1).padStart(2, '0')}:</span>{' '}
+                        <span className="text-slate-400">{prefix}</span>
+                        {spaceBeforePrime && prefix && <span> </span>}
+                        <span className="text-emerald-400 font-semibold">{cleanPrime}</span>
+                        {spaceBeforeSuffix && suffix && <span> </span>}
+                        <span className="text-slate-400">{suffix}</span>
+                      </div>
+                    );
+                  })}
                   {examples.length > 10 && (
                     <div className="text-xs text-slate-500 italic">
                       +{examples.length - 10} more examples

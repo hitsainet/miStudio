@@ -267,6 +267,53 @@ async def delete_template(
         )
 
 
+@router.post("/{template_id}/clone", response_model=LabelingPromptTemplateResponse, status_code=201)
+async def clone_template(
+    template_id: str,
+    new_name: Optional[str] = Query(None, description="Custom name for the cloned template"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Clone a labeling prompt template.
+
+    Creates an editable copy of an existing template (including system templates).
+    The cloned template will always be a user template (is_system=False) and not default.
+
+    Args:
+        template_id: Template ID to clone
+        new_name: Optional custom name for the clone. If not provided, appends " (Copy)" to original name
+        db: Database session
+
+    Returns:
+        Cloned labeling prompt template
+
+    Raises:
+        HTTPException: If source template not found
+    """
+    try:
+        cloned_template = await LabelingPromptTemplateService.clone_template(
+            db,
+            template_id,
+            new_name
+        )
+
+        if not cloned_template:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Labeling prompt template {template_id} not found"
+            )
+
+        return cloned_template
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to clone labeling prompt template {template_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clone template: {str(e)}"
+        )
+
+
 @router.post("/{template_id}/set-default", response_model=LabelingPromptTemplateSetDefaultResponse)
 async def set_default_template(
     template_id: str,

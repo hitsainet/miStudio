@@ -730,7 +730,7 @@ def emit_labeling_result(
     Emit individual feature labeling result in real-time.
 
     Emits each labeled feature as it's completed, allowing frontend
-    to display a live feed of labeling results.
+    to display a live feed of labeling results with full activation context.
 
     Args:
         labeling_job_id: Labeling job ID
@@ -739,7 +739,11 @@ def emit_labeling_result(
             - label: Assigned feature name
             - category: Feature category (e.g., "semantic", "syntactic")
             - description: Feature description (optional)
-            - example_tokens: List of top activating tokens
+            - examples: List of activation examples (up to 10) with structure:
+                * prefix_tokens: List of tokens before prime token
+                * prime_token: The token with highest activation
+                * suffix_tokens: List of tokens after prime token
+                * max_activation: Activation strength value
 
     Returns:
         True if emission succeeded, False otherwise
@@ -755,7 +759,14 @@ def emit_labeling_result(
         ...         "label": "common_prepositions",
         ...         "category": "semantic",
         ...         "description": "Detects common prepositions like 'of', 'to', 'at'",
-        ...         "example_tokens": ["▁of", "▁to", "▁at", "▁in", "▁on"]
+        ...         "examples": [
+        ...             {
+        ...                 "prefix_tokens": ["the", "end"],
+        ...                 "prime_token": "▁of",
+        ...                 "suffix_tokens": ["the", "day"],
+        ...                 "max_activation": 8.5
+        ...             }
+        ...         ]
         ...     }
         ... )
         True

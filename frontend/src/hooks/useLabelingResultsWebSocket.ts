@@ -1,12 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { useWebSocketContext } from '../contexts/WebSocketContext';
 
+export interface ActivationExample {
+  prefix_tokens: string[];
+  prime_token: string;
+  suffix_tokens: string[];
+  max_activation: number;
+}
+
 export interface LabelingResult {
   feature_id: number;
   label: string;
   category: string;
   description: string;
-  example_tokens: string[];
+  examples: ActivationExample[];
 }
 
 export const useLabelingResultsWebSocket = (

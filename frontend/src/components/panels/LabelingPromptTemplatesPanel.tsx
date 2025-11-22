@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react';
-import { Plus, Star, Trash2, Edit2, Check, Download, Upload, AlertCircle, Eye } from 'lucide-react';
+import { Plus, Star, Trash2, Edit2, Check, Download, Upload, AlertCircle, Eye, Copy } from 'lucide-react';
 import { useLabelingPromptTemplatesStore } from '../../stores/labelingPromptTemplatesStore';
 import {
   LabelingPromptTemplate,
@@ -33,6 +33,7 @@ export function LabelingPromptTemplatesPanel() {
     createTemplate,
     updateTemplate,
     deleteTemplate,
+    cloneTemplate,
     setDefaultTemplate,
     clearError,
   } = useLabelingPromptTemplatesStore();
@@ -200,6 +201,18 @@ export function LabelingPromptTemplatesPanel() {
       top_p: template.top_p,
     });
     setShowEditModal(true);
+  };
+
+  // Handle clone template
+  const handleClone = async (template: LabelingPromptTemplate) => {
+    try {
+      await cloneTemplate(template.id);
+      showNotification('success', `Template "${template.name}" cloned successfully`);
+      // Refresh templates list
+      await fetchTemplates({ page: 1, limit: 50, include_system: true });
+    } catch (err) {
+      showNotification('error', err instanceof Error ? err.message : 'Failed to clone template');
+    }
   };
 
   // Handle export templates
@@ -452,6 +465,13 @@ export function LabelingPromptTemplatesPanel() {
                           <Star className="w-4 h-4" />
                         </button>
                       )}
+                      <button
+                        onClick={() => handleClone(template)}
+                        className="p-2 text-slate-400 hover:text-purple-400 hover:bg-slate-700 rounded transition-colors"
+                        title="Clone template"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
                       {!template.is_system && (
                         <>
                           <button

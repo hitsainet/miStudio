@@ -536,6 +536,124 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
 
         return prompt
 
+    def _format_examples_block(
+        self,
+        examples: List[Dict[str, Any]],
+        template_config: Dict[str, Any],
+        feature_id: str,
+        logit_effects: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Format activation examples into a prompt-ready text block using LabelingContextFormatter.
+
+        Dispatches to the appropriate formatter method based on template_type:
+        - mistudio_context: miStudio Internal format (prefix <<prime>> suffix)
+        - anthropic_logit: Anthropic Style format (with logit effects section)
+        - eleutherai_detection: EleutherAI Detection format (test examples for scoring)
+
+        Args:
+            examples: List of example dicts with keys:
+                - prefix_tokens: List of tokens before prime
+                - prime_token: The token with maximum activation
+                - suffix_tokens: List of tokens after prime
+                - max_activation: Peak activation value for this example
+            template_config: Dict with template configuration:
+                - template_type: 'mistudio_context', 'anthropic_logit', or 'eleutherai_detection'
+                - prime_token_marker: Marker format like '<<>>'
+                - include_prefix: Whether to include prefix tokens
+                - include_suffix: Whether to include suffix tokens
+                - include_logit_effects: Whether to include logit effects section
+                - top_promoted_tokens_count: Number of promoted tokens to show
+                - top_suppressed_tokens_count: Number of suppressed tokens to show
+            feature_id: Feature identifier for context
+            logit_effects: Optional dict with 'top_promoted' and 'top_suppressed' token lists
+
+        Returns:
+            Formatted examples block string ready for prompt insertion
+        """
+        from src.services.labeling_context_formatter import LabelingContextFormatter
+
+        template_type = template_config.get('template_type', 'mistudio_context')
+
+        # Dispatch to appropriate formatter based on template type
+        if template_type == 'anthropic_logit':
+            return LabelingContextFormatter.format_anthropic_logit(
+                examples=examples,
+                logit_effects=logit_effects or {},
+                template_config=template_config,
+                feature_id=feature_id
+            )
+        elif template_type == 'eleutherai_detection':
+            return LabelingContextFormatter.format_eleutherai_detection(
+                examples=examples,
+                template_config=template_config
+            )
+        else:  # Default to mistudio_context
+            return LabelingContextFormatter.format_mistudio_context(
+                examples=examples,
+                template_config=template_config,
+                feature_id=feature_id
+            )
+
+    def _build_user_prompt(
+        self,
+        examples: List[Dict[str, Any]],
+        template_config: Dict[str, Any],
+        user_prompt_template: str,
+        feature_id: str,
+        logit_effects: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Build user prompt from template by replacing {examples_block} placeholder.
+
+        This method orchestrates the full prompt building workflow:
+        1. Formats examples using _format_examples_block
+        2. Replaces {examples_block} placeholder in template
+        3. Replaces other optional placeholders (feature_id, logit tokens)
+
+        Args:
+            examples: List of activation example dicts
+            template_config: Template configuration dict
+            user_prompt_template: User prompt template string with placeholders
+            feature_id: Feature identifier for context
+            logit_effects: Optional logit effects data for Anthropic template
+
+        Returns:
+            Fully formatted user prompt ready for API call
+        """
+        # Format examples block using context formatter
+        examples_block = self._format_examples_block(
+            examples=examples,
+            template_config=template_config,
+            feature_id=feature_id,
+            logit_effects=logit_effects
+        )
+
+        # Start with the template
+        prompt = user_prompt_template
+
+        # Replace examples_block placeholder
+        if '{examples_block}' in prompt:
+            prompt = prompt.replace('{examples_block}', examples_block)
+
+        # Replace feature_id placeholder
+        if '{feature_id}' in prompt:
+            prompt = prompt.replace('{feature_id}', feature_id)
+
+        # Replace logit effects placeholders (for Anthropic template)
+        if logit_effects and template_config.get('include_logit_effects', False):
+            if '{top_promoted_tokens}' in prompt:
+                promoted = logit_effects.get('top_promoted', [])
+                promoted_str = ', '.join(promoted) if promoted else '(none)'
+                prompt = prompt.replace('{top_promoted_tokens}', promoted_str)
+
+            if '{top_suppressed_tokens}' in prompt:
+                suppressed = logit_effects.get('top_suppressed', [])
+                suppressed_str = ', '.join(suppressed) if suppressed else '(none)'
+                prompt = prompt.replace('{top_suppressed_tokens}', suppressed_str)
+
+        return prompt
+
     def _parse_dual_label(self, response: str, fallback_label: str) -> Dict[str, str]:
         """
         Parse JSON response containing category, specific labels, and description.
@@ -801,6 +919,109 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             logger.info(f"   First 5 filtered tokens: {[token for token, _ in filtered[:5]]}")
 
         return filtered
+
+    async def generate_label_from_examples(
+        self,
+        examples: List[Dict[str, Any]],
+        template_config: Dict[str, Any],
+        user_prompt_template: str,
+        system_message: str,
+        feature_id: str,
+        logit_effects: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, str]:
+        """
+        Generate semantic label for a feature using context-based examples.
+
+        This is the new context-based labeling method that uses full activation examples
+        with prefix/prime/suffix tokens instead of aggregated token statistics.
+
+        Args:
+            examples: List of top-K activation example dicts with keys:
+                - prefix_tokens: List[str] - Tokens before prime
+                - prime_token: str - The token with maximum activation
+                - suffix_tokens: List[str] - Tokens after prime
+                - max_activation: float - Peak activation value
+            template_config: Dict with template configuration (from LabelingPromptTemplate)
+            user_prompt_template: User prompt template string with {examples_block} placeholder
+            system_message: System message for the LLM
+            feature_id: Feature identifier for context
+            logit_effects: Optional dict with 'top_promoted' and 'top_suppressed' token lists
+
+        Returns:
+            Dict with {"category": "...", "specific": "...", "description": "..."}
+        """
+        fallback_label = f"feature_{feature_id}"
+
+        if not examples:
+            logger.warning(f"Empty examples for feature {feature_id}, using fallback label")
+            return {"category": "empty_features", "specific": fallback_label, "description": ""}
+
+        try:
+            # Build user prompt using the new _build_user_prompt method
+            user_prompt = self._build_user_prompt(
+                examples=examples,
+                template_config=template_config,
+                user_prompt_template=user_prompt_template,
+                feature_id=feature_id,
+                logit_effects=logit_effects
+            )
+
+            # Prepare request payload
+            request_payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "top_p": self.top_p
+            }
+
+            # Log API call details
+            logger.info(f"🔍 OpenAI API Call for feature {feature_id}:")
+            logger.info(f"  - Model: {self.model}")
+            logger.info(f"  - Examples: {len(examples)} activation examples")
+            logger.info(f"  - Prompt length: {len(user_prompt)} chars")
+            logger.debug(f"\n📝 SYSTEM MESSAGE:\n{system_message}")
+            logger.debug(f"\n📝 USER PROMPT:\n{user_prompt}")
+
+            # Save request for testing if enabled
+            if self.save_requests_for_testing:
+                self._save_request_for_testing(request_payload, neuron_index=None)
+
+            # Call OpenAI API
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=request_payload["messages"],
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                top_p=self.top_p
+            )
+
+            # Extract and parse response
+            label_text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+            logger.info(f"✅ API Response received for feature {feature_id} (length: {len(label_text)} chars)")
+            logger.debug(f"📤 FULL RESPONSE:\n{label_text}")
+
+            # Parse JSON response
+            labels = self._parse_dual_label(label_text, fallback_label)
+            logger.debug(f"Generated labels for {feature_id}: category='{labels['category']}', specific='{labels['specific']}'")
+            return labels
+
+        except RateLimitError as e:
+            logger.warning(f"⚠️ OpenAI rate limit for feature {feature_id}: {e}")
+            return {"category": "rate_limited", "specific": fallback_label, "description": ""}
+
+        except AuthenticationError as e:
+            logger.error(f"❌ OpenAI authentication failed for feature {feature_id}: {e}")
+            raise
+
+        except Exception as e:
+            logger.error(f"❌ Error calling OpenAI API for feature {feature_id}:")
+            logger.error(f"   Error Type: {type(e).__name__}")
+            logger.error(f"   Error Message: {e}", exc_info=True)
+            return {"category": "error_feature", "specific": fallback_label, "description": ""}
 
     async def batch_generate_labels(
         self,

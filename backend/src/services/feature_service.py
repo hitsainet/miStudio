@@ -651,12 +651,16 @@ class FeatureService:
                     token_positions=example.tokens.get("token_positions")
                 ))
             else:
-                # Legacy format (simple array)
+                # New extraction format: tokens is a list, context window in dedicated columns
                 result.append(FeatureActivationExample(
                     tokens=example.tokens,
                     activations=example.activations,
                     max_activation=example.max_activation,
-                    sample_index=example.sample_index
+                    sample_index=example.sample_index,
+                    prefix_tokens=example.prefix_tokens,
+                    prime_token=example.prime_token,
+                    suffix_tokens=example.suffix_tokens,
+                    prime_activation_index=example.prime_activation_index
                 ))
 
         return result

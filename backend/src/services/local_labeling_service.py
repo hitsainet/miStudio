@@ -131,41 +131,36 @@ class LocalLabelingService:
 
     def generate_label(
         self,
-        token_stats: Dict[str, Dict[str, float]],
-        top_k: int = 50,
-        neuron_index: Optional[int] = None
-    ) -> str:
+        examples: List[Dict[str, Any]],
+        neuron_index: Optional[int] = None,
+        feature_id: Optional[str] = None
+    ) -> Dict[str, str]:
         """
-        Generate semantic label for a feature based on token statistics.
+        Generate semantic label for a feature based on context examples.
+
+        This is the new context-based labeling method that uses full activation examples
+        with prefix/prime/suffix tokens instead of aggregated token statistics.
 
         Args:
-            token_stats: Dict mapping token to {count, total_activation, max_activation}
-            top_k: Number of top tokens to include in prompt
+            examples: List of top-K activation example dicts with keys:
+                - prefix_tokens: List[str] - Tokens before prime
+                - prime_token: str - The token with maximum activation
+                - suffix_tokens: List[str] - Tokens after prime
+                - max_activation: float - Peak activation value
             neuron_index: Optional neuron index for fallback naming
+            feature_id: Optional feature ID for fallback naming
 
         Returns:
-            Single word or short phrase representing the feature concept
+            Dict with {"category": "...", "specific": "...", "description": "..."}
         """
-        if not token_stats:
-            logger.warning("Empty token stats, using fallback label")
-            return f"feature_{neuron_index}" if neuron_index is not None else "empty_feature"
+        fallback_label = f"feature_{feature_id or neuron_index or 'unknown'}"
 
-        # Sort tokens by total activation strength
-        sorted_tokens = sorted(
-            token_stats.items(),
-            key=lambda x: x[1]["total_activation"],
-            reverse=True
-        )[:top_k]
+        if not examples:
+            logger.warning("Empty examples, using fallback label")
+            return {"category": "empty_features", "specific": fallback_label, "description": ""}
 
-        # Filter out junk tokens (stopwords, punctuation, digits, artifacts)
-        filtered_tokens = self._filter_junk_tokens(sorted_tokens)
-
-        if not filtered_tokens:
-            logger.warning(f"All tokens filtered as junk for neuron {neuron_index}, using fallback label")
-            return f"feature_{neuron_index}" if neuron_index is not None else "filtered_feature"
-
-        # Build prompt with filtered token frequency table
-        prompt = self._build_prompt(filtered_tokens)
+        # Build prompt with context examples
+        prompt = self._build_prompt_from_examples(examples, feature_id=feature_id)
 
         # Ensure model is loaded
         if not self.is_loaded:
@@ -173,10 +168,39 @@ class LocalLabelingService:
 
         try:
             # Format prompt for chat model
+            system_message = """You analyze sparse autoencoder (SAE) features using full-context activation examples. Your ONLY job is to infer the single underlying conceptual meaning shared by the most strongly-activating tokens, taking into account both the highlighted token(s) and their surrounding context.
+
+You are given short text spans. In each span, the token(s) where the feature activates most strongly are wrapped in double angle brackets, like <<this>>. Use all of the examples and their context to infer a single latent direction: a 1–2 word human concept that would be useful for steering model behavior.
+
+You must NOT:
+- describe grammar, syntax, token types, or surface patterns
+- list the example tokens back
+- say "this feature detects words like..."
+- label the feature with only a grammatical category
+- describe frequency, morphology, or implementation details
+
+If ANY coherent conceptual theme exists, use category 'semantic'.
+If no coherent theme exists, use category 'system' and concept 'noise_feature'.
+
+You must return ONLY a valid JSON object in this structure:
+{
+  "specific": "one_or_two_word_concept",
+  "category": "semantic_or_other",
+  "description": "One sentence describing the real conceptual meaning represented by this feature."
+}
+
+Rules:
+- JSON only
+- No markdown
+- No notes
+- No code fences
+- No text before or after the JSON
+- Double quotes only"""
+
             messages = [
                 {
                     "role": "system",
-                    "content": "You are an expert in mechanistic interpretability analyzing sparse autoencoder features. Respond with single-word or 2-3 word labels only."
+                    "content": system_message
                 },
                 {
                     "role": "user",
@@ -196,15 +220,15 @@ class LocalLabelingService:
                 formatted_prompt,
                 return_tensors="pt",
                 truncation=True,
-                max_length=2048
+                max_length=3072  # Increased for context examples
             ).to(self.device)
 
             # Generate
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=15,  # Allow 2-3 words
-                    temperature=0.3,  # Low temperature for consistency
+                    max_new_tokens=200,  # Allow for JSON response
+                    temperature=0.2,  # Low temperature for consistency
                     do_sample=True,
                     top_p=0.9,
                     repetition_penalty=1.1,
@@ -217,244 +241,200 @@ class LocalLabelingService:
                 skip_special_tokens=True
             )
 
-            # Clean and validate
-            label = self._clean_label(response)
+            # Parse JSON response
+            labels = self._parse_dual_label(response, fallback_label)
 
-            logger.debug(f"Generated label: '{label}' from response: '{response[:50]}'")
-            return label
+            logger.debug(f"Generated labels: category='{labels['category']}', specific='{labels['specific']}'")
+            return labels
 
         except Exception as e:
             logger.error(f"Error generating label: {e}", exc_info=True)
-            fallback = f"feature_{neuron_index}" if neuron_index is not None else "error_feature"
-            return fallback
+            return {"category": "error_feature", "specific": fallback_label, "description": ""}
 
-    def _build_prompt(self, sorted_tokens: List[tuple]) -> str:
+    def _build_prompt_from_examples(
+        self,
+        examples: List[Dict[str, Any]],
+        feature_id: Optional[str] = None
+    ) -> str:
         """
-        Build analysis prompt with token frequency table.
+        Build user prompt from context-based activation examples.
 
         Args:
-            sorted_tokens: List of (token, stats_dict) tuples sorted by activation
+            examples: List of activation example dicts with prefix/prime/suffix tokens
+            feature_id: Optional feature ID for context
 
         Returns:
-            Formatted prompt string
+            Formatted prompt string with examples
         """
-        prompt = """Analyze this sparse autoencoder neuron's activation pattern.
+        feature_label = feature_id or "this feature"
 
-Top tokens that activate this neuron:
+        prompt = f"""Analyze sparse autoencoder feature {feature_label}.
+You are given some of the highest-activating examples for this feature. In each example, the main activating token(s) are wrapped in << >>.
 
-TOKEN                | COUNT | AVG_ACT | MAX_ACT
----------------------|-------|---------|--------
+Use ALL of the examples, including their surrounding context, to infer the smallest semantic concept that explains why these tokens activate the same feature.
+
+Each example is formatted as:
+  Example N (activation: A_N): [prefix tokens] <<prime tokens>> [suffix tokens]
+
+Examples:
+
 """
 
-        for token, stats in sorted_tokens[:50]:  # Limit to top 50
-            avg_act = stats["total_activation"] / stats["count"]
+        # Format each example
+        for i, ex in enumerate(examples[:10], 1):  # Use first 10 examples
+            prefix = ' '.join(ex.get('prefix_tokens', []))
+            prime = ex.get('prime_token', '')
+            suffix = ' '.join(ex.get('suffix_tokens', []))
+            activation = ex.get('max_activation', 0.0)
 
-            # Escape and truncate token for display
-            token_display = repr(token)[:20].ljust(20)
+            # Truncate very long contexts
+            if len(prefix) > 100:
+                prefix = '...' + prefix[-97:]
+            if len(suffix) > 100:
+                suffix = suffix[:97] + '...'
 
-            prompt += f"{token_display} | {stats['count']:5} | {avg_act:7.2f} | {stats['max_activation']:7.2f}\n"
+            prompt += f"Example {i} (activation: {activation:.2f}): {prefix} <<{prime}>> {suffix}\n"
 
         prompt += """
-What single concept does this neuron represent?
+Instructions:
+- Focus on what the highlighted tokens have in common when interpreted IN CONTEXT.
+- Ignore purely syntactic or tokenization details.
+- Prefer semantic, conceptual, or functional interpretations (e.g., 'legal_procedure', 'feminist_politics', 'scientific_uncertainty').
+- If you cannot find a coherent concept, treat this as a noise feature.
 
-Respond with ONLY one word or short phrase (max 3 words). Examples:
-- "determiners" (the, a, an)
-- "negation" (not, never, no)
-- "plural_nouns" (words ending in -s)
-- "past_tense" (was, had, did)
-- "code_keywords" (def, class, import)
-
-Concept:"""
+Return ONLY this exact JSON object:
+{
+  "specific": "concept",
+  "category": "semantic_or_other",
+  "description": "One sentence describing the conceptual meaning."
+}"""
 
         return prompt
 
-    def _filter_junk_tokens(self, sorted_tokens: List[tuple]) -> List[tuple]:
+    def _parse_dual_label(self, response: str, fallback_label: str) -> Dict[str, str]:
         """
-        Filter out junk tokens (punctuation, artifacts, stopwords, digits).
-
-        Removes:
-        - Punctuation-only tokens
-        - Tokenization artifacts (##, Ġ, etc.)
-        - High-frequency stopwords (the, a, and, etc.)
-        - Single characters (except $ and %)
-        - Pure digit tokens (0-9, 10, 2023, etc.)
-        - Whitespace-only tokens
-        - Junk characters with no cognitive meaning
+        Parse JSON response containing category, specific, and description.
 
         Args:
-            sorted_tokens: List of (token, stats_dict) tuples
+            response: Raw model output (expected JSON format)
+            fallback_label: Fallback label if parsing fails
 
         Returns:
-            Filtered list of (token, stats_dict) tuples
+            Dict with {"category": "...", "specific": "...", "description": "..."}
         """
-        import string
+        import json
+        import re
 
-        # Define stopwords (common function words with little semantic value)
-        stopwords = {
-            # Articles, determiners, conjunctions
-            'the', 'a', 'an', 'and', 'or', 'but', 'nor', 'yet', 'so',
-            # Prepositions
-            'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about',
-            'into', 'through', 'during', 'before', 'after', 'above', 'below', 'between',
-            'under', 'over', 'off', 'down', 'near', 'onto', 'upon',
-            # Common verbs (to be, to have, modals)
-            'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
-            'have', 'has', 'had', 'having',
-            'do', 'does', 'did', 'doing', 'done',
-            'will', 'would', 'should', 'can', 'could', 'may', 'might', 'must', 'shall',
-            # Pronouns
-            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'them', 'their', 'theirs',
-            'my', 'mine', 'your', 'yours', 'his', 'her', 'hers', 'its', 'our', 'ours',
-            'me', 'him', 'us', 'themselves', 'myself', 'yourself', 'himself', 'herself', 'itself',
-            # Demonstratives & interrogatives
-            'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom', 'whose',
-            'when', 'where', 'why', 'how',
-            # Common adverbs & adjectives
-            'as', 'if', 'than', 'so', 'just', 'very', 'too', 'also', 'only', 'own', 'same',
-            'such', 'no', 'not', 'more', 'most', 'less', 'least', 'other', 'some', 'any',
-            'each', 'every', 'all', 'both', 'few', 'many', 'much', 'several', 'another',
-            'even', 'while', 'out', 'there', 'here', 'now', 'then', 'still', 'again',
-            # Common verbs (action)
-            'get', 'got', 'getting', 'make', 'made', 'making', 'go', 'going', 'went', 'gone',
-            'take', 'took', 'taken', 'taking', 'see', 'saw', 'seen', 'seeing', 'come', 'came', 'coming',
-            'give', 'gave', 'given', 'giving', 'use', 'used', 'using', 'find', 'found', 'finding',
-            'tell', 'told', 'telling', 'ask', 'asked', 'asking', 'work', 'worked', 'working',
-            'seem', 'seemed', 'seeming', 'feel', 'felt', 'feeling', 'try', 'tried', 'trying',
-            'leave', 'left', 'leaving', 'call', 'called', 'calling', 'put', 'putting'
+        # Try to extract JSON from response
+        try:
+            # Remove markdown code fences if present
+            response_clean = response.strip()
+            if response_clean.startswith('```'):
+                # Extract content between code fences
+                match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', response_clean, re.DOTALL)
+                if match:
+                    response_clean = match.group(1).strip()
+                else:
+                    # Remove just the fence markers
+                    response_clean = response_clean.replace('```json', '').replace('```', '').strip()
+
+            # Try to find JSON object in response
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_clean, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                labels = json.loads(json_str)
+
+                # Validate required fields
+                if 'specific' in labels and 'category' in labels:
+                    # Clean the labels
+                    specific = str(labels['specific']).strip().lower().replace(' ', '_').replace('-', '_')
+                    category = str(labels['category']).strip().lower().replace(' ', '_').replace('-', '_')
+                    description = str(labels.get('description', '')).strip()
+
+                    # Remove special characters
+                    specific = ''.join(c for c in specific if c.isalnum() or c == '_').strip('_')
+                    category = ''.join(c for c in category if c.isalnum() or c == '_').strip('_')
+
+                    # Collapse multiple underscores
+                    while '__' in specific:
+                        specific = specific.replace('__', '_')
+                    while '__' in category:
+                        category = category.replace('__', '_')
+
+                    # Truncate if too long
+                    if len(specific) > 50:
+                        specific = specific[:50]
+                    if len(category) > 30:
+                        category = category[:30]
+
+                    # Fallback if empty
+                    if not specific or specific == '_':
+                        specific = fallback_label
+                    if not category or category == '_':
+                        category = "semantic"
+
+                    return {
+                        "category": category,
+                        "specific": specific,
+                        "description": description
+                    }
+
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning(f"Failed to parse JSON label: {e}")
+            logger.debug(f"Response was: {response[:200]}")
+
+        # Fallback: use simple label extraction
+        logger.warning("Using fallback label parsing")
+        return {
+            "category": "semantic",
+            "specific": fallback_label,
+            "description": ""
         }
-
-        # Define punctuation set
-        punctuation_set = set(string.punctuation)
-
-        filtered = []
-        for token, stats in sorted_tokens:
-            # Strip spaces for analysis
-            token_stripped = token.strip()
-
-            # Skip empty or whitespace-only tokens
-            if not token_stripped or token_stripped.isspace():
-                continue
-
-            # Skip pure punctuation (but keep if mixed with other chars)
-            if all(c in punctuation_set or c.isspace() for c in token_stripped):
-                continue
-
-            # Skip tokenization artifacts
-            # - WordPiece markers: ##word, word##
-            # - Special whitespace: Ġ (GPT-2 style), ▁ (SentencePiece alone)
-            # - BPE markers: </w>, <w>
-            if ('##' in token_stripped or
-                'Ġ' in token_stripped or
-                token_stripped == '▁' or  # SentencePiece marker alone
-                token_stripped.startswith(('</w>', '<w>')) or
-                token_stripped.endswith(('</w>', '<w>'))):
-                continue
-
-            # Skip single characters (except meaningful ones like $ and %)
-            # Handle both regular tokens and SentencePiece tokens (▁X)
-            token_without_marker = token_stripped.lstrip().lstrip('▁')
-            if len(token_without_marker) == 1 and token_without_marker not in {'$', '%', '€', '£', '¥'}:
-                continue
-
-            # Skip pure digit tokens (0, 1, 10, 2023, etc.)
-            # Remove leading space/SentencePiece marker and check if rest is all digits
-            token_no_marker = token_stripped.lstrip().lstrip('▁')
-            if token_no_marker.isdigit():
-                continue
-
-            # Skip stopwords (case-insensitive, removing leading space/SentencePiece marker)
-            # Handle both regular spaces and SentencePiece marker (▁)
-            token_lower = token_stripped.lstrip().lstrip('▁').lower()
-            if token_lower in stopwords:
-                continue
-
-            # Keep this token!
-            filtered.append((token, stats))
-
-        return filtered
-
-    def _clean_label(self, response: str) -> str:
-        """
-        Clean and validate model response.
-
-        Converts model output to standardized feature label format.
-
-        Args:
-            response: Raw model output
-
-        Returns:
-            Cleaned label (lowercase_with_underscores)
-        """
-        # Remove quotes, extra whitespace
-        label = response.strip().strip('"\'').strip()
-
-        # Take first line if multiline
-        label = label.split('\n')[0]
-
-        # Remove common prefixes
-        for prefix in ["concept:", "label:", "answer:"]:
-            if label.lower().startswith(prefix):
-                label = label[len(prefix):].strip()
-
-        # Convert to lowercase with underscores
-        label = label.lower().replace(' ', '_').replace('-', '_')
-
-        # Remove special characters except underscore
-        label = ''.join(c for c in label if c.isalnum() or c == '_')
-
-        # Remove leading/trailing underscores
-        label = label.strip('_')
-
-        # Collapse multiple underscores
-        while '__' in label:
-            label = label.replace('__', '_')
-
-        # Truncate if too long
-        if len(label) > 30:
-            label = label[:30]
-
-        # Fallback if empty
-        if not label or label == '_':
-            label = "unknown_feature"
-
-        return label
 
     def batch_generate_labels(
         self,
-        features_token_stats: List[Dict[str, Dict[str, float]]],
+        features_examples: List[List[Dict[str, Any]]],
         neuron_indices: Optional[List[int]] = None,
+        feature_ids: Optional[List[str]] = None,
         progress_callback: Optional[callable] = None
-    ) -> List[str]:
+    ) -> List[Dict[str, str]]:
         """
-        Generate labels for multiple features efficiently.
+        Generate labels for multiple features efficiently using context examples.
 
         Loads model once and processes all features before unloading.
 
         Args:
-            features_token_stats: List of token stats dicts, one per feature
+            features_examples: List of example lists, one per feature
             neuron_indices: Optional list of neuron indices for fallback naming
+            feature_ids: Optional list of feature IDs for fallback naming
             progress_callback: Optional callback(current, total) for progress updates
 
         Returns:
-            List of labels in same order as input
+            List of label dicts ({"category": "...", "specific": "...", "description": "..."})
+            in same order as input
         """
-        logger.info(f"Starting batch label generation for {len(features_token_stats)} features")
+        logger.info(f"Starting batch label generation for {len(features_examples)} features")
 
         # Load model once for entire batch
         self.load_model()
 
         labels = []
         try:
-            for i, token_stats in enumerate(features_token_stats):
+            for i, examples in enumerate(features_examples):
                 neuron_index = neuron_indices[i] if neuron_indices else None
-                label = self.generate_label(token_stats, neuron_index=neuron_index)
+                feature_id = feature_ids[i] if feature_ids else None
+                label = self.generate_label(
+                    examples=examples,
+                    neuron_index=neuron_index,
+                    feature_id=feature_id
+                )
                 labels.append(label)
 
                 # Progress updates
-                if (i + 1) % 100 == 0 or i == len(features_token_stats) - 1:
-                    logger.info(f"Labeled {i + 1}/{len(features_token_stats)} features")
+                if (i + 1) % 100 == 0 or i == len(features_examples) - 1:
+                    logger.info(f"Labeled {i + 1}/{len(features_examples)} features")
                     if progress_callback:
-                        progress_callback(i + 1, len(features_token_stats))
+                        progress_callback(i + 1, len(features_examples))
 
         finally:
             # Always unload model to free memory

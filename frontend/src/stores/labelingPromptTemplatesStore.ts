@@ -42,6 +42,7 @@ interface LabelingPromptTemplatesState {
   createTemplate: (template: LabelingPromptTemplateCreate) => Promise<LabelingPromptTemplate>;
   updateTemplate: (id: string, updates: LabelingPromptTemplateUpdate) => Promise<LabelingPromptTemplate>;
   deleteTemplate: (id: string) => Promise<void>;
+  cloneTemplate: (id: string, newName?: string) => Promise<LabelingPromptTemplate>;
   setDefaultTemplate: (id: string) => Promise<void>;
   getUsageCount: (id: string) => Promise<number>;
   setSelectedTemplate: (template: LabelingPromptTemplate | null) => void;
@@ -175,6 +176,23 @@ export const useLabelingPromptTemplatesStore = create<LabelingPromptTemplatesSta
           }));
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to delete template';
+          set({ error: errorMessage, loading: false });
+          throw error;
+        }
+      },
+
+      // Clone a template
+      cloneTemplate: async (id: string, newName?: string) => {
+        set({ loading: true, error: null });
+        try {
+          const clonedTemplate = await api.cloneLabelingPromptTemplate(id, newName);
+          set((state) => ({
+            templates: [...state.templates, clonedTemplate],
+            loading: false,
+          }));
+          return clonedTemplate;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to clone template';
           set({ error: errorMessage, loading: false });
           throw error;
         }

@@ -273,6 +273,71 @@ class LabelingPromptTemplateService:
             }
 
     @staticmethod
+    async def clone_template(
+        db: AsyncSession,
+        template_id: str,
+        new_name: Optional[str] = None
+    ) -> Optional[LabelingPromptTemplate]:
+        """
+        Clone an existing labeling prompt template.
+
+        Useful for creating editable copies of system templates or duplicating user templates.
+        The cloned template will always be a user template (is_system=False) and not default.
+
+        Args:
+            db: Database session
+            template_id: ID of template to clone
+            new_name: Optional custom name for the clone. If None, appends " (Copy)" to original name
+
+        Returns:
+            Cloned LabelingPromptTemplate object if source found, None otherwise
+        """
+        # Get source template
+        result = await db.execute(
+            select(LabelingPromptTemplate).where(LabelingPromptTemplate.id == template_id)
+        )
+        source_template = result.scalar_one_or_none()
+
+        if not source_template:
+            return None
+
+        # Generate new template ID
+        new_template_id = f"lpt_{uuid4().hex[:16]}"
+
+        # Determine clone name
+        clone_name = new_name if new_name else f"{source_template.name} (Copy)"
+
+        # Create cloned template
+        cloned_template = LabelingPromptTemplate(
+            id=new_template_id,
+            name=clone_name,
+            description=source_template.description,
+            system_message=source_template.system_message,
+            user_prompt_template=source_template.user_prompt_template,
+            temperature=source_template.temperature,
+            max_tokens=source_template.max_tokens,
+            top_p=source_template.top_p,
+            template_type=source_template.template_type,
+            max_examples=source_template.max_examples,
+            include_prefix=source_template.include_prefix,
+            include_suffix=source_template.include_suffix,
+            prime_token_marker=source_template.prime_token_marker,
+            include_logit_effects=source_template.include_logit_effects,
+            top_promoted_tokens_count=source_template.top_promoted_tokens_count,
+            top_suppressed_tokens_count=source_template.top_suppressed_tokens_count,
+            is_detection_template=source_template.is_detection_template,
+            is_default=False,  # Clones are never default
+            is_system=False,   # Clones are always user templates (editable)
+            created_by=None,   # TODO: Add user ID when auth is implemented
+        )
+
+        db.add(cloned_template)
+        await db.commit()
+        await db.refresh(cloned_template)
+
+        return cloned_template
+
+    @staticmethod
     async def set_default_template(
         db: AsyncSession,
         template_id: str

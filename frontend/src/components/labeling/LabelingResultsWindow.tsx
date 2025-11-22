@@ -44,8 +44,24 @@ export const LabelingResultsWindow: React.FC<LabelingResultsWindowProps> = ({
     }
 
     const resultsText = results.map((result) => {
-      const tokensText = result.example_tokens.join(', ');
-      return `#${result.feature_id} - ${result.label} (${result.category})\nDescription: ${result.description || 'N/A'}\nExample Tokens: ${tokensText}\n`;
+      const examples = result.examples || [];
+      let text = `#${result.feature_id} - ${result.label} (${result.category})\n`;
+      text += `Description: ${result.description || 'N/A'}\n`;
+
+      if (examples.length > 0) {
+        text += 'Examples:\n';
+        examples.slice(0, 10).forEach((ex, idx) => {
+          const prefix = ex.prefix_tokens?.slice(-10).join(' ') || '';
+          const prime = ex.prime_token || '';
+          const suffix = ex.suffix_tokens?.slice(0, 10).join(' ') || '';
+          text += `${String(idx + 1).padStart(2, '0')}: ${prefix} ${prime} ${suffix}\n`;
+        });
+        if (examples.length > 10) {
+          text += `... +${examples.length - 10} more examples\n`;
+        }
+      }
+
+      return text;
     }).join('\n');
 
     console.log('[LabelingResultsWindow] Attempting to copy:', resultsText.substring(0, 200));
@@ -100,42 +116,53 @@ export const LabelingResultsWindow: React.FC<LabelingResultsWindowProps> = ({
       </div>
 
       <div ref={scrollContainerRef} className="h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900">
-        {results.map((result, index) => (
-          <div
-            key={`${result.feature_id}-${index}`}
-            className="p-2 border-b border-slate-800 hover:bg-slate-850 transition-colors"
-          >
-            <div className="flex items-start justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-emerald-400">#{result.feature_id}</span>
-                <span className="text-xs font-medium text-slate-200">{result.label}</span>
+        {results.map((result, index) => {
+          const examples = result.examples || [];
+
+          return (
+            <div
+              key={`${result.feature_id}-${index}`}
+              className="p-2 border-b border-slate-800 hover:bg-slate-850 transition-colors"
+            >
+              <div className="flex items-start justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-emerald-400">#{result.feature_id}</span>
+                  <span className="text-xs font-medium text-slate-200">{result.label}</span>
+                </div>
+                <span className={`text-xs px-1.5 py-0.5 rounded ${getCategoryColor(result.category)}`}>
+                  {result.category}
+                </span>
               </div>
-              <span className={`text-xs px-1.5 py-0.5 rounded ${getCategoryColor(result.category)}`}>
-                {result.category}
-              </span>
+
+              {result.description && (
+                <p className="text-xs text-slate-400 mb-1 line-clamp-2">{result.description}</p>
+              )}
+
+              {/* Display numbered list of examples with prefix, prime, and suffix tokens */}
+              {examples.length > 0 && (
+                <div className="space-y-0.5 mt-2">
+                  {examples.slice(0, 10).map((example, idx) => (
+                    <div key={idx} className="text-xs font-mono text-slate-300">
+                      <span className="text-slate-500">{String(idx + 1).padStart(2, '0')}:</span>{' '}
+                      <span className="text-slate-400">
+                        {example.prefix_tokens?.slice(-10).join(' ')}
+                      </span>{' '}
+                      <span className="text-emerald-400 font-semibold">{example.prime_token}</span>{' '}
+                      <span className="text-slate-400">
+                        {example.suffix_tokens?.slice(0, 10).join(' ')}
+                      </span>
+                    </div>
+                  ))}
+                  {examples.length > 10 && (
+                    <div className="text-xs text-slate-500 italic">
+                      +{examples.length - 10} more examples
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-
-            {result.description && (
-              <p className="text-xs text-slate-400 mb-1 line-clamp-1">{result.description}</p>
-            )}
-
-            {result.example_tokens.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {result.example_tokens.slice(0, 3).map((token, idx) => (
-                  <span
-                    key={idx}
-                    className="text-xs px-1 py-0.5 bg-slate-800 text-slate-300 rounded font-mono"
-                  >
-                    {token}
-                  </span>
-                ))}
-                {result.example_tokens.length > 3 && (
-                  <span className="text-xs text-slate-500">+{result.example_tokens.length - 3}</span>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

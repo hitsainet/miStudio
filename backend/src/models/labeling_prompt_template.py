@@ -31,12 +31,29 @@ class LabelingPromptTemplate(Base):
 
     # Prompt content
     system_message = Column(Text, nullable=False)
-    user_prompt_template = Column(Text, nullable=False)  # Uses {tokens_table} placeholder
+    user_prompt_template = Column(Text, nullable=False)  # Uses {examples_block} placeholder
 
     # API parameters
     temperature = Column(Float, nullable=False, default=0.3)  # 0.0-2.0
     max_tokens = Column(Integer, nullable=False, default=50)  # 10-500
     top_p = Column(Float, nullable=False, default=0.9)  # 0.0-1.0
+
+    # Template configuration
+    template_type = Column(String(50), nullable=False, default='legacy')  # 'legacy', 'mistudio_context', 'anthropic_logit', 'eleutherai_detection'
+    max_examples = Column(Integer, nullable=False, default=10)  # K value for top-K examples
+
+    # Context window configuration
+    include_prefix = Column(Boolean, nullable=False, default=True)  # Include prefix tokens
+    include_suffix = Column(Boolean, nullable=False, default=True)  # Include suffix tokens
+    prime_token_marker = Column(String(20), nullable=False, default='<<>>')  # Marker format for prime token
+
+    # Logit effects configuration (for Anthropic-style template)
+    include_logit_effects = Column(Boolean, nullable=False, default=False)  # Include promoted/suppressed tokens
+    top_promoted_tokens_count = Column(Integer, nullable=True)  # Number of top promoted tokens (default: 10)
+    top_suppressed_tokens_count = Column(Integer, nullable=True)  # Number of top suppressed tokens (default: 10)
+
+    # Detection/scoring template flag (for EleutherAI-style template)
+    is_detection_template = Column(Boolean, nullable=False, default=False)  # For binary classification/scoring
 
     # Metadata
     is_default = Column(Boolean, nullable=False, default=False)

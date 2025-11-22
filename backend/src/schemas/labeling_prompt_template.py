@@ -35,7 +35,7 @@ class LabelingPromptTemplateCreate(BaseModel):
         min_length=1
     )
     user_prompt_template: str = Field(
-        description="User prompt template with {tokens_table} placeholder for token data",
+        description="User prompt template with {examples_block} placeholder for context examples",
         min_length=1
     )
 
@@ -59,6 +59,56 @@ class LabelingPromptTemplateCreate(BaseModel):
         description="Nucleus sampling parameter (0.0-1.0). Controls diversity of token selection"
     )
 
+    # Template configuration
+    template_type: str = Field(
+        default='legacy',
+        description="Template type: 'legacy', 'mistudio_context', 'anthropic_logit', 'eleutherai_detection'"
+    )
+    max_examples: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum number of top-K activation examples to include (1-100)"
+    )
+
+    # Context window configuration
+    include_prefix: bool = Field(
+        default=True,
+        description="Whether to include prefix tokens before the prime token"
+    )
+    include_suffix: bool = Field(
+        default=True,
+        description="Whether to include suffix tokens after the prime token"
+    )
+    prime_token_marker: str = Field(
+        default='<<>>',
+        description="Marker format for highlighting the prime token (e.g., '<<>>' creates '<<token>>')"
+    )
+
+    # Logit effects configuration (for Anthropic-style template)
+    include_logit_effects: bool = Field(
+        default=False,
+        description="Whether to include logit effects (promoted/suppressed tokens)"
+    )
+    top_promoted_tokens_count: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description="Number of top promoted tokens to include (1-50, default: 10)"
+    )
+    top_suppressed_tokens_count: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description="Number of top suppressed tokens to include (1-50, default: 10)"
+    )
+
+    # Detection/scoring template flag (for EleutherAI-style template)
+    is_detection_template: bool = Field(
+        default=False,
+        description="Whether this template is for detection/scoring (binary classification)"
+    )
+
     # Metadata
     is_default: bool = Field(
         default=False,
@@ -67,12 +117,12 @@ class LabelingPromptTemplateCreate(BaseModel):
 
     @field_validator('user_prompt_template')
     @classmethod
-    def validate_tokens_placeholder(cls, v: str) -> str:
-        """Validate that user prompt template contains the required {tokens_table} placeholder."""
-        if '{tokens_table}' not in v:
+    def validate_examples_placeholder(cls, v: str) -> str:
+        """Validate that user prompt template contains the required {examples_block} placeholder."""
+        if '{examples_block}' not in v and '{tokens_table}' not in v:
             raise ValueError(
-                "user_prompt_template must contain the {tokens_table} placeholder "
-                "for dynamic token data insertion"
+                "user_prompt_template must contain either {examples_block} or {tokens_table} placeholder "
+                "for dynamic data insertion"
             )
         return v
 
@@ -129,6 +179,56 @@ class LabelingPromptTemplateUpdate(BaseModel):
         description="Updated top_p (0.0-1.0)"
     )
 
+    # Template configuration
+    template_type: Optional[str] = Field(
+        default=None,
+        description="Updated template type"
+    )
+    max_examples: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=100,
+        description="Updated maximum number of examples (1-100)"
+    )
+
+    # Context window configuration
+    include_prefix: Optional[bool] = Field(
+        default=None,
+        description="Updated prefix inclusion setting"
+    )
+    include_suffix: Optional[bool] = Field(
+        default=None,
+        description="Updated suffix inclusion setting"
+    )
+    prime_token_marker: Optional[str] = Field(
+        default=None,
+        description="Updated prime token marker format"
+    )
+
+    # Logit effects configuration
+    include_logit_effects: Optional[bool] = Field(
+        default=None,
+        description="Updated logit effects inclusion setting"
+    )
+    top_promoted_tokens_count: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description="Updated promoted tokens count (1-50)"
+    )
+    top_suppressed_tokens_count: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description="Updated suppressed tokens count (1-50)"
+    )
+
+    # Detection/scoring template flag
+    is_detection_template: Optional[bool] = Field(
+        default=None,
+        description="Updated detection template flag"
+    )
+
     # Metadata
     is_default: Optional[bool] = Field(
         default=None,
@@ -137,12 +237,12 @@ class LabelingPromptTemplateUpdate(BaseModel):
 
     @field_validator('user_prompt_template')
     @classmethod
-    def validate_tokens_placeholder(cls, v: Optional[str]) -> Optional[str]:
-        """Validate that user prompt template contains the required {tokens_table} placeholder."""
-        if v is not None and '{tokens_table}' not in v:
+    def validate_examples_placeholder(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that user prompt template contains the required placeholder."""
+        if v is not None and '{examples_block}' not in v and '{tokens_table}' not in v:
             raise ValueError(
-                "user_prompt_template must contain the {tokens_table} placeholder "
-                "for dynamic token data insertion"
+                "user_prompt_template must contain either {examples_block} or {tokens_table} placeholder "
+                "for dynamic data insertion"
             )
         return v
 
@@ -168,6 +268,23 @@ class LabelingPromptTemplateResponse(BaseModel):
     temperature: float
     max_tokens: int
     top_p: float
+
+    # Template configuration
+    template_type: str
+    max_examples: int
+
+    # Context window configuration
+    include_prefix: bool
+    include_suffix: bool
+    prime_token_marker: str
+
+    # Logit effects configuration
+    include_logit_effects: bool
+    top_promoted_tokens_count: Optional[int] = None
+    top_suppressed_tokens_count: Optional[int] = None
+
+    # Detection/scoring template flag
+    is_detection_template: bool
 
     # Metadata
     is_default: bool
@@ -241,6 +358,15 @@ class LabelingPromptTemplateExportItem(BaseModel):
     temperature: float
     max_tokens: int
     top_p: float
+    template_type: str
+    max_examples: int
+    include_prefix: bool
+    include_suffix: bool
+    prime_token_marker: str
+    include_logit_effects: bool
+    top_promoted_tokens_count: Optional[int] = None
+    top_suppressed_tokens_count: Optional[int] = None
+    is_detection_template: bool
     is_default: bool
 
 

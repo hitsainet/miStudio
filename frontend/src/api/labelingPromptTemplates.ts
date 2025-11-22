@@ -82,6 +82,25 @@ export async function deleteLabelingPromptTemplate(
 }
 
 /**
+ * Clone a labeling prompt template
+ *
+ * @param id - The ID of the template to clone
+ * @param newName - Optional custom name for the clone. If not provided, appends " (Copy)" to original name
+ */
+export async function cloneLabelingPromptTemplate(
+  id: string,
+  newName?: string
+): Promise<LabelingPromptTemplate> {
+  const query = newName ? `?new_name=${encodeURIComponent(newName)}` : '';
+  return fetchAPI<LabelingPromptTemplate>(
+    `/labeling-prompt-templates/${id}/clone${query}`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+/**
  * Set a template as the default
  */
 export async function setDefaultLabelingPromptTemplate(

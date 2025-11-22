@@ -214,26 +214,39 @@ class LabelingService:
 
         return labeling_job
 
-    def _aggregate_token_stats_batch(
+    async def _retrieve_top_examples_batch(
         self,
-        feature_ids: List[str]
-    ) -> Dict[str, Dict[str, Dict[str, float]]]:
+        session: AsyncSession,
+        feature_ids: List[str],
+        max_examples: int = 10
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Aggregate token statistics for a batch of features using SQL.
+        Retrieve top-K activation examples for a batch of features.
 
-        Uses PostgreSQL JSONB functions to efficiently aggregate token statistics
-        directly in the database, avoiding N+1 query problem.
+        Uses PostgreSQL window function (ROW_NUMBER() OVER) to efficiently
+        get the top K examples per feature, ordered by max_activation DESC.
 
         Args:
-            feature_ids: List of feature IDs to aggregate
+            session: Async database session
+            feature_ids: List of feature IDs to retrieve examples for
+            max_examples: Maximum number of examples per feature (K value)
 
         Returns:
-            Dict mapping feature_id to token_stats dict:
+            Dict mapping feature_id to list of example dicts:
             {
-                "feature_id_1": {
-                    "token_1": {"count": 10, "total_activation": 5.2, "max_activation": 0.8},
-                    "token_2": {"count": 5, "total_activation": 2.1, "max_activation": 0.5}
-                },
+                "feature_id_1": [
+                    {
+                        "sample_index": 123,
+                        "max_activation": 0.85,
+                        "prefix_tokens": ["token", "sequence"],
+                        "prime_token": "prime",
+                        "suffix_tokens": ["more", "tokens"],
+                        "prime_activation_index": 2,
+                        "activations": [0.1, 0.2, 0.85, 0.3],
+                        "tokens": ["token", "sequence", "prime", "more"]  # legacy fallback
+                    },
+                    ...
+                ],
                 ...
             }
         """
@@ -242,119 +255,151 @@ class LabelingService:
         if not feature_ids:
             return {}
 
-        # SQL query using CTEs to aggregate token statistics
+        # SQL query using ROW_NUMBER() window function to get top-K per feature
         query = text("""
-            WITH token_aggregates AS (
+            WITH ranked_examples AS (
                 SELECT
                     fa.feature_id,
-                    token_elem.token::text as token,
-                    COUNT(*) as count,
-                    SUM((activation_elem.activation::text)::float) as total_activation,
-                    MAX((activation_elem.activation::text)::float) as max_activation
-                FROM feature_activations fa,
-                    LATERAL jsonb_array_elements(fa.tokens) WITH ORDINALITY AS token_elem(token, token_idx),
-                    LATERAL jsonb_array_elements(fa.activations) WITH ORDINALITY AS activation_elem(activation, act_idx)
-                WHERE token_elem.token_idx = activation_elem.act_idx
-                  AND fa.feature_id = ANY(:feature_ids)
-                GROUP BY fa.feature_id, token_elem.token::text
+                    fa.sample_index,
+                    fa.max_activation,
+                    fa.prefix_tokens,
+                    fa.prime_token,
+                    fa.suffix_tokens,
+                    fa.prime_activation_index,
+                    fa.activations,
+                    fa.tokens,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY fa.feature_id
+                        ORDER BY fa.max_activation DESC, fa.id ASC
+                    ) as rank
+                FROM feature_activations fa
+                WHERE fa.feature_id = ANY(:feature_ids)
             )
             SELECT
                 feature_id,
-                jsonb_object_agg(
-                    token,
-                    jsonb_build_object(
-                        'count', count,
-                        'total_activation', total_activation,
-                        'max_activation', max_activation
-                    )
-                ) as token_stats
-            FROM token_aggregates
-            GROUP BY feature_id;
+                sample_index,
+                max_activation,
+                prefix_tokens,
+                prime_token,
+                suffix_tokens,
+                prime_activation_index,
+                activations,
+                tokens
+            FROM ranked_examples
+            WHERE rank <= :max_examples
+            ORDER BY feature_id, rank;
         """)
 
-        result = self.db.execute(query, {"feature_ids": feature_ids})
+        result = await session.execute(
+            query,
+            {"feature_ids": feature_ids, "max_examples": max_examples}
+        )
 
-        # Convert to dict for easy lookup
-        token_stats_map = {}
+        # Group examples by feature_id
+        examples_map: Dict[str, List[Dict[str, Any]]] = {}
         for row in result:
             feature_id = row.feature_id
-            token_stats = row.token_stats or {}
-            token_stats_map[feature_id] = token_stats
+            if feature_id not in examples_map:
+                examples_map[feature_id] = []
 
-        return token_stats_map
+            examples_map[feature_id].append({
+                "sample_index": row.sample_index,
+                "max_activation": float(row.max_activation),
+                "prefix_tokens": row.prefix_tokens or [],
+                "prime_token": row.prime_token or "",
+                "suffix_tokens": row.suffix_tokens or [],
+                "prime_activation_index": row.prime_activation_index,
+                "activations": row.activations or [],
+                "tokens": row.tokens or []  # legacy fallback
+            })
 
-    def _format_tokens_table(
+        return examples_map
+
+    def _retrieve_top_examples_batch_sync(
         self,
-        token_stats: Dict[str, Dict[str, float]],
-        filter_special: bool = True,
-        filter_single_char: bool = True,
-        filter_punctuation: bool = True,
-        filter_numbers: bool = True,
-        filter_fragments: bool = True,
-        filter_stop_words: bool = False,
-        max_tokens: int = 15
-    ) -> str:
+        session: Session,
+        feature_ids: List[str],
+        max_examples: int = 10
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Format token statistics as a table string for prompt replacement.
+        Synchronous version: Retrieve top-K activation examples for a batch of features.
+
+        Uses PostgreSQL window function (ROW_NUMBER() OVER) to efficiently
+        get the top K examples per feature, ordered by max_activation DESC.
 
         Args:
-            token_stats: Dict mapping token to stats dict (count, total_activation, max_activation)
-            filter_special: Filter special tokens (<s>, </s>, etc.)
-            filter_single_char: Filter single character tokens
-            filter_punctuation: Filter pure punctuation
-            filter_numbers: Filter pure numeric tokens
-            filter_fragments: Filter word fragments (BPE subwords)
-            filter_stop_words: Filter common stop words
-            max_tokens: Maximum number of tokens to include in table
+            session: Sync database session
+            feature_ids: List of feature IDs to retrieve examples for
+            max_examples: Maximum number of examples per feature (K value)
 
         Returns:
-            Formatted table string with filtered tokens
+            Dict mapping feature_id to list of example dicts (same format as async version)
         """
-        from src.utils.token_filters import is_junk_token
+        from sqlalchemy import text
 
-        # Filter tokens and sort by count
-        filtered_tokens = []
-        for token, stats in token_stats.items():
-            # Clean token for display (remove SentencePiece underscore prefix)
-            display_token = token.replace('▁', ' ').strip()
-            if not display_token:
-                display_token = token
+        if not feature_ids:
+            return {}
 
-            # Apply filters
-            if is_junk_token(
-                token,
-                filter_special=filter_special,
-                filter_single_char=filter_single_char,
-                filter_punctuation=filter_punctuation,
-                filter_numbers=filter_numbers,
-                filter_fragments=filter_fragments,
-                filter_stop_words=filter_stop_words
-            ):
-                continue
+        # Same SQL query as async version
+        query = text("""
+            WITH ranked_examples AS (
+                SELECT
+                    fa.feature_id,
+                    fa.sample_index,
+                    fa.max_activation,
+                    fa.prefix_tokens,
+                    fa.prime_token,
+                    fa.suffix_tokens,
+                    fa.prime_activation_index,
+                    fa.activations,
+                    fa.tokens,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY fa.feature_id
+                        ORDER BY fa.max_activation DESC, fa.id ASC
+                    ) as rank
+                FROM feature_activations fa
+                WHERE fa.feature_id = ANY(:feature_ids)
+            )
+            SELECT
+                feature_id,
+                sample_index,
+                max_activation,
+                prefix_tokens,
+                prime_token,
+                suffix_tokens,
+                prime_activation_index,
+                activations,
+                tokens
+            FROM ranked_examples
+            WHERE rank <= :max_examples
+            ORDER BY feature_id, rank;
+        """)
 
-            count = stats.get("count", 0)
-            filtered_tokens.append((display_token, count))
+        # Synchronous execute (no await)
+        result = session.execute(
+            query,
+            {"feature_ids": feature_ids, "max_examples": max_examples}
+        )
 
-        # Sort by count descending, then by token ascending
-        filtered_tokens.sort(key=lambda x: (-x[1], x[0]))
+        # Group examples by feature_id (same logic as async version)
+        examples_map: Dict[str, List[Dict[str, Any]]] = {}
+        for row in result:
+            feature_id = row.feature_id
+            if feature_id not in examples_map:
+                examples_map[feature_id] = []
 
-        # Take top N tokens
-        top_tokens = filtered_tokens[:max_tokens]
+            examples_map[feature_id].append({
+                "sample_index": row.sample_index,
+                "max_activation": float(row.max_activation),
+                "prefix_tokens": row.prefix_tokens or [],
+                "prime_token": row.prime_token or "",
+                "suffix_tokens": row.suffix_tokens or [],
+                "prime_activation_index": row.prime_activation_index,
+                "activations": row.activations or [],
+                "tokens": row.tokens or []  # legacy fallback
+            })
 
-        # Format as table
-        if not top_tokens:
-            return "(No tokens found after filtering)"
-
-        lines = []
-        for token, count in top_tokens:
-            # Format: 'token'                                    → count times
-            # Pad token to 40 characters for alignment
-            token_str = f"'{token}'"
-            padded_token = token_str.ljust(42)
-            line = f"{padded_token} → {count} {'time' if count == 1 else 'times'}"
-            lines.append(line)
-
-        return '\n'.join(lines)
+        return examples_map
 
     def label_features_for_extraction(
         self,
@@ -411,89 +456,75 @@ class LabelingService:
             if not all_features:
                 raise ValueError(f"No features found for extraction {labeling_job.extraction_job_id}")
 
-            # Pre-labeling feature filtering (if enabled)
-            from src.utils.token_filter import FeatureFilter
-            from src.core.config import settings
-
-            if settings.pre_labeling_filter_enabled:
-                logger.info(f"Pre-labeling filter enabled - analyzing {len(all_features)} features")
-
-                # Initialize feature filter with configured thresholds
-                feature_filter = FeatureFilter(
-                    junk_ratio_threshold=settings.pre_labeling_junk_ratio_threshold,
-                    single_char_ratio_threshold=settings.pre_labeling_single_char_threshold,
-                    min_tokens_for_decision=5
-                )
-
-                # Quick token aggregation for filtering decision
-                all_feature_ids = [f.id for f in all_features]
-                token_stats_map = self._aggregate_token_stats_batch(all_feature_ids)
-
-                # Analyze each feature
-                features_to_label = []
-                skipped_features = []
-
-                for feature in all_features:
-                    token_stats = token_stats_map.get(feature.id, {})
-                    if feature_filter.is_junk_feature(token_stats):
-                        skipped_features.append(feature)
-                    else:
-                        features_to_label.append(feature)
-
-                # Mark skipped features as unlabeled junk
-                if skipped_features:
-                    for feature in skipped_features:
-                        feature.name = "unlabeled_junk"
-                        feature.category = "system"
-                        feature.label_source = "auto"  # Automatically determined by filter
-                        feature.labeled_at = datetime.now(timezone.utc)
-                    self.db.commit()
-
-                logger.info(
-                    f"Pre-labeling filter: {len(features_to_label)} features to label, "
-                    f"{len(skipped_features)} junk features skipped "
-                    f"({len(skipped_features) / len(all_features) * 100:.1f}% filtered)"
-                )
-
-                features = features_to_label
-            else:
-                logger.info("Pre-labeling filter disabled - labeling all features")
-                features = all_features
+            # Pre-labeling feature filtering (DISABLED - requires refactoring for context-based approach)
+            # TODO: Refactor FeatureFilter to work with activation examples instead of token aggregation.
+            # The old token-based filtering is incompatible with the new context-based labeling system.
+            # For now, we label all features without pre-filtering.
+            logger.info("Pre-labeling filter disabled - labeling all features (context-based approach)")
+            features = all_features
 
             total_features = len(features)
             logger.info(f"Labeling {total_features} features for extraction {labeling_job.extraction_job_id}")
 
-            # Aggregate token statistics using efficient SQL batching
+            # Fetch template configuration if specified
+            template_config = None
+            max_examples = 10  # Default for miStudio Internal
+            if labeling_job.prompt_template_id:
+                from src.models.labeling_prompt_template import LabelingPromptTemplate
+                template = self.db.query(LabelingPromptTemplate).filter(
+                    LabelingPromptTemplate.id == labeling_job.prompt_template_id
+                ).first()
+                if template:
+                    template_config = {
+                        'template_type': template.template_type,
+                        'max_examples': template.max_examples,
+                        'include_prefix': template.include_prefix,
+                        'include_suffix': template.include_suffix,
+                        'prime_token_marker': template.prime_token_marker,
+                        'include_logit_effects': template.include_logit_effects,
+                        'top_promoted_tokens_count': template.top_promoted_tokens_count,
+                        'top_suppressed_tokens_count': template.top_suppressed_tokens_count,
+                        'is_detection_template': template.is_detection_template
+                    }
+                    max_examples = template.max_examples
+                    logger.info(f"Using template: {template.name} (type: {template.template_type}, K={max_examples})")
+
+            # Retrieve top-K activation examples using efficient SQL batching
             # Process features in batches of 1000 to avoid memory issues and track progress
             BATCH_SIZE = 1000
-            features_token_stats = []
+            features_examples = []
             neuron_indices = []
 
-            # Phase 1: Token Aggregation with progress tracking
-            logger.info(f"Starting token aggregation phase for {total_features} features in batches of {BATCH_SIZE}")
+            # Phase 1: Examples Retrieval with progress tracking
+            logger.info(f"Starting examples retrieval phase for {total_features} features (K={max_examples}) in batches of {BATCH_SIZE}")
 
             for batch_start in range(0, total_features, BATCH_SIZE):
                 batch_end = min(batch_start + BATCH_SIZE, total_features)
                 batch_features = features[batch_start:batch_end]
                 batch_size = len(batch_features)
 
-                logger.info(f"Aggregating batch {batch_start//BATCH_SIZE + 1}/{(total_features + BATCH_SIZE - 1)//BATCH_SIZE}: features {batch_start+1}-{batch_end}")
+                logger.info(f"Retrieving batch {batch_start//BATCH_SIZE + 1}/{(total_features + BATCH_SIZE - 1)//BATCH_SIZE}: features {batch_start+1}-{batch_end}")
 
                 # Get feature IDs for this batch
                 batch_feature_ids = [f.id for f in batch_features]
 
-                # Use SQL to aggregate token stats for entire batch
-                token_stats_map = self._aggregate_token_stats_batch(batch_feature_ids)
+                # Use SQL to retrieve top-K examples for entire batch
+                # Use sync version since Celery worker uses sync session
+                examples_map = self._retrieve_top_examples_batch_sync(
+                    session=self.db,
+                    feature_ids=batch_feature_ids,
+                    max_examples=max_examples
+                )
 
                 # Build ordered lists for labeling (maintain feature order)
                 for feature in batch_features:
-                    token_stats = token_stats_map.get(feature.id, {})
-                    features_token_stats.append(token_stats)
+                    examples = examples_map.get(feature.id, [])
+                    features_examples.append(examples)
                     neuron_indices.append(feature.neuron_index)
 
                 # Update progress in database
-                aggregation_progress = batch_end / total_features
-                labeling_job.progress = aggregation_progress * 0.3  # Aggregation is ~30% of total work
+                retrieval_progress = batch_end / total_features
+                labeling_job.progress = retrieval_progress * 0.3  # Retrieval is ~30% of total work
                 labeling_job.updated_at = datetime.now(timezone.utc)
                 self.db.commit()
 
@@ -508,14 +539,14 @@ class LabelingService:
                         "features_labeled": 0,
                         "total_features": total_features,
                         "status": "labeling",
-                        "phase": "aggregation",
-                        "message": f"Aggregated token statistics for {batch_end}/{total_features} features"
+                        "phase": "examples_retrieval",
+                        "message": f"Retrieved top-{max_examples} examples for {batch_end}/{total_features} features"
                     }
                 )
 
-                logger.info(f"Batch {batch_start//BATCH_SIZE + 1} complete: {batch_end}/{total_features} features aggregated ({aggregation_progress*100:.1f}%)")
+                logger.info(f"Batch {batch_start//BATCH_SIZE + 1} complete: {batch_end}/{total_features} features processed ({retrieval_progress*100:.1f}%)")
 
-            logger.info(f"Token aggregation complete for {len(features_token_stats)} features")
+            logger.info(f"Examples retrieval complete for {len(features_examples)} features (K={max_examples})")
 
             # Phase 2: Label Generation with progress tracking
             logger.info("Starting label generation phase")
@@ -570,7 +601,7 @@ class LabelingService:
                     labeling_service.load_model()
 
                     try:
-                        # Generate and persist labels in batches
+                        # Generate and persist labels in batches using context examples
                         # This ensures progress is saved incrementally if the job fails
                         label_source_value = LabelSource.LOCAL_LLM.value
                         labeled_at = datetime.now(timezone.utc)
@@ -581,17 +612,21 @@ class LabelingService:
                         for batch_start in range(0, total_features, LABEL_BATCH_SIZE):
                             batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
                             batch_features = features[batch_start:batch_end]
-                            batch_token_stats = features_token_stats[batch_start:batch_end]
-                            batch_neuron_indices = neuron_indices[batch_start:batch_end]
+                            batch_examples = features_examples[batch_start:batch_end]
 
                             # Generate labels for this batch (model already loaded)
+                            # LOCAL service uses synchronous generation, not async
                             batch_labels = []
-                            for token_stats, neuron_idx in zip(batch_token_stats, batch_neuron_indices):
-                                label = labeling_service.generate_label(token_stats, neuron_index=neuron_idx)
-                                batch_labels.append({"category": "unknown", "specific": label, "description": ""})
+                            for feature, examples in zip(batch_features, batch_examples):
+                                label = labeling_service.generate_label(
+                                    examples=examples,
+                                    neuron_index=feature.neuron_index,
+                                    feature_id=feature.id
+                                )
+                                batch_labels.append(label)
 
                             # Persist this batch immediately
-                            for feature, label, token_stats in zip(batch_features, batch_labels, batch_token_stats):
+                            for feature, label, examples in zip(batch_features, batch_labels, batch_examples):
                                 feature.category = label["category"]
                                 feature.name = label["specific"]
                                 feature.description = label.get("description", "")
@@ -600,27 +635,21 @@ class LabelingService:
                                 feature.labeled_at = labeled_at
                                 feature.updated_at = labeled_at
 
-                                # Create example tokens summary with filtered top 7 tokens
-                                example_summary = create_example_tokens_summary(
-                                    token_stats,
-                                    filter_special=labeling_job.filter_special,
-                                    filter_single_char=labeling_job.filter_single_char,
-                                    filter_punctuation=labeling_job.filter_punctuation,
-                                    filter_numbers=labeling_job.filter_numbers,
-                                    filter_fragments=labeling_job.filter_fragments,
-                                    filter_stop_words=labeling_job.filter_stop_words,
-                                    top_n=7
-                                )
+                                # Create example tokens summary from context examples (first 7 prime tokens)
+                                prime_tokens = [ex.get('prime_token', '') for ex in examples[:7] if ex.get('prime_token')]
+                                example_summary = ', '.join(prime_tokens) if prime_tokens else ''
                                 feature.example_tokens_summary = example_summary
 
                                 # Emit individual result for real-time display
-                                # Extract top 5 tokens for example
-                                sorted_tokens = sorted(
-                                    token_stats.items(),
-                                    key=lambda x: x[1].get("count", 0),
-                                    reverse=True
-                                )[:5]
-                                example_tokens = [token for token, _ in sorted_tokens]
+                                # Send first 10 full examples with prefix/prime/suffix context
+                                example_data = []
+                                for ex in examples[:10]:
+                                    example_data.append({
+                                        "prefix_tokens": ex.get('prefix_tokens', []),
+                                        "prime_token": ex.get('prime_token', ''),
+                                        "suffix_tokens": ex.get('suffix_tokens', []),
+                                        "max_activation": ex.get('max_activation', 0.0)
+                                    })
 
                                 emit_labeling_result(
                                     labeling_job_id=labeling_job.id,
@@ -629,7 +658,7 @@ class LabelingService:
                                         "label": feature.name,
                                         "category": feature.category,
                                         "description": feature.description or "",
-                                        "example_tokens": example_tokens
+                                        "examples": example_data
                                     }
                                 )
 
@@ -716,19 +745,32 @@ class LabelingService:
                     for batch_start in range(0, total_features, LABEL_BATCH_SIZE):
                         batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
                         batch_features = features[batch_start:batch_end]
-                        batch_token_stats = features_token_stats[batch_start:batch_end]
-                        batch_neuron_indices = neuron_indices[batch_start:batch_end]
+                        batch_examples = features_examples[batch_start:batch_end]
 
-                        # Generate labels for this batch
-                        batch_labels = asyncio.run(labeling_service.batch_generate_labels(
-                            features_token_stats=batch_token_stats,
-                            neuron_indices=batch_neuron_indices,
-                            progress_callback=None,  # We'll handle progress below
-                            batch_size=LABEL_BATCH_SIZE
-                        ))
+                        # Generate labels for this batch using context-based examples
+                        # Create concurrent tasks for all features in batch
+                        label_tasks = []
+                        for feature, examples in zip(batch_features, batch_examples):
+                            task = labeling_service.generate_label_from_examples(
+                                examples=examples,
+                                template_config=template_config,
+                                user_prompt_template=user_prompt_template,
+                                system_message=system_message,
+                                feature_id=feature.id,
+                                logit_effects=None  # TODO: Implement in Sprint 4
+                            )
+                            label_tasks.append(task)
+
+                        # Execute all labeling tasks concurrently
+                        batch_labels = asyncio.run(asyncio.gather(*label_tasks, return_exceptions=True))
 
                         # Persist this batch immediately
-                        for feature, label, token_stats in zip(batch_features, batch_labels, batch_token_stats):
+                        for feature, label, examples in zip(batch_features, batch_labels, batch_examples):
+                            # Handle any exceptions
+                            if isinstance(label, Exception):
+                                logger.error(f"Error generating label for feature {feature.id}: {label}")
+                                label = {"category": "error_feature", "specific": f"feature_{feature.neuron_index}", "description": ""}
+
                             feature.category = label["category"]
                             feature.name = label["specific"]
                             feature.description = label.get("description", "")
@@ -737,27 +779,21 @@ class LabelingService:
                             feature.labeled_at = labeled_at
                             feature.updated_at = labeled_at
 
-                            # Create example tokens summary with filtered top 7 tokens
-                            example_summary = create_example_tokens_summary(
-                                token_stats,
-                                filter_special=labeling_job.filter_special,
-                                filter_single_char=labeling_job.filter_single_char,
-                                filter_punctuation=labeling_job.filter_punctuation,
-                                filter_numbers=labeling_job.filter_numbers,
-                                filter_fragments=labeling_job.filter_fragments,
-                                filter_stop_words=labeling_job.filter_stop_words,
-                                top_n=7
-                            )
+                            # Create example tokens summary from context examples (first 7 prime tokens)
+                            prime_tokens = [ex.get('prime_token', '') for ex in examples[:7] if ex.get('prime_token')]
+                            example_summary = ', '.join(prime_tokens) if prime_tokens else ''
                             feature.example_tokens_summary = example_summary
 
                             # Emit individual result for real-time display
-                            # Extract top 5 tokens for example
-                            sorted_tokens = sorted(
-                                token_stats.items(),
-                                key=lambda x: x[1].get("count", 0),
-                                reverse=True
-                            )[:5]
-                            example_tokens = [token for token, _ in sorted_tokens]
+                            # Send first 10 full examples with prefix/prime/suffix context
+                            example_data = []
+                            for ex in examples[:10]:
+                                example_data.append({
+                                    "prefix_tokens": ex.get('prefix_tokens', []),
+                                    "prime_token": ex.get('prime_token', ''),
+                                    "suffix_tokens": ex.get('suffix_tokens', []),
+                                    "max_activation": ex.get('max_activation', 0.0)
+                                })
 
                             emit_labeling_result(
                                 labeling_job_id=labeling_job.id,
@@ -766,7 +802,7 @@ class LabelingService:
                                     "label": feature.name,
                                     "category": feature.category,
                                     "description": feature.description or "",
-                                    "example_tokens": example_tokens
+                                    "examples": example_data
                                 }
                             )
 
@@ -845,19 +881,32 @@ class LabelingService:
                     for batch_start in range(0, total_features, LABEL_BATCH_SIZE):
                         batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
                         batch_features = features[batch_start:batch_end]
-                        batch_token_stats = features_token_stats[batch_start:batch_end]
-                        batch_neuron_indices = neuron_indices[batch_start:batch_end]
+                        batch_examples = features_examples[batch_start:batch_end]
 
-                        # Generate labels for this batch
-                        batch_labels = asyncio.run(labeling_service.batch_generate_labels(
-                            features_token_stats=batch_token_stats,
-                            neuron_indices=batch_neuron_indices,
-                            progress_callback=None,  # We'll handle progress below
-                            batch_size=LABEL_BATCH_SIZE
-                        ))
+                        # Generate labels for this batch using context-based examples
+                        # Create concurrent tasks for all features in batch
+                        label_tasks = []
+                        for feature, examples in zip(batch_features, batch_examples):
+                            task = labeling_service.generate_label_from_examples(
+                                examples=examples,
+                                template_config=template_config,
+                                user_prompt_template=user_prompt_template,
+                                system_message=system_message,
+                                feature_id=feature.id,
+                                logit_effects=None  # TODO: Implement in Sprint 4
+                            )
+                            label_tasks.append(task)
+
+                        # Execute all labeling tasks concurrently
+                        batch_labels = asyncio.run(asyncio.gather(*label_tasks, return_exceptions=True))
 
                         # Persist this batch immediately
-                        for feature, label, token_stats in zip(batch_features, batch_labels, batch_token_stats):
+                        for feature, label, examples in zip(batch_features, batch_labels, batch_examples):
+                            # Handle any exceptions
+                            if isinstance(label, Exception):
+                                logger.error(f"Error generating label for feature {feature.id}: {label}")
+                                label = {"category": "error_feature", "specific": f"feature_{feature.neuron_index}", "description": ""}
+
                             feature.category = label["category"]
                             feature.name = label["specific"]
                             feature.description = label.get("description", "")
@@ -866,27 +915,21 @@ class LabelingService:
                             feature.labeled_at = labeled_at
                             feature.updated_at = labeled_at
 
-                            # Create example tokens summary with filtered top 7 tokens
-                            example_summary = create_example_tokens_summary(
-                                token_stats,
-                                filter_special=labeling_job.filter_special,
-                                filter_single_char=labeling_job.filter_single_char,
-                                filter_punctuation=labeling_job.filter_punctuation,
-                                filter_numbers=labeling_job.filter_numbers,
-                                filter_fragments=labeling_job.filter_fragments,
-                                filter_stop_words=labeling_job.filter_stop_words,
-                                top_n=7
-                            )
+                            # Create example tokens summary from context examples (first 7 prime tokens)
+                            prime_tokens = [ex.get('prime_token', '') for ex in examples[:7] if ex.get('prime_token')]
+                            example_summary = ', '.join(prime_tokens) if prime_tokens else ''
                             feature.example_tokens_summary = example_summary
 
                             # Emit individual result for real-time display
-                            # Extract top 5 tokens for example
-                            sorted_tokens = sorted(
-                                token_stats.items(),
-                                key=lambda x: x[1].get("count", 0),
-                                reverse=True
-                            )[:5]
-                            example_tokens = [token for token, _ in sorted_tokens]
+                            # Send first 10 full examples with prefix/prime/suffix context
+                            example_data = []
+                            for ex in examples[:10]:
+                                example_data.append({
+                                    "prefix_tokens": ex.get('prefix_tokens', []),
+                                    "prime_token": ex.get('prime_token', ''),
+                                    "suffix_tokens": ex.get('suffix_tokens', []),
+                                    "max_activation": ex.get('max_activation', 0.0)
+                                })
 
                             emit_labeling_result(
                                 labeling_job_id=labeling_job.id,
@@ -895,7 +938,7 @@ class LabelingService:
                                     "label": feature.name,
                                     "category": feature.category,
                                     "description": feature.description or "",
-                                    "example_tokens": example_tokens
+                                    "examples": example_data
                                 }
                             )
 

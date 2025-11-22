@@ -53,8 +53,8 @@ const calculateIntensity = (activation: number, maxActivation: number): number =
  * Uses emerald color with alpha based on intensity.
  */
 const getBackgroundColor = (intensity: number): string => {
-  // rgba(16, 185, 129, intensity * 0.4)
-  const alpha = intensity * 0.4;
+  // rgba(16, 185, 129, intensity * 0.7) - increased for more vibrant colors
+  const alpha = intensity * 0.7;
   return `rgba(16, 185, 129, ${alpha})`;
 };
 
@@ -216,80 +216,77 @@ export const TokenHighlightContext: React.FC<TokenHighlightContextProps> = ({
   }
 
   return (
-    <div className={`space-y-2 ${className}`}>
-      {/* Token display with visual hierarchy */}
-      <div className="flex flex-wrap gap-1 font-mono text-xs">
-        {allTokens.map((token, index) => {
-          const activation = activations[index] || 0;
-          const intensity = calculateIntensity(activation, maxActivation);
-          const backgroundColor = getBackgroundColor(intensity);
-          const textColor = getTextColor(intensity);
-          const borderClass = getBorderClass(intensity);
-          const cleanedToken = cleanToken(token);
+    <div className={`space-y-1 ${className}`}>
+      {/* Token display with horizontal scroll - padding prevents ring clipping */}
+      <div className="overflow-x-auto overflow-y-visible py-1 px-1">
+        <div className="flex gap-1.5 font-mono text-sm min-w-max">
+          {allTokens.map((token, index) => {
+            const activation = activations[index] || 0;
+            const intensity = calculateIntensity(activation, maxActivation);
+            const backgroundColor = getBackgroundColor(intensity);
+            const textColor = getTextColor(intensity);
+            const borderClass = getBorderClass(intensity);
+            const cleanedToken = cleanToken(token);
 
-          // Determine token role
-          const isPrime = index === primeIndex;
-          const isPrefix = index < primeIndex;
+            // Determine token role
+            const isPrime = index === primeIndex;
+            const isPrefix = index < primeIndex;
 
-          // Enhanced styling for prime token
-          const roleClass = isPrime
-            ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-slate-900 font-bold scale-110'
-            : 'opacity-80';
+            // Enhanced styling for prime token
+            const roleClass = isPrime
+              ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-slate-900 font-bold scale-105'
+              : 'opacity-90';
 
-          return (
-            <span
-              key={index}
-              className={`relative group px-1.5 py-1 rounded cursor-help transition-all ${textColor} ${borderClass} ${roleClass}`}
-              style={{ backgroundColor }}
-              title={`${isPrime ? '★ PRIME TOKEN\n' : ''}Activation: ${activation.toFixed(3)}\nPosition: ${isPrefix ? 'prefix' : isPrime ? 'prime' : 'suffix'}`}
-            >
-              {cleanedToken}
-              {/* Enhanced tooltip */}
-              <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10 border border-slate-700">
-                {isPrime && <div className="font-bold text-emerald-400 mb-1">★ PRIME TOKEN</div>}
-                <div>Activation: {activation.toFixed(3)}</div>
-                <div className="text-slate-400 text-[10px]">
-                  {isPrefix ? 'Context (prefix)' : isPrime ? 'Maximum activation' : 'Context (suffix)'}
-                </div>
+            // Display token or placeholder for empty tokens
+            const displayToken = cleanedToken || '·';
+
+            return (
+              <span
+                key={index}
+                className={`relative group px-2.5 py-1.5 rounded cursor-help transition-all whitespace-nowrap ${textColor} ${borderClass} ${roleClass}`}
+                style={{ backgroundColor }}
+                title={`${isPrime ? '★ PRIME TOKEN\n' : ''}Activation: ${activation.toFixed(3)}\nPosition: ${isPrefix ? 'prefix' : isPrime ? 'prime' : 'suffix'}`}
+              >
+                {/* Prime token star indicator */}
+                {isPrime && (
+                  <span className="absolute -top-3 left-1/2 transform -translate-x-1/2 text-yellow-400 text-2xl font-bold drop-shadow-lg">
+                    ★
+                  </span>
+                )}
+                <span className="inline-block min-w-[1ch]">{displayToken}</span>
+                {/* Enhanced tooltip */}
+                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10 border border-slate-700">
+                  {isPrime && <div className="font-bold text-emerald-400 mb-1">★ PRIME TOKEN</div>}
+                  <div>Activation: {activation.toFixed(3)}</div>
+                  <div className="text-slate-400 text-[10px]">
+                    {isPrefix ? 'Context (prefix)' : isPrime ? 'Maximum activation' : 'Context (suffix)'}
+                  </div>
+                </span>
               </span>
-            </span>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      {/* Activation gradient visualization */}
-      {showGradient && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-[10px] text-slate-500">
-            <span>Activation Strength</span>
-            <div className="flex-1 h-px bg-slate-700"></div>
-          </div>
-          <div className="flex gap-0.5 h-2">
-            {activations.map((activation, index) => {
-              const intensity = calculateIntensity(activation, maxActivation);
-              const isPrime = index === primeIndex;
-
-              return (
-                <div
-                  key={index}
-                  className={`flex-1 rounded-sm transition-all ${isPrime ? 'ring-1 ring-emerald-400' : ''}`}
-                  style={{
-                    backgroundColor: `rgba(16, 185, 129, ${intensity})`,
-                    minWidth: '2px'
-                  }}
-                  title={`Token ${index + 1}: ${activation.toFixed(3)}`}
-                />
-              );
-            })}
-          </div>
-          {/* Context window labels */}
-          <div className="flex text-[9px] text-slate-600 font-mono">
-            <div className="flex-1 text-left">← prefix ({prefixTokens?.length || 0})</div>
-            <div className="text-center text-emerald-400">prime</div>
-            <div className="flex-1 text-right">suffix ({suffixTokens?.length || 0}) →</div>
-          </div>
+      {/* Context window labels - prefix and suffix only */}
+      <div className="px-1 mt-2">
+        <div className="flex gap-4 text-[10px] text-slate-500 font-mono">
+          {/* Prefix label */}
+          {(prefixTokens?.length ?? 0) > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-slate-600">←</span>
+              <span>prefix ({prefixTokens?.length || 0})</span>
+            </div>
+          )}
+          {/* Suffix label */}
+          {(suffixTokens?.length ?? 0) > 0 && (
+            <div className="flex items-center gap-1">
+              <span>suffix ({suffixTokens?.length || 0})</span>
+              <span className="text-slate-600">→</span>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

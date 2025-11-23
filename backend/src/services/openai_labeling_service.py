@@ -458,7 +458,7 @@ curl -X POST '{endpoint_url}' \\
                 # Create directory with timestamp and job ID
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 folder_name = f"{timestamp}_{self.labeling_job_id}" if self.labeling_job_id else timestamp
-                request_dir = Path("/tmp/tmp_api") / folder_name
+                request_dir = Path("tmp_api") / folder_name
                 request_dir.mkdir(parents=True, exist_ok=True)
                 self._request_dir = request_dir
                 self._request_folder_name = folder_name

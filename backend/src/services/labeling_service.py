@@ -926,6 +926,8 @@ class LabelingService:
                         filter_stop_words=labeling_job.filter_stop_words,
                         save_requests_for_testing=labeling_job.save_requests_for_testing,
                         export_format=labeling_job.export_format,
+                        save_poor_quality_labels=labeling_job.save_poor_quality_labels,
+                        poor_quality_sample_rate=labeling_job.poor_quality_sample_rate,
                         labeling_job_id=labeling_job.id
                     )
 
@@ -1073,6 +1075,8 @@ class LabelingService:
                         filter_stop_words=labeling_job.filter_stop_words,
                         save_requests_for_testing=labeling_job.save_requests_for_testing,
                         export_format=labeling_job.export_format,
+                        save_poor_quality_labels=labeling_job.save_poor_quality_labels,
+                        poor_quality_sample_rate=labeling_job.poor_quality_sample_rate,
                         labeling_job_id=labeling_job.id
                     )
 

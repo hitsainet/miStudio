@@ -93,6 +93,16 @@ class LabelingConfigRequest(BaseModel):
         default="both",
         description="Export format for saved API requests: 'postman' (Postman collection), 'curl' (cURL command), or 'both'"
     )
+    save_poor_quality_labels: bool = Field(
+        default=False,
+        description="Save poor quality labels for debugging. Helps identify ineffective labels like 'uncategorized' or generic responses."
+    )
+    poor_quality_sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Sample rate for saving poor quality labels (0.0-1.0). Set to 1.0 to save all poor quality labels, or lower to sample (e.g., 0.5 saves ~50%)."
+    )
 
     # Optional resource configuration
     batch_size: Optional[int] = Field(
@@ -157,6 +167,8 @@ class LabelingStatusResponse(BaseModel):
     filter_stop_words: bool = False
     save_requests_for_testing: bool = False
     export_format: str = "both"
+    save_poor_quality_labels: bool = False
+    poor_quality_sample_rate: float = 1.0
     status: str
     progress: float
     features_labeled: int

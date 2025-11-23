@@ -55,7 +55,9 @@ class OpenAILabelingService:
         filter_stop_words: bool = False,
         save_requests_for_testing: bool = False,
         export_format: str = "both",
-        labeling_job_id: Optional[str] = None
+        labeling_job_id: Optional[str] = None,
+        save_poor_quality_labels: bool = False,
+        poor_quality_sample_rate: float = 1.0
     ):
         """
         Initialize OpenAI labeling service.
@@ -127,6 +129,10 @@ class OpenAILabelingService:
         self.export_format = export_format
         self.labeling_job_id = labeling_job_id
         self._request_dir = None  # Cached directory path for saved requests (created once per job)
+
+        # Store poor quality detection configuration
+        self.save_poor_quality_labels = save_poor_quality_labels
+        self.poor_quality_sample_rate = poor_quality_sample_rate
 
         logger.info(f"Initialized OpenAI labeling service with model: {self.model}")
         logger.info(f"  Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}, Timeout: {self.timeout}s")
@@ -357,6 +363,147 @@ curl -X POST '{endpoint_url}' \\
 
         except Exception as e:
             logger.warning(f"Failed to save response for testing: {e}")
+            # Don't fail the actual labeling if saving fails
+            pass
+
+    def is_poor_quality_label(self, labels: Dict[str, str]) -> bool:
+        """
+        Detect if a label is poor quality (ineffective).
+
+        Poor quality indicators:
+        - Contains "uncategorized", "unknown", "unclear", "generic", "empty", "other"
+        - Very short (< 3 characters)
+        - Contains only generic words like "feature", "pattern", "text", "token"
+
+        Args:
+            labels: Dict with "category" and "specific" keys
+
+        Returns:
+            True if label is poor quality, False otherwise
+        """
+        # Extract labels (case-insensitive check)
+        category = labels.get("category", "").lower()
+        specific = labels.get("specific", "").lower()
+
+        # List of poor quality keywords
+        poor_quality_keywords = [
+            "uncategorized",
+            "unknown",
+            "unclear",
+            "generic",
+            "empty",
+            "other",
+            "n/a",
+            "none",
+            "error",
+            "fallback",
+            "default",
+        ]
+
+        # Check if category or specific contains poor quality keywords
+        for keyword in poor_quality_keywords:
+            if keyword in category or keyword in specific:
+                return True
+
+        # Check if labels are too short (likely meaningless)
+        if len(category) < 3 or len(specific) < 3:
+            return True
+
+        # Check if labels are too generic (only common words)
+        generic_only_words = ["feature", "pattern", "text", "token", "word", "words"]
+        if category in generic_only_words or specific in generic_only_words:
+            return True
+
+        return False
+
+    def _save_poor_quality_debug(
+        self,
+        labels: Dict[str, str],
+        token_stats: Dict[str, Dict[str, float]],
+        neuron_index: Optional[int] = None,
+        response_data: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Save debug file for poor quality labels.
+
+        Creates debug file in tmp_api/{datetime}_{job_id}/ with:
+        - Token statistics
+        - Generated labels (category + specific)
+        - API response (if available)
+        - Quality issue indicators
+
+        Args:
+            labels: The poor quality labels that were generated
+            token_stats: Token statistics used for labeling
+            neuron_index: Optional neuron index for filename
+            response_data: Optional API response data
+        """
+        import json
+        import random
+        from datetime import datetime
+        from pathlib import Path
+
+        try:
+            # Only save if enabled
+            if not self.save_poor_quality_labels:
+                return
+
+            # Apply sampling rate
+            if random.random() > self.poor_quality_sample_rate:
+                logger.debug(f"Skipping poor quality save for neuron {neuron_index} (sample rate: {self.poor_quality_sample_rate})")
+                return
+
+            # Create directory if it doesn't exist (reuse existing logic from _save_request_for_testing)
+            if self._request_dir is None:
+                # Create directory with timestamp and job ID
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                folder_name = f"{timestamp}_{self.labeling_job_id}" if self.labeling_job_id else timestamp
+                request_dir = Path("/tmp/tmp_api") / folder_name
+                request_dir.mkdir(parents=True, exist_ok=True)
+                self._request_dir = request_dir
+                self._request_folder_name = folder_name
+
+            request_dir = self._request_dir
+            folder_name = self._request_folder_name
+            neuron_str = f"neuron_{neuron_index}" if neuron_index is not None else "request"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            base_filename = request_dir / f"{folder_name}_{neuron_str}_poor_quality_{timestamp}"
+
+            # Save poor quality debug file
+            debug_file = f"{base_filename}.json"
+
+            # Build debug metadata
+            debug_metadata = {
+                "timestamp": datetime.now().isoformat(),
+                "labeling_job_id": self.labeling_job_id or "N/A",
+                "neuron_index": neuron_index if neuron_index is not None else "N/A",
+                "model": self.model,
+                "labels": labels,
+                "quality_issue": "Poor quality label detected",
+                "token_stats_count": len(token_stats),
+                "top_tokens": [
+                    {
+                        "token": token,
+                        "count": stats["count"],
+                        "avg_activation": stats["total_activation"] / stats["count"],
+                        "max_activation": stats["max_activation"]
+                    }
+                    for token, stats in sorted(
+                        token_stats.items(),
+                        key=lambda x: x[1]["count"],
+                        reverse=True
+                    )[:20]  # Top 20 tokens
+                ],
+                "response_data": response_data if response_data else None
+            }
+
+            with open(debug_file, 'w') as f:
+                json.dump(debug_metadata, f, indent=2)
+
+            logger.info(f"💾 Saved poor quality debug file: {debug_file}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save poor quality debug file: {e}")
             # Don't fail the actual labeling if saving fails
             pass
 
@@ -1099,6 +1246,25 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             # Parse JSON response
             labels = self._parse_dual_label(label_text, fallback_label)
             logger.debug(f"Generated labels for {feature_id}: category='{labels['category']}', specific='{labels['specific']}'")
+
+            # Check for poor quality labels and save debug info if needed
+            if self.is_poor_quality_label(labels):
+                logger.info(f"⚠️ Poor quality label detected for {feature_id}: category='{labels['category']}', specific='{labels['specific']}'")
+                # Convert response to dict for saving
+                response_data = None
+                if hasattr(response, 'model_dump'):
+                    response_data = response.model_dump()
+                elif hasattr(response, 'dict'):
+                    response_data = response.dict()
+                # Note: We don't have token_stats in this method, so we'll pass an empty dict
+                # The examples contain the actual context data
+                self._save_poor_quality_debug(
+                    labels=labels,
+                    token_stats={},  # Not available in context-based labeling
+                    neuron_index=neuron_index,
+                    response_data=response_data
+                )
+
             return labels
 
         except RateLimitError as e:

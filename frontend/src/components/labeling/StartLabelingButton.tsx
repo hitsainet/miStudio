@@ -53,6 +53,8 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
   // Debugging configuration
   const [saveRequestsForTesting, setSaveRequestsForTesting] = useState(false);
   const [exportFormat, setExportFormat] = useState<'postman' | 'curl' | 'both'>('both');
+  const [savePoorQualityLabels, setSavePoorQualityLabels] = useState(false);
+  const [poorQualitySampleRate, setPoorQualitySampleRate] = useState(100);  // Store as percentage 0-100
 
   const { startLabeling, isLoading, error, clearError } = useLabelingStore();
   const { templates, fetchTemplates } = useLabelingPromptTemplatesStore();
@@ -178,6 +180,8 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
         // Debugging configuration
         save_requests_for_testing: saveRequestsForTesting,
         export_format: saveRequestsForTesting ? exportFormat : undefined,
+        save_poor_quality_labels: savePoorQualityLabels,
+        poor_quality_sample_rate: savePoorQualityLabels ? poorQualitySampleRate / 100 : undefined,  // Convert 0-100 to 0.0-1.0
       });
 
       setIsOpen(false);
@@ -550,6 +554,41 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
                         </select>
                         <p className="mt-1 text-xs text-slate-400">
                           Choose which format(s) to save for debugging
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Poor Quality Detection - in same debugging card */}
+                    <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer pt-3 border-t border-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={savePoorQualityLabels}
+                        onChange={(e) => setSavePoorQualityLabels(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                      />
+                      <div className="flex flex-col">
+                        <span className="font-medium">Save poor quality labels for debugging</span>
+                        <span className="text-xs text-slate-400">Detect and save ineffective labels like "uncategorized" or generic responses</span>
+                      </div>
+                    </label>
+
+                    {/* Sample Rate Slider - only shown when Save poor quality labels is enabled */}
+                    {savePoorQualityLabels && (
+                      <div className="ml-6 pt-2 border-t border-slate-700">
+                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                          Sample Rate: {poorQualitySampleRate}%
+                        </label>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={poorQualitySampleRate}
+                          onChange={(e) => setPoorQualitySampleRate(parseInt(e.target.value))}
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                        />
+                        <p className="mt-1 text-xs text-slate-400">
+                          Percentage of poor quality labels to save (0% = none, 100% = all). Lower values reduce disk usage.
                         </p>
                       </div>
                     )}

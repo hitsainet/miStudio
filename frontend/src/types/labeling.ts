@@ -106,6 +106,12 @@ export interface LabelingConfigRequest {
 
   /** API request timeout in seconds (30-600, default: 120) */
   api_timeout?: number;
+
+  /** Save poor quality labels for debugging (default: false) */
+  save_poor_quality_labels?: boolean;
+
+  /** Sample rate for saving poor quality labels (0.0-1.0, default: 1.0) */
+  poor_quality_sample_rate?: number;
 }
 
 /**
@@ -159,6 +165,12 @@ export interface LabelingJob {
 
   /** Export format for saved API requests */
   export_format: string;
+
+  /** Save poor quality labels for debugging */
+  save_poor_quality_labels: boolean;
+
+  /** Sample rate for saving poor quality labels (0.0-1.0) */
+  poor_quality_sample_rate: number;
 
   // Status and progress
   /** Current labeling status */

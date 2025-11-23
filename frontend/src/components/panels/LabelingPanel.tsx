@@ -45,13 +45,15 @@ export const LabelingPanel: React.FC = () => {
     fetchLabelingJobs();
   }, []);
 
-  // Reload jobs when status filter changes
-  useEffect(() => {
-    if (statusFilter.length > 0) {
-      // TODO: Implement status filtering in fetchLabelingJobs
-      fetchLabelingJobs();
+  // Filter jobs based on status filter (client-side filtering)
+  const filteredJobs = useMemo(() => {
+    if (statusFilter.length === 0) {
+      return labelingJobs || [];
     }
-  }, [statusFilter]);
+    return (labelingJobs || []).filter((job) =>
+      statusFilter.includes(job.status.toLowerCase())
+    );
+  }, [labelingJobs, statusFilter]);
 
   // Toggle status filter
   const toggleStatusFilter = (status: string) => {
@@ -129,7 +131,7 @@ export const LabelingPanel: React.FC = () => {
       {/* Labeling Jobs Grid */}
       {!isLoading && !error && (
         <>
-          {(labelingJobs || []).length === 0 ? (
+          {filteredJobs.length === 0 ? (
             <div className="text-center py-12">
               <Tag className={`w-16 h-16 ${COMPONENTS.text.muted} mx-auto mb-4`} />
               <p className={`${COMPONENTS.text.secondary} text-lg mb-2`}>No labeling jobs found</p>
@@ -143,12 +145,12 @@ export const LabelingPanel: React.FC = () => {
             <>
               {/* Stats */}
               <div className={`mb-4 text-sm ${COMPONENTS.text.secondary}`}>
-                Showing {labelingJobs.length} labeling job{labelingJobs.length !== 1 ? 's' : ''}
+                Showing {filteredJobs.length} labeling job{filteredJobs.length !== 1 ? 's' : ''}
               </div>
 
               {/* Grid */}
               <div className="grid grid-cols-1 gap-4">
-                {labelingJobs.map((job) => (
+                {filteredJobs.map((job) => (
                   <LabelingJobCard
                     key={job.id}
                     job={job}

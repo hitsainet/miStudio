@@ -51,7 +51,13 @@ export const useDeletionProgressWebSocket = (
 
     // Handler for 'task_update' events
     const handleTaskUpdate = (data: DeletionTaskUpdate) => {
-      console.log('[Deletion WS] Task update:', data);
+      console.log('[Deletion WS] ✅ Task update received:', {
+        training_id: data.training_id,
+        task: data.task,
+        status: data.status,
+        message: data.message,
+        count: data.count,
+      });
       callbackRef.current(data);
     };
 

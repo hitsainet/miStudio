@@ -72,8 +72,10 @@ class Feature(Base):
     is_favorite = Column(Boolean, nullable=False, default=False, index=True)
     notes = Column(Text, nullable=True)
 
-    # Example tokens summary (populated during labeling with filtered top tokens)
-    example_tokens_summary = Column(JSONB, nullable=True)  # Format: {'tokens': [...], 'counts': [...], 'activations': [...], 'max_activation': X}
+    # Quick preview of top prime tokens (populated during labeling)
+    # Format: Comma-separated string of prime tokens, e.g., "▁worth, ▁worth, ▁entries, ▁brand"
+    # This is purely for quick visual scanning in the UI - full examples are in FeatureActivation table
+    example_tokens_summary = Column(JSONB, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

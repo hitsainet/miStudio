@@ -95,8 +95,17 @@ export interface LabelingConfigRequest {
   /** Save API requests to /tmp/ for testing and debugging (default: false) */
   save_requests_for_testing?: boolean;
 
+  /** Export format for saved API requests: 'postman' (Postman collection), 'curl' (cURL command), or 'both' (default: both) */
+  export_format?: 'postman' | 'curl' | 'both';
+
   /** Batch size for labeling (1-100, default: 10) */
   batch_size?: number;
+
+  /** Number of activation examples per feature (10-50) */
+  max_examples?: number;
+
+  /** API request timeout in seconds (30-600, default: 120) */
+  api_timeout?: number;
 }
 
 /**
@@ -116,6 +125,9 @@ export interface LabelingJob {
 
   /** OpenAI model used (if applicable) */
   openai_model?: string | null;
+
+  /** OpenAI-compatible model used (if applicable) */
+  openai_compatible_model?: string | null;
 
   /** Local model used (if applicable) */
   local_model?: string | null;
@@ -144,6 +156,9 @@ export interface LabelingJob {
 
   /** Save API requests for testing */
   save_requests_for_testing: boolean;
+
+  /** Export format for saved API requests */
+  export_format: string;
 
   // Status and progress
   /** Current labeling status */

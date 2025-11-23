@@ -197,10 +197,14 @@ class LabelingService:
             filter_fragments=config.get("filter_fragments", True),
             filter_stop_words=config.get("filter_stop_words", False),
             save_requests_for_testing=config.get("save_requests_for_testing", False),
+            export_format=config.get("export_format", "both"),
             status=LabelingStatus.QUEUED.value,
             progress=0.0,
             features_labeled=0,
-            total_features=total_features
+            total_features=total_features,
+            statistics={
+                "max_examples": config.get("max_examples")  # Store example count override (None = use template default)
+            }
         )
 
         self.db.add(labeling_job)
@@ -401,6 +405,182 @@ class LabelingService:
 
         return examples_map
 
+    async def _retrieve_bottom_examples_batch(
+        self,
+        session: AsyncSession,
+        feature_ids: List[str],
+        num_negative_examples: int = 5
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Retrieve bottom-K activation examples (negative examples) for a batch of features.
+
+        These are examples where the feature has LOW activation, useful for distinguishing
+        what the feature does NOT respond to. This helps the LLM understand the feature's
+        boundaries and avoid overgeneralization.
+
+        Uses PostgreSQL window function (ROW_NUMBER() OVER) to efficiently
+        get the bottom K examples per feature, ordered by max_activation ASC.
+
+        Args:
+            session: Async database session
+            feature_ids: List of feature IDs to retrieve negative examples for
+            num_negative_examples: Number of low-activation examples per feature (default: 5)
+
+        Returns:
+            Dict mapping feature_id to list of negative example dicts (same format as positive examples)
+        """
+        from sqlalchemy import text
+
+        if not feature_ids or num_negative_examples <= 0:
+            return {}
+
+        # SQL query using ROW_NUMBER() window function to get bottom-K per feature
+        # Note: We order by max_activation ASC to get the LOWEST activations
+        query = text("""
+            WITH ranked_examples AS (
+                SELECT
+                    fa.feature_id,
+                    fa.sample_index,
+                    fa.max_activation,
+                    fa.prefix_tokens,
+                    fa.prime_token,
+                    fa.suffix_tokens,
+                    fa.prime_activation_index,
+                    fa.activations,
+                    fa.tokens,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY fa.feature_id
+                        ORDER BY fa.max_activation ASC, fa.id ASC
+                    ) as rank
+                FROM feature_activations fa
+                WHERE fa.feature_id = ANY(:feature_ids)
+            )
+            SELECT
+                feature_id,
+                sample_index,
+                max_activation,
+                prefix_tokens,
+                prime_token,
+                suffix_tokens,
+                prime_activation_index,
+                activations,
+                tokens
+            FROM ranked_examples
+            WHERE rank <= :num_negative_examples
+            ORDER BY feature_id, rank;
+        """)
+
+        result = await session.execute(
+            query,
+            {"feature_ids": feature_ids, "num_negative_examples": num_negative_examples}
+        )
+
+        # Group negative examples by feature_id
+        examples_map: Dict[str, List[Dict[str, Any]]] = {}
+        for row in result:
+            feature_id = row.feature_id
+            if feature_id not in examples_map:
+                examples_map[feature_id] = []
+
+            examples_map[feature_id].append({
+                "sample_index": row.sample_index,
+                "max_activation": float(row.max_activation),
+                "prefix_tokens": row.prefix_tokens or [],
+                "prime_token": row.prime_token or "",
+                "suffix_tokens": row.suffix_tokens or [],
+                "prime_activation_index": row.prime_activation_index,
+                "activations": row.activations or [],
+                "tokens": row.tokens or []  # legacy fallback
+            })
+
+        return examples_map
+
+    def _retrieve_bottom_examples_batch_sync(
+        self,
+        session: Session,
+        feature_ids: List[str],
+        num_negative_examples: int = 5
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Synchronous version: Retrieve bottom-K activation examples (negative examples).
+
+        These are examples where the feature has LOW activation, useful for distinguishing
+        what the feature does NOT respond to.
+
+        Args:
+            session: Sync database session
+            feature_ids: List of feature IDs to retrieve negative examples for
+            num_negative_examples: Number of low-activation examples per feature (default: 5)
+
+        Returns:
+            Dict mapping feature_id to list of negative example dicts (same format as async version)
+        """
+        from sqlalchemy import text
+
+        if not feature_ids or num_negative_examples <= 0:
+            return {}
+
+        # Same SQL query as async version (order by ASC for lowest activations)
+        query = text("""
+            WITH ranked_examples AS (
+                SELECT
+                    fa.feature_id,
+                    fa.sample_index,
+                    fa.max_activation,
+                    fa.prefix_tokens,
+                    fa.prime_token,
+                    fa.suffix_tokens,
+                    fa.prime_activation_index,
+                    fa.activations,
+                    fa.tokens,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY fa.feature_id
+                        ORDER BY fa.max_activation ASC, fa.id ASC
+                    ) as rank
+                FROM feature_activations fa
+                WHERE fa.feature_id = ANY(:feature_ids)
+            )
+            SELECT
+                feature_id,
+                sample_index,
+                max_activation,
+                prefix_tokens,
+                prime_token,
+                suffix_tokens,
+                prime_activation_index,
+                activations,
+                tokens
+            FROM ranked_examples
+            WHERE rank <= :num_negative_examples
+            ORDER BY feature_id, rank;
+        """)
+
+        # Synchronous execute (no await)
+        result = session.execute(
+            query,
+            {"feature_ids": feature_ids, "num_negative_examples": num_negative_examples}
+        )
+
+        # Group negative examples by feature_id (same logic as async version)
+        examples_map: Dict[str, List[Dict[str, Any]]] = {}
+        for row in result:
+            feature_id = row.feature_id
+            if feature_id not in examples_map:
+                examples_map[feature_id] = []
+
+            examples_map[feature_id].append({
+                "sample_index": row.sample_index,
+                "max_activation": float(row.max_activation),
+                "prefix_tokens": row.prefix_tokens or [],
+                "prime_token": row.prime_token or "",
+                "suffix_tokens": row.suffix_tokens or [],
+                "prime_activation_index": row.prime_activation_index,
+                "activations": row.activations or [],
+                "tokens": row.tokens or []  # legacy fallback
+            })
+
+        return examples_map
+
     def label_features_for_extraction(
         self,
         labeling_job_id: str
@@ -475,9 +655,17 @@ class LabelingService:
                     LabelingPromptTemplate.id == labeling_job.prompt_template_id
                 ).first()
                 if template:
+                    # Check for job-level max_examples override in statistics
+                    job_max_examples = None
+                    if labeling_job.statistics and isinstance(labeling_job.statistics, dict):
+                        job_max_examples = labeling_job.statistics.get('max_examples')
+
+                    # Use job override if provided, otherwise use template default
+                    max_examples = job_max_examples if job_max_examples is not None else template.max_examples
+
                     template_config = {
                         'template_type': template.template_type,
-                        'max_examples': template.max_examples,
+                        'max_examples': max_examples,  # Use resolved value (job override or template default)
                         'include_prefix': template.include_prefix,
                         'include_suffix': template.include_suffix,
                         'prime_token_marker': template.prime_token_marker,
@@ -486,8 +674,9 @@ class LabelingService:
                         'top_suppressed_tokens_count': template.top_suppressed_tokens_count,
                         'is_detection_template': template.is_detection_template
                     }
-                    max_examples = template.max_examples
-                    logger.info(f"Using template: {template.name} (type: {template.template_type}, K={max_examples})")
+
+                    override_msg = f" (job override)" if job_max_examples is not None else ""
+                    logger.info(f"Using template: {template.name} (type: {template.template_type}, K={max_examples}{override_msg})")
 
             # Retrieve top-K activation examples using efficient SQL batching
             # Process features in batches of 1000 to avoid memory issues and track progress
@@ -715,6 +904,10 @@ class LabelingService:
                             top_p = template.top_p
                             logger.info(f"Using prompt template: {template.name} (ID: {template.id})")
 
+                    # Use default API timeout (120s)
+                    # TODO: Add api_timeout column to labeling_jobs table for configurable timeout
+                    api_timeout = 120.0
+
                     logger.info(f"Initializing OpenAI labeling service with model: {openai_model}")
                     labeling_service = OpenAILabelingService(
                         api_key=openai_api_key,
@@ -724,6 +917,7 @@ class LabelingService:
                         temperature=temperature,
                         max_tokens=max_tokens,
                         top_p=top_p,
+                        timeout=api_timeout,
                         filter_special=labeling_job.filter_special,
                         filter_single_char=labeling_job.filter_single_char,
                         filter_punctuation=labeling_job.filter_punctuation,
@@ -731,6 +925,7 @@ class LabelingService:
                         filter_fragments=labeling_job.filter_fragments,
                         filter_stop_words=labeling_job.filter_stop_words,
                         save_requests_for_testing=labeling_job.save_requests_for_testing,
+                        export_format=labeling_job.export_format,
                         labeling_job_id=labeling_job.id
                     )
 
@@ -757,6 +952,7 @@ class LabelingService:
                                 user_prompt_template=user_prompt_template,
                                 system_message=system_message,
                                 feature_id=feature.id,
+                                neuron_index=feature.neuron_index,
                                 logit_effects=None  # TODO: Implement in Sprint 4
                             )
                             label_tasks.append(task)
@@ -854,6 +1050,10 @@ class LabelingService:
                             top_p = template.top_p
                             logger.info(f"Using prompt template: {template.name} (ID: {template.id})")
 
+                    # Use default API timeout (120s)
+                    # TODO: Add api_timeout column to labeling_jobs table for configurable timeout
+                    api_timeout = 120.0
+
                     logger.info(f"Initializing OpenAI-compatible labeling service with endpoint: {endpoint}, model: {model_name}")
                     labeling_service = OpenAILabelingService(
                         api_key="dummy-key-not-required",  # Most local endpoints don't require auth
@@ -864,6 +1064,7 @@ class LabelingService:
                         temperature=temperature,
                         max_tokens=max_tokens,
                         top_p=top_p,
+                        timeout=api_timeout,
                         filter_special=labeling_job.filter_special,
                         filter_single_char=labeling_job.filter_single_char,
                         filter_punctuation=labeling_job.filter_punctuation,
@@ -871,6 +1072,7 @@ class LabelingService:
                         filter_fragments=labeling_job.filter_fragments,
                         filter_stop_words=labeling_job.filter_stop_words,
                         save_requests_for_testing=labeling_job.save_requests_for_testing,
+                        export_format=labeling_job.export_format,
                         labeling_job_id=labeling_job.id
                     )
 
@@ -897,6 +1099,7 @@ class LabelingService:
                                 user_prompt_template=user_prompt_template,
                                 system_message=system_message,
                                 feature_id=feature.id,
+                                neuron_index=feature.neuron_index,
                                 logit_effects=None  # TODO: Implement in Sprint 4
                             )
                             label_tasks.append(task)

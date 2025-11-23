@@ -46,6 +46,7 @@ class OpenAILabelingService:
         temperature: float = 0.3,
         max_tokens: int = 50,
         top_p: float = 0.9,
+        timeout: float = 120.0,
         filter_special: bool = True,
         filter_single_char: bool = True,
         filter_punctuation: bool = True,
@@ -53,6 +54,7 @@ class OpenAILabelingService:
         filter_fragments: bool = True,
         filter_stop_words: bool = False,
         save_requests_for_testing: bool = False,
+        export_format: str = "both",
         labeling_job_id: Optional[str] = None
     ):
         """
@@ -67,6 +69,7 @@ class OpenAILabelingService:
             temperature: Sampling temperature (0.0-2.0)
             max_tokens: Maximum tokens in response (10-500)
             top_p: Nucleus sampling parameter (0.0-1.0)
+            timeout: API request timeout in seconds (default: 120.0, max: 600.0)
             filter_special: Filter special tokens (<s>, </s>, etc.) from token analysis
             filter_single_char: Filter single character tokens from token analysis
             filter_punctuation: Filter pure punctuation tokens from token analysis
@@ -74,6 +77,7 @@ class OpenAILabelingService:
             filter_fragments: Filter word fragments (BPE subwords) from token analysis
             filter_stop_words: Filter common stop words from token analysis
             save_requests_for_testing: Save API requests to tmp_api/ for testing and debugging
+            export_format: Format for saved requests: 'postman', 'curl', or 'both' (default: 'both')
             labeling_job_id: Labeling job ID for organizing saved requests
         """
         # Set API key (not required for OpenAI-compatible endpoints)
@@ -84,11 +88,16 @@ class OpenAILabelingService:
                 "or pass api_key parameter."
             )
 
-        # Initialize async client with optional base_url for OpenAI-compatible endpoints
-        client_kwargs = {"api_key": self.api_key or "not-needed"}
+        # Initialize async client with optional base_url and timeout for OpenAI-compatible endpoints
+        import httpx
+        client_kwargs = {
+            "api_key": self.api_key or "not-needed",
+            "timeout": httpx.Timeout(timeout, connect=10.0)  # timeout for requests, 10s for connection
+        }
         if base_url:
             client_kwargs["base_url"] = base_url
         self.client = AsyncOpenAI(**client_kwargs)
+        self.timeout = timeout
 
         # Resolve model name
         if model is None or model == "gpt4-mini":
@@ -115,11 +124,12 @@ class OpenAILabelingService:
 
         # Store debugging configuration
         self.save_requests_for_testing = save_requests_for_testing
+        self.export_format = export_format
         self.labeling_job_id = labeling_job_id
         self._request_dir = None  # Cached directory path for saved requests (created once per job)
 
         logger.info(f"Initialized OpenAI labeling service with model: {self.model}")
-        logger.info(f"  Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}")
+        logger.info(f"  Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}, Timeout: {self.timeout}s")
         if system_message:
             logger.info(f"  Using custom system message (length: {len(system_message)} chars)")
         if user_prompt_template:
@@ -134,10 +144,10 @@ class OpenAILabelingService:
         """
         Save API request to file for testing in Postman or cURL.
 
-        Creates three files in tmp_api/{datetime}_{job_id}/
-        - JSON file: Ready to import into Postman
-        - Shell script: cURL command ready to execute
-        - Postman collection: Import into Postman app
+        Creates files in tmp_api/{datetime}_{job_id}/ based on export_format:
+        - JSON file: Request payload (always created for reference)
+        - cURL file (*.curl.txt): cURL command (if export_format='curl' or 'both')
+        - Postman collection (*_postman.json): Import into Postman (if export_format='postman' or 'both')
 
         Args:
             request_payload: The request payload dict
@@ -184,29 +194,32 @@ class OpenAILabelingService:
             base_url = str(self.client.base_url).rstrip('/')
             endpoint_url = f"{base_url}/chat/completions"
 
-            # 1. Save JSON payload for Postman
+            # 1. Always save JSON payload (needed for all formats)
             json_file = f"{base_filename}.json"
             with open(json_file, 'w') as f:
                 json.dump(request_payload, f, indent=2)
 
-            # 2. Create cURL command
-            curl_file = f"{base_filename}.sh"
-            headers = []
-            if self.api_key and self.api_key != "not-needed" and self.api_key != "dummy-key-not-required":
-                headers.append(f"-H 'Authorization: Bearer {self.api_key}'")
-            headers.append("-H 'Content-Type: application/json'")
+            files_created = [f"JSON: {json_file}"]
 
-            # Use just the filename (not full path) so script runs from within its folder
-            filename_only = f"{folder_name}_{neuron_str}"
+            # 2. Conditionally create cURL command file (text file, not shell script)
+            if self.export_format in ["curl", "both"]:
+                curl_file = f"{base_filename}.curl.txt"
+                headers = []
+                if self.api_key and self.api_key != "not-needed" and self.api_key != "dummy-key-not-required":
+                    headers.append(f"-H 'Authorization: Bearer {self.api_key}'")
+                headers.append("-H 'Content-Type: application/json'")
 
-            curl_command = f"""#!/bin/bash
-# OpenAI API Request - Generated {timestamp}
+                # Use just the filename (not full path) for portability
+                filename_only = f"{folder_name}_{neuron_str}"
+
+                curl_command = f"""# OpenAI API Request - Generated {timestamp}
 # Labeling Job ID: {self.labeling_job_id or 'N/A'}
 # Neuron Index: {neuron_index if neuron_index is not None else 'N/A'}
 # Base URL: {base_url}
 # Model: {self.model}
 # Folder: {folder_name}
 
+# cURL command (copy and paste into terminal from within the tmp_api/{folder_name}/ directory):
 curl -X POST '{endpoint_url}' \\
   {' '.join(headers)} \\
   -d @{filename_only}.json
@@ -217,68 +230,133 @@ curl -X POST '{endpoint_url}' \\
 #   -d '{json.dumps(request_payload)}'
 """
 
-            with open(curl_file, 'w') as f:
-                f.write(curl_command)
+                with open(curl_file, 'w') as f:
+                    f.write(curl_command)
 
-            # Make shell script executable
-            import os
-            os.chmod(curl_file, 0o755)
+                files_created.append(f"cURL: {curl_file}")
 
-            # 3. Create Postman-ready collection
-            postman_file = f"{base_filename}_postman.json"
-            postman_collection = {
-                "info": {
-                    "name": f"OpenAI Labeling Request - {timestamp}",
-                    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-                },
-                "item": [
-                    {
-                        "name": f"Label Feature (Neuron {neuron_index})",
-                        "request": {
-                            "method": "POST",
-                            "header": [
-                                {
-                                    "key": "Content-Type",
-                                    "value": "application/json"
+            # 3. Conditionally create Postman collection
+            if self.export_format in ["postman", "both"]:
+                postman_file = f"{base_filename}_postman.json"
+                postman_collection = {
+                    "info": {
+                        "name": f"OpenAI Labeling Request - {timestamp}",
+                        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+                    },
+                    "item": [
+                        {
+                            "name": f"Label Feature (Neuron {neuron_index})",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": json.dumps(request_payload, indent=2)
+                                },
+                                "url": {
+                                    "raw": endpoint_url,
+                                    "protocol": "https" if "https" in endpoint_url else "http",
+                                    "host": [endpoint_url.split("://")[1].split("/")[0]],
+                                    "path": endpoint_url.split("://")[1].split("/")[1:]
                                 }
-                            ],
-                            "body": {
-                                "mode": "raw",
-                                "raw": json.dumps(request_payload, indent=2)
-                            },
-                            "url": {
-                                "raw": endpoint_url,
-                                "protocol": "https" if "https" in endpoint_url else "http",
-                                "host": [endpoint_url.split("://")[1].split("/")[0]],
-                                "path": endpoint_url.split("://")[1].split("/")[1:]
                             }
                         }
-                    }
-                ]
-            }
+                    ]
+                }
 
-            # Add Authorization header if API key exists
-            if self.api_key and self.api_key not in ["not-needed", "dummy-key-not-required"]:
-                postman_collection["item"][0]["request"]["header"].append({
-                    "key": "Authorization",
-                    "value": f"Bearer {self.api_key}",
-                    "type": "text"
-                })
+                # Add Authorization header if API key exists
+                if self.api_key and self.api_key not in ["not-needed", "dummy-key-not-required"]:
+                    postman_collection["item"][0]["request"]["header"].append({
+                        "key": "Authorization",
+                        "value": f"Bearer {self.api_key}",
+                        "type": "text"
+                    })
 
-            with open(postman_file, 'w') as f:
-                json.dump(postman_collection, f, indent=2)
+                with open(postman_file, 'w') as f:
+                    json.dump(postman_collection, f, indent=2)
 
-            logger.info(f"💾 Saved API request for testing:")
+                files_created.append(f"Postman: {postman_file}")
+
+            # Log files created based on export format
+            logger.info(f"💾 Saved API request for testing (format: {self.export_format}):")
             logger.info(f"   Folder: tmp_api/{folder_name}/")
-            logger.info(f"   JSON Payload: {json_file}")
-            logger.info(f"   cURL Script: {curl_file}")
-            logger.info(f"   Postman Collection: {postman_file}")
-            logger.info(f"")
-            logger.info(f"   Quick test: bash {curl_file}")
-            logger.info(f"   Or import {postman_file} into Postman")
+            for file_info in files_created:
+                logger.info(f"   {file_info}")
 
         except Exception as e:
             logger.warning(f"Failed to save request for testing: {e}")
+            # Don't fail the actual labeling if saving fails
+            pass
+
+    def _save_response_for_testing(
+        self,
+        response: Any,
+        neuron_index: Optional[int] = None,
+        elapsed_time: Optional[float] = None
+    ) -> None:
+        """
+        Save API response to file for testing and debugging.
+
+        Creates response file in tmp_api/{datetime}_{job_id}/:
+        - Response JSON: Full API response with metadata
+
+        Args:
+            response: The API response object (ChatCompletion)
+            neuron_index: Optional neuron index for filename
+            elapsed_time: Optional API call elapsed time in seconds
+        """
+        import json
+        from datetime import datetime
+        from pathlib import Path
+
+        try:
+            # Only save if we have a request directory (created by _save_request_for_testing)
+            if self._request_dir is None:
+                return
+
+            request_dir = self._request_dir
+            folder_name = self._request_folder_name
+            neuron_str = f"neuron_{neuron_index}" if neuron_index is not None else "request"
+            base_filename = request_dir / f"{folder_name}_{neuron_str}"
+
+            # Save response
+            response_file = f"{base_filename}_response.json"
+
+            # Convert response to dict (handles both dict and object types)
+            if hasattr(response, 'model_dump'):
+                # Pydantic v2 model
+                response_data = response.model_dump()
+            elif hasattr(response, 'dict'):
+                # Pydantic v1 model
+                response_data = response.dict()
+            elif isinstance(response, dict):
+                response_data = response
+            else:
+                # Fallback: convert to dict using vars()
+                response_data = vars(response) if hasattr(response, '__dict__') else str(response)
+
+            # Build response metadata
+            response_metadata = {
+                "timestamp": datetime.now().isoformat(),
+                "labeling_job_id": self.labeling_job_id or "N/A",
+                "neuron_index": neuron_index if neuron_index is not None else "N/A",
+                "model": self.model,
+                "elapsed_time_seconds": round(elapsed_time, 3) if elapsed_time is not None else None,
+                "response": response_data
+            }
+
+            with open(response_file, 'w') as f:
+                json.dump(response_metadata, f, indent=2)
+
+            logger.info(f"💾 Saved API response: {response_file}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save response for testing: {e}")
             # Don't fail the actual labeling if saving fails
             pass
 
@@ -378,7 +456,9 @@ curl -X POST '{endpoint_url}' \\
             if self.save_requests_for_testing:
                 self._save_request_for_testing(request_payload, neuron_index)
 
-            # Call OpenAI API (new v1+ syntax)
+            # Call OpenAI API (new v1+ syntax) - track elapsed time
+            import time
+            start_time = time.time()
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -395,6 +475,11 @@ curl -X POST '{endpoint_url}' \\
                 max_tokens=self.max_tokens,
                 top_p=self.top_p
             )
+            elapsed_time = time.time() - start_time
+
+            # Save response to file for testing (if enabled)
+            if self.save_requests_for_testing:
+                self._save_response_for_testing(response, neuron_index, elapsed_time)
 
             # Extract label from response (new v1+ syntax)
             label_text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
@@ -541,7 +626,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         examples: List[Dict[str, Any]],
         template_config: Dict[str, Any],
         feature_id: str,
-        logit_effects: Optional[Dict[str, Any]] = None
+        logit_effects: Optional[Dict[str, Any]] = None,
+        negative_examples: Optional[List[Dict[str, Any]]] = None
     ) -> str:
         """
         Format activation examples into a prompt-ready text block using LabelingContextFormatter.
@@ -567,6 +653,7 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
                 - top_suppressed_tokens_count: Number of suppressed tokens to show
             feature_id: Feature identifier for context
             logit_effects: Optional dict with 'top_promoted' and 'top_suppressed' token lists
+            negative_examples: Optional list of low-activation examples for contrastive learning
 
         Returns:
             Formatted examples block string ready for prompt insertion
@@ -581,7 +668,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
                 examples=examples,
                 logit_effects=logit_effects or {},
                 template_config=template_config,
-                feature_id=feature_id
+                feature_id=feature_id,
+                negative_examples=negative_examples
             )
         elif template_type == 'eleutherai_detection':
             return LabelingContextFormatter.format_eleutherai_detection(
@@ -592,7 +680,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             return LabelingContextFormatter.format_mistudio_context(
                 examples=examples,
                 template_config=template_config,
-                feature_id=feature_id
+                feature_id=feature_id,
+                negative_examples=negative_examples
             )
 
     def _build_user_prompt(
@@ -601,7 +690,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         template_config: Dict[str, Any],
         user_prompt_template: str,
         feature_id: str,
-        logit_effects: Optional[Dict[str, Any]] = None
+        logit_effects: Optional[Dict[str, Any]] = None,
+        negative_examples: Optional[List[Dict[str, Any]]] = None
     ) -> str:
         """
         Build user prompt from template by replacing {examples_block} placeholder.
@@ -617,6 +707,7 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             user_prompt_template: User prompt template string with placeholders
             feature_id: Feature identifier for context
             logit_effects: Optional logit effects data for Anthropic template
+            negative_examples: Optional list of low-activation examples for contrastive learning
 
         Returns:
             Fully formatted user prompt ready for API call
@@ -626,7 +717,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             examples=examples,
             template_config=template_config,
             feature_id=feature_id,
-            logit_effects=logit_effects
+            logit_effects=logit_effects,
+            negative_examples=negative_examples
         )
 
         # Start with the template
@@ -754,9 +846,9 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         while '__' in label:
             label = label.replace('__', '_')
 
-        # Truncate if too long
-        if len(label) > 30:
-            label = label[:30]
+        # Truncate if too long (database limit: 500 characters)
+        if len(label) > 500:
+            label = label[:500]
 
         # Fallback if empty
         if not label or label == '_':
@@ -927,6 +1019,7 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         user_prompt_template: str,
         system_message: str,
         feature_id: str,
+        neuron_index: Optional[int] = None,
         logit_effects: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
         """
@@ -986,11 +1079,9 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             logger.debug(f"\n📝 SYSTEM MESSAGE:\n{system_message}")
             logger.debug(f"\n📝 USER PROMPT:\n{user_prompt}")
 
-            # Save request for testing if enabled
-            if self.save_requests_for_testing:
-                self._save_request_for_testing(request_payload, neuron_index=None)
-
-            # Call OpenAI API
+            # Call OpenAI API - track elapsed time
+            import time
+            start_time = time.time()
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=request_payload["messages"],
@@ -998,6 +1089,7 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
                 max_tokens=self.max_tokens,
                 top_p=self.top_p
             )
+            elapsed_time = time.time() - start_time
 
             # Extract and parse response
             label_text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
@@ -1011,6 +1103,13 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
 
         except RateLimitError as e:
             logger.warning(f"⚠️ OpenAI rate limit for feature {feature_id}: {e}")
+
+            # Save debug files for troubleshooting rate limits
+            if self.save_requests_for_testing:
+                self._save_request_for_testing(request_payload, neuron_index=neuron_index)
+                # Note: No response to save for rate limit errors
+                logger.info(f"💾 Saved debug files for rate-limited feature (neuron_index={neuron_index})")
+
             return {"category": "rate_limited", "specific": fallback_label, "description": ""}
 
         except AuthenticationError as e:
@@ -1021,6 +1120,15 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             logger.error(f"❌ Error calling OpenAI API for feature {feature_id}:")
             logger.error(f"   Error Type: {type(e).__name__}")
             logger.error(f"   Error Message: {e}", exc_info=True)
+
+            # Save debug files for troubleshooting errors
+            if self.save_requests_for_testing:
+                self._save_request_for_testing(request_payload, neuron_index=neuron_index)
+                # Try to save response if available (may not be if error was before API call)
+                if 'response' in locals():
+                    self._save_response_for_testing(response, neuron_index=neuron_index, elapsed_time=elapsed_time)
+                logger.info(f"💾 Saved debug files for failed feature (neuron_index={neuron_index}, error={type(e).__name__})")
+
             return {"category": "error_feature", "specific": fallback_label, "description": ""}
 
     async def batch_generate_labels(

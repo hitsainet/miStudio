@@ -103,6 +103,18 @@ class LabelingPromptTemplateCreate(BaseModel):
         description="Number of top suppressed tokens to include (1-50, default: 10)"
     )
 
+    # Negative examples configuration (for contrastive learning)
+    include_negative_examples: bool = Field(
+        default=True,
+        description="Whether to include low-activation examples for contrastive learning"
+    )
+    num_negative_examples: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=20,
+        description="Number of negative examples to include (1-20, default: 5)"
+    )
+
     # Detection/scoring template flag (for EleutherAI-style template)
     is_detection_template: bool = Field(
         default=False,
@@ -223,6 +235,18 @@ class LabelingPromptTemplateUpdate(BaseModel):
         description="Updated suppressed tokens count (1-50)"
     )
 
+    # Negative examples configuration
+    include_negative_examples: Optional[bool] = Field(
+        default=None,
+        description="Updated negative examples inclusion setting"
+    )
+    num_negative_examples: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=20,
+        description="Updated negative examples count (1-20)"
+    )
+
     # Detection/scoring template flag
     is_detection_template: Optional[bool] = Field(
         default=None,
@@ -282,6 +306,10 @@ class LabelingPromptTemplateResponse(BaseModel):
     include_logit_effects: bool
     top_promoted_tokens_count: Optional[int] = None
     top_suppressed_tokens_count: Optional[int] = None
+
+    # Negative examples configuration
+    include_negative_examples: bool
+    num_negative_examples: Optional[int] = None
 
     # Detection/scoring template flag
     is_detection_template: bool
@@ -366,6 +394,8 @@ class LabelingPromptTemplateExportItem(BaseModel):
     include_logit_effects: bool
     top_promoted_tokens_count: Optional[int] = None
     top_suppressed_tokens_count: Optional[int] = None
+    include_negative_examples: bool
+    num_negative_examples: Optional[int] = None
     is_detection_template: bool
     is_default: bool
 

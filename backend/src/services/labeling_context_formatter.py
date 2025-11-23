@@ -22,7 +22,8 @@ class LabelingContextFormatter:
     def format_mistudio_context(
         examples: List[Dict[str, Any]],
         template_config: Dict[str, Any],
-        feature_id: str
+        feature_id: str,
+        negative_examples: Optional[List[Dict[str, Any]]] = None
     ) -> str:
         """
         Format examples in miStudio Internal style.
@@ -31,10 +32,15 @@ class LabelingContextFormatter:
             Example 1 (activation: 0.007): commercial and residential r ena issuance of <<sorts>> . The last of four
             Example 2 (activation: 0.007): talk about women and women 's issues l <<ately>> , a nod to the emergence
 
+            NEGATIVE EXAMPLES (Low Activation):
+            Example 1 (activation: 0.001): ...text where feature does NOT activate strongly...
+            Example 2 (activation: 0.001): ...another low-activation example...
+
         Args:
             examples: List of activation examples with prefix_tokens, prime_token, suffix_tokens, max_activation
             template_config: Template configuration including prime_token_marker, include_prefix, include_suffix
             feature_id: Feature identifier for reference
+            negative_examples: Optional list of low-activation examples for contrastive learning
 
         Returns:
             Formatted examples block as string
@@ -45,6 +51,7 @@ class LabelingContextFormatter:
         include_prefix = template_config.get('include_prefix', True)
         include_suffix = template_config.get('include_suffix', True)
 
+        # Format positive (high-activation) examples
         formatted_lines = []
         for idx, example in enumerate(examples, start=1):
             # Extract example data
@@ -71,6 +78,36 @@ class LabelingContextFormatter:
                 f"Example {idx} (activation: {max_activation:.3f}): {context}"
             )
 
+        # Format negative (low-activation) examples if provided
+        if negative_examples:
+            formatted_lines.append("")  # Blank line separator
+            formatted_lines.append("NEGATIVE EXAMPLES (Low Activation):")
+
+            for idx, example in enumerate(negative_examples, start=1):
+                # Extract example data
+                prefix_tokens = example.get('prefix_tokens', []) if include_prefix else []
+                prime_token = example.get('prime_token', '')
+                suffix_tokens = example.get('suffix_tokens', []) if include_suffix else []
+                max_activation = example.get('max_activation', 0.0)
+
+                # Build context string: "prefix <<prime>> suffix"
+                context_parts = []
+                if prefix_tokens:
+                    context_parts.append(LabelingContextFormatter._join_tokens_naturally(prefix_tokens))
+                if prime_token:
+                    # Clean the prime token for display
+                    clean_prime = LabelingContextFormatter._clean_token(prime_token)
+                    context_parts.append(f'{marker_left}{clean_prime}{marker_right}')
+                if suffix_tokens:
+                    context_parts.append(LabelingContextFormatter._join_tokens_naturally(suffix_tokens))
+
+                context = ' '.join(context_parts)
+
+                # Format: Example N (activation: X.XXX): context
+                formatted_lines.append(
+                    f"Example {idx} (activation: {max_activation:.3f}): {context}"
+                )
+
         return '\n'.join(formatted_lines)
 
     @staticmethod
@@ -78,7 +115,8 @@ class LabelingContextFormatter:
         examples: List[Dict[str, Any]],
         logit_effects: Dict[str, Any],
         template_config: Dict[str, Any],
-        feature_id: str
+        feature_id: str,
+        negative_examples: Optional[List[Dict[str, Any]]] = None
     ) -> str:
         """
         Format examples in Anthropic-Style with logit effects.
@@ -86,6 +124,10 @@ class LabelingContextFormatter:
         Format:
             TOP ACTIVATING EXAMPLES:
             Example 1 (activation: 0.007): ...context...
+            ...
+
+            NEGATIVE EXAMPLES (Low Activation):
+            Example 1 (activation: 0.001): ...context...
             ...
 
             LOGIT EFFECTS:
@@ -97,13 +139,14 @@ class LabelingContextFormatter:
             logit_effects: Dict with 'promoted' and 'suppressed' token lists
             template_config: Template configuration
             feature_id: Feature identifier
+            negative_examples: Optional list of low-activation examples for contrastive learning
 
         Returns:
             Formatted examples block with logit effects
         """
         # Format examples section (reuse miStudio formatter)
         examples_text = LabelingContextFormatter.format_mistudio_context(
-            examples, template_config, feature_id
+            examples, template_config, feature_id, negative_examples
         )
 
         # Format logit effects section

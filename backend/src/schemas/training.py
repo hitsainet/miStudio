@@ -42,9 +42,9 @@ class TrainingHyperparameters(BaseModel):
     # Sparsity
     l1_alpha: float = Field(
         ...,
-        gt=0.00001,
+        gt=0.0000001,  # Lower bound adjusted for new L1 penalty formulation
         le=100.0,
-        description="L1 sparsity penalty coefficient (SAELens standard: 1.0-10.0 with activation normalization)"
+        description="L1 sparsity penalty coefficient (after bug fix: ~0.000002 for latent_dim=2048, SAELens standard was 1.0-10.0 with old formulation)"
     )
     target_l0: Optional[float] = Field(
         None,

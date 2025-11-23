@@ -41,15 +41,13 @@ const DeletionProgressModal: React.FC<DeletionProgressModalProps> = ({
           <h2 className="text-lg font-semibold text-slate-100">
             Deleting Training
           </h2>
-          {allCompleted && (
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-slate-200 transition-colors"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-200 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Content */}

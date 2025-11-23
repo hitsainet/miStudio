@@ -6,7 +6,7 @@ of features extracted from SAE models.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
@@ -89,6 +89,10 @@ class LabelingConfigRequest(BaseModel):
         default=False,
         description="Save API requests to /tmp/ for testing and debugging in Postman/cURL"
     )
+    export_format: Literal["postman", "curl", "both"] = Field(
+        default="both",
+        description="Export format for saved API requests: 'postman' (Postman collection), 'curl' (cURL command), or 'both'"
+    )
 
     # Optional resource configuration
     batch_size: Optional[int] = Field(
@@ -96,6 +100,22 @@ class LabelingConfigRequest(BaseModel):
         ge=1,
         le=100,
         description="Number of features to label in parallel (1-100)"
+    )
+
+    # Example configuration (overrides template default)
+    max_examples: Optional[int] = Field(
+        default=None,
+        ge=10,
+        le=50,
+        description="Number of activation examples per feature (10-50). If not specified, uses template's default."
+    )
+
+    # API timeout configuration
+    api_timeout: Optional[float] = Field(
+        default=120.0,
+        ge=30.0,
+        le=600.0,
+        description="API request timeout in seconds (30-600). Default: 120s. Increase for larger models or more examples."
     )
 
     @field_validator('labeling_method')
@@ -136,6 +156,7 @@ class LabelingStatusResponse(BaseModel):
     filter_fragments: bool = True
     filter_stop_words: bool = False
     save_requests_for_testing: bool = False
+    export_format: str = "both"
     status: str
     progress: float
     features_labeled: int

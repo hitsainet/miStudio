@@ -82,11 +82,7 @@ export const TrainingPanel: React.FC = () => {
     message?: string;
     count?: number;
   }>>([
-    { id: 'extractions', label: 'Extraction Jobs', status: 'pending' },
-    { id: 'checkpoints', label: 'Checkpoints', status: 'pending' },
-    { id: 'metrics', label: 'Training Metrics', status: 'pending' },
-    { id: 'features', label: 'Features', status: 'pending' },
-    { id: 'database', label: 'Database Record', status: 'pending' },
+    { id: 'database', label: 'Database Records', status: 'pending' },
     { id: 'files', label: 'Training Files', status: 'pending' },
   ]);
 
@@ -150,18 +146,23 @@ export const TrainingPanel: React.FC = () => {
     message?: string;
     count?: number;
   }) => {
-    setDeletionTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === update.task
+    console.log('[TrainingPanel] 📥 Received deletion task update:', update);
+    setDeletionTasks((prevTasks) => {
+      const updated = prevTasks.map((task) => {
+        const matches = task.id === update.task;
+        console.log(`[TrainingPanel] Task "${task.id}" matches "${update.task}":`, matches);
+        return matches
           ? {
               ...task,
               status: update.status,
               message: update.message,
               count: update.count,
             }
-          : task
-      )
-    );
+          : task;
+      });
+      console.log('[TrainingPanel] Updated deletion tasks:', updated);
+      return updated;
+    });
   }, []);
 
   // Subscribe to deletion progress WebSocket for the training being deleted
@@ -334,6 +335,20 @@ export const TrainingPanel: React.FC = () => {
       await Promise.all(
         Array.from(selectedTrainingIds).map((id) => deleteTraining(id))
       );
+
+      // Mark database deletion as completed (happens synchronously in the API)
+      // Mark files task as in_progress (Celery task is now queued and will run shortly)
+      setDeletionTasks((tasks) =>
+        tasks.map((task) => {
+          if (task.id === 'database') {
+            return { ...task, status: 'completed', message: 'Database records deleted' };
+          } else if (task.id === 'files') {
+            return { ...task, status: 'in_progress', message: 'Deleting training files...' };
+          }
+          return task;
+        })
+      );
+
       // Clear selection after successful deletion
       setSelectedTrainingIds(new Set());
     } catch (error) {
@@ -345,8 +360,19 @@ export const TrainingPanel: React.FC = () => {
 
   // Handle start training
   const handleStartTraining = async () => {
-    if (!isFormValid) return;
+    if (!isFormValid) {
+      console.error('[TrainingPanel] Form validation failed:', {
+        model_id: config.model_id,
+        dataset_id: config.dataset_id,
+        hidden_dim: config.hidden_dim,
+        latent_dim: config.latent_dim,
+        isFormValid,
+      });
+      alert('Please fill in all required fields (Model, Dataset, Hidden Dim, Latent Dim)');
+      return;
+    }
 
+    console.log('[TrainingPanel] Starting training with config:', config);
     setIsStarting(true);
     try {
       const request: TrainingCreateRequest = {
@@ -374,12 +400,15 @@ export const TrainingPanel: React.FC = () => {
         },
       };
 
+      console.log('[TrainingPanel] Sending training request:', request);
       await createTraining(request);
+      console.log('[TrainingPanel] Training created successfully');
       // Don't reset config - keep selections so user can easily start another training
       // Only collapse advanced configuration section
       setShowAdvanced(false);
     } catch (err) {
-      console.error('Failed to start training:', err);
+      console.error('[TrainingPanel] Failed to start training:', err);
+      alert(`Failed to start training: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsStarting(false);
     }

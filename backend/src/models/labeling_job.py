@@ -33,6 +33,13 @@ class LabelingMethod(str, Enum):
     MANUAL = "manual"           # Manual labeling
 
 
+class ExportFormat(str, Enum):
+    """API request export format for debugging."""
+    POSTMAN = "postman"         # Postman collection only
+    CURL = "curl"               # cURL command only
+    BOTH = "both"               # Both Postman and cURL
+
+
 class LabelingJob(Base):
     """
     Labeling Job database model.
@@ -78,6 +85,7 @@ class LabelingJob(Base):
 
     # Debugging configuration
     save_requests_for_testing = Column(Boolean, nullable=False, default=False)  # Save API requests to /tmp/ for testing
+    export_format = Column(String(20), nullable=False, default=ExportFormat.BOTH.value)  # Format: 'postman', 'curl', 'both'
 
     # Processing status
     status = Column(String(50), nullable=False, default=LabelingStatus.QUEUED.value)

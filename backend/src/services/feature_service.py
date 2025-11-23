@@ -146,27 +146,19 @@ class FeatureService:
         for feature in features:
             example_context = None
 
-            # Priority 1: Use example_tokens_summary if available (filtered top tokens from labeling)
-            if feature.example_tokens_summary:
-                summary = feature.example_tokens_summary
-                example_context = FeatureActivationExample(
-                    tokens=summary.get('tokens', []),
-                    activations=summary.get('activations', []),
-                    max_activation=summary.get('max_activation', 0.0),
-                    sample_index=-1  # -1 indicates this is a summary, not a specific sample
-                )
-            else:
-                # Priority 2: Fall back to max-activating example from FeatureActivation table
-                example_query = (
-                    select(FeatureActivation)
-                    .where(FeatureActivation.feature_id == feature.id)
-                    .order_by(desc(FeatureActivation.max_activation))
-                    .limit(1)
-                )
-                example_result = await self.db.execute(example_query)
-                example = example_result.scalar_one_or_none()
+            # Get max-activating example from FeatureActivation table
+            # Note: example_tokens_summary is a simple comma-separated string for display only,
+            # not suitable for structured context. Always use FeatureActivation for examples.
+            example_query = (
+                select(FeatureActivation)
+                .where(FeatureActivation.feature_id == feature.id)
+                .order_by(desc(FeatureActivation.max_activation))
+                .limit(1)
+            )
+            example_result = await self.db.execute(example_query)
+            example = example_result.scalar_one_or_none()
 
-                if example:
+            if example:
                     # Handle both legacy and new data formats
                     # Legacy: tokens is a dict with all_tokens key (from old extraction code)
                     # New: tokens is a simple list, context window in dedicated columns
@@ -351,27 +343,19 @@ class FeatureService:
         for feature in features:
             example_context = None
 
-            # Priority 1: Use example_tokens_summary if available (filtered top tokens from labeling)
-            if feature.example_tokens_summary:
-                summary = feature.example_tokens_summary
-                example_context = FeatureActivationExample(
-                    tokens=summary.get('tokens', []),
-                    activations=summary.get('activations', []),
-                    max_activation=summary.get('max_activation', 0.0),
-                    sample_index=-1  # -1 indicates this is a summary, not a specific sample
-                )
-            else:
-                # Priority 2: Fall back to max-activating example from FeatureActivation table
-                example_query = (
-                    select(FeatureActivation)
-                    .where(FeatureActivation.feature_id == feature.id)
-                    .order_by(desc(FeatureActivation.max_activation))
-                    .limit(1)
-                )
-                example_result = await self.db.execute(example_query)
-                example = example_result.scalar_one_or_none()
+            # Get max-activating example from FeatureActivation table
+            # Note: example_tokens_summary is a simple comma-separated string for display only,
+            # not suitable for structured context. Always use FeatureActivation for examples.
+            example_query = (
+                select(FeatureActivation)
+                .where(FeatureActivation.feature_id == feature.id)
+                .order_by(desc(FeatureActivation.max_activation))
+                .limit(1)
+            )
+            example_result = await self.db.execute(example_query)
+            example = example_result.scalar_one_or_none()
 
-                if example:
+            if example:
                     # Handle both legacy and new data formats
                     # Legacy: tokens is a dict with all_tokens key (from old extraction code)
                     # New: tokens is a simple list, context window in dedicated columns

@@ -52,6 +52,10 @@ class LabelingPromptTemplate(Base):
     top_promoted_tokens_count = Column(Integer, nullable=True)  # Number of top promoted tokens (default: 10)
     top_suppressed_tokens_count = Column(Integer, nullable=True)  # Number of top suppressed tokens (default: 10)
 
+    # Negative examples configuration (for contrastive learning)
+    include_negative_examples = Column(Boolean, nullable=False, default=True)  # Include low-activation examples
+    num_negative_examples = Column(Integer, nullable=True)  # Number of negative examples (default: 5)
+
     # Detection/scoring template flag (for EleutherAI-style template)
     is_detection_template = Column(Boolean, nullable=False, default=False)  # For binary classification/scoring
 

@@ -198,6 +198,8 @@ class LabelingService:
             filter_stop_words=config.get("filter_stop_words", False),
             save_requests_for_testing=config.get("save_requests_for_testing", False),
             export_format=config.get("export_format", "both"),
+            save_poor_quality_labels=config.get("save_poor_quality_labels", False),
+            poor_quality_sample_rate=config.get("poor_quality_sample_rate", 1.0),
             status=LabelingStatus.QUEUED.value,
             progress=0.0,
             features_labeled=0,

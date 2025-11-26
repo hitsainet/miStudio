@@ -6,6 +6,8 @@ import { TemplatesPanel } from './components/panels/TemplatesPanel';
 import { TrainingPanel } from './components/panels/TrainingPanel';
 import { ExtractionsPanel } from './components/panels/ExtractionsPanel';
 import { LabelingPanel } from './components/panels/LabelingPanel';
+import { SAEsPanel } from './components/panels/SAEsPanel';
+import { SteeringPanel } from './components/panels/SteeringPanel';
 import { SystemMonitor } from './components/SystemMonitor/SystemMonitor';
 import { CompactGPUStatus } from './components/SystemMonitor/CompactGPUStatus';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
@@ -13,14 +15,15 @@ import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
 import { COMPONENTS } from './config/brand';
 
-type ActivePanel = 'datasets' | 'models' | 'training' | 'extractions' | 'labeling' | 'templates' | 'system';
+type ActivePanel = 'datasets' | 'models' | 'training' | 'extractions' | 'labeling' | 'templates' | 'saes' | 'steering' | 'system';
 
 function AppContent() {
   const ws = useWebSocketContext();
   // Restore active panel from localStorage, default to 'datasets'
   const [activePanel, setActivePanel] = useState<ActivePanel>(() => {
     const saved = localStorage.getItem('activePanel');
-    return (saved === 'models' || saved === 'datasets' || saved === 'training' || saved === 'extractions' || saved === 'labeling' || saved === 'templates' || saved === 'system') ? saved : 'datasets';
+    const validPanels = ['models', 'datasets', 'training', 'extractions', 'labeling', 'templates', 'saes', 'steering', 'system'];
+    return validPanels.includes(saved || '') ? (saved as ActivePanel) : 'datasets';
   });
 
   // Theme state management - default to dark mode
@@ -167,6 +170,32 @@ function AppContent() {
               )}
             </button>
             <button
+              onClick={() => setActivePanel('saes')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'saes'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
+              }`}
+            >
+              SAEs
+              {activePanel === 'saes' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
+              )}
+            </button>
+            <button
+              onClick={() => setActivePanel('steering')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'steering'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
+              }`}
+            >
+              Steering
+              {activePanel === 'steering' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
+              )}
+            </button>
+            <button
               onClick={() => setActivePanel('system')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'system'
@@ -195,6 +224,8 @@ function AppContent() {
         {activePanel === 'extractions' && <ExtractionsPanel />}
         {activePanel === 'labeling' && <LabelingPanel />}
         {activePanel === 'templates' && <TemplatesPanel />}
+        {activePanel === 'saes' && <SAEsPanel onNavigateToSteering={() => setActivePanel('steering')} />}
+        {activePanel === 'steering' && <SteeringPanel />}
         {activePanel === 'system' && <SystemMonitor />}
       </main>
     </div>

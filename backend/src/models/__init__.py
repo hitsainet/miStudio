@@ -19,6 +19,7 @@ from .labeling_prompt_template import LabelingPromptTemplate
 from .feature import Feature, LabelSource
 from .feature_activation import FeatureActivation
 from .feature_analysis_cache import FeatureAnalysisCache, AnalysisType
+from .external_sae import ExternalSAE, SAESource, SAEStatus, SAEFormat
 
 __all__ = [
     "Dataset",
@@ -47,4 +48,8 @@ __all__ = [
     "FeatureActivation",
     "FeatureAnalysisCache",
     "AnalysisType",
+    "ExternalSAE",
+    "SAESource",
+    "SAEStatus",
+    "SAEFormat",
 ]

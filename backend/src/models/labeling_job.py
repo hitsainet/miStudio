@@ -85,6 +85,7 @@ class LabelingJob(Base):
 
     # Debugging configuration
     save_requests_for_testing = Column(Boolean, nullable=False, default=False)  # Save API requests to /tmp/ for testing
+    save_requests_sample_rate = Column(Float, nullable=False, default=1.0)  # Sample rate for saving all requests (0.0-1.0)
     export_format = Column(String(20), nullable=False, default=ExportFormat.BOTH.value)  # Format: 'postman', 'curl', 'both'
     save_poor_quality_labels = Column(Boolean, nullable=False, default=False)  # Save poor quality labels for debugging
     poor_quality_sample_rate = Column(Float, nullable=False, default=1.0)  # Sample rate for poor quality labels (0.0-1.0)

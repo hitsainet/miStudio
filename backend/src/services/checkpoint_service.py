@@ -3,6 +3,10 @@ Checkpoint service layer for SAE checkpoint management.
 
 This module contains the CheckpointService class which handles
 checkpoint saving, loading, and management operations.
+
+Supports two checkpoint formats:
+1. miStudio format: Internal format with optimizer states for training resumption
+2. Community Standard format: Standard format for interoperability with major SAE tools
 """
 
 import logging
@@ -18,6 +22,14 @@ import torch
 
 from ..models.checkpoint import Checkpoint
 from ..ml.sparse_autoencoder import SparseAutoencoder, SkipAutoencoder, Transcoder
+from ..ml.community_format import (
+    CommunityStandardConfig,
+    save_sae_community_format,
+    load_sae_community_format,
+    is_community_format,
+    is_mistudio_format,
+    convert_mistudio_to_community_weights,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -495,3 +507,134 @@ class CheckpointService:
             "checkpoint_dir": str(checkpoint_path),
             "training_layers": training_layers,
         }
+
+    @staticmethod
+    def save_community_checkpoint(
+        model: torch.nn.Module,
+        output_dir: str,
+        model_name: str,
+        layer: int,
+        hyperparams: Dict[str, Any],
+        training_id: Optional[str] = None,
+        checkpoint_step: Optional[int] = None,
+        sparsity: Optional[torch.Tensor] = None,
+        tied_weights: bool = False,
+    ) -> str:
+        """
+        Save model checkpoint in Community Standard format.
+
+        Creates:
+            {output_dir}/
+            ├── cfg.json
+            ├── sae_weights.safetensors
+            └── sparsity.safetensors (optional)
+
+        Args:
+            model: PyTorch SAE model to save
+            output_dir: Directory to save files
+            model_name: Name of the target model (e.g., "gpt2-small")
+            layer: Target layer index
+            hyperparams: Training hyperparameters dict
+            training_id: Optional training job ID for provenance
+            checkpoint_step: Optional checkpoint step number
+            sparsity: Optional feature sparsity tensor [d_sae]
+            tied_weights: Whether model uses tied weights
+
+        Returns:
+            Path to the output directory
+        """
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Create Community Standard config from training hyperparams
+        config = CommunityStandardConfig.from_training_hyperparams(
+            hyperparams=hyperparams,
+            model_name=model_name,
+            layer=layer,
+            training_id=training_id,
+            checkpoint_step=checkpoint_step,
+        )
+
+        # Save in Community Standard format
+        save_sae_community_format(
+            model=model,
+            config=config,
+            output_dir=output_path,
+            sparsity=sparsity,
+            tied_weights=tied_weights,
+        )
+
+        logger.info(f"Saved Community Standard checkpoint to {output_path}")
+
+        return str(output_path)
+
+    @staticmethod
+    def save_multilayer_community_checkpoint(
+        models: Dict[int, torch.nn.Module],
+        base_output_dir: str,
+        model_name: str,
+        training_layers: List[int],
+        hyperparams: Dict[str, Any],
+        training_id: Optional[str] = None,
+        checkpoint_step: Optional[int] = None,
+        sparsity_per_layer: Optional[Dict[int, torch.Tensor]] = None,
+        tied_weights: bool = False,
+    ) -> Dict[int, str]:
+        """
+        Save multi-layer SAE checkpoints in Community Standard format.
+
+        Creates directory structure:
+            {base_output_dir}/
+            └── layer_{idx}/
+                ├── cfg.json
+                ├── sae_weights.safetensors
+                └── sparsity.safetensors (optional)
+
+        Args:
+            models: Dictionary of models per layer {layer_idx: model}
+            base_output_dir: Base directory for checkpoints
+            model_name: Name of the target model
+            training_layers: List of layer indices being trained
+            hyperparams: Training hyperparameters dict
+            training_id: Optional training job ID
+            checkpoint_step: Optional checkpoint step number
+            sparsity_per_layer: Optional dict of sparsity tensors per layer
+            tied_weights: Whether models use tied weights
+
+        Returns:
+            Dictionary mapping layer_idx to output directory path
+        """
+        base_path = Path(base_output_dir)
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        output_paths = {}
+
+        for layer_idx in training_layers:
+            model = models[layer_idx]
+            layer_dir = base_path / f"layer_{layer_idx}"
+
+            # Get sparsity for this layer if provided
+            sparsity = None
+            if sparsity_per_layer and layer_idx in sparsity_per_layer:
+                sparsity = sparsity_per_layer[layer_idx]
+
+            output_path = CheckpointService.save_community_checkpoint(
+                model=model,
+                output_dir=str(layer_dir),
+                model_name=model_name,
+                layer=layer_idx,
+                hyperparams=hyperparams,
+                training_id=training_id,
+                checkpoint_step=checkpoint_step,
+                sparsity=sparsity,
+                tied_weights=tied_weights,
+            )
+
+            output_paths[layer_idx] = output_path
+
+        logger.info(
+            f"Saved Community Standard checkpoints for {len(training_layers)} layers "
+            f"to {base_path}"
+        )
+
+        return output_paths

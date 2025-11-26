@@ -739,6 +739,11 @@ class ExtractionService:
             context_prefix_tokens = extraction_job.context_prefix_tokens
             context_suffix_tokens = extraction_job.context_suffix_tokens
 
+            # Dead neuron filtering configuration
+            # Neurons with activation_frequency below this threshold are considered "dead" and skipped
+            # Default 0.001 = 0.1% means neurons must fire on at least 1 in 1000 samples
+            min_activation_frequency = config.get("min_activation_frequency", 0.001)
+
             # Calculate recommended resource settings based on available system resources
             recommended_settings = ResourceConfig.get_optimal_settings(
                 training_config=training.hyperparameters,
@@ -1246,12 +1251,22 @@ class ExtractionService:
             total_interpretability = 0.0
             total_activation_freq = 0.0
             features_processed = 0
+            dead_neurons_filtered = 0  # Count of neurons filtered due to low activation frequency
+
+            logger.info(f"Filtering dead neurons with min_activation_frequency={min_activation_frequency}")
 
             for neuron_idx in range(latent_dim):
                 # Task 4.11: Extract examples from heap and sort by activation (descending)
                 heap_items = feature_activations[neuron_idx]
                 if not heap_items:
-                    continue  # Skip features with no activations
+                    dead_neurons_filtered += 1
+                    continue  # Skip features with no activations (completely dead)
+
+                # Filter dead/near-dead neurons based on activation frequency threshold
+                neuron_activation_freq = activation_frequencies[neuron_idx]
+                if neuron_activation_freq < min_activation_frequency:
+                    dead_neurons_filtered += 1
+                    continue  # Skip near-dead neurons (fire too rarely to be interpretable)
 
                 # Extract examples from heap tuples (activation, counter, example) and sort by max_activation descending
                 top_examples = [example for (activation, counter, example) in sorted(heap_items, key=lambda x: x[0], reverse=True)]
@@ -1338,14 +1353,19 @@ class ExtractionService:
             # Final commit for remaining features
             self.db.commit()
 
-            logger.info(f"Created {latent_dim} feature records")
+            live_neurons = latent_dim - dead_neurons_filtered
+            logger.info(f"Created {features_processed} feature records ({dead_neurons_filtered} dead neurons filtered out of {latent_dim} total)")
 
             # Task 4.17: Calculate final statistics
             statistics = {
-                "total_features": latent_dim,
+                "total_neurons": latent_dim,
+                "live_neurons": live_neurons,
+                "dead_neurons_filtered": dead_neurons_filtered,
+                "total_features": features_processed,  # Only live features stored
                 "interpretable_count": interpretable_count,
-                "avg_activation_frequency": float(total_activation_freq / latent_dim),
-                "avg_interpretability": float(total_interpretability / latent_dim)
+                "avg_activation_frequency": float(total_activation_freq / features_processed) if features_processed > 0 else 0.0,
+                "avg_interpretability": float(total_interpretability / features_processed) if features_processed > 0 else 0.0,
+                "min_activation_frequency_threshold": min_activation_frequency
             }
 
             logger.info(f"Extraction statistics: {statistics}")

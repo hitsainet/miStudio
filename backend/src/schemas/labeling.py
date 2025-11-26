@@ -89,6 +89,12 @@ class LabelingConfigRequest(BaseModel):
         default=False,
         description="Save API requests to /tmp/ for testing and debugging in Postman/cURL"
     )
+    save_requests_sample_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Sample rate for saving all requests (0.0-1.0). Set to 1.0 to save all requests, or lower to sample (e.g., 0.1 saves ~10%)."
+    )
     export_format: Literal["postman", "curl", "both"] = Field(
         default="both",
         description="Export format for saved API requests: 'postman' (Postman collection), 'curl' (cURL command), or 'both'"
@@ -166,6 +172,7 @@ class LabelingStatusResponse(BaseModel):
     filter_fragments: bool = True
     filter_stop_words: bool = False
     save_requests_for_testing: bool = False
+    save_requests_sample_rate: float = 1.0
     export_format: str = "both"
     save_poor_quality_labels: bool = False
     poor_quality_sample_rate: float = 1.0

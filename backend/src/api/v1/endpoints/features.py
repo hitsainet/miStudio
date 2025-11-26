@@ -109,7 +109,7 @@ async def start_feature_extraction(
 
 @router.get(
     "/trainings/{training_id}/extraction-status",
-    response_model=ExtractionStatusResponse,
+    response_model=Optional[ExtractionStatusResponse],
     summary="Get extraction status"
 )
 async def get_extraction_status(
@@ -123,20 +123,14 @@ async def get_extraction_status(
         training_id: ID of the training
 
     Returns:
-        ExtractionStatusResponse with status, progress, and statistics
-
-    Raises:
-        404: No extraction job found for this training
+        ExtractionStatusResponse with status, progress, and statistics, or null if no extraction exists
     """
     extraction_service = ExtractionService(db)
 
     status_dict = await extraction_service.get_extraction_status(training_id)
 
     if not status_dict:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No extraction job found for training {training_id}"
-        )
+        return None
 
     return ExtractionStatusResponse(**status_dict)
 
@@ -299,7 +293,7 @@ async def delete_extraction(
 async def list_features(
     training_id: str,
     search: str = Query(None, max_length=500, description="Full-text search query"),
-    sort_by: str = Query("activation_freq", regex="^(activation_freq|interpretability|feature_id)$"),
+    sort_by: str = Query("activation_freq", regex="^(activation_freq|interpretability|feature_id|name|category)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
@@ -344,7 +338,7 @@ async def list_features(
 async def list_extraction_features(
     extraction_id: str,
     search: str = Query(None, max_length=500, description="Full-text search query"),
-    sort_by: str = Query("activation_freq", regex="^(activation_freq|interpretability|feature_id)$"),
+    sort_by: str = Query("activation_freq", regex="^(activation_freq|interpretability|feature_id|name|category)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),

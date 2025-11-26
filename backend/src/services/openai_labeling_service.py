@@ -57,7 +57,8 @@ class OpenAILabelingService:
         export_format: str = "both",
         labeling_job_id: Optional[str] = None,
         save_poor_quality_labels: bool = False,
-        poor_quality_sample_rate: float = 1.0
+        poor_quality_sample_rate: float = 1.0,
+        save_requests_sample_rate: float = 1.0
     ):
         """
         Initialize OpenAI labeling service.
@@ -133,6 +134,9 @@ class OpenAILabelingService:
         # Store poor quality detection configuration
         self.save_poor_quality_labels = save_poor_quality_labels
         self.poor_quality_sample_rate = poor_quality_sample_rate
+
+        # Store request sampling configuration
+        self.save_requests_sample_rate = save_requests_sample_rate
 
         logger.info(f"Initialized OpenAI labeling service with model: {self.model}")
         logger.info(f"  Temperature: {self.temperature}, Max Tokens: {self.max_tokens}, Top P: {self.top_p}, Timeout: {self.timeout}s")
@@ -421,22 +425,23 @@ curl -X POST '{endpoint_url}' \\
         labels: Dict[str, str],
         token_stats: Dict[str, Dict[str, float]],
         neuron_index: Optional[int] = None,
-        response_data: Optional[Dict[str, Any]] = None
+        response_data: Optional[Dict[str, Any]] = None,
+        request_payload: Optional[Dict[str, Any]] = None
     ) -> None:
         """
-        Save debug file for poor quality labels.
+        Save debug files for poor quality labels.
 
-        Creates debug file in tmp_api/{datetime}_{job_id}/ with:
-        - Token statistics
-        - Generated labels (category + specific)
-        - API response (if available)
-        - Quality issue indicators
+        Creates three separate files in tmp_api/{datetime}_{job_id}/:
+        - Postman collection: *_postman.json (import directly into Postman)
+        - Response data: *_response.json (API response for analysis)
+        - Metadata: *_metadata.json (labels, token stats, quality indicators)
 
         Args:
             labels: The poor quality labels that were generated
             token_stats: Token statistics used for labeling
             neuron_index: Optional neuron index for filename
             response_data: Optional API response data
+            request_payload: Optional API request payload for debugging
         """
         import json
         import random
@@ -453,12 +458,19 @@ curl -X POST '{endpoint_url}' \\
                 logger.debug(f"Skipping poor quality save for neuron {neuron_index} (sample rate: {self.poor_quality_sample_rate})")
                 return
 
-            # Create directory if it doesn't exist (reuse existing logic from _save_request_for_testing)
+            # Create directory if it doesn't exist (use absolute path like _save_request_for_testing)
             if self._request_dir is None:
-                # Create directory with timestamp and job ID
+                # Get application root (parent of backend/)
+                app_root = Path(__file__).parent.parent.parent.parent
+
+                # Create base tmp_api directory
+                tmp_api_dir = app_root / "tmp_api"
+                tmp_api_dir.mkdir(exist_ok=True)
+
+                # Create subfolder with timestamp and job ID
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 folder_name = f"{timestamp}_{self.labeling_job_id}" if self.labeling_job_id else timestamp
-                request_dir = Path("tmp_api") / folder_name
+                request_dir = tmp_api_dir / folder_name
                 request_dir.mkdir(parents=True, exist_ok=True)
                 self._request_dir = request_dir
                 self._request_folder_name = folder_name
@@ -466,13 +478,71 @@ curl -X POST '{endpoint_url}' \\
             request_dir = self._request_dir
             folder_name = self._request_folder_name
             neuron_str = f"neuron_{neuron_index}" if neuron_index is not None else "request"
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            base_filename = request_dir / f"{folder_name}_{neuron_str}_poor_quality_{timestamp}"
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            base_filename = request_dir / f"{folder_name}_{neuron_str}_poor_quality_{timestamp_str}"
 
-            # Save poor quality debug file
-            debug_file = f"{base_filename}.json"
+            # 1. Save Postman collection (if request_payload provided)
+            if request_payload:
+                postman_file = f"{base_filename}_postman.json"
 
-            # Build debug metadata
+                # Determine endpoint URL
+                base_url = str(self.client.base_url).rstrip('/')
+                endpoint_url = f"{base_url}/chat/completions"
+
+                postman_collection = {
+                    "info": {
+                        "name": f"Poor Quality Label Debug - {timestamp_str}",
+                        "description": f"Poor quality label for neuron {neuron_index if neuron_index is not None else 'N/A'}. Category: {labels.get('category', 'N/A')}, Specific: {labels.get('specific', 'N/A')}",
+                        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+                    },
+                    "item": [
+                        {
+                            "name": f"Label Feature (Neuron {neuron_index})",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": json.dumps(request_payload, indent=2)
+                                },
+                                "url": {
+                                    "raw": endpoint_url,
+                                    "protocol": "https" if "https" in endpoint_url else "http",
+                                    "host": [endpoint_url.split("://")[1].split("/")[0]],
+                                    "path": endpoint_url.split("://")[1].split("/")[1:]
+                                }
+                            }
+                        }
+                    ]
+                }
+
+                # Add Authorization header if API key exists
+                if self.api_key and self.api_key not in ["not-needed", "dummy-key-not-required"]:
+                    postman_collection["item"][0]["request"]["header"].append({
+                        "key": "Authorization",
+                        "value": f"Bearer {self.api_key}",
+                        "type": "text"
+                    })
+
+                with open(postman_file, 'w') as f:
+                    json.dump(postman_collection, f, indent=2)
+
+                logger.info(f"💾 Saved Postman collection: {postman_file}")
+
+            # 2. Save response data (if response_data provided)
+            if response_data:
+                response_file = f"{base_filename}_response.json"
+                with open(response_file, 'w') as f:
+                    json.dump(response_data, f, indent=2)
+                logger.info(f"💾 Saved response data: {response_file}")
+
+            # 3. Save metadata (labels, token stats, quality indicators)
+            metadata_file = f"{base_filename}_metadata.json"
             debug_metadata = {
                 "timestamp": datetime.now().isoformat(),
                 "labeling_job_id": self.labeling_job_id or "N/A",
@@ -493,17 +563,17 @@ curl -X POST '{endpoint_url}' \\
                         key=lambda x: x[1]["count"],
                         reverse=True
                     )[:20]  # Top 20 tokens
-                ],
-                "response_data": response_data if response_data else None
+                ]
             }
 
-            with open(debug_file, 'w') as f:
+            with open(metadata_file, 'w') as f:
                 json.dump(debug_metadata, f, indent=2)
 
-            logger.info(f"💾 Saved poor quality debug file: {debug_file}")
+            logger.info(f"💾 Saved metadata: {metadata_file}")
+            logger.info(f"📦 Poor quality debug files saved with base name: {base_filename.name}")
 
         except Exception as e:
-            logger.warning(f"Failed to save poor quality debug file: {e}")
+            logger.warning(f"Failed to save poor quality debug files: {e}")
             # Don't fail the actual labeling if saving fails
             pass
 
@@ -599,9 +669,13 @@ curl -X POST '{endpoint_url}' \\
             logger.info(f"\n📝 SYSTEM MESSAGE:\n{system_message}")
             logger.info(f"\n📝 USER PROMPT:\n{prompt}")
 
-            # Save request to file for Postman/cURL testing (if enabled)
+            # Save request to file for Postman/cURL testing (if enabled and sampled)
             if self.save_requests_for_testing:
-                self._save_request_for_testing(request_payload, neuron_index)
+                import random
+                if random.random() <= self.save_requests_sample_rate:
+                    self._save_request_for_testing(request_payload, neuron_index)
+                else:
+                    logger.debug(f"Skipping request save due to sample rate: {self.save_requests_sample_rate}")
 
             # Call OpenAI API (new v1+ syntax) - track elapsed time
             import time
@@ -624,9 +698,11 @@ curl -X POST '{endpoint_url}' \\
             )
             elapsed_time = time.time() - start_time
 
-            # Save response to file for testing (if enabled)
+            # Save response to file for testing (if enabled and sampled)
             if self.save_requests_for_testing:
-                self._save_response_for_testing(response, neuron_index, elapsed_time)
+                import random
+                if random.random() <= self.save_requests_sample_rate:
+                    self._save_response_for_testing(response, neuron_index, elapsed_time)
 
             # Extract label from response (new v1+ syntax)
             label_text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
@@ -1226,6 +1302,14 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             logger.debug(f"\n📝 SYSTEM MESSAGE:\n{system_message}")
             logger.debug(f"\n📝 USER PROMPT:\n{user_prompt}")
 
+            # Save request to file for Postman/cURL testing (if enabled and sampled)
+            if self.save_requests_for_testing:
+                import random
+                if random.random() <= self.save_requests_sample_rate:
+                    self._save_request_for_testing(request_payload, neuron_index)
+                else:
+                    logger.debug(f"Skipping request save due to sample rate: {self.save_requests_sample_rate}")
+
             # Call OpenAI API - track elapsed time
             import time
             start_time = time.time()
@@ -1237,6 +1321,12 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
                 top_p=self.top_p
             )
             elapsed_time = time.time() - start_time
+
+            # Save response to file for testing (if enabled and sampled)
+            if self.save_requests_for_testing:
+                import random
+                if random.random() <= self.save_requests_sample_rate:
+                    self._save_response_for_testing(response, neuron_index, elapsed_time)
 
             # Extract and parse response
             label_text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
@@ -1262,7 +1352,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
                     labels=labels,
                     token_stats={},  # Not available in context-based labeling
                     neuron_index=neuron_index,
-                    response_data=response_data
+                    response_data=response_data,
+                    request_payload=request_payload
                 )
 
             return labels
@@ -1270,11 +1361,13 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         except RateLimitError as e:
             logger.warning(f"⚠️ OpenAI rate limit for feature {feature_id}: {e}")
 
-            # Save debug files for troubleshooting rate limits
+            # Save debug files for troubleshooting rate limits (if sampled)
             if self.save_requests_for_testing:
-                self._save_request_for_testing(request_payload, neuron_index=neuron_index)
-                # Note: No response to save for rate limit errors
-                logger.info(f"💾 Saved debug files for rate-limited feature (neuron_index={neuron_index})")
+                import random
+                if random.random() <= self.save_requests_sample_rate:
+                    self._save_request_for_testing(request_payload, neuron_index=neuron_index)
+                    # Note: No response to save for rate limit errors
+                    logger.info(f"💾 Saved debug files for rate-limited feature (neuron_index={neuron_index})")
 
             return {"category": "rate_limited", "specific": fallback_label, "description": ""}
 
@@ -1287,13 +1380,15 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             logger.error(f"   Error Type: {type(e).__name__}")
             logger.error(f"   Error Message: {e}", exc_info=True)
 
-            # Save debug files for troubleshooting errors
+            # Save debug files for troubleshooting errors (if sampled)
             if self.save_requests_for_testing:
-                self._save_request_for_testing(request_payload, neuron_index=neuron_index)
-                # Try to save response if available (may not be if error was before API call)
-                if 'response' in locals():
-                    self._save_response_for_testing(response, neuron_index=neuron_index, elapsed_time=elapsed_time)
-                logger.info(f"💾 Saved debug files for failed feature (neuron_index={neuron_index}, error={type(e).__name__})")
+                import random
+                if random.random() <= self.save_requests_sample_rate:
+                    self._save_request_for_testing(request_payload, neuron_index=neuron_index)
+                    # Try to save response if available (may not be if error was before API call)
+                    if 'response' in locals():
+                        self._save_response_for_testing(response, neuron_index=neuron_index, elapsed_time=elapsed_time)
+                    logger.info(f"💾 Saved debug files for failed feature (neuron_index={neuron_index}, error={type(e).__name__})")
 
             return {"category": "error_feature", "specific": fallback_label, "description": ""}
 

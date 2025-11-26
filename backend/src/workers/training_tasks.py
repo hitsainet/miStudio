@@ -1062,6 +1062,29 @@ def train_sae_task(
         # Training completed
         logger.info(f"Training completed: {total_steps} steps")
 
+        # Save final checkpoint in Community Standard format for interoperability
+        logger.info("Saving final checkpoint in Community Standard format...")
+        community_output_dir = settings.data_dir / "trainings" / training_id / "community_format"
+
+        # Get model name from database
+        with self.get_db() as db:
+            training_record = db.query(Training).filter_by(id=training_id).first()
+            model_record_for_name = db.query(Model).filter_by(id=training_record.model_id).first()
+            model_name = model_record_for_name.repo_id if model_record_for_name else "unknown"
+
+        # Save in Community Standard format
+        CheckpointService.save_multilayer_community_checkpoint(
+            models=models,
+            base_output_dir=str(community_output_dir),
+            model_name=model_name,
+            training_layers=training_layers,
+            hyperparams=hp,
+            training_id=training_id,
+            checkpoint_step=total_steps,
+            tied_weights=hp.get('tied_weights', False),
+        )
+        logger.info(f"Saved Community Standard checkpoint to {community_output_dir}")
+
         # Cleanup: Unload base model and SAE models from GPU
         logger.info("Cleaning up GPU memory...")
         del base_model

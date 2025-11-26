@@ -126,6 +126,10 @@ class FeatureService:
             sort_column = Feature.activation_frequency
         elif search_params.sort_by == "interpretability":
             sort_column = Feature.interpretability_score
+        elif search_params.sort_by == "name":
+            sort_column = Feature.name
+        elif search_params.sort_by == "category":
+            sort_column = Feature.category
         else:  # "feature_id"
             sort_column = Feature.id
 
@@ -323,6 +327,10 @@ class FeatureService:
             sort_column = Feature.activation_frequency
         elif search_params.sort_by == "interpretability":
             sort_column = Feature.interpretability_score
+        elif search_params.sort_by == "name":
+            sort_column = Feature.name
+        elif search_params.sort_by == "category":
+            sort_column = Feature.category
         else:  # "feature_id"
             sort_column = Feature.id
 

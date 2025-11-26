@@ -930,6 +930,7 @@ class LabelingService:
                         export_format=labeling_job.export_format,
                         save_poor_quality_labels=labeling_job.save_poor_quality_labels,
                         poor_quality_sample_rate=labeling_job.poor_quality_sample_rate,
+                        save_requests_sample_rate=labeling_job.save_requests_sample_rate,
                         labeling_job_id=labeling_job.id
                     )
 
@@ -1079,6 +1080,7 @@ class LabelingService:
                         export_format=labeling_job.export_format,
                         save_poor_quality_labels=labeling_job.save_poor_quality_labels,
                         poor_quality_sample_rate=labeling_job.poor_quality_sample_rate,
+                        save_requests_sample_rate=labeling_job.save_requests_sample_rate,
                         labeling_job_id=labeling_job.id
                     )
 

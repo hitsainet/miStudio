@@ -66,6 +66,16 @@ class ExtractionConfigRequest(BaseModel):
     context_prefix_tokens: int = Field(5, ge=0, le=50, description="Number of tokens before the prime token (0-50)")
     context_suffix_tokens: int = Field(3, ge=0, le=50, description="Number of tokens after the prime token (0-50)")
 
+    # Dead neuron filtering
+    # Neurons that fire on less than this fraction of samples are considered "dead" and skipped
+    # Default 0.001 = 0.1% means neurons must fire on at least 1 in 1000 samples
+    min_activation_frequency: float = Field(
+        default=0.001,
+        ge=0.0,
+        le=0.1,
+        description="Minimum activation frequency to keep a feature (0-0.1). Features firing less often are filtered as 'dead neurons'. Default 0.001 = 0.1%"
+    )
+
     # NOTE: Labeling configuration has been removed from extraction
     # Features are created unlabeled and can be labeled separately via LabelingService
     # This allows re-labeling without re-extraction

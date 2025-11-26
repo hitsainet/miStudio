@@ -345,6 +345,53 @@ def batch_process_features(
                     prefix_tokens = context_tokens[:prime_index]
                     suffix_tokens = context_tokens[prime_index + 1:]
 
+                    # LAYER 2 VALIDATION: Ensure data integrity at extraction time
+                    # This prevents the empty <<>> markers bug by catching issues early
+
+                    # Validation 1: Prime token should not be empty
+                    if not prime_token or (isinstance(prime_token, str) and not prime_token.strip()):
+                        logger.warning(
+                            f"[EXTRACTION VALIDATION] Empty prime_token detected for feature {feat_idx} "
+                            f"at position {max_pos}. Skipping this example."
+                        )
+                        continue
+
+                    # Validation 2: Prime token should NOT appear in prefix_tokens
+                    if prime_token in prefix_tokens:
+                        logger.error(
+                            f"[EXTRACTION VALIDATION] 🚨 BUG: prime_token '{prime_token}' found in "
+                            f"prefix_tokens for feature {feat_idx}! This indicates a logic error. "
+                            f"prefix_tokens={prefix_tokens}, prime_index={prime_index}, max_pos={max_pos}"
+                        )
+                        # Remove the duplicate to prevent downstream issues
+                        prefix_tokens = [t for t in prefix_tokens if t != prime_token]
+
+                    # Validation 3: Prime token should NOT appear in suffix_tokens
+                    if prime_token in suffix_tokens:
+                        logger.error(
+                            f"[EXTRACTION VALIDATION] 🚨 BUG: prime_token '{prime_token}' found in "
+                            f"suffix_tokens for feature {feat_idx}! This indicates a logic error. "
+                            f"suffix_tokens={suffix_tokens}, prime_index={prime_index}, max_pos={max_pos}"
+                        )
+                        # Remove the duplicate to prevent downstream issues
+                        suffix_tokens = [t for t in suffix_tokens if t != prime_token]
+
+                    # Validation 4: Verify prime_index is within bounds
+                    if prime_index < 0 or prime_index >= len(context_tokens):
+                        logger.error(
+                            f"[EXTRACTION VALIDATION] 🚨 BUG: prime_index {prime_index} out of bounds "
+                            f"for context_tokens (len={len(context_tokens)}). Skipping example."
+                        )
+                        continue
+
+                    # Validation 5: Verify context_tokens[prime_index] == prime_token
+                    if prime_index < len(context_tokens) and context_tokens[prime_index] != prime_token:
+                        logger.error(
+                            f"[EXTRACTION VALIDATION] 🚨 BUG: Mismatch! context_tokens[{prime_index}]="
+                            f"'{context_tokens[prime_index]}' but prime_token='{prime_token}'. "
+                            f"This indicates incorrect index calculation."
+                        )
+
                     # Build enhanced example dictionary with context window
                     # Combine all context tokens for backward compatibility
                     all_tokens = list(prefix_tokens) + [prime_token] + list(suffix_tokens)

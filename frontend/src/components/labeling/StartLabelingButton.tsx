@@ -52,6 +52,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
 
   // Debugging configuration
   const [saveRequestsForTesting, setSaveRequestsForTesting] = useState(false);
+  const [saveRequestsSampleRate, setSaveRequestsSampleRate] = useState(100);  // Store as percentage 0-100
   const [exportFormat, setExportFormat] = useState<'postman' | 'curl' | 'both'>('both');
   const [savePoorQualityLabels, setSavePoorQualityLabels] = useState(false);
   const [poorQualitySampleRate, setPoorQualitySampleRate] = useState(100);  // Store as percentage 0-100
@@ -179,6 +180,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
         filter_stop_words: filterStopWords,
         // Debugging configuration
         save_requests_for_testing: saveRequestsForTesting,
+        save_requests_sample_rate: saveRequestsForTesting ? saveRequestsSampleRate / 100 : undefined,  // Convert 0-100 to 0.0-1.0
         export_format: saveRequestsForTesting ? exportFormat : undefined,
         save_poor_quality_labels: savePoorQualityLabels,
         poor_quality_sample_rate: savePoorQualityLabels ? poorQualitySampleRate / 100 : undefined,  // Convert 0-100 to 0.0-1.0
@@ -554,6 +556,27 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
                         </select>
                         <p className="mt-1 text-xs text-slate-400">
                           Choose which format(s) to save for debugging
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Sample Rate Slider - only shown when Save API requests is enabled */}
+                    {saveRequestsForTesting && (
+                      <div className="ml-6 pt-2 border-t border-slate-700">
+                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                          Sample Rate: {saveRequestsSampleRate}%
+                        </label>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={saveRequestsSampleRate}
+                          onChange={(e) => setSaveRequestsSampleRate(parseInt(e.target.value))}
+                          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                        />
+                        <p className="mt-1 text-xs text-slate-400">
+                          Percentage of all requests to save (0% = none, 100% = all). Lower values reduce disk usage.
                         </p>
                       </div>
                     )}

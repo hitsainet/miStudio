@@ -192,7 +192,7 @@ export const TokenHighlightContext: React.FC<TokenHighlightContextProps> = ({
   primeActivationIndex,
   tokens,
   className = '',
-  showGradient = true,
+  showGradient: _showGradient = true,
 }) => {
   // Use enhanced format if available, otherwise fall back to legacy
   const hasContextFormat = prefixTokens !== undefined && primeToken !== undefined && suffixTokens !== undefined;

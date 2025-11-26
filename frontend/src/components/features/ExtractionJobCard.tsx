@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
+import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown, RefreshCw, List, Layers } from 'lucide-react';
 import type { ExtractionStatusResponse, FeatureSearchRequest } from '../../types/features';
 import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
@@ -52,6 +52,9 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const [sortColumn, setSortColumn] = useState<SortColumn>('id');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
+  // Sort scope: 'page' = sort only current page, 'all' = sort entire dataset (Note: 'all' not yet implemented - requires backend support)
+  const [sortScope, setSortScope] = useState<'page' | 'all'>('page');
+
   // Get features store methods and state
   const {
     featuresByExtraction,
@@ -71,10 +74,17 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const metadata = featureListMetadata[extraction.id];
   const filters = searchFilters[extraction.id] || { sort_by: 'feature_id', sort_order: 'asc', limit: 50, offset: 0 };
 
-  // Client-side sorting logic
+  // Client-side sorting logic (only used when sortScope is 'page')
   const sortedFeatures = useMemo(() => {
     if (features.length === 0) return [];
 
+    // If sorting dataset-wide, don't apply client-side sorting
+    // (backend will handle it)
+    if (sortScope === 'all') {
+      return features;
+    }
+
+    // Apply client-side sorting for page-only scope
     const sorted = [...features].sort((a, b) => {
       let aVal: any;
       let bVal: any;
@@ -128,17 +138,55 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
     });
 
     return sorted;
-  }, [features, sortColumn, sortOrder]);
+  }, [features, sortColumn, sortOrder, sortScope]);
+
+  // Map client-side sort columns to backend sort field names
+  // Backend supports: "activation_freq", "interpretability", "feature_id"
+  const mapSortColumnToBackend = (column: SortColumn): 'activation_freq' | 'interpretability' | 'feature_id' => {
+    switch (column) {
+      case 'id':
+        return 'feature_id';
+      case 'activation_frequency':
+        return 'activation_freq';
+      case 'interpretability_score':
+        return 'interpretability';
+      // Backend doesn't support sorting by these fields - fall back to feature_id
+      case 'label':
+      case 'category':
+      case 'description':
+      case 'is_favorite':
+      default:
+        return 'feature_id';
+    }
+  };
 
   // Handle sort column click
   const handleSort = (column: SortColumn) => {
-    if (sortColumn === column) {
-      // Toggle sort order
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    if (sortScope === 'page') {
+      // Page-only sorting: Toggle client-side sort state
+      if (sortColumn === column) {
+        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+      } else {
+        setSortColumn(column);
+        setSortOrder('asc');
+      }
     } else {
-      // New column, default to ascending
+      // Dataset-wide sorting: Update backend filters
+      const newOrder = (sortColumn === column && filters.sort_order === 'asc') ? 'desc' : 'asc';
+      const newFilters: FeatureSearchRequest = {
+        ...filters,
+        sort_by: mapSortColumnToBackend(column),
+        sort_order: newOrder,
+        offset: 0, // Reset to first page when changing sort
+      };
+
+      // Update local state to show visual feedback
       setSortColumn(column);
-      setSortOrder('asc');
+      setSortOrder(newOrder);
+
+      // Fetch with new sort order from backend
+      setSearchFilters(extraction.id, newFilters);
+      fetchExtractionFeatures(extraction.id, newFilters);
     }
   };
 
@@ -587,6 +635,23 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               title="Filter favorites"
             >
               <Star className={`w-4 h-4 ${filters.is_favorite ? 'fill-current' : ''}`} />
+            </button>
+
+            {/* Sort Scope Toggle */}
+            <button
+              onClick={() => setSortScope(sortScope === 'page' ? 'all' : 'page')}
+              className={`border rounded transition-colors ${
+                sortScope === 'all'
+                  ? 'bg-emerald-600/20 border-emerald-600 text-emerald-400 px-3 py-2'
+                  : COMPONENTS.button.secondary
+              }`}
+              title={sortScope === 'page' ? 'Sorting current page only (click to sort all)' : 'Sorting entire dataset (click to sort page only)'}
+            >
+              {sortScope === 'page' ? (
+                <List className="w-4 h-4" />
+              ) : (
+                <Layers className="w-4 h-4" />
+              )}
             </button>
           </div>
 

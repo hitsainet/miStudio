@@ -85,3 +85,30 @@ export function formatDuration(seconds: number): string {
 
   return `${secs}s`;
 }
+
+/**
+ * Format activation value with intelligent precision
+ * Uses scientific notation for very small/large numbers, fixed decimals for normal range
+ * @param value Activation value
+ * @param decimals Number of decimal places for normal numbers (default: 3)
+ * @returns Formatted string (e.g., "12.345", "5.20e-41", "0.000")
+ */
+export function formatActivation(value: number, decimals: number = 3): string {
+  // Handle edge cases
+  if (value === 0) {
+    return '0.000';
+  }
+  if (!isFinite(value)) {
+    return 'N/A';
+  }
+
+  const absValue = Math.abs(value);
+
+  // Use scientific notation for very small numbers (< 0.001) or very large numbers (> 10000)
+  if (absValue < 0.001 || absValue > 10000) {
+    return value.toExponential(2);
+  }
+
+  // Use fixed decimal notation for normal range
+  return value.toFixed(decimals);
+}

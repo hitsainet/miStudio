@@ -32,9 +32,11 @@ import {
   Sliders,
   X,
   Zap,
+  Brain,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useFeaturesStore } from '../../stores/featuresStore';
+import { useSAEsStore } from '../../stores/saesStore';
 import { TrainingStatus } from '../../types/training';
 import type { Training } from '../../types/training';
 import type { Model } from '../../types/model';
@@ -72,6 +74,8 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     getExtractionStatus,
   } = useFeaturesStore();
 
+  const { importFromTraining } = useSAEsStore();
+
   // UI state
   const [showMetrics, setShowMetrics] = useState(false);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
@@ -81,6 +85,8 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   const [autoSaveInterval, setAutoSaveInterval] = useState(1000);
   const [isControlling, setIsControlling] = useState(false);
   const [isSavingCheckpoint, setIsSavingCheckpoint] = useState(false);
+  const [isImportingToSAE, setIsImportingToSAE] = useState(false);
+  const [saeImported, setSaeImported] = useState(false);
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
 
   // Metrics history for charts (keep last 20 points)
@@ -230,6 +236,24 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       console.error('Failed to retry training:', error);
     } finally {
       setIsControlling(false);
+    }
+  };
+
+  // Handle import to SAEs
+  const handleImportToSAE = async () => {
+    setIsImportingToSAE(true);
+    try {
+      const sae = await importFromTraining({
+        training_id: training.id,
+        name: `SAE from ${modelName} (${training.id.slice(0, 8)})`,
+        description: `SAE trained on ${datasetName} using ${training.hyperparameters?.architecture_type || 'standard'} architecture`,
+      });
+      setSaeImported(true);
+      console.log('[TrainingCard] SAE imported successfully:', sae.id);
+    } catch (error) {
+      console.error('Failed to import training to SAE:', error);
+    } finally {
+      setIsImportingToSAE(false);
     }
   };
 
@@ -525,9 +549,50 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             </div>
           </div>
 
-          {/* Toggle Buttons */}
-          <div className="grid grid-cols-2 gap-2">
-            {training.status === TrainingStatus.RUNNING && (
+          {/* Toggle Buttons - different layouts per status */}
+          {training.status === TrainingStatus.COMPLETED && (
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCheckpoints(!showCheckpoints)}
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary}`}
+              >
+                <Download className="w-4 h-4" />
+                <span>Checkpoints ({checkpoints.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExtractionModal(true)}
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} relative`}
+              >
+                <Zap className="w-4 h-4" />
+                <span>Start Extraction</span>
+                {extractionStatus[training.id] && (
+                  <span
+                    className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full"
+                    title="Extraction exists for this training"
+                  />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleImportToSAE}
+                disabled={isImportingToSAE || saeImported}
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} ${
+                  saeImported ? 'bg-emerald-500/20 border-emerald-500/50' : ''
+                }`}
+              >
+                {isImportingToSAE ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Brain className="w-4 h-4" />
+                )}
+                <span>{saeImported ? 'Imported' : 'Import to SAEs'}</span>
+              </button>
+            </div>
+          )}
+          {training.status === TrainingStatus.RUNNING && (
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setShowMetrics(!showMetrics)}
@@ -536,50 +601,28 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 <Activity className="w-4 h-4" />
                 <span>{showMetrics ? 'Hide' : 'Show'} Live Metrics</span>
               </button>
-            )}
-            {/* Show checkpoints for running, completed, paused, or failed trainings */}
-            {[TrainingStatus.RUNNING, TrainingStatus.COMPLETED, TrainingStatus.PAUSED, TrainingStatus.FAILED].includes(training.status) && (
               <button
                 type="button"
                 onClick={() => setShowCheckpoints(!showCheckpoints)}
-                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} ${
-                  training.status === TrainingStatus.RUNNING ? '' : (training.status === TrainingStatus.COMPLETED ? '' : 'col-span-2')
-                }`}
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary}`}
               >
                 <Download className="w-4 h-4" />
                 <span>Checkpoints ({checkpoints.length})</span>
               </button>
-            )}
-            {/* Start extraction for completed trainings
-
-                Workflow:
-                1. Training completes successfully
-                2. User clicks "Start Extraction" button (opens modal)
-                3. User configures extraction parameters in modal
-                4. User clicks "Start Extraction" in modal
-                5. User navigates to "Extractions" tab to view progress and browse features
-
-                Note: The features browser is ONLY available on the Extractions tab.
-                      This ensures a single, centralized location for all extraction viewing.
-            */}
-            {training.status === TrainingStatus.COMPLETED && (
+            </div>
+          )}
+          {training.status === TrainingStatus.PAUSED && (
+            <div className="grid grid-cols-1 gap-2">
               <button
                 type="button"
-                onClick={() => setShowExtractionModal(true)}
-                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} relative`}
+                onClick={() => setShowCheckpoints(!showCheckpoints)}
+                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary}`}
               >
-                <Zap className="w-4 h-4" />
-                <span>Start Extraction</span>
-                {/* Visual indicator if extraction already exists */}
-                {extractionStatus[training.id] && (
-                  <span
-                    className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full"
-                    title="Extraction exists for this training"
-                  />
-                )}
+                <Download className="w-4 h-4" />
+                <span>Checkpoints ({checkpoints.length})</span>
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Checkpoint Management Section */}
           {showCheckpoints && (

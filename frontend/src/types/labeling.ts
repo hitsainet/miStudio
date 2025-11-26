@@ -95,6 +95,9 @@ export interface LabelingConfigRequest {
   /** Save API requests to /tmp/ for testing and debugging (default: false) */
   save_requests_for_testing?: boolean;
 
+  /** Sample rate for saving API requests (0.0-1.0, default: 1.0) */
+  save_requests_sample_rate?: number;
+
   /** Export format for saved API requests: 'postman' (Postman collection), 'curl' (cURL command), or 'both' (default: both) */
   export_format?: 'postman' | 'curl' | 'both';
 

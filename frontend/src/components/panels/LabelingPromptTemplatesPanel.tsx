@@ -25,7 +25,7 @@ type TabType = 'all' | 'create';
 export function LabelingPromptTemplatesPanel() {
   const {
     templates,
-    defaultTemplate,
+    defaultTemplate: _defaultTemplate,
     loading,
     error,
     fetchTemplates,
@@ -131,9 +131,11 @@ export function LabelingPromptTemplatesPanel() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // Validation
-      if (!formData.user_prompt_template?.includes('{tokens_table}')) {
-        showNotification('error', 'User prompt template must contain {tokens_table} placeholder');
+      // Validation - must contain either {examples_block} or {tokens_table} placeholder
+      const hasExamplesBlock = formData.user_prompt_template?.includes('{examples_block}');
+      const hasTokensTable = formData.user_prompt_template?.includes('{tokens_table}');
+      if (!hasExamplesBlock && !hasTokensTable) {
+        showNotification('error', 'User prompt template must contain either {examples_block} or {tokens_table} placeholder');
         return;
       }
 
@@ -152,10 +154,14 @@ export function LabelingPromptTemplatesPanel() {
     if (!editingTemplate) return;
 
     try {
-      // Validation
-      if (formData.user_prompt_template && !formData.user_prompt_template.includes('{tokens_table}')) {
-        showNotification('error', 'User prompt template must contain {tokens_table} placeholder');
-        return;
+      // Validation - must contain either {examples_block} or {tokens_table} placeholder
+      if (formData.user_prompt_template) {
+        const hasExamplesBlock = formData.user_prompt_template.includes('{examples_block}');
+        const hasTokensTable = formData.user_prompt_template.includes('{tokens_table}');
+        if (!hasExamplesBlock && !hasTokensTable) {
+          showNotification('error', 'User prompt template must contain either {examples_block} or {tokens_table} placeholder');
+          return;
+        }
       }
 
       await updateTemplate(editingTemplate.id, formData as LabelingPromptTemplateUpdate);
@@ -737,7 +743,7 @@ export function LabelingPromptTemplatesPanel() {
                     type="number"
                     step="100"
                     min="10"
-                    max="1000"
+                    max="9999"
                     value={formData.max_tokens}
                     onChange={(e) => setFormData({ ...formData, max_tokens: parseInt(e.target.value) })}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-100"

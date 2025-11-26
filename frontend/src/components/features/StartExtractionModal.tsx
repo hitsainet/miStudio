@@ -73,6 +73,9 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [contextSuffixTokens, setContextSuffixTokens] = useState(3);
   const [showContextWindow, setShowContextWindow] = useState(false);
 
+  // Dead neuron filtering
+  const [minActivationFrequency, setMinActivationFrequency] = useState(0.001); // 0.1% default
+
   /**
    * Manually fetch Ollama models from the specified endpoint.
    */
@@ -120,6 +123,8 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         // Context window configuration
         context_prefix_tokens: contextPrefixTokens,
         context_suffix_tokens: contextSuffixTokens,
+        // Dead neuron filtering
+        min_activation_frequency: minActivationFrequency,
         ...resourceConfig,
       } as any);
 
@@ -214,6 +219,44 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
+                </div>
+
+                {/* Dead Neuron Filtering */}
+                <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-slate-300">Dead Neuron Filtering</label>
+                    <span className="text-xs text-emerald-500">
+                      {(minActivationFrequency * 100).toFixed(2)}% min frequency
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-3">
+                    Neurons firing less than this threshold are considered "dead" and will be filtered out.
+                    This saves storage and labeling costs by excluding un-interpretable features.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      value={minActivationFrequency * 1000}
+                      onChange={(e) => setMinActivationFrequency(Number(e.target.value) / 1000)}
+                      min={0}
+                      max={10}
+                      step={0.1}
+                      className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                    />
+                    <input
+                      type="number"
+                      value={(minActivationFrequency * 100).toFixed(2)}
+                      onChange={(e) => setMinActivationFrequency(Number(e.target.value) / 100)}
+                      min={0}
+                      max={10}
+                      step={0.01}
+                      className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-white text-sm focus:outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-xs text-slate-400">%</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Default: 0.10% (neurons must fire on at least 1 in 1,000 samples)
+                  </p>
                 </div>
 
                 {/* Context Window Configuration */}

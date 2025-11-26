@@ -104,7 +104,15 @@ interface FeaturesStoreState {
   fetchExtractionFeatures: (extractionId: string, filters?: FeatureSearchRequest) => Promise<void>;
   fetchFeatureDetail: (featureId: string) => Promise<void>;
   fetchFeatureExamples: (featureId: string, limit?: number) => Promise<void>;
-  fetchFeatureTokenAnalysis: (featureId: string, applyFilters?: boolean) => Promise<void>;
+  fetchFeatureTokenAnalysis: (featureId: string, filters?: {
+    applyFilters?: boolean;
+    filterSpecial?: boolean;
+    filterSingleChar?: boolean;
+    filterPunctuation?: boolean;
+    filterNumbers?: boolean;
+    filterFragments?: boolean;
+    filterStopWords?: boolean;
+  }) => Promise<void>;
   updateFeature: (featureId: string, updates: FeatureUpdateRequest) => Promise<void>;
   toggleFavorite: (featureId: string, isFavorite: boolean) => Promise<void>;
   setSearchFilters: (trainingId: string, filters: FeatureSearchRequest) => void;
@@ -217,10 +225,11 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
     set({ isLoadingExtraction: true, extractionError: null });
 
     try {
-      const response = await axios.get<ExtractionStatusResponse>(
+      const response = await axios.get<ExtractionStatusResponse | null>(
         `/api/v1/trainings/${trainingId}/extraction-status`
       );
 
+      // Backend returns null when no extraction exists (instead of 404)
       set((state) => ({
         extractionStatus: {
           ...state.extractionStatus,
@@ -229,19 +238,8 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingExtraction: false,
       }));
     } catch (error: any) {
-      // 404 means no extraction has been started yet - not an error
-      if (error.response?.status === 404) {
-        set((state) => ({
-          extractionStatus: {
-            ...state.extractionStatus,
-            [trainingId]: null,
-          },
-          isLoadingExtraction: false,
-        }));
-      } else {
-        const errorMessage = error.response?.data?.detail || error.message || 'Failed to get extraction status';
-        set({ extractionError: errorMessage, isLoadingExtraction: false });
-      }
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to get extraction status';
+      set({ extractionError: errorMessage, isLoadingExtraction: false });
     }
   },
 

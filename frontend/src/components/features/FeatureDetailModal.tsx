@@ -16,6 +16,7 @@ import { LogitLensView } from './LogitLensView';
 import { FeatureCorrelations } from './FeatureCorrelations';
 import { AblationAnalysis } from './AblationAnalysis';
 import { FeatureTokenAnalysis } from './FeatureTokenAnalysis';
+import { formatActivation } from '../../utils/formatters';
 
 interface FeatureDetailModalProps {
   featureId: string;
@@ -263,7 +264,7 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
             <div>
               <p className="text-xs text-slate-400 mb-1">Max Activation</p>
               <p className="text-xl font-semibold text-purple-400">
-                {selectedFeature.max_activation.toFixed(2)}
+                {formatActivation(selectedFeature.max_activation)}
               </p>
             </div>
             <div>
@@ -367,7 +368,7 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
                           Sample #{example.sample_index}
                         </span>
                         <span className="text-xs font-mono text-emerald-400">
-                          Max: {example.max_activation.toFixed(3)}
+                          Max: {formatActivation(example.max_activation)}
                         </span>
                       </div>
                       <TokenHighlightContext

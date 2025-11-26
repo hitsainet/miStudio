@@ -37,7 +37,7 @@ interface ModelsState {
   downloadModel: (repoId: string, quantization: QuantizationFormat, accessToken?: string, trustRemoteCode?: boolean) => Promise<void>;
   deleteModel: (id: string) => Promise<void>;
   cancelDownload: (id: string) => Promise<void>;
-  extractActivations: (modelId: string, datasetId: string, layerIndices: number[], hookTypes: string[], maxSamples: number, batchSize?: number) => Promise<void>;
+  extractActivations: (modelId: string, config: any) => Promise<void>;
   checkActiveExtraction: (modelId: string) => Promise<boolean>;
   getExtractionHistory: (modelId: string) => Promise<any[]>;
   cancelExtractionAction: (modelId: string, extractionId: string) => Promise<void>;

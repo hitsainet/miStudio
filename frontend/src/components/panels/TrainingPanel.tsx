@@ -26,21 +26,26 @@ import {
   Loader,
   Trash2,
   AlertTriangle,
+  Save,
+  X,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
+import { useTrainingTemplatesStore } from '../../stores/trainingTemplatesStore';
 import { useTrainingWebSocket } from '../../hooks/useTrainingWebSocket';
 import { useDeletionProgressWebSocket } from '../../hooks/useDeletionProgressWebSocket';
 import { useWebSocketContext } from '../../contexts/WebSocketContext';
 import { TrainingStatus, SAEArchitectureType } from '../../types/training';
 import type { TrainingCreateRequest } from '../../types/training';
 import { TrainingCard } from '../training/TrainingCard';
+import { TemplateSelector } from '../training/TemplateSelector';
 import DeletionProgressModal from '../training/DeletionProgressModal';
 import { estimateMultilayerTrainingMemory, formatMemorySize } from '../../utils/memoryEstimation';
 import { HyperparameterLabel, HyperparameterTooltip } from '../common/HyperparameterTooltip';
 import { calculateOptimalL1Alpha, validateSparsityConfig } from '../../utils/hyperparameterOptimization';
 import { COMPONENTS } from '../../config/brand';
+import type { TrainingTemplate } from '../../types/trainingTemplate';
 
 export const TrainingPanel: React.FC = () => {
   // Store state
@@ -60,6 +65,7 @@ export const TrainingPanel: React.FC = () => {
 
   const { models, fetchModels } = useModelsStore();
   const { datasets, fetchDatasets } = useDatasetsStore();
+  const { createTemplate } = useTrainingTemplatesStore();
 
   // WebSocket connection status
   const { isConnected } = useWebSocketContext();
@@ -72,6 +78,11 @@ export const TrainingPanel: React.FC = () => {
   const [latentMultiplier, setLatentMultiplier] = useState(8);
   const [availableExtractions, setAvailableExtractions] = useState<any[]>([]);
   const [isLoadingExtractions, setIsLoadingExtractions] = useState(false);
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateDescription, setTemplateDescription] = useState('');
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(null);
 
   // Deletion progress state
   const [deletingTrainingId, setDeletingTrainingId] = useState<string | null>(null);
@@ -358,6 +369,80 @@ export const TrainingPanel: React.FC = () => {
     }
   };
 
+  // Handle template load
+  const handleTemplateLoad = (template: TrainingTemplate) => {
+    console.log('[TrainingPanel] Loading template:', template);
+
+    // Map template data to training config
+    const updates: any = {
+      ...template.hyperparameters,
+      architecture_type: template.encoder_type as SAEArchitectureType,
+    };
+
+    // Update latent multiplier if both dimensions are available
+    if (template.hyperparameters.hidden_dim && template.hyperparameters.latent_dim) {
+      const multiplier = Math.round(template.hyperparameters.latent_dim / template.hyperparameters.hidden_dim);
+      setLatentMultiplier(multiplier);
+    }
+
+    updateConfig(updates);
+    console.log('[TrainingPanel] Template loaded successfully');
+  };
+
+  // Handle save template
+  const handleSaveTemplate = async () => {
+    if (!templateName.trim()) {
+      setSaveTemplateError('Please enter a template name');
+      return;
+    }
+
+    if (!config.model_id || !config.dataset_id) {
+      setSaveTemplateError('Please select a model and dataset first');
+      return;
+    }
+
+    setIsSavingTemplate(true);
+    setSaveTemplateError(null);
+
+    try {
+      // Create template from current config
+      await createTemplate({
+        name: templateName.trim(),
+        description: templateDescription.trim() || undefined,
+        model_id: config.model_id,
+        dataset_id: config.dataset_id,
+        encoder_type: config.architecture_type as any,
+        hyperparameters: {
+          hidden_dim: config.hidden_dim,
+          latent_dim: config.latent_dim,
+          architecture_type: config.architecture_type,
+          training_layers: config.training_layers,
+          l1_alpha: config.l1_alpha,
+          learning_rate: config.learning_rate,
+          batch_size: config.batch_size,
+          total_steps: config.total_steps,
+          warmup_steps: config.warmup_steps,
+          target_l0: config.target_l0,
+          weight_decay: config.weight_decay,
+          grad_clip_norm: config.grad_clip_norm,
+          checkpoint_interval: config.checkpoint_interval,
+        },
+        is_favorite: false,
+      });
+
+      // Success - close modal and reset form
+      setShowSaveTemplateModal(false);
+      setTemplateName('');
+      setTemplateDescription('');
+      alert('Template saved successfully!');
+    } catch (error) {
+      console.error('Failed to save template:', error);
+      setSaveTemplateError(error instanceof Error ? error.message : 'Failed to save template');
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
   // Handle start training
   const handleStartTraining = async () => {
     if (!isFormValid) {
@@ -528,84 +613,98 @@ export const TrainingPanel: React.FC = () => {
             </div>
           )}
 
-          {/* Optional: Use Cached Activations */}
-          <div className="mt-4">
-            <div className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                id="use-cached-activations"
-                checked={!!config.extraction_id}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    // Set a placeholder to enable the checkbox, user will fill in the actual ID
-                    updateConfig({ extraction_id: '' });
-                  } else {
-                    updateConfig({ extraction_id: undefined });
-                  }
-                }}
-                className="mt-1 w-4 h-4 bg-slate-800 border border-slate-700 rounded focus:ring-2 focus:ring-emerald-500"
-              />
-              <div className="flex-1">
-                <label htmlFor="use-cached-activations" className="block text-sm font-medium text-slate-300 mb-1 cursor-pointer">
-                  Use Cached Activations (10-20x faster training)
-                </label>
-                <p className="text-xs text-slate-500 mb-2">
-                  Use pre-extracted activations from an extraction job instead of extracting on-the-fly during training. This dramatically speeds up training but requires a completed extraction for the selected model and dataset.
-                  {config.extraction_id && availableExtractions.length > 0 && (() => {
-                    const selectedExtraction = availableExtractions.find(ext => ext.extraction_id === config.extraction_id);
-                    if (selectedExtraction?.layer_indices && selectedExtraction.layer_indices.length > 0) {
-                      const layerLabels = selectedExtraction.layer_indices.map((idx: number) => `L${idx}`).join(', ');
-                      return <span className="text-emerald-400"> Cached layers: {layerLabels}</span>;
+          {/* Optional: Use Cached Activations & Template Selector */}
+          <div className="mt-4 grid grid-cols-2 gap-6">
+            {/* Use Cached Activations */}
+            <div>
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="use-cached-activations"
+                  checked={!!config.extraction_id}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      // Set a placeholder to enable the checkbox, user will fill in the actual ID
+                      updateConfig({ extraction_id: '' });
+                    } else {
+                      updateConfig({ extraction_id: undefined });
                     }
-                    return null;
-                  })()}
-                </p>
-                {(config.extraction_id !== undefined) && (
-                  <>
-                    {availableExtractions.length > 0 ? (
-                      <select
-                        id="extraction-id"
-                        value={config.extraction_id || ''}
-                        onChange={(e) => updateConfig({ extraction_id: e.target.value || undefined })}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                      >
-                        <option value="">Select an extraction...</option>
-                        {availableExtractions.map((extraction) => {
-                          const layerCount = extraction.layer_indices?.length || 0;
-                          const sampleCount = extraction.num_samples_processed || extraction.samples_processed || 0;
-                          const createdDateTime = extraction.created_at
-                            ? new Date(extraction.created_at).toLocaleString()
-                            : 'Unknown date/time';
+                  }}
+                  className="mt-1 w-4 h-4 bg-slate-800 border border-slate-700 rounded focus:ring-2 focus:ring-emerald-500"
+                />
+                <div className="flex-1">
+                  <label htmlFor="use-cached-activations" className="block text-sm font-medium text-slate-300 mb-1 cursor-pointer">
+                    Use Cached Activations (10-20x faster training)
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Use pre-extracted activations from an extraction job instead of extracting on-the-fly during training. This dramatically speeds up training but requires a completed extraction for the selected model and dataset.
+                    {config.extraction_id && availableExtractions.length > 0 && (() => {
+                      const selectedExtraction = availableExtractions.find(ext => ext.extraction_id === config.extraction_id);
+                      if (selectedExtraction?.layer_indices && selectedExtraction.layer_indices.length > 0) {
+                        const layerLabels = selectedExtraction.layer_indices.map((idx: number) => `L${idx}`).join(', ');
+                        return <span className="text-emerald-400"> Cached layers: {layerLabels}</span>;
+                      }
+                      return null;
+                    })()}
+                  </p>
+                  {(config.extraction_id !== undefined) && (
+                    <>
+                      {availableExtractions.length > 0 ? (
+                        <select
+                          id="extraction-id"
+                          value={config.extraction_id || ''}
+                          onChange={(e) => updateConfig({ extraction_id: e.target.value || undefined })}
+                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                        >
+                          <option value="">Select an extraction...</option>
+                          {availableExtractions.map((extraction) => {
+                            const layerCount = extraction.layer_indices?.length || 0;
+                            const sampleCount = extraction.num_samples_processed || extraction.samples_processed || 0;
+                            const createdDateTime = extraction.created_at
+                              ? new Date(extraction.created_at).toLocaleString()
+                              : 'Unknown date/time';
 
-                          // Look up model name from models store
-                          const extractionModel = models.find(m => m.id === extraction.model_id);
-                          const modelName = extractionModel?.name || extraction.model_id || 'Unknown model';
+                            // Look up model name from models store
+                            const extractionModel = models.find(m => m.id === extraction.model_id);
+                            const modelName = extractionModel?.name || extraction.model_id || 'Unknown model';
 
-                          return (
-                            <option key={extraction.extraction_id} value={extraction.extraction_id}>
-                              {extraction.extraction_id} | {modelName} | {layerCount} layer{layerCount !== 1 ? 's' : ''}, {sampleCount.toLocaleString()} samples | {createdDateTime}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    ) : isLoadingExtractions ? (
-                      <div className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm flex items-center gap-2">
-                        <Loader size={14} className="animate-spin" />
-                        <span>Loading available extractions...</span>
-                      </div>
-                    ) : config.model_id ? (
-                      <div className="text-sm text-slate-400 italic">
-                        No completed extractions available for this model. Please complete an extraction first in the Extractions panel.
-                      </div>
-                    ) : (
-                      <div className="text-sm text-slate-400 italic">
-                        Select a model first to see available extractions.
-                      </div>
-                    )}
-                  </>
-                )}
+                            return (
+                              <option key={extraction.extraction_id} value={extraction.extraction_id}>
+                                {extraction.extraction_id} | {modelName} | {layerCount} layer{layerCount !== 1 ? 's' : ''}, {sampleCount.toLocaleString()} samples | {createdDateTime}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ) : isLoadingExtractions ? (
+                        <div className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm flex items-center gap-2">
+                          <Loader size={14} className="animate-spin" />
+                          <span>Loading available extractions...</span>
+                        </div>
+                      ) : config.model_id ? (
+                        <div className="text-sm text-slate-400 italic">
+                          No completed extractions available for this model. Please complete an extraction first in the Extractions panel.
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-400 italic">
+                          Select a model first to see available extractions.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
+
+            {/* Template Selector - Only show when model and dataset are selected */}
+            {config.model_id && config.dataset_id ? (
+              <TemplateSelector
+                modelId={config.model_id}
+                datasetId={config.dataset_id}
+                onTemplateLoad={handleTemplateLoad}
+              />
+            ) : (
+              <div></div>
+            )}
           </div>
 
           {/* Training Layers Selection */}
@@ -1127,12 +1226,21 @@ export const TrainingPanel: React.FC = () => {
             </div>
           )}
 
-          {/* Start Training Button */}
-          <div className="mt-6 pt-4 border-t border-slate-700">
+          {/* Action Buttons */}
+          <div className="mt-6 pt-4 border-t border-slate-700 flex gap-3">
+            <button
+              onClick={() => setShowSaveTemplateModal(true)}
+              disabled={!config.model_id || !config.dataset_id}
+              className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-slate-100 disabled:text-slate-500 rounded-md transition-colors"
+              title="Save current configuration as a template"
+            >
+              <Save size={20} />
+              Save as Template
+            </button>
             <button
               onClick={handleStartTraining}
               disabled={!isFormValid || isStarting}
-              className={`w-full flex items-center justify-center gap-2 py-3 ${COMPONENTS.button.primary}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 ${COMPONENTS.button.primary}`}
             >
               {isStarting ? (
                 <>
@@ -1284,6 +1392,119 @@ export const TrainingPanel: React.FC = () => {
         trainingId={deletingTrainingId || ''}
         tasks={deletionTasks}
       />
+
+      {/* Save Template Modal */}
+      {showSaveTemplateModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowSaveTemplateModal(false);
+            setSaveTemplateError(null);
+            setTemplateName('');
+            setTemplateDescription('');
+          }}
+        >
+          <div
+            className="bg-slate-900 rounded-lg max-w-lg w-full p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-slate-100">Save as Template</h2>
+              <button
+                onClick={() => {
+                  setShowSaveTemplateModal(false);
+                  setSaveTemplateError(null);
+                  setTemplateName('');
+                  setTemplateDescription('');
+                }}
+                className="p-1 hover:bg-slate-800 rounded transition-colors"
+                title="Close modal"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-400 mb-4">
+              Save your current training configuration as a reusable template.
+            </p>
+
+            {/* Error message */}
+            {saveTemplateError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md">
+                <p className="text-sm text-red-400">{saveTemplateError}</p>
+              </div>
+            )}
+
+            {/* Form */}
+            <div className="space-y-4">
+              {/* Template Name */}
+              <div>
+                <label htmlFor="template-name" className="block text-sm font-medium text-slate-300 mb-1">
+                  Template Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  id="template-name"
+                  type="text"
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="e.g., TinyLlama_OpenWebText_Standard_L1-0.0001"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                  disabled={isSavingTemplate}
+                />
+              </div>
+
+              {/* Template Description */}
+              <div>
+                <label htmlFor="template-description" className="block text-sm font-medium text-slate-300 mb-1">
+                  Description (Optional)
+                </label>
+                <textarea
+                  id="template-description"
+                  value={templateDescription}
+                  onChange={(e) => setTemplateDescription(e.target.value)}
+                  placeholder="e.g., L1: 0.0001 | LR: 0.00027 | Dict: 2048→8192 (4x) | Steps: 50k"
+                  rows={3}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 text-sm focus:outline-none focus:border-emerald-500 transition-colors resize-none"
+                  disabled={isSavingTemplate}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowSaveTemplateModal(false);
+                    setSaveTemplateError(null);
+                    setTemplateName('');
+                    setTemplateDescription('');
+                  }}
+                  disabled={isSavingTemplate}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:cursor-not-allowed text-slate-300 disabled:text-slate-600 rounded-md transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveTemplate}
+                  disabled={!templateName.trim() || isSavingTemplate}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white disabled:text-slate-600 rounded-md transition-colors"
+                >
+                  {isSavingTemplate ? (
+                    <>
+                      <Loader size={16} className="animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Save Template
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

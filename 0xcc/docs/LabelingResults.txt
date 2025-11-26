@@ -1,0 +1,1395 @@
+#189 - proper_nouns_of_political_figures (semantic)
+Description: This feature activates when proper nouns of political figures, such as 'Clinton', 'Graham', and 'Maduro', are mentioned.
+Examples:
+01: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+02: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+03: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+04: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+05: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+06: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+07: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+08: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+09: ▁violation▁of▁the▁rules▁of▁the▁House?”▁she▁said.▁“I▁think▁he▁(McCarthy
+10: ▁in▁the▁country’s▁northwest,▁an▁official▁said▁on▁Monday.▁National▁League▁for▁Democracy▁(
+
+#188 - future_time_expressions (positional)
+Description: This feature activates when the text contains future time expressions, such as 'release', 'scheduled for', and 'due for'.
+Examples:
+01: le▁getting▁your▁message▁across▁properly?▁is▁due▁for▁release▁this▁fall,▁and▁aims▁to▁build▁on
+02: ▁and▁combat▁mechanics.▁It▁was▁only▁last▁week▁that▁we▁brought▁you▁the▁very▁first▁concrete▁information▁about
+03: ▁2014▁and▁the▁game▁was▁set▁for▁a▁Spring▁2015▁release▁date
+04: .But▁the▁one▁I▁am▁perhaps▁most▁excited▁about▁is▁Sonic▁Mania.▁Having▁watched▁some▁of
+05: ▁Creed▁game▁in▁2016,▁and▁possibly▁no▁Far▁Cry▁game▁in▁20
+06: ▁UPDATE:▁They▁have▁now▁confirmed▁a▁North▁American▁release▁for▁these▁titles.▁It▁appears▁SAO:▁Hall
+07: ,▁what▁would▁be▁the▁point?▁Also,▁they▁delayed▁Summon▁Night▁6▁again.▁First▁Im
+08: ▁at▁PlayStation’s▁Gamescom▁conference▁and▁announced▁that▁DayZ▁would▁eventually▁make▁its▁way▁to▁the
+09: ▁later▁(and▁past▁the▁point▁where▁most▁people▁care),▁I'm▁confident▁in▁saying▁that▁ReCore
+10: ▁notes▁include▁all▁the▁previous▁changes▁to▁the▁game▁back▁when▁the▁patch▁was▁first▁being▁talked▁about▁in▁July
+
+#187 - migration_of_groups (mixed)
+Description: This feature detects instances where a group of people, often identified by their ethnicity or national origin, are migrating from one place to another. Example tokens include 'African Americans', 'blacks', 'immigrants', and 'newcomers'.
+Examples:
+01: .▁The▁first▁was▁the▁Great▁Migration,▁during▁which▁millions▁of▁African▁Americans▁left▁the▁cotton▁fields
+02: ▁rural▁South▁that▁began▁before▁World▁War▁I▁coupled▁with▁opportunities▁within▁the▁automotive▁industry▁made
+03: fair▁Realty▁Practices▁The▁Great▁Migration▁of▁blacks▁from▁the▁rural▁South▁to▁work▁in
+04: ▁mountainous▁southeastern▁part▁of▁the▁state,▁who▁traveled▁the▁Hillbilly▁Highway▁north
+05: ▁York.▁Like▁so▁many▁black▁families▁who▁were▁part▁of▁the▁great▁migration,▁they▁had▁moved▁north▁to
+06: ▁courtesy▁of▁a▁wave▁of▁German▁immigrants.▁America's▁gardens▁closely▁resemble
+07: ▁put▁it.▁A▁lot▁of▁South▁Asian▁immigrants,▁including▁people▁from▁all▁over▁different▁regions▁of
+08: ▁and▁around▁the▁Louisville▁area▁by▁an▁influx▁of▁German▁and▁Irish▁immigrants▁beginning▁in▁the
+09: ▁its▁name▁from▁immigrants▁from▁County▁Cork▁who▁settled▁there.▁“Returning▁to▁Detroit▁is
+10: ▁immigrants,▁primarily▁from▁Russia▁and▁Poland,▁who▁had▁come▁to▁the▁United▁States▁in▁the▁great
+
+#186 - mentions_of_locations_in_the_us (positional)
+Description: This feature activates when text mentions specific locations within the United States, such as 'Michigan', 'Indiana', and 'Kentucky'.
+Examples:
+01: ▁economy▁and▁border▁tax▁And▁it▁happened▁just▁three▁weeks▁after▁Mr.▁Trump▁met▁with▁auto▁industry▁executives
+02: ▁UK▁face▁tough▁choices▁Read▁more▁The▁US▁car▁firm,▁which▁has▁warned▁it▁could▁slash▁costs
+03: ▁in▁him▁to▁do▁so.▁Just▁got▁a▁call▁from▁my▁friend▁Bill▁Ford,▁Chairman▁of▁Ford
+04: ▁Trump’s▁criticism▁during▁his▁campaign▁for▁building▁cars▁in▁Mexico,▁and▁now▁that▁Trump▁will▁be▁president
+05: ▁I▁am▁President,"▁said▁Trump,▁who▁has▁criticized▁Ford▁in▁the▁past▁for▁its▁plans▁to▁expand
+06: :▁The▁new▁product▁investments▁include▁a▁commitment▁by▁Ford▁to▁bring▁its▁Ranger▁midsize▁pick
+07: ▁he▁has▁pressured▁car▁companies▁to▁build▁their▁vehicles▁in▁the▁US▁rather▁than▁Mexico.▁The▁brash
+08: REAKING:▁United▁Auto▁Workers'▁president▁says▁Hillary▁Clinton▁told▁him▁NAFTA
+09: ▁by▁Ford▁today.▁Major▁investment▁to▁be▁made▁in▁three▁Michigan▁plants.▁Car▁companies▁coming▁back▁to
+10: ▁beautiful▁plants"▁in▁the▁United▁States.▁He▁also▁said▁Foxconn,▁a▁Taiwanese▁manufacturer▁of
+
+#185 - exact_matches (semantic)
+Description: This feature activates when the text contains exact matches of specific entities or concepts, as indicated by the angle brackets << >>. Example tokens include 'Enemy', 'Enstone', 'Ensign', 'Enzo', and 'Engineering'.
+Examples:
+01: ▁Joe.▁The▁guy▁in▁the▁White▁House▁is▁exactly▁the▁same▁Donald▁Trump▁you▁partied▁with▁last
+02: ▁the▁run.▁As▁the▁XCOM▁faithful▁know,▁Enemy▁Unknown▁andemy▁Within▁operate▁on
+03: ▁years▁after▁the▁original▁film,▁Stern’s▁revealed▁exactly▁how▁his▁character▁Marv▁–▁aka▁the
+04: ▁races...▁I▁have▁to▁say▁that▁the▁people▁at▁Enstone▁are▁the▁strongest▁group▁of▁people▁ever
+05: .▁The▁panels▁last▁major▁investigation▁focused▁on▁John▁Ensign,▁a▁Nevada▁Republican▁who▁resigned
+06: 70p!)▁will▁get▁you▁XCOM:▁Enemy▁Unknown,▁Sid▁Meier’s
+07: ▁lets▁go▁ahead▁and▁do▁that.▁Step▁3▁Enabling▁and▁Configuring▁AspectJ▁Wait▁a
+08: ▁Senate▁rejected▁a▁GOP▁proposal▁to▁scuttle▁President▁Barack▁Obama's▁health▁care▁law
+09: ▁declaring▁"Pet▁Sounds"▁track▁"God▁Only▁Knows"▁to▁be▁the▁best▁song
+10: ▁Depth▁Entertainment▁sizzle▁reel▁where▁the▁ENM▁footage▁from▁the▁OP▁is▁found▁is
+
+#184 - proper_nouns_of_political_figures (semantic)
+Description: This feature activates when proper nouns of political figures, such as 'Clinton', 'Shuang', and 'Maduro', are mentioned.
+Examples:
+01: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+02: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+03: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+04: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+05: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+06: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+07: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+08: 0▁as▁of▁Oct.▁28▁for▁last▁month’s▁re-election▁bid.”▁“
+09: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+10: ▁in▁the▁country’s▁northwest,▁an▁official▁said▁on▁Monday.▁National▁League▁for▁Democracy▁(
+
+#183 - directional_prepositions (syntactic)
+Description: This feature activates when the token is a directional preposition, such as 'down', 'up', or 'along'.
+Examples:
+01: ▁challenges▁and▁rewards,▁and▁a▁little▁further▁down▁the▁road,▁new▁maps,▁vehicles,▁and
+02: inating▁behind-the-scenes▁look▁at▁what▁made▁this▁all▁possible:▁Tonight▁is▁our
+03: ▁blame▁the▁"slow▁digestion"▁of▁Haswell▁processor▁inventories▁for▁the▁delay.▁They▁expect
+04: ▁reached▁out▁to▁Naomi▁Oakes,▁who▁made▁national▁news▁in▁July▁after▁a▁video▁of▁her▁lip
+05: 've▁been▁doing▁it▁by▁hand,▁but▁with▁some▁rather▁large▁projects▁coming▁up,▁I▁really▁need
+06: 're▁damn▁excited▁for▁listeners▁to▁hear▁what▁we▁sound▁like▁now,"▁the▁band▁tell▁Ex
+07: ▁saves▁time▁and▁effort.▁But▁do▁you▁ever▁wonder▁what▁your▁great-great-grandmother
+08: ,▁we’ve▁been▁blogging▁a▁lot▁about▁what▁we▁learnt.▁So▁far▁we’ve
+09: ▁already?▁Let’s▁take▁a▁brisk▁jog▁down▁memory▁lane:▁1.▁Critic
+10: ▁in▁the▁grocery▁store▁or▁you▁already▁have▁some▁in▁your▁freezer.▁Sometimes▁it's
+
+#182 - police_department_mention (structural)
+Description: This feature activates when the phrase '<<Police Department>>' or its abbreviations ('<<PD>>', '<<Police>>') appear in the text, often indicating a reference to law enforcement agencies.
+Examples:
+01: ▁Fletcher▁was▁shot▁in▁the▁thigh▁by▁a▁Dover▁Police▁officer▁following▁brief▁police▁ch
+02: ▁relied▁on▁body-cam▁evidence▁to▁determine▁whether▁an▁officer-involved▁shooting▁could▁be▁just
+03: ▁Doeren▁said▁in▁a▁statement.▁Raleigh▁police▁said▁Thornton,▁of▁27
+04: ▁has▁been▁arrested▁two▁other▁times▁this▁year.▁Atlanta▁police▁arrested▁him▁in▁May▁on▁a▁sexual▁misde
+05: -year-old,▁which▁happened▁after▁Rockledge▁police▁responded▁late▁Thursday▁to▁calls▁about
+06: ▁Police▁Department▁confirmed▁that▁a▁Ferguson▁police▁officer▁shot▁the▁man,▁but▁provided▁no▁further▁details
+07: ▁not▁to▁indict▁Randall▁Kerrick,▁the▁officer▁who▁fatally▁shot▁Jonathan▁Ferrell▁in
+08: ▁had▁to▁be."▁Morrissey▁said▁Braintree▁police▁had▁been▁"cooperative"▁in▁the
+09: ations▁into▁the▁conduct▁of▁St.▁Louis▁Metropolitan▁Police▁Department▁officers▁for▁unconstitutional▁actions▁during▁protest
+10: ▁a▁news▁release▁from▁police,▁a▁Newport▁News▁Police▁officer▁and▁a▁task▁force▁officer▁from▁the▁Williams
+
+#181 - quotations_of_police_statements (semantic)
+Description: This feature activates when a quotation from a police officer or authority figure is present, often providing information about an investigation or incident. Example tokens include 'said', 'told', and direct quotes of the officer's statement.
+Examples:
+01: ▁Sgt.▁Denise▁Roberts▁said▁Wednesday▁that▁the▁45-year-old▁mother
+02: ▁of▁a▁sport▁utility▁vehicle▁seen▁leaving▁the▁scene,▁and▁an▁officer▁stopped▁the▁SUV▁at▁an▁a
+03: ▁sources.▁Citing▁preliminary▁information,▁authorities▁said▁two▁people▁walked▁into▁the▁store,▁and▁one
+04: ▁hate▁crime,▁authorities▁said▁Monday.▁On▁Sunday,▁police▁found▁the▁girl’s▁remains▁and▁a▁
+05: ,"▁Michigan▁State▁Police▁Detective▁Robert▁Dunham▁said▁the▁girl's▁mother▁and▁her▁boyfriend
+06: port.▁Lt.▁Diedrich▁Hohn▁said▁the▁youth▁was▁with▁four▁other▁males▁who▁in
+07: .▁According▁to▁a▁criminal▁complaint,▁investigators▁said▁John▁Brown▁tried▁to▁force▁the▁victim▁into▁having
+08: ▁District▁207▁spokesman.▁Authorities▁said▁Izaiah's▁10
+09: ▁Department▁Police▁began▁searching▁for▁Wilson▁Sunday▁after▁Leland▁police▁stopped▁Raphael▁and▁Akeem▁Mc
+10: ▁been▁arrested▁on▁drug▁charges▁over▁the▁weekend,▁and▁was▁found▁Monday,▁the▁spokesman▁for
+
+#180 - reminiscing_about_past_gaming_experiences (semantic)
+Description: This feature activates when the text describes personal memories or experiences related to video games, as seen in examples like '<<when>> I’d spend months on Zelda' and '<<I>> was one of the many gamers to sc'.
+Examples:
+01: essed▁as▁I▁was▁back▁in▁the▁NES▁days▁when▁I’d▁spend▁months▁on▁Zelda▁and
+02: ▁appeared▁on▁western▁shores;▁20▁years▁since▁platformers▁exploded▁into▁the▁3D
+03: ▁When▁the▁Nintendo▁DS▁was▁first▁released,▁I▁was▁one▁of▁the▁many▁gamers▁to▁sc
+04: ▁Playstation▁and▁Xbox▁kids—remember▁when▁gaming▁was▁given▁the▁same▁side-ey
+05: ▁generation▁of▁consoles.▁While▁almost▁everyone▁seems▁to▁recall▁the▁most▁popular▁systems▁from▁that▁decade▁such
+06: ▁children▁when▁they▁first▁came▁out▁and▁a▁lot▁of▁us▁it▁was▁our▁first▁introduction▁to▁the▁horror▁genre
+07: .▁played▁Pokemon▁Red▁as▁a▁child,▁and▁I’ve▁loved▁the▁Pokemon▁franchise▁ever
+08: ▁such▁a▁whimsy▁I▁haven’t▁felt▁since▁James▁and▁the▁Giant▁Peach.▁And
+09: ▁with▁and▁have▁had▁an▁appetite▁for▁ever▁since.▁You▁start▁as▁a▁single▁Crawler
+10: .▁“I’m▁old▁now,▁so▁I▁remember▁Descent▁really▁well.▁There▁are▁some▁moments
+
+#179 - subordinate_clauses_introduced_by_that (syntactic)
+Description: This feature activates when subordinate clauses are introduced by the word 'that'. Example tokens: <<that>>
+Examples:
+01: bon▁Tracker▁Initiative,▁which▁warns▁that▁oil▁and▁natural▁gas▁could▁also▁wind▁up▁becoming
+02: ▁2040.▁This▁is▁in▁part▁because▁even▁though▁renewable▁energy▁sources▁are▁finding▁their
+03: ▁in▁fossil▁fuels.▁The▁International▁Energy▁Agency▁says▁that,▁to▁have▁a▁50▁percent
+04: ▁of▁choice▁in▁an▁increasing▁number▁of▁power▁plants,▁while▁the▁industry▁has▁been▁disappointed▁in▁its▁plans
+05: ic▁change.▁Coal▁remains▁globally▁dominant,▁but▁without▁widespread▁deployment▁of▁carbon▁capture
+06: ▁in▁the▁game.▁Coal▁is▁under▁siege▁as▁activists▁pressure▁utilities▁to▁close▁aging
+07: ▁government▁support▁are▁accelerating▁deployment▁of▁solar▁energy▁even▁as▁growth▁slows▁in▁the▁mature▁European▁mark
+08: ▁the▁oil▁sector▁because▁of▁the▁potential▁carbon▁constraints▁driven▁by▁global▁climate▁change▁policies.▁S&P▁says
+09: 3.▁The▁combination▁of▁dwindling▁gas▁demand▁and▁ample▁stocks▁have▁pushed▁average▁gas▁prices
+10: ,▁coal-fired▁power▁stations▁are▁closing,▁while▁clean▁energy▁sources▁like▁wind▁and▁solar▁are▁growing
+
+#178 - mentions_of_specific_names_or_usernames_enclosed_in_angle_brackets (structural)
+Description: This feature activates when text is enclosed within angle brackets, indicating a mention of a specific name or username.
+Examples:
+01: ▁Posts▁#7▁Very▁pretty▁map▁Casual▁Mapmaker▁IeZaeL▁Profile▁Joined▁July
+02: 2214▁Posted▁by▁Nephalim▁on▁Quote▁this▁Post▁What's▁up▁with
+03: amikaze▁Valued▁Poster▁Alpha▁Member▁on▁Quote▁this▁Post▁Good▁stuff.▁Gonna
+04: ▁BLinD-RawR▁Profile▁Blog▁Joined▁April▁2010▁ALLEY
+05: iler▁is▁comming▁Lets▁plays▁are▁comming▁*▁Better▁design▁on▁page▁The▁map▁finished.
+06: 2015▁@▁1:30pm▁1920▁x▁10
+07: apig▁though!▁Caster▁at▁IMBA.tv▁--▁--▁QxGRockEr▁Profile▁Jo
+08: ▁Drafter▁Carry▁Allrounder▁Support▁Initiator▁Kookiez▁CaKes▁Mookiez
+09: ▁&▁Feedback▁Thread▁RiotBaconhawk▁has▁posted▁up▁a▁Woad▁Scout▁Qu
+10: ▁right▁one.▁Cruzmissile,▁United▁States▁of▁America▁Further▁Staff:▁Available,▁To▁be▁announced
+
+#177 - future_negation_of_action (syntactic)
+Description: This feature activates when the text contains future negations of actions, specifically in the form 'won't' or 'shalln't'. Example tokens include '<<won’t>>', '<<shalln’t>>'.
+Examples:
+01: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+02: ys▁contributors▁with▁ties▁to▁Hillary▁Clinton’s▁campaign.▁But▁employing▁a▁contrib
+03: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+04: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+05: ▁in▁the▁wake▁of▁Donald▁Trump’s▁US▁election▁win,▁claiming:▁“It▁feels▁like
+06: ▁charter▁school▁sector”▁in▁Michigan,▁her▁home▁state.▁The▁Senators▁are▁“also▁intent▁on
+07: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+08: 0▁as▁of▁Oct.▁28▁for▁last▁month’s▁re-election▁bid.”▁“
+09: ’t▁work,▁and▁that▁the▁American▁people▁simply▁won’t▁stand▁for▁its▁full▁implementation.▁So
+10: ▁violation▁of▁the▁rules▁of▁the▁House?”▁she▁said.▁“I▁think▁he▁(McCarthy
+
+#176 - criticism_of_portrayal_in_media (semantic)
+Description: This feature activates when the text criticizes or comments on the portrayal of certain groups, concepts, or themes in media, as seen in tokens like 'patronizing', 'racist', 'ghetto-cent', and 'melodramatic DNA'.
+Examples:
+01: ▁Glenn▁Kenny▁at▁MSN.▁It▁patronizes▁its▁audience,▁serving▁up▁"one▁entertaining
+02: ah-servin'▁black▁folk▁are▁embarrassingly▁racist,"▁according▁to▁an▁article▁on▁S
+03: ▁and▁broke▁new▁ground▁in▁an▁era▁otherwise▁criticised▁for▁portraying▁the▁"ghetto-cent
+04: ▁to▁put▁up▁with,▁without▁falling▁into▁the▁trap▁of▁painting▁all▁the▁men▁as▁monsters▁and▁as
+05: rayals▁of▁women▁(and▁lack▁thereof),▁its▁avoidance▁of▁a▁particularly▁ugly▁chapter▁in▁N
+06: ▁superior▁Precious,▁the▁movie▁embraces▁its▁melodramatic▁DNA▁and▁paints▁a
+07: ▁and▁dismisses▁the▁movie▁“Precious”▁as▁a▁film▁that▁“makes▁D.W
+08: ▁fluffy▁rom-com,▁it’s▁also▁a▁popular▁topic▁of▁chatter▁in▁the▁femin
+09: ▁movie▁in▁Marie▁Claire▁called▁out▁the▁film▁for▁being▁too▁male-centric.▁“Dunk
+10: ▁doesn’t▁invalidate,▁but▁rather▁reinforces▁the▁stereotypes▁whites▁have▁imposed
+
+#175 - allows_third_parties_to_participate_in_patent_procedures (syntactic)
+Description: This feature activates when the verb 'allows' is used in the context of describing a legal procedure that enables third parties to engage in patent-related activities.
+Examples:
+01: ▁Preissuance▁Submissions.▁That▁procedure▁allows▁third▁parties▁to▁participate▁in▁the▁patent
+02: ▁basis▁for▁our▁Patent▁Busting▁Project▁and▁allows▁us▁to▁attack▁dangerous▁and▁overbroad▁pat
+03: iners▁come▁out▁of▁the▁filing▁fees▁from▁people▁seeking▁patents.▁The▁more▁patents
+04: ▁activity▁thanks▁a▁law▁that▁makes▁it▁easier▁for▁companies▁to▁challenge▁patents.▁Critics▁have▁liken
+05: ▁patent▁reform▁fix▁the▁underlying▁problems▁that▁give▁rise▁to▁patent▁troll▁lawsuits.▁Not
+06: ▁Technology▁specialists▁do▁the▁background▁research▁needed▁before▁filing▁for▁a▁patent,▁such▁as▁investigating
+07: ▁of▁sending▁patent▁demand▁letters▁to▁unsuspecting▁startups▁and▁small▁businesses▁in▁preparation
+08: ▁presented▁a▁number▁of▁changes▁which▁are▁in▁the▁works▁concerning▁how▁patents▁and▁patent▁applications▁work.
+09: igation▁as▁a▁tool▁of▁last▁resort▁for▁patents▁that▁are▁obviously▁unique,▁and▁egregiously
+10: s,”▁as▁they▁are▁called,▁pay▁to▁patent▁items▁in▁as▁vague▁a▁manner▁as▁the▁system
+
+#174 - costume_items (structural)
+Description: This feature detects the mention of costumes or clothing items, such as '<<purchase>>', '<<onesies>>', and '<<armor>>'.
+Examples:
+01: .▁We▁knew▁there▁wasn’t▁a▁way▁to▁purchase▁a▁costume▁that▁would▁work▁for▁him,
+02: ▁We▁had▁old▁pots▁and▁pans▁to▁play▁with▁outside▁and▁we▁would▁fill▁them▁water▁and
+03: ▁Bab”▁will▁be▁sporting▁Pirates’▁onesies▁and▁baby-sized▁baseball▁bats.
+04: profit▁that▁will▁allow▁him▁to▁create▁costumes▁for▁other▁children▁with▁special▁needs.▁Related▁story
+05: ▁piece▁of▁clothing▁is▁his▁Spiderman▁costume.▁In▁the▁absence▁of▁a▁complete▁horm
+06: ▁her▁a▁special▁suit▁of▁Stormtrooper▁armor▁that’s▁been▁passed▁down▁by▁other▁girls
+07: ▁of▁mummy▁cupcakes.▁Last▁week,▁he▁took▁a▁batch▁of▁these▁Apple▁Cinnam
+08: 0▁sight▁words▁by▁the▁time▁he▁was▁a▁year▁old.▁He▁was▁our▁little▁nerd▁and▁we
+09: 16▁the▁seniors▁had▁a▁dress▁up▁day▁and▁this▁one▁kid▁went▁as▁dat▁boi▁pic
+10: 2▁Action▁News▁was▁there▁in▁July▁as▁the▁little▁boy▁walked▁out▁of▁a▁hospital▁with▁his▁family.
+
+#173 - proper_nouns_of_political_figures (syntactic)
+Description: This feature activates when proper nouns of political figures are present, such as 'Obama', 'Trump', and 'Maduro'.
+Examples:
+01: ans▁in▁the▁House▁released▁a▁new▁tax▁proposal▁the▁“Tax▁Cut▁and▁Jobs▁Act”
+02: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+03: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+04: ,▁Ban▁Ki-moon▁,▁called▁the▁arrest▁“the▁end▁of▁a▁chapter▁that▁should▁never▁have
+05: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+06: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+07: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+08: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+09: ▁in▁the▁country’s▁northwest,▁an▁official▁said▁on▁Monday.▁National▁League▁for▁Democracy▁(
+10: ▁violation▁of▁the▁rules▁of▁the▁House?”▁she▁said.▁“I▁think▁he▁(McCarthy
+
+#172 - prepositions_indicating_source_or_association (syntactic)
+Description: This feature activates when the token is a preposition indicating source, origin, or association (e.g., 'of', 'from', 'with', 'in'). Example tokens: 'of', 'with', 'in'.
+Examples:
+01: ▁Roman▁historian▁Pliny▁the▁Elder,▁who▁reported▁that▁he▁had▁actually▁handled▁such▁a▁stone.▁He
+02: ▁stuff▁of▁local▁legend.▁One▁myth▁associates▁them▁with▁Saint▁Cornelius,▁long▁held▁to▁have
+03: ▁called▁by▁the▁Romans▁fascinum,▁which▁was▁hung▁round▁the▁necks▁of▁children▁(t
+04: ▁study▁better-known▁Celtic▁artwork▁such▁as▁the▁Long▁Man▁of▁Wilmington▁and▁the
+05: ▁about▁the▁Gallic▁goddess▁of▁horses▁is▁found▁in▁Juvenal▁(Satires,▁VIII
+06: ures▁and▁epochs,▁to▁the▁pre-historic▁paintings▁that▁grace▁the▁underground▁caver
+07: esses▁were▁known▁to▁ancient▁religion;▁for▁example,▁in▁Stymphalos,▁Hera▁was▁worship
+08: ▁support▁of▁his▁thesis▁was▁his▁interpretations▁of▁ancient▁artworks▁as▁depicting▁extraterrest
+09: 0▁feet▁and▁is▁thought▁to▁have▁inspired▁legends▁of▁giant▁sea▁serpents.▁"It▁may
+10: ose▁are▁snake▁eaters,▁and▁in▁mythology▁dragons▁were▁highly▁associated▁with▁serpents
+
+#171 - mentions_of_benfica_as_a_football_club (structural)
+Description: This feature activates when the token '<<Benfica>>' appears in the text, indicating mentions of the Portuguese football club SL Benfica.
+Examples:
+01: ▁(hit▁over▁.350▁five▁times).▁Never▁struck▁out▁50▁times▁in▁a▁season
+02: ves▁(Barcelona),▁David▁Luíz▁(Benfica),▁Diego▁Tardelli▁(Atl
+03: ▁found▁as▁a▁variation▁of▁General▁Tso's▁chicken▁in▁North▁America▁rather▁than▁the▁dish
+04: ▁executive▁and▁former▁General▁Director▁of▁S.L.▁Benfica’s▁Academy,▁Armando▁Carne
+05: ▁the▁American▁Bar▁Association▁(ABA)▁and▁has▁never▁tried▁a▁case.▁But▁then▁news▁reports▁emer
+06: -one▁personal▁computing▁device.▁Tortoise▁and▁the▁Hare▁"Therefore,▁we▁have
+07: racted,▁with▁reports▁in▁Spain▁claiming▁that▁Benfica▁have▁hijacked▁Real's▁deal
+08: ▁Deportivo,▁que▁aún▁debe▁pagar▁al▁Benfica▁tres▁millones▁de▁euros▁que▁quedaron
+09: asons."▁One▁assumes▁these▁leaks▁are▁coming▁from▁Camp▁Luongo,▁given▁that▁the▁Canucks
+10: ▁his▁Miami▁debut▁at▁age▁20,▁having▁never▁appeared▁in▁a▁regular▁season▁game▁above▁Single-
+
+#170 - large_scale_impact (semantic)
+Description: This feature activates when the text describes a significant or extensive impact, as indicated by the quoted tokens 'large', 'big', and 'major'.
+Examples:
+01: ▁to▁discuss▁the▁matter▁of▁screwing▁over▁a▁large▁portion▁of▁the▁country,▁but▁perhaps▁someone▁in
+02: ▁control▁your▁new▁coins.▁That’s▁a▁big▁problem.▁Whoever▁controls▁your▁private▁keys▁controls
+03: ,▁it▁will▁see▁Silicon▁Valley▁kill▁off▁a▁large▁segment▁of▁its▁entrepreneurship▁ecos
+04: ▁the▁central▁place▁they▁once▁occupied▁in▁America’s▁urban▁landscape,▁showing▁how▁the▁basic▁but▁resourcefully
+05: ▁tilt▁the▁scales▁toward▁a▁finding▁that▁Uber▁drivers▁are▁independent▁contractors,”▁U.S.
+06: ▁flat.▁Nationally,▁63.9▁percent▁of▁Americans▁lived▁in▁homes▁they▁owned▁in▁the
+07: ickers:▁Planning▁and▁staying▁organized▁are▁important▁if▁you▁want▁to▁get▁big▁things▁done.
+08: ▁to▁the▁site,▁producers▁miss▁out▁on▁a▁large▁portion▁of▁the▁potential▁revenue▁that▁could▁be
+09: ending.▁That’s▁likely▁to▁be▁great▁for▁bank
+10: ▁to▁create▁fairness▁and▁opportunity▁during▁this▁period▁of▁rapid▁economic▁change.▁The▁plan▁includes▁a▁higher▁minimum
+#199 - proper_nouns_of_political_figures (semantic)
+Description: This feature activates when proper nouns of political figures are mentioned, such as 'Geng Shuang', 'Nicolas Maduro', and 'Hillary Clinton'.
+Examples:
+01: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+02: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+03: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+04: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+05: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+06: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+07: ▁Senator▁David▁Penchyna,▁who▁heads▁the▁energy▁committee.▁Saturday’s▁proposal▁would▁allow▁private▁invest
+08: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+09: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+10: ,▁Ban▁Ki-moon▁,▁called▁the▁arrest▁“the▁end▁of▁a▁chapter▁that▁should▁never▁have
+
+#198 - proper_nouns_of_political_figures (semantic)
+Description: This feature activates when proper nouns of political figures, such as 'Trump', 'Clinton', and 'Sanders', are mentioned.
+Examples:
+01: ▁producer▁on▁Meyers’▁late-night▁NBC▁show.▁Lorne▁Michaels▁also▁served▁as
+02: ▁release▁of▁the▁now▁infamous▁tape▁of▁Trump▁making▁obscene▁comments▁about▁women▁—▁which▁he
+03: ▁will▁“work▁something▁out,”▁said▁the▁president-elect.▁Meaning,▁clearly:▁These▁are▁tricky
+04: ▁36▁states▁to▁build▁voter▁support▁for▁Trump’s▁tax▁cut▁plan.▁Read▁more:
+05: ▁China’s▁not▁part▁of▁this▁deal,”▁said▁Paul,▁a▁Kentucky▁senator.▁Watch▁the▁clip
+06: ▁her▁eyes,▁blood▁coming▁out▁of▁her▁wherever”,▁Trump▁said▁on▁CNN.▁has▁since▁continued▁to
+07: s▁president▁and▁publisher,▁endorsed▁Sanders’▁presidential▁campaign▁in▁the▁release:▁“
+08: s▁sex▁scene▁in▁the▁2011▁comedy▁“Bridesmaids,”▁Fey▁assert
+09: ▁and▁Pennsylvania,▁the▁three▁states▁that▁ultimately▁cost▁Clinton▁the▁election▁by▁fewer▁than▁80,
+10: ▁potential▁Supreme▁Court▁justice▁—▁a▁list▁that▁included▁close▁Cruz▁friend▁and▁ally▁Sen.▁Mike▁Lee▁—
+
+#197 - iswas_indicating_past_tense (syntactic)
+Description: The feature activates when the token 'is' or 'was' is used, indicating past tense in the context of describing actions or states.
+Examples:
+01: ▁things▁you▁can▁preserve▁by▁canning,▁but▁it▁is▁important▁to▁understand▁these▁two▁canning▁methods▁before
+02: .▁This▁a▁generous▁coverage▁universe,▁but▁it▁is▁not▁unheard▁of.▁Critics▁tend
+03: ipt▁and▁utilization▁of▁foreign▁contribution▁increasing,▁it▁is▁a▁matter▁of▁concern▁that▁a▁large▁number▁of
+04: ▁cooler-than-average▁year,▁it▁was▁the▁hottest▁year▁on▁record▁in▁the
+05: ▁has▁improved▁over▁the▁past▁decade,▁but▁it▁is▁a▁city▁for▁the▁elite▁and▁chosen.
+06: ity”▁Christmas▁cards▁deliberately▁because▁I▁knew▁it▁was▁a▁good▁cause.▁I▁have▁bought▁‘char
+07: ents,▁come▁to▁me▁once▁a▁week.▁It▁is▁not▁true,▁you▁know,▁that▁nails
+08: igible▁for▁government▁funding▁given▁their▁audience▁is▁only▁30▁per▁cent▁of▁the▁population.
+09: ▁further▁spread▁of▁Islam▁in▁the▁country.▁But▁it▁is▁not▁only▁migration▁that▁accounts▁for▁the▁rising▁number
+10: ▁Though▁the▁political▁tones▁are▁always▁prominent,▁it▁is▁not▁the▁only▁theme▁to▁shine▁through.
+
+#196 - negation_of_actions_or_states (syntactic)
+Description: This feature activates when the text contains negations of actions or states, such as 'didn't', 'won't', and 'isn't'. Example tokens include: <<didn’t>>, <<won.>>
+Examples:
+01: ▁confrontations▁with▁police▁in▁Charlotte,▁President▁Obama▁spoke▁by▁phone▁Thursday▁with▁North▁Carolina▁G
+02: ers.▁In▁the▁Guelph▁case,▁the▁“Pierre▁Pout
+03: IDN’T!▁This▁time,▁the▁people▁won.▁The▁people▁of▁Iceland▁have▁over
+04: ▁on▁the▁table.”▁A▁White▁House▁spokesman▁didn’t▁immediately▁return▁a▁request▁for▁comment▁about
+05: ▁governance,▁and▁environmental▁and▁social▁safeguards.”▁China▁and▁20▁other▁countries▁signed▁a
+06: n▁had’s▁“full▁confidence,”▁hours▁before▁Trump▁asked▁him▁to▁resign.▁This▁follows▁a
+07: ▁defending▁her,▁because,▁in▁theory,▁he▁shouldn’t▁really▁know▁the▁facts▁of▁the▁case
+08: ▁Sarah▁Huckabee▁Sanders.▁But▁we▁haven’t,▁so▁here▁we▁go.”▁Hur
+09: ▁take▁a▁brave▁step▁and▁look▁into▁its▁own▁history.”▁In▁May,▁President▁Barack▁Obama▁walked
+10: ▁in▁the▁latest▁draft▁of▁the▁bill.▁But▁Cruz▁wasn’t▁all▁negative,▁saying▁the▁measure▁also
+
+#195 - wins_losses_and_ties_in_sports_contexts (syntactic)
+Description: This feature activates when the text mentions 'win', 'loss', or 'tie' in a sports context, as seen in examples like '<<win>> came by way of a shootout against one', 'five ties and two <<losses>>', and 'a “very mediocre” 1-1-1'.
+Examples:
+01: RA▁(2.10),▁the▁major▁league▁leader▁in▁batting▁average▁against▁(.163
+02: le,▁a▁lump▁under▁the▁arm▁or▁a▁change▁in▁the▁shape▁of▁the▁breast.▁"Dim
+03: ”▁1-1-1.▁That▁one▁win▁came▁by▁way▁of▁a▁shootout▁against▁one
+04: ▁to▁BCS▁games▁(nine,▁with▁a▁win▁over▁Saban▁in▁the▁Allstate▁Sugar
+05: ▁unprecedented▁four-peat▁due▁to▁a▁loss▁in▁a▁semifinals;▁instead,▁the▁Tig
+06: ▁"(The▁owners)▁seem▁afraid▁that▁fans▁will▁lose▁access▁to▁the▁players▁–▁autographs,
+07: s▁possible.▁The▁only▁team▁we▁play▁that▁we▁affect▁in▁the▁playoffs▁is▁Edmonton.
+08: ing▁until▁the▁summer▁hurt▁his▁chances?▁SHARE▁COPY▁LINK▁Hurrican
+09: ▁it▁has▁formed▁an▁IoT▁standards▁working.▁The▁group▁elected▁Chris▁Cholas,▁gateway▁solutions▁architect▁for
+10: ▁missions.▁Then▁NASA▁will▁need▁a▁major▁change▁of▁perspective▁in▁its▁goals,▁the▁funds▁to▁secure
+
+#194 - conjunction_and_in_positive_statements_about_individuals_or_teams (syntactic)
+Description: The feature activates when the conjunction 'and' is used to connect positive attributes or descriptions of individuals or teams, as seen in examples like 'a consummate professional <<and>> we will always consider him a part of the team', and 'he was great at the game <<and>> I’m really pleased with him'.
+Examples:
+01: ▁in▁Snute▁as▁a▁Liquid▁player,▁and▁I'm▁very▁happy▁to▁make▁it▁official
+02: ▁team.▁Steel▁is▁a▁consummate▁professional,▁and▁we▁will▁always▁consider▁him▁a▁part▁of▁the
+03: ▁all▁really▁good▁players▁with▁a▁lot▁of▁experience,▁so▁I▁knew▁that▁playing▁with▁them▁in▁Team▁D
+04: ▁mechanically▁skilled▁he▁was▁a▁really▁good▁captain▁and▁believed▁in▁me▁as▁a▁player.▁Even▁though
+05: ▁been▁around.▁Rob▁is▁a▁man▁of▁integrity▁character▁and▁I▁cannot▁wait▁for▁our▁team▁to▁be▁able
+06: ▁one▁of▁the▁best▁shooting▁big▁men▁in▁the▁world▁and▁we▁think▁his▁skill▁set▁will▁be▁a▁great
+07: ▁players▁that▁I▁ended▁up▁with▁were▁very▁skilled▁and▁great▁to▁work▁with.▁I▁had▁already▁worked
+08: ▁been▁playing▁together▁for▁a▁couple▁of▁weeks▁now,▁and▁we▁already▁have▁made▁huge▁progress▁both▁in▁the
+09: ▁Right▁off▁the▁bat▁he▁was▁great▁at▁the▁game▁and▁I’m▁really▁pleased▁with▁him.▁Yam
+10: ▁someone▁that▁we▁have▁watched▁for▁the▁last▁few▁years▁and▁felt▁he▁was▁a▁perfect▁fit",▁added▁J
+
+#193 - contrived_storylines (semantic)
+Description: This feature activates when text describes storylines that are intentionally exaggerated or unrealistic, as indicated by the token 'contrived'.
+Examples:
+01: .▁The▁party▁will▁also▁feature▁attractions▁such▁as▁contests,▁interactive▁games,▁giveaways,
+02: ▁Least▁To▁Reduce▁Inequality▁1▁/▁29▁The▁report▁estimates▁that▁pension
+03: 4,▁it▁joined▁the▁European▁National▁Front▁alliance▁together▁with▁other▁European▁far-right▁parties,▁including
+04: ▁Networks▁In▁a▁fresh▁report▁by▁the▁Swedish▁Civil▁Contingencies▁Agency▁(MSB),▁the▁Muslim
+05: ,▁performing▁hackneyed▁backstage▁skits▁and▁contrived▁storylines▁on▁Raw▁and▁Smack
+06: ▁Countries▁With▁The▁Most▁Holidays▁1▁/▁10▁THE▁10▁COUNTRI
+07: ▁and▁all▁the▁Milan▁fans▁for▁the▁attitude▁I▁showed▁last▁night▁after▁my▁substitution,”▁Bacca▁posted▁along
+08: ▁these▁activities.▁Prior▁restraints▁of▁the▁sort▁contempl
+09: ▁the▁campaign▁against▁the▁union-backed▁Proposal▁2,▁with▁the▁organization’s▁leaders
+10: .▁“If▁she▁ate▁candy▁that▁was▁contaminated,▁we▁could▁be▁in▁a▁hospital
+
+#192 - teaching_of_creationism_in_public_schools (semantic)
+Description: This feature activates when the text discusses the teaching of creationism in public schools, as evidenced by tokens such as 'teach', 'teaching', and 'taught' in contexts related to creationism.
+Examples:
+01: ▁struck▁down▁a▁Louisiana▁law▁requiring▁the▁public▁schools▁to▁teach▁creationism▁alongside▁evolution.▁The▁law’s
+02: .▁RD:▁I'm▁strongly▁in▁favour▁of▁comparative▁religion▁being▁taught.▁Modern▁schoolchildren
+03: alf▁of▁science▁and▁against▁laws▁making▁it▁easier▁to▁teach▁creationism▁in▁public▁schools.▁Today’s
+04: osophy▁is▁not▁religion.▁It▁must▁not▁be▁taught▁that▁way.”▁(The▁Guardian▁notes▁that▁S
+05: ▁from▁all▁public▁schools,▁or▁outlaw▁parents’▁teaching▁their▁children▁about▁God?▁No▁wild-ey
+06: ▁Creationists▁like▁COPE▁claim▁that▁to▁mandate▁the▁teaching▁of▁evolution▁to▁students▁constitutes▁an
+07: ,▁social,▁health▁and▁economic▁(PSHE)▁education▁curriculum.▁Before▁qualifying,▁tra
+08: ▁evolution.▁This▁state▁law▁opened▁doors▁for▁teachers▁to▁teach▁creationism.▁Though▁illegal▁under▁federal▁law,
+09: ▁in▁2008▁who▁supports▁the▁teaching▁of▁biological▁evolution.▁“She’s▁going
+10: 0▁years▁old.▁He▁has▁steadfastly▁argued▁that▁Texas▁students▁should▁be▁taught▁the▁weaknesses
+
+#191 - future_tense_verbs (syntactic)
+Description: This feature activates when the verb form is in future tense, as seen in examples like 'won't', 'will', and 'shall'.
+Examples:
+01: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+02: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+03: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+04: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+05: ▁in▁the▁country’s▁northwest,▁an▁official▁said▁on▁Monday.▁National▁League▁for▁Democracy▁(
+06: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+07: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+08: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+09: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+10: s▁three▁days▁in▁Brussels▁and▁at▁this▁weekend’s▁G7▁summit▁in▁Ta
+
+#190 - special_place_or_position (structural)
+Description: This feature activates when the text mentions a 'special place' or 'special position', often referring to a unique, significant, or unusual context.
+Examples:
+01: ▁threat,▁in▁order▁to▁come▁up▁with▁an▁excuse▁to▁open▁fire.▁While▁attempts▁have▁been▁made
+02: ▁Acceptance▁Movement,▁however,▁have▁a▁special▁place▁reserved▁for▁them▁in▁the▁top-secret▁tort
+03: ▁need▁to▁have.”▁Congress▁returns▁this▁week▁after▁a▁two-week▁recess,▁the▁first▁time▁it
+04: ▁“Moscow▁Project”▁represents▁a▁significant▁outside▁effort▁to▁move▁forward▁on▁the▁investigations▁of▁Trump
+05: :▁Well,▁on▁Saturday,▁we▁also▁got▁a▁chance▁to▁speak▁with▁Democratic▁Senator▁Brian▁Schatz▁of
+06: ▁and▁the▁’Stros▁took▁two▁games▁out▁of▁three▁against▁the▁Angels,▁which▁is▁not▁bad
+07: 17▁people▁an▁hour▁after▁they▁had▁an▁energy▁drink.▁The▁study▁showed▁contractions▁were▁more▁force
+08: ,▁and▁the▁warrant▁they▁produced▁gave▁them▁the▁ability▁to▁find,▁secure,▁and▁obtain▁any▁dead
+09: ently▁a▁team▁of▁young▁engineers▁got▁the▁rare▁opportunity▁to▁disassemble▁the▁F-1▁—
+10: ▁fitting▁tribute▁to▁the▁resiliency▁of▁a▁close-knit▁team▁that▁...▁Hey.▁Wait
+
+#189 - proper_nouns_of_political_figures (semantic)
+Description: This feature activates when proper nouns of political figures, such as 'Clinton', 'Graham', and 'Maduro', are mentioned.
+Examples:
+01: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+02: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+03: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+04: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+05: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+06: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+07: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+08: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+09: ▁violation▁of▁the▁rules▁of▁the▁House?”▁she▁said.▁“I▁think▁he▁(McCarthy
+10: ▁in▁the▁country’s▁northwest,▁an▁official▁said▁on▁Monday.▁National▁League▁for▁Democracy▁(
+
+#188 - future_time_expressions (positional)
+Description: This feature activates when the text contains future time expressions, such as 'release', 'scheduled for', and 'due for'.
+Examples:
+01: le▁getting▁your▁message▁across▁properly?▁is▁due▁for▁release▁this▁fall,▁and▁aims▁to▁build▁on
+02: ▁and▁combat▁mechanics.▁It▁was▁only▁last▁week▁that▁we▁brought▁you▁the▁very▁first▁concrete▁information▁about
+03: ▁2014▁and▁the▁game▁was▁set▁for▁a▁Spring▁2015▁release▁date
+04: .But▁the▁one▁I▁am▁perhaps▁most▁excited▁about▁is▁Sonic▁Mania.▁Having▁watched▁some▁of
+05: ▁Creed▁game▁in▁2016,▁and▁possibly▁no▁Far▁Cry▁game▁in▁20
+06: ▁UPDATE:▁They▁have▁now▁confirmed▁a▁North▁American▁release▁for▁these▁titles.▁It▁appears▁SAO:▁Hall
+07: ,▁what▁would▁be▁the▁point?▁Also,▁they▁delayed▁Summon▁Night▁6▁again.▁First▁Im
+08: ▁at▁PlayStation’s▁Gamescom▁conference▁and▁announced▁that▁DayZ▁would▁eventually▁make▁its▁way▁to▁the
+09: ▁later▁(and▁past▁the▁point▁where▁most▁people▁care),▁I'm▁confident▁in▁saying▁that▁ReCore
+10: ▁notes▁include▁all▁the▁previous▁changes▁to▁the▁game▁back▁when▁the▁patch▁was▁first▁being▁talked▁about▁in▁July
+
+#187 - migration_of_groups (mixed)
+Description: This feature detects instances where a group of people, often identified by their ethnicity or national origin, are migrating from one place to another. Example tokens include 'African Americans', 'blacks', 'immigrants', and 'newcomers'.
+Examples:
+01: .▁The▁first▁was▁the▁Great▁Migration,▁during▁which▁millions▁of▁African▁Americans▁left▁the▁cotton▁fields
+02: ▁rural▁South▁that▁began▁before▁World▁War▁I▁coupled▁with▁opportunities▁within▁the▁automotive▁industry▁made
+03: fair▁Realty▁Practices▁The▁Great▁Migration▁of▁blacks▁from▁the▁rural▁South▁to▁work▁in
+04: ▁mountainous▁southeastern▁part▁of▁the▁state,▁who▁traveled▁the▁Hillbilly▁Highway▁north
+05: ▁York.▁Like▁so▁many▁black▁families▁who▁were▁part▁of▁the▁great▁migration,▁they▁had▁moved▁north▁to
+06: ▁courtesy▁of▁a▁wave▁of▁German▁immigrants.▁America's▁gardens▁closely▁resemble
+07: ▁put▁it.▁A▁lot▁of▁South▁Asian▁immigrants,▁including▁people▁from▁all▁over▁different▁regions▁of
+08: ▁and▁around▁the▁Louisville▁area▁by▁an▁influx▁of▁German▁and▁Irish▁immigrants▁beginning▁in▁the
+09: ▁its▁name▁from▁immigrants▁from▁County▁Cork▁who▁settled▁there.▁“Returning▁to▁Detroit▁is
+10: ▁immigrants,▁primarily▁from▁Russia▁and▁Poland,▁who▁had▁come▁to▁the▁United▁States▁in▁the▁great
+
+#186 - mentions_of_locations_in_the_us (positional)
+Description: This feature activates when text mentions specific locations within the United States, such as 'Michigan', 'Indiana', and 'Kentucky'.
+Examples:
+01: ▁economy▁and▁border▁tax▁And▁it▁happened▁just▁three▁weeks▁after▁Mr.▁Trump▁met▁with▁auto▁industry▁executives
+02: ▁UK▁face▁tough▁choices▁Read▁more▁The▁US▁car▁firm,▁which▁has▁warned▁it▁could▁slash▁costs
+03: ▁in▁him▁to▁do▁so.▁Just▁got▁a▁call▁from▁my▁friend▁Bill▁Ford,▁Chairman▁of▁Ford
+04: ▁Trump’s▁criticism▁during▁his▁campaign▁for▁building▁cars▁in▁Mexico,▁and▁now▁that▁Trump▁will▁be▁president
+05: ▁I▁am▁President,"▁said▁Trump,▁who▁has▁criticized▁Ford▁in▁the▁past▁for▁its▁plans▁to▁expand
+06: :▁The▁new▁product▁investments▁include▁a▁commitment▁by▁Ford▁to▁bring▁its▁Ranger▁midsize▁pick
+07: ▁he▁has▁pressured▁car▁companies▁to▁build▁their▁vehicles▁in▁the▁US▁rather▁than▁Mexico.▁The▁brash
+08: REAKING:▁United▁Auto▁Workers'▁president▁says▁Hillary▁Clinton▁told▁him▁NAFTA
+09: ▁by▁Ford▁today.▁Major▁investment▁to▁be▁made▁in▁three▁Michigan▁plants.▁Car▁companies▁coming▁back▁to
+10: ▁beautiful▁plants"▁in▁the▁United▁States.▁He▁also▁said▁Foxconn,▁a▁Taiwanese▁manufacturer▁of
+
+#185 - exact_matches (semantic)
+Description: This feature activates when the text contains exact matches of specific entities or concepts, as indicated by the angle brackets << >>. Example tokens include 'Enemy', 'Enstone', 'Ensign', 'Enzo', and 'Engineering'.
+Examples:
+01: ▁Joe.▁The▁guy▁in▁the▁White▁House▁is▁exactly▁the▁same▁Donald▁Trump▁you▁partied▁with▁last
+02: ▁the▁run.▁As▁the▁XCOM▁faithful▁know,▁Enemy▁Unknown▁andemy▁Within▁operate▁on
+03: ▁years▁after▁the▁original▁film,▁Stern’s▁revealed▁exactly▁how▁his▁character▁Marv▁–▁aka▁the
+04: ▁races...▁I▁have▁to▁say▁that▁the▁people▁at▁Enstone▁are▁the▁strongest▁group▁of▁people▁ever
+05: .▁The▁panels▁last▁major▁investigation▁focused▁on▁John▁Ensign,▁a▁Nevada▁Republican▁who▁resigned
+06: 70p!)▁will▁get▁you▁XCOM:▁Enemy▁Unknown,▁Sid▁Meier’s
+07: ▁lets▁go▁ahead▁and▁do▁that.▁Step▁3▁Enabling▁and▁Configuring▁AspectJ▁Wait▁a
+08: ▁Senate▁rejected▁a▁GOP▁proposal▁to▁scuttle▁President▁Barack▁Obama's▁health▁care▁law
+09: ▁declaring▁"Pet▁Sounds"▁track▁"God▁Only▁Knows"▁to▁be▁the▁best▁song
+10: ▁Depth▁Entertainment▁sizzle▁reel▁where▁the▁ENM▁footage▁from▁the▁OP▁is▁found▁is
+
+#184 - proper_nouns_of_political_figures (semantic)
+Description: This feature activates when proper nouns of political figures, such as 'Clinton', 'Shuang', and 'Maduro', are mentioned.
+Examples:
+01: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+02: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+03: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+04: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+05: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+06: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+07: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+08: 0▁as▁of▁Oct.▁28▁for▁last▁month’s▁re-election▁bid.”▁“
+09: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+10: ▁in▁the▁country’s▁northwest,▁an▁official▁said▁on▁Monday.▁National▁League▁for▁Democracy▁(
+
+#183 - directional_prepositions (syntactic)
+Description: This feature activates when the token is a directional preposition, such as 'down', 'up', or 'along'.
+Examples:
+01: ▁challenges▁and▁rewards,▁and▁a▁little▁further▁down▁the▁road,▁new▁maps,▁vehicles,▁and
+02: inating▁behind-the-scenes▁look▁at▁what▁made▁this▁all▁possible:▁Tonight▁is▁our
+03: ▁blame▁the▁"slow▁digestion"▁of▁Haswell▁processor▁inventories▁for▁the▁delay.▁They▁expect
+04: ▁reached▁out▁to▁Naomi▁Oakes,▁who▁made▁national▁news▁in▁July▁after▁a▁video▁of▁her▁lip
+05: 've▁been▁doing▁it▁by▁hand,▁but▁with▁some▁rather▁large▁projects▁coming▁up,▁I▁really▁need
+06: 're▁damn▁excited▁for▁listeners▁to▁hear▁what▁we▁sound▁like▁now,"▁the▁band▁tell▁Ex
+07: ▁saves▁time▁and▁effort.▁But▁do▁you▁ever▁wonder▁what▁your▁great-great-grandmother
+08: ,▁we’ve▁been▁blogging▁a▁lot▁about▁what▁we▁learnt.▁So▁far▁we’ve
+09: ▁already?▁Let’s▁take▁a▁brisk▁jog▁down▁memory▁lane:▁1.▁Critic
+10: ▁in▁the▁grocery▁store▁or▁you▁already▁have▁some▁in▁your▁freezer.▁Sometimes▁it's
+
+#182 - police_department_mention (structural)
+Description: This feature activates when the phrase '<<Police Department>>' or its abbreviations ('<<PD>>', '<<Police>>') appear in the text, often indicating a reference to law enforcement agencies.
+Examples:
+01: ▁Fletcher▁was▁shot▁in▁the▁thigh▁by▁a▁Dover▁Police▁officer▁following▁brief▁police▁ch
+02: ▁relied▁on▁body-cam▁evidence▁to▁determine▁whether▁an▁officer-involved▁shooting▁could▁be▁just
+03: ▁Doeren▁said▁in▁a▁statement.▁Raleigh▁police▁said▁Thornton,▁of▁27
+04: ▁has▁been▁arrested▁two▁other▁times▁this▁year.▁Atlanta▁police▁arrested▁him▁in▁May▁on▁a▁sexual▁misde
+05: -year-old,▁which▁happened▁after▁Rockledge▁police▁responded▁late▁Thursday▁to▁calls▁about
+06: ▁Police▁Department▁confirmed▁that▁a▁Ferguson▁police▁officer▁shot▁the▁man,▁but▁provided▁no▁further▁details
+07: ▁not▁to▁indict▁Randall▁Kerrick,▁the▁officer▁who▁fatally▁shot▁Jonathan▁Ferrell▁in
+08: ▁had▁to▁be."▁Morrissey▁said▁Braintree▁police▁had▁been▁"cooperative"▁in▁the
+09: ations▁into▁the▁conduct▁of▁St.▁Louis▁Metropolitan▁Police▁Department▁officers▁for▁unconstitutional▁actions▁during▁protest
+10: ▁a▁news▁release▁from▁police,▁a▁Newport▁News▁Police▁officer▁and▁a▁task▁force▁officer▁from▁the▁Williams
+
+#181 - quotations_of_police_statements (semantic)
+Description: This feature activates when a quotation from a police officer or authority figure is present, often providing information about an investigation or incident. Example tokens include 'said', 'told', and direct quotes of the officer's statement.
+Examples:
+01: ▁Sgt.▁Denise▁Roberts▁said▁Wednesday▁that▁the▁45-year-old▁mother
+02: ▁of▁a▁sport▁utility▁vehicle▁seen▁leaving▁the▁scene,▁and▁an▁officer▁stopped▁the▁SUV▁at▁an▁a
+03: ▁sources.▁Citing▁preliminary▁information,▁authorities▁said▁two▁people▁walked▁into▁the▁store,▁and▁one
+04: ▁hate▁crime,▁authorities▁said▁Monday.▁On▁Sunday,▁police▁found▁the▁girl’s▁remains▁and▁a▁
+05: ,"▁Michigan▁State▁Police▁Detective▁Robert▁Dunham▁said▁the▁girl's▁mother▁and▁her▁boyfriend
+06: port.▁Lt.▁Diedrich▁Hohn▁said▁the▁youth▁was▁with▁four▁other▁males▁who▁in
+07: .▁According▁to▁a▁criminal▁complaint,▁investigators▁said▁John▁Brown▁tried▁to▁force▁the▁victim▁into▁having
+08: ▁District▁207▁spokesman.▁Authorities▁said▁Izaiah's▁10
+09: ▁Department▁Police▁began▁searching▁for▁Wilson▁Sunday▁after▁Leland▁police▁stopped▁Raphael▁and▁Akeem▁Mc
+10: ▁been▁arrested▁on▁drug▁charges▁over▁the▁weekend,▁and▁was▁found▁Monday,▁the▁spokesman▁for
+
+#180 - reminiscing_about_past_gaming_experiences (semantic)
+Description: This feature activates when the text describes personal memories or experiences related to video games, as seen in examples like '<<when>> I’d spend months on Zelda' and '<<I>> was one of the many gamers to sc'.
+Examples:
+01: essed▁as▁I▁was▁back▁in▁the▁NES▁days▁when▁I’d▁spend▁months▁on▁Zelda▁and
+02: ▁appeared▁on▁western▁shores;▁20▁years▁since▁platformers▁exploded▁into▁the▁3D
+03: ▁When▁the▁Nintendo▁DS▁was▁first▁released,▁I▁was▁one▁of▁the▁many▁gamers▁to▁sc
+04: ▁Playstation▁and▁Xbox▁kids—remember▁when▁gaming▁was▁given▁the▁same▁side-ey
+05: ▁generation▁of▁consoles.▁While▁almost▁everyone▁seems▁to▁recall▁the▁most▁popular▁systems▁from▁that▁decade▁such
+06: ▁children▁when▁they▁first▁came▁out▁and▁a▁lot▁of▁us▁it▁was▁our▁first▁introduction▁to▁the▁horror▁genre
+07: .▁played▁Pokemon▁Red▁as▁a▁child,▁and▁I’ve▁loved▁the▁Pokemon▁franchise▁ever
+08: ▁such▁a▁whimsy▁I▁haven’t▁felt▁since▁James▁and▁the▁Giant▁Peach.▁And
+09: ▁with▁and▁have▁had▁an▁appetite▁for▁ever▁since.▁You▁start▁as▁a▁single▁Crawler
+10: .▁“I’m▁old▁now,▁so▁I▁remember▁Descent▁really▁well.▁There▁are▁some▁moments
+#219 - ice_phenomena (semantic)
+Description: This feature activates when text mentions various forms of ice, such as 'ice fishing', 'ice sheet', and 'ice-free'.
+Examples:
+01: ▁right▁now:▁snowmobiling,▁hunting,▁ice▁fishing,▁and▁birdwatching.▁I
+02: ohlleben,▁senior▁ice▁forecaster▁at▁the▁Canadian▁Ice▁Service.▁She▁said▁it▁was▁“spectac
+03: ▁of▁force.▁ADVERTISEMENTSkip▁“No▁matter▁how▁these▁allegations▁pan▁out,”
+04: ▁hostel▁England.▁The▁modern▁hostel,▁located▁in▁Whitechapel,▁opened▁2
+05: ▁devices▁around▁the▁entire▁perimeter▁of▁the▁Greenland▁ice▁sheet▁in▁order▁to▁collect▁new▁data.▁(
+06: 20▁whites▁in▁the▁territory.▁article▁continues▁below▁“I▁don’t▁think▁much▁of▁the▁h
+07: -round▁by▁small▁aircraft,▁and▁by▁boats▁in▁ice-free▁summer▁months.▁“The▁people▁here
+08: ▁without▁a▁certain▁collapse▁of▁the▁West▁Antarctic▁Ice▁Sheet.▁Although▁past▁anthropogenic
+09: are▁before▁undergoing▁a▁harsh▁winter▁in▁an▁ice▁cave▁on▁Inexpressible▁Island.▁Ant
+10: ▁cell▁phones▁simply▁can’t.▁nbsp;▁Three▁Modes▁of▁Communication▁When▁elect
+
+#218 - races_and_marathons (semantic)
+Description: This feature activates when the text mentions specific races and marathons, such as 'Windsor Zucchini Festival', 'Fort Lauderdale Half Marathon', and 'Sir Walter Miler'.
+Examples:
+01: ▁Saturday▁mornings▁to▁get▁to▁such▁famous▁races▁as▁the▁Windsor▁Zucchini▁Festival
+02: ▁Lauderdale▁Half▁Marathon▁with▁a▁stellar▁time▁of▁1▁hour▁21▁minutes
+03: 7▁fifth-place▁finish▁in▁the▁Sir▁Walter▁Miler▁in▁Raleigh▁marked▁the▁culmination
+04: ▁performers▁in▁2015.▁California▁native▁Meb▁Keflezighi▁was▁ranked
+05: ▁Roadrunners▁Thanksgiving▁Day▁Five-Miler▁&▁One-Mile▁Fun▁Run▁on▁Th
+06: 2,▁Chicago▁will▁host▁the▁37th▁annual▁Bank▁of▁America▁Chicago▁Marathon.▁Whether▁you
+07: ▁time▁of▁3:11:45▁at▁the▁Via▁Marathon▁in▁Allentown,
+08: ▁City▁before▁ending▁near▁the▁Santa▁Monica▁Pier.▁The▁Skechers▁Performance▁Los▁Angeles▁Marathon
+09: ▁ruck▁marchers,▁will▁not▁be▁allowed▁on▁the▁course▁due▁to▁increased▁field▁size▁of▁
+10: ▁for▁the▁Virginia▁Beach▁Rock▁‘n’▁Roll▁Marathon.▁Saturday▁and▁Sunday:▁Prepare▁for
+
+#217 - suicide_verbs (syntactic)
+Description: This feature activates when the verb 'commit' or its variations ('committed', 'committing') is used, indicating an act of suicide.
+Examples:
+01: erson,▁an▁11-year▁safety▁who▁committed▁suicide▁last▁year.▁Evidence▁of▁C
+02: ▁safety▁Dave▁Duerson,▁50,▁who▁committed▁suicide▁in▁February.▁The▁brains▁of
+03: 2-year-old▁Houcine▁Falhi▁committed▁suicide▁by▁electrocuting▁himself▁at▁a
+04: ▁six▁months▁left▁on▁his▁current▁deal▁and▁is▁free▁to▁leave▁in▁June▁Manchester▁City▁and▁Paris▁Saint-
+05: ▁loanee▁from▁last▁season▁had▁effectively▁agreed▁to▁rejoin▁them▁this▁season▁before▁renegading▁on
+06: s▁Kyle▁Walker,▁who▁has▁decided▁to▁“reassess▁his▁Tottenham▁future▁at▁the
+07: ▁Reynolds▁dies▁at▁84,▁one▁day▁after▁daughter▁Carrie▁Fisher▁passes▁Reynolds,
+08: ’s▁“90▁percent”▁sure▁he▁will▁re-sign▁with▁OKC.▁The▁Knicks
+09: nington▁died▁on▁July▁20▁after▁committing▁suicide▁at▁the▁age▁of▁41
+10: yd▁bravely▁spoke▁out▁about▁his▁brother▁Scott▁taking▁his▁own▁life▁last▁week.▁One▁furious
+
+#216 - organization_names (mixed)
+Description: This feature detects the activation of organization names, such as 'Islamic State', 'Manchester police', and 'UN rights chief'.
+Examples:
+01: )▁-▁A▁suicide▁attack▁claimed▁by▁Islamic▁State▁near▁a▁cricket▁match▁in▁the▁Afghan▁capital
+02: ▁out▁to▁vigil▁in▁support▁of▁victims▁of▁the▁suicide▁attack,▁which▁killed▁22
+03: ▁people▁were▁killed▁and▁dozens▁were▁wounded▁in▁the▁two▁explosions.▁Police▁told▁SANA
+04: ▁behind▁the▁attack▁as▁22-year-old▁Salman▁Abedi.▁Police▁staged▁an
+05: ▁defence▁ministry▁spokesman▁Kim▁Min-Seok▁told▁reporters.▁The▁energy▁ministry
+06: ▁case▁in▁point,"▁Mr▁Hamilton▁said,▁referring▁to▁the▁perpet
+07: ▁Baker,▁questioned▁three▁days▁after▁Islamic▁State▁group▁militants▁killed▁130▁people▁in
+08: ▁killing▁11▁people▁in▁an▁attack▁claimed▁by▁the▁Taliban,▁which▁called▁it▁an▁act
+09: ▁At▁least▁45▁people▁have▁been▁killed▁in▁three▁blasts▁near▁the▁Shia▁shrine▁of
+10: ▁National▁Council▁head▁Mustafa▁Abdel▁Jalil▁said,▁Al▁Jazeera▁television▁reported.
+
+#215 - possessive_pronouns (morphological)
+Description: This feature activates when the text contains possessive pronouns such as 'its', 'her', 'his', 'our', and 'their'.
+Examples:
+01: ▁piqued▁our▁interest.▁The▁Korean▁company▁revealed▁its▁new▁uber-mega-drive▁this
+02: or▁more▁accurately,▁the▁mechanical▁obtainment)▁of▁graphene,▁applications▁within▁different▁scientific▁disciplines
+03: ▁Martin▁Luther▁King,▁Jr.▁once▁said▁that▁"we▁must▁learn▁to▁live▁together▁as▁brothers..."▁I
+04: .▁ss/blc▁(AFP,▁dpa,▁Reuters)</s></s></s></s>
+05: ▁hard▁drives.▁However,▁Samsung▁on▁Monday▁introduced▁its▁new▁850▁Evo▁and▁
+06: ▁(Louis▁DeLuca/The▁Dallas▁Morning▁News)▁TORONTO▁-▁The▁Rangers
+07: Andy▁Jacobsohn/The▁Dallas▁Morning▁News)▁Dallas▁Cowboys▁head▁coach▁Jason▁Gar
+08: Jae▁S.▁Lee/The▁Dallas▁Morning▁News)▁After▁the▁Stars'▁morning▁skate▁on
+09: ath▁their▁T-shirts,▁the▁judge▁reversed▁his▁instructions,▁something▁quite▁rare▁in▁UK
+10: J.▁McCarthy/The▁Dallas▁Morning▁News)▁Cowboys▁fans▁are▁going▁to▁like
+
+#214 - uninterested_uninterrupted_reinterpret (mixed)
+Description: This feature activates when the text describes a state of being 'uninterested' or 'uninterrupted', and when words are 'reinterpreted'. Example tokens include 'uninterested', 'uninterrupted', and 'reinterpret'.
+Examples:
+01: ▁that▁roughly▁35%▁of▁men▁are▁uninterested▁in▁fashion▁while▁65%▁of
+02: ▁the▁parkland▁beyond,▁the▁shed▁was▁re-interpreted▁as▁a▁compact▁leaf-covered
+03: ▁year▁by▁the▁U.S.▁Department▁of▁the▁Interior▁as▁National▁Recreation▁Trails,
+04: ▁can▁serve▁Honeycomb▁as▁part▁of▁a▁gluten-free,▁vegan▁buffet▁or▁after
+05: ▁debit-card▁fees,▁known▁as▁“interchange,”▁that▁Apple▁must▁pay.▁(Th
+06: ▁secretary▁for▁the▁U.S.▁Department▁of▁the▁Interior,▁called▁the▁project▁a▁"totally
+07: ▁town▁because▁everyone▁is▁so▁boring▁and▁so▁uninteresting▁but▁then▁he▁met▁me.▁Then
+08: ▁As▁Izvestia▁found▁out,▁the▁Ministry▁of▁Interior▁launched▁a▁criminal▁case▁of▁“Intentional
+09: ▁step▁off▁the▁tourist▁trail,▁they▁seem▁uninterested.▁They▁just▁want▁to▁follow▁everyone▁else
+10: pector▁General's▁Office▁of▁the▁Department▁of▁Interior▁faults▁staff▁at▁the▁agency▁for
+
+#213 - building_developing_do_like_from_next_generation_self_driving_cars (semantic)
+Description: This feature activates when texts discuss companies building or developing self-driving cars, as indicated by tokens such as 'build', 'develop', and 'self-driving cars'.
+Examples:
+01: ▁Google,▁Intel,▁and▁Samsung,▁plan▁to▁build▁the▁technologies▁needed▁to▁support▁and▁operate▁autonom
+02: ▁carmakers▁and▁silicon▁valley▁companies▁are▁working▁on▁developing▁a▁self-driving▁car.
+03: ▁firms,▁who▁are▁investing▁billions▁to▁develop▁self-driving▁cars,▁have▁resist
+04: ▁to▁validate▁our▁earlier▁hypothesis▁that▁leading-edge▁companies▁like▁Tesla▁and▁Google▁might▁be▁better▁able
+05: ▁European▁Union.▁While▁self-driving▁cars▁from▁Google▁or▁Ford▁get▁most▁of▁the▁credit▁for
+06: ▁75▁percent▁of▁all▁the▁companies▁that▁are▁doing▁research▁and▁development▁in▁this▁space▁are▁in▁sout
+07: ▁investment▁analyst.▁The▁huge▁investment▁cost▁for▁selling▁cars▁would▁be▁“catastroph
+08: ively▁partner,▁invest▁in▁and▁develop▁next-generation▁technologies▁in▁an▁effort▁to▁stake▁out
+09: ▁can▁build▁a▁better▁self-driving▁car▁than▁Elon▁Musk▁This▁26-
+10: ▁BMW,▁all▁of▁which▁are▁investing▁heavily▁in▁a▁technology▁seen▁by▁transport▁minister▁Alexander▁Dobr
+
+#212 - looking_looking_for_look (syntactic)
+Description: This feature activates when the verb 'look' or its gerund form 'looking' is used in various tenses and contexts, indicating an action of seeking or observing.
+Examples:
+01: uring▁this▁holiday▁season▁when▁we're▁all▁looking▁to▁help▁out▁the▁community,▁this▁is▁one
+02: icle▁next▁to▁the▁author.▁As▁the▁Society▁of▁Professional▁Journalists▁states▁in▁its▁Code▁of▁Ethics
+03: ▁damn▁exciting▁and▁something▁I▁find▁myself▁constantly▁looking▁forward▁to▁ever▁since▁I▁nailed▁down▁plans
+04: ▁it▁be▁short▁or▁whether▁it▁be▁long▁—▁we▁look▁back▁on▁what▁we
+05: ▁hatred▁and▁internal▁fighting.▁Today,▁when▁we▁look▁around▁and▁see▁the▁myriad▁of▁challeng
+06: ▁the▁turn▁of▁the▁century,▁is▁avidly▁looking▁for▁alternatives▁to▁traditional▁banking.▁One▁in
+07: 2014.▁REUTERS/Danish▁Siddiqui▁MUMBAI▁(
+08: ▁have▁been▁working▁hard▁for▁the▁opportunity▁and▁are▁desperate▁to▁go▁out▁and▁perform.▁I’m
+09: ▁and▁the▁other▁actors▁figured▁out▁what▁the▁fans▁were▁looking▁for.▁"Over▁30▁years▁of
+10: ists▁attending▁the▁NLGJA▁convention▁look▁forward▁to▁all▁year.▁“I’m
+
+#211 - quotations_of_emphasis (structural)
+Description: This feature detects quotation marks indicating emphasis or direct speech, as seen in examples like <<“fantastic”>>, <<“rape”>>, and <<“aggravated”>>.
+Examples:
+01: 00▁people▁in▁Tamil▁Nadu▁have▁been▁moved▁to▁relief▁centers,▁with▁plans▁for▁tens
+02: 7▁tablet▁last▁summer,▁we▁called▁it▁a▁“fantastic▁$200▁tablet
+03: <s>▁MOSCOW▁—▁The▁law▁on▁“propaganda▁of▁nontraditional▁sexual▁relations
+04: ▁who▁has▁seen▁this▁episode▁before▁knows▁it▁as▁the▁“rape▁analogy▁episode”▁and▁to▁be
+05: ganda▁offers▁life▁sentences▁for▁those▁convicted▁of▁“aggravated▁homosexuality,”
+06: 5,000▁civilians,▁Ukrainian▁soldiers▁and▁pro-separatist▁figh
+07: ▁10▁protesters▁and▁29▁policemen▁were▁injured,▁the▁official▁Xinhua
+08: <s>▁Russian▁North▁coast▁takes▁a▁huge▁territory.▁There▁is▁long▁polar
+09: aakov,”▁and▁unknown▁accomplices▁conspired▁to▁“knowingly▁and▁unlawfully▁seize,
+10: ▁and▁said▁anyone▁who▁did▁so▁was▁putting▁themselves▁in▁“considerable▁danger”.▁It▁said▁people▁who
+
+#210 - place_names_ending_in_ant (morphological)
+Description: This feature activates when place names end in 'ant'. Example tokens include 'Antioch', 'Antwerp', and 'Antwon'.
+Examples:
+01: ellow▁Springs,▁long▁home▁to▁the▁progressive▁Antioch▁College.▁The▁village’s▁left
+02: ▁title▁over▁Cleveland▁Central▁Catholic▁after▁CCC's▁Antwon▁Lillard▁was▁called▁for▁hanging
+03: ▁David▁Hunter,▁sought▁Right▁to▁Farm▁protection▁for▁their▁Antwerp▁Township▁hobby▁farm▁last▁year▁when
+04: ▁the▁Rams▁or▁the▁authorities.▁Another▁man,▁Antwan▁Reeves,▁was▁with▁Bailey
+05: inda▁school▁board▁member▁last▁week.▁Police▁officials▁in▁Antioch,▁Pittsburg▁and▁Orinda▁confirmed
+06: ,▁Redwood▁City,▁South▁San▁Francisco,▁and▁Antioch,▁have▁decided▁to▁keep▁their▁arm
+07: 2▁CASE▁HISTORY▁Status▁Court▁Filing▁Date▁Anticipated▁Due▁Date▁Activity▁PEND▁CA▁
+08: ▁Beach,▁Deerfield,▁Kildeer,▁Antioch,▁Lindenhurst▁and▁High
+09: ▁doesn't▁join▁Ahmad▁Carroll,▁Antuan▁Edwards,▁Terrell▁Buckley▁and▁V
+10: .▁Cities▁in▁the▁district▁include▁Alamo,▁Antioch,▁Bay▁Point,▁Blackhawk
+
+#209 - long_anticipated (semantic)
+Description: This feature activates when the text refers to something that is eagerly awaited or expected, as indicated by the phrase 'long-anticipated'.
+Examples:
+01: c▁Abeln▁are▁now▁listed▁as▁co-starters▁at▁RG.▁Kendall▁Blanton
+02: ▁that▁have▁taken▁the▁plunge▁on▁the▁long-anticipated▁3DS▁remaster▁The▁Leg
+03: ▁possible▁to▁fix▁several▁of▁them▁at▁once▁on▁a▁rotating▁turret.▁You'll▁be▁able
+04: ▁—▁Now▁is▁the▁perfect▁time▁for▁the▁long-anticipated▁referendum▁on▁Kurdish▁independence
+05: ▁of▁a▁series▁of▁towers▁topped▁with▁three▁rotating▁arms▁or▁panels▁that▁could▁be▁moved
+06: ▁Productions▁“Ex▁Libris▁–▁The▁New▁York▁Public▁Library,”▁Ex▁Libris▁Films▁“Faces
+07: 1994▁Pulitzer▁Prize▁in▁the▁Feature▁Photography▁category,▁and▁the▁image▁has▁since
+08: ▁kid.▁“I▁was▁walking▁through▁the▁Brooklyn▁Public▁Library▁when▁I▁was▁13▁and▁I
+09: iced,▁in▁the▁shadow▁of▁the▁museum’s▁Michelangelo▁drawing▁show▁and▁other▁major▁exhibitions
+10: ▁remotely▁with▁Snowden▁from▁the▁New▁York▁Public▁Library.▁As▁NYPL▁tech▁support▁got
+
+#208 - future_tense_verbs (syntactic)
+Description: This feature activates when the verb form is in future tense, as seen in examples like 'won't', 'will', and 'shall'.
+Examples:
+01: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+02: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+03: ys▁contributors▁with▁ties▁to▁Hillary▁Clinton’s▁campaign.▁But▁employing▁a▁contrib
+04: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+05: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+06: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+07: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+08: ,▁Ban▁Ki-moon▁,▁called▁the▁arrest▁“the▁end▁of▁a▁chapter▁that▁should▁never▁have
+09: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+10: ans▁in▁the▁House▁released▁a▁new▁tax▁proposal▁the▁“Tax▁Cut▁and▁Jobs▁Act”
+
+#207 - vegan_related_terms (semantic)
+Description: This feature activates when the term 'vegan' or related terms such as 'vegetarian', 'veggie', and 'vegan-friendly' appear in the text.
+Examples:
+01: ▁It▁I▁Want▁It▁I▁Need▁It▁Blood▁Creepin▁Get▁Got▁The▁Fever▁(Aye
+02: <s>▁FlickrCC/Tax▁Credits▁A▁lot▁of▁people▁are▁overjoyed
+03: <s>▁ITT▁Closing:▁Open▁Letter▁to▁ITT▁Students▁from▁U.
+04: ▁Waitress,▁Marquee▁nightclub,▁Las▁Vegas▁There▁were▁still▁six▁hours▁left▁in▁my
+05: ef▁barley▁soup!▁I▁thought▁I▁created▁a▁vegan▁version▁of▁beef▁stew▁when▁I
+06: ▁and▁flexible▁canvas▁for▁the▁advertiser▁to▁become▁truly▁creative▁Unique▁testing▁and▁optimization▁capabilities▁The▁opportunity
+07: auguration▁Day,▁flashing▁intimations▁of▁crimes▁and▁misdemeanors▁through▁their▁own
+08: <s>▁ASU▁students▁cheer▁during▁graduation▁ceremonies▁at▁Chase▁Field▁in▁Phoenix▁May
+09: ▁that▁enthusiasts▁end▁up▁enjoying▁and▁tinkering▁with▁—▁so▁much▁so▁that▁their▁latest
+10: ▁Compliments▁brand▁Stir-Fry▁Style▁Vegetables▁recalled▁due▁to▁Listeria
+
+#206 - belief_expressions (semantic)
+Description: This feature activates when the text expresses a belief or opinion, often marked by 'believe', 'think', 'feel', 'claim', 'argue', 'say', 'maintain', 'assert', 'insist', 'contend', 'allege', 'suggest', 'maintain', 'state', 'declare', 'affirm', 'aver', 'postulate', 'hypothesize', 'suppose', 'presume', 'conjecture', 'surmise', 'guess', 'estimate', 'calculate', 'figure', 'reckon', 'compute', 'work out', 'arrive at', 'reach', 'attain', 'achieve', 'accomplish', 'perform', 'execute', 'carry out', 'implement', 'put into effect', 'enforce', 'apply', 'observe', 'notice', 'perceive', 'discern', 'distinguish', 'identify', 'recognize', 'acknowledge', 'admit', 'confess', 'concede', 'yield', 'surrender', 'resign', 'abandon', 'forsake', 'renounce', 'repudiate', 'disavow', 'deny', 'refuse', 'reject', 'oppose', 'contest', 'challenge', 'question', 'doubt', 'suspect', 'mistrust', 'disbelieve', 'dispute', 'argue against', 'contradict', 'refute', 'disprove', 'negate', 'annul', 'cancel', 'revoke', 'repeal', 'abrogate', 'abolish', 'eliminate', 'do away with', 'get rid of', 'dispose of', 'discard', 'jettison', 'abandon', 'forsake', 'renounce', 'repudiate', 'disavow', 'deny', 'refuse', 'reject', 'oppose', 'contest', 'challenge', 'question', 'doubt', 'suspect', 'mistrust', 'disbelieve', 'dispute', 'argue against', 'contradict', 'refute', 'disprove', 'negate', 'annul', 'cancel', 'revoke', 'repeal', 'abrogate', 'abolish', 'eliminate', 'do away with', 'get rid of', 'dispose of', 'discard', 'jettison'.
+Examples:
+01: ▁a▁zany▁professor)▁Steven▁Chu▁clarified▁that▁"somehow▁we▁have▁to▁figure▁out▁how
+02: ▁coal▁industries▁as▁villainous▁in▁his▁push▁for▁green▁energy▁alternatives.▁He▁mercilessly
+03: ▁so.▁What▁we▁need▁to▁produce▁low▁prices▁again▁is▁more▁energy▁production.▁And▁that's▁not
+04: Get▁America▁running▁on▁clean▁energy."▁Forget▁talk▁about▁"green▁jobs"▁and▁"cap▁and▁trade
+05: ▁gone▁down▁in▁part▁because▁the▁market▁is▁realizing▁that▁this▁kind▁of▁pressure▁from▁the▁Congress▁may▁actually
+06: ▁frustration▁by▁industry▁groups▁and▁lawmakers▁who▁believe▁that▁Environmental▁Protection▁Agency▁regulations▁unnecess
+07: ing▁the▁coal▁industry▁is▁being▁done▁in▁the▁name▁of▁saving▁the▁environment▁from▁alleged▁global▁warming
+08: ▁oil▁and▁natural▁gas▁industries▁before▁saying▁one▁word▁about▁alternatives.▁Every▁single▁time,▁no▁matter▁what
+09: ▁problem▁isn't▁prices▁are▁too▁high,▁just▁that▁they▁shot▁up▁too▁quickly.▁He▁told▁C
+10: ▁clean▁coal,▁clean▁tar▁sands▁and▁the▁claim▁that▁there’s▁more▁jobs▁associated▁with▁fossil
+
+#205 - political_titles (semantic)
+Description: This feature activates when the token is a political title, specifically 'President' and 'Vice-President'.
+Examples:
+01: ▁the▁miniseries,”▁recalls▁actor▁Bill▁Skarsgard▁about▁the▁original▁199
+02: arring:▁Charlotte▁Gainsbourg,▁Stellan▁Skarsgård,▁Stacy▁Martin,▁Sh
+03: ▁is▁almost▁inevitable▁that▁this▁attack▁will▁put▁President▁Obama's▁foreign▁policy▁centre▁stage▁in
+04: <s>▁Scathing▁letter▁saying▁‘punishment▁does▁not
+05: ▁unable▁to▁point▁to▁any▁particular▁warning▁sign▁that▁the▁“boys”▁might▁have▁given.▁They▁laughed
+06: ously▁low▁birth▁rate.▁“Dieter▁Zetsche,▁chief▁executive▁of▁carmaker▁Daimler
+07: 2015,▁former▁US▁vice-president▁Joe▁Biden▁told▁his▁Jewish▁audience▁at▁A
+08: ▁as▁much▁as▁5pc.▁In▁recent▁week▁President▁Obama▁has▁been▁vocal▁on▁the▁issue▁of
+09: ▁brooms▁for▁the▁campaign.”▁Weeks▁ago,▁president▁Morsy▁pledged▁to▁fix▁the
+10: ▁noted▁the▁bill▁would▁also▁require▁all▁government▁agencies▁“register▁all▁drones”▁and▁the
+
+#204 - thoughts_and_feelings_expressed_in_first_person (semantic)
+Description: This feature activates when the text expresses thoughts, feelings, or personal experiences using 'I', 'me', 'my', or 'mine' (e.g., <<that>>, <<insecurities>>, <<like>>).
+Examples:
+01: ,▁and▁it▁wasn’t▁until▁I▁finally▁learned▁that▁I▁had▁to▁love▁myself▁regardless.▁I▁have
+02: ▁I▁found▁a▁lot▁of▁power▁within▁my▁insecurities.▁They’re▁what▁make▁me▁who▁I
+03: ▁was▁an▁underdog▁in▁life.▁And▁I▁feel▁like▁when▁you▁find▁your▁tribe▁you▁hold▁on▁to
+04: ▁where▁I’m▁feeling▁comfortable▁in▁my▁skin,▁and▁then▁my▁skin▁starts▁moving▁—▁all▁of▁a
+05: ▁as▁fat,▁and▁fighting▁the▁stigmatization▁of▁obesity▁in▁her▁workplace.▁There
+06: ’s▁something▁that▁I▁never▁really▁wanted▁to▁talk▁about,▁because▁I’m▁just▁me▁and▁this
+07: ▁fat▁phobia,▁and▁I▁really▁wish▁I▁could▁look▁in▁the▁mirror▁and▁be▁like▁“I
+08: ’s▁the▁most▁genuine▁in▁the▁sense▁that▁she’s▁been▁doing▁this▁for▁a▁long▁time
+09: ▁health▁is▁something▁that▁I’m▁really▁passionate▁about,▁probably▁because▁we’ve▁been▁given▁such
+10: ▁McCarthy▁told▁the▁mag.▁"I▁feel▁like▁there’s▁a▁big▁thing▁missing▁where▁you
+
+#203 - generations (semantic)
+Description: This feature detects the concept of 'generation', as evidenced by the tokens '<<generation>>' in multiple examples.
+Examples:
+01: ▁is▁no▁suggestion▁from▁anywhere▁within▁the▁institution▁that▁a▁generation▁will▁be▁skipped.”▁Prince▁William▁is▁known
+02: ly▁six▁months▁have▁passed▁since▁the▁Tigers▁took▁two▁out▁of▁three▁in▁Oakland▁in▁an▁early
+03: ▁the▁Carnegie▁Mellon▁Electricity▁Industry▁Centre.▁He▁said▁that▁in▁19
+04: ,▁with▁Allah's▁help,▁the▁generations▁to▁come,▁will▁envy▁us▁for▁having
+05: ▁and▁Washington▁Street,▁Brighton▁Main▁Street▁at▁Eden▁Street,▁Charlestown▁Bunker▁Hill
+06: 1▁and▁1996▁and▁the▁first▁generation▁to▁come▁of▁age▁in▁the▁new▁millen
+07: ▁Weatherley,▁Tory▁MP▁for▁Hove▁and▁Portslade,▁said▁it▁had▁been▁"
+08: ▁really,▁really▁changed▁the▁game.▁He▁was▁super▁tonight."▁Dillon▁Brooks▁added▁1
+09: ▁of▁Abu▁Dhabi▁Ocean▁Racing▁at▁the▁Volvo▁Ocean▁Race.▁But▁asked▁about▁how▁people
+10: row▁has▁kept▁himself▁occupied▁with▁this▁year’s▁Ex▁Machina▁soundtrack▁and▁a▁new▁Beak
+
+#202 - at_risk_of (positional)
+Description: This feature activates when the phrase 'at risk of' is used, often indicating potential danger or negative consequences.
+Examples:
+01: help▁hundreds▁of▁thousands▁of▁troubled▁borrowers▁at▁risk▁of▁losing▁their▁homes▁to▁foreclosure,”
+02: ▁minister,▁Hun▁Sen,▁consolidates▁power▁in▁advance▁of▁elections▁scheduled▁for▁next▁year▁and▁marked▁a
+03: ▁whichis▁just▁not▁the▁response▁they▁werelooking▁for▁when▁reporting▁anti-social▁behaviour,▁v
+04: versary▁of▁Britain’s▁1997▁handover▁of▁the▁territory▁to▁China.▁The▁Asia
+05: ▁a▁video▁mission▁and▁searched▁for▁the▁best▁area▁to▁lay▁line▁the▁following▁day.▁The▁visibility▁seemed▁to
+06: ing▁treaty”▁but▁the▁very▁words▁Trump▁himself▁won’t▁utter.▁On▁the▁eve▁of
+07: ▁is▁almost▁certainly▁headed▁for▁a▁recount▁that▁won’t▁be▁decided▁before▁December.▁Michael▁Mc
+08: links▁open▁to▁full▁reviews)▁Jeff▁Who▁Lives▁at▁Home▁--▁Low-key▁and▁sweet,▁there
+09: ,▁that▁is▁European▁immigration.”▁McEvers▁read▁a▁list▁of▁items,▁asking▁Spencer▁if
+10: ,▁as▁well▁as▁Turkmen▁and▁Arabs,▁lay▁claim.▁The▁U.S.-led▁coal
+
+#201 - quotes_of_proper_nouns (semantic)
+Description: This feature activates when proper nouns, specifically names of political figures and public officials, are mentioned in the text. Example tokens include 'Prime Minister', 'McCarthy', 'Graham', 'Clinton', 'Maduro', 'Obama', 'Lavrov', 'Penchyna', 'Borges', 'Tory', 'Hwang Kyo-Ahn', 'Zoltan Balog', 'Sanders', and 'Whelan'.
+Examples:
+01: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+02: ▁violation▁of▁the▁rules▁of▁the▁House?”▁she▁said.▁“I▁think▁he▁(McCarthy
+03: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+04: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+05: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+06: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+07: ▁score▁points▁for▁his▁political▁end,”▁said▁Erekat,▁the▁chief▁Palestinian▁negotiator▁with
+08: ▁in▁the▁country’s▁northwest,▁an▁official▁said▁on▁Monday.▁National▁League▁for▁Democracy▁(
+09: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+10: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+
+#200 - proper_nouns_of_people (mixed)
+Description: This feature activates when proper nouns of people (e.g., 'Jaime', 'Jaqarrius') are present in the text, often used to identify individuals mentioned in a sentence.
+Examples:
+01: ▁this."He▁has▁lost▁around▁40lb▁(18kg+)▁in▁the▁last▁year▁and
+02: ▁INTO▁SPECTATOR▁AREAS▁CAN▁CAUSE▁SERIOUS▁INJURY
+03: ▁riven▁by▁“ugliness▁and▁hate”▁weren't▁they?▁Well,▁no▁they
+04: <s>▁Independent▁developers▁werenone▁too▁pleasedto▁learn▁that▁Valve
+05: ▁three▁individuals▁wrongfully▁convicted▁in▁one▁month.▁Jaime▁Ponce,▁was▁convicted▁and▁sent
+06: ▁he▁cultivated▁the▁aesthetic▁of▁a▁sexually▁ambiguous▁social▁outsider▁who▁emb
+07: ▁While▁discussing▁his▁new▁Magnises▁Black▁Card,▁Ja▁Rule▁briefly▁talked▁politics▁and▁current▁events,▁during
+08: ,’▁his▁lawyer▁said▁today.▁Inhumane:▁Jailed▁mass▁murdered▁Anders▁Breivik▁claims
+09: ▁baby▁boy,▁who▁weighed▁about▁4lb▁(1.8kg).▁"If▁he▁would
+10: PP▁pharmaceutical▁provisions.▁(Photo:▁CANCERFAM.OR
+#229 - proper_nouns_of_places (mixed)
+Description: This feature activates when proper nouns of places, often capitalized and enclosed in double quotes, are present. Example tokens include 'Auschwitz', 'Warszawskiego', 'Petitcodiac', 'Hare’s', 'Powell', 'Hariri', 'Powai', 'Iñupiat', 'Querfront', 'Powhatan', 'Swedes', 'Hockeyförbundet', 'Hizballah', 'Hessian', 'Zádor', 'Salamiya', 'Pavelic', 'HOP', 'Hasaka', 'Salamiya', 'Sy', 'Walmart', 'Kurds', 'Ismaili Sh', 'Ating', 'Encore-free', 'Hour', 'Audience'.
+Examples:
+01: ▁transports▁to▁Auschwitz,▁while▁stalling▁the▁Jewish▁leadership▁with▁hope▁of▁a▁deal▁to▁r
+02: ▁Informacyjnym▁70.▁Rocznicy▁Powstania▁Warszawskiego▁na▁parterze
+03: ▁local▁politicians▁to▁voice▁their▁opposition.▁The▁Petitcodiac▁Watershed▁Alliance▁has▁filed
+04: ▁Afro-Caribbean▁immigrants.▁Powell▁imbued▁this▁inflammatory
+05: ▁the▁Great▁needed▁a▁fortress.▁He▁chose▁Hare’s▁Island,▁or▁“Zay
+06: ▁Security▁Council▁or▁based▁on▁ministerial▁EU▁decisions,"▁says▁lawyer▁Sanna▁Atrila.▁Qu
+07: assis▁Class▁First▁Generation▁Storm▁Research▁Vehicle▁Powertrain▁Engine▁7.3▁litre
+08: ▁stolen▁perfume▁from▁an▁undercover▁officer▁near▁Powell▁and▁Market▁streets▁in▁San▁Francisco,▁Cal
+09: ,▁with▁support▁from▁other▁paramilitary▁groups▁Haganah▁and▁Lehi▁whose▁primary▁aim▁was
+10: ,▁including▁coaches▁of▁four▁Champions▁League▁quarter-finalists▁Where▁are▁they▁now?▁In▁the▁d
+
+#228 - proper_nouns_of_people (morphological)
+Description: This feature activates when proper nouns of people are present, specifically those that appear in all capital letters (e.g., 'Grrrls', 'Grasset', 'Grunwald').
+Examples:
+01: fellow▁alum▁of▁Glasgow▁janglers▁Golden▁Grrrls—chronicle▁every▁skinned
+02: ▁millions▁of▁jobs▁on▁both▁sides▁of▁the▁border."▁Groups▁rap▁Stelmach▁for▁defending▁o
+03: ▁Way)▁published.▁After▁many▁rejections,▁Bernard▁Grasset▁agreed▁to▁release▁it—if▁the▁author
+04: <s>▁Michael▁Grunwald▁is▁a▁senior▁staff▁writer▁for▁Polit
+05: <s>▁Michael▁Grunwald▁is▁a▁senior▁staff▁writer▁for▁Polit
+06: ▁to▁play▁on▁the▁Halifax▁Wanderers▁Grounds▁this▁summer▁will▁have▁to▁move▁elsewhere▁as
+07: ▁what▁astronomer▁Jerry▁Ehman▁wrote▁("Wow!")▁next▁to▁the▁paper▁readout▁of
+08: OTE▁stands▁for▁“Call▁Off▁Your▁Old▁Tired▁Ethics”?▁Most▁likely▁in▁direct▁def
+09: ▁commitment.▁The▁Lightning▁hired▁Benoit▁Groulx▁to▁pilot▁their▁affiliate,▁the
+10: ▁project,▁theida▁Kahlo▁biopic▁Frida,▁Weinstein▁told▁her▁he▁would▁not
+
+#227 - concerns_about_environmental_impact_of_animal_agriculture (semantic)
+Description: This feature activates when texts discuss the negative environmental consequences of meat and animal production, as indicated by tokens like 'environmentally damaging', 'mass production animals', 'factory farming', and 'agricultural runoff'.
+Examples:
+01: .▁There's▁been▁a▁lot▁of▁media▁attention▁concerning▁the▁idea▁that▁meat▁production▁is▁environmentally▁dam
+02: ▁the▁phrase▁“humanely▁raised”▁used▁in▁reference▁to▁meat▁and▁dairy▁products,▁and▁it▁pi
+03: ▁on▁a▁simple▁idea▁revolutionized▁the▁food▁world▁-▁that▁meat▁could▁be▁more▁than▁just▁what's
+04: ▁most▁contentious▁issues▁within▁the▁burgeoning▁world▁of▁organic▁food:▁How▁should▁farmers▁make
+05: ▁Dining▁services▁also▁serve▁beef▁that▁comes▁only▁from▁grass-fed▁cows▁Maine▁Family
+06: house▁workers▁and,▁even▁more,▁the▁environmental▁effects▁of▁the▁mass▁production▁animals▁--▁is▁stagger
+07: ,▁animal▁welfare▁and▁rural▁community▁problems▁caused▁by▁industrial▁animal▁agriculture.▁The▁new▁Johns
+08: ▁each▁year.▁The▁information▁we’ve▁seen▁suggests▁that▁these▁animals▁are▁often▁treated▁in▁ways▁may
+09: lighting▁the▁negative▁effects▁on▁our▁overall▁health▁born▁of▁industrial▁food▁production▁systems,▁insanely▁to
+10: ▁of▁our▁entire▁food▁system.▁It▁was▁her▁position▁that▁when▁it▁comes▁to▁meat,▁she▁will▁never
+
+#226 - future_tense_verbs (syntactic)
+Description: This feature activates when the verb form is in future tense, as seen in examples like 'won't', 'will', and 'shall'.
+Examples:
+01: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+02: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+03: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+04: 0▁as▁of▁Oct.▁28▁for▁last▁month’s▁re-election▁bid.”▁“
+05: ,▁Ban▁Ki-moon▁,▁called▁the▁arrest▁“the▁end▁of▁a▁chapter▁that▁should▁never▁have
+06: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+07: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+08: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+09: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+10: ans▁in▁the▁House▁released▁a▁new▁tax▁proposal▁the▁“Tax▁Cut▁and▁Jobs▁Act”
+
+#225 - mentions_of_clinton (semantic)
+Description: This feature activates when the token 'Clinton' appears in the text, referring to Hillary Clinton or her campaign.
+Examples:
+01: ▁and▁young▁people▁to▁turn▁out▁for▁Hillary▁Clinton▁in▁the▁fall.▁At▁the▁same▁time,
+02: ▁WikiLeaks▁seeking▁access▁to▁emails▁from▁Clinton’s▁private▁server,▁about▁the▁time▁Wik
+03: ,”▁Allegiant▁pilot▁Corey▁Berger▁said▁in▁a▁statement.▁The▁union▁Alleg
+04: ▁China’s▁not▁part▁of▁this▁deal,”▁said▁Paul,▁a▁Kentucky▁senator.▁Watch▁the▁clip
+05: ▁voters▁backing▁Democratic▁nominee▁Hillary▁Clinton▁express▁faith▁in▁U.S.▁democracy
+06: ys▁contributors▁with▁ties▁to▁Hillary▁Clinton’s▁campaign.▁But▁employing▁a▁contrib
+07: ans▁campaigning▁for▁the▁White▁House▁such▁as▁Sens.▁Ted▁Cruz▁(Texas)▁and▁Marco
+08: ▁world▁number▁seven▁Kei▁Nishikori▁of▁Japan▁said▁he▁had▁not▁heard▁of▁any▁incidence
+09: ▁be▁to▁ratchet▁down▁the▁economy,”▁he▁said.▁That▁underscores▁both▁sides’▁d
+10: ▁violation▁of▁the▁rules▁of▁the▁House?”▁she▁said.▁“I▁think▁he▁(McCarthy
+
+#224 - respect (semantic)
+Description: This feature activates when the token 'respect' is used, indicating a concept of esteem or admiration for someone or something.
+Examples:
+01: ▁in▁part▁to▁being▁seen▁with▁a▁new▁sense▁of▁respect▁by▁publishers▁“We▁went▁through▁a▁period
+02: ,”▁the▁union▁said.▁“They▁also▁reflect▁the▁respect▁our▁members▁deserve▁for▁contributing▁their▁cre
+03: .▁I▁think▁it▁is▁a▁mark▁of▁the▁great▁respect▁that▁I▁believe▁Arsène▁Wenger▁has
+04: ▁changes▁from▁C-61.▁With▁mounting▁pressure▁from▁the▁U.S.▁–▁there▁have
+05: ’s▁character▁being▁gay.▁We▁have▁too▁much▁respect▁for▁our▁audience▁to▁do▁that▁intentionally.
+06: ▁Sept.▁4▁post,▁which▁prompted▁a▁call▁from▁the▁U.S.▁Secret▁Service,
+07: ▁campaign,▁the▁CP▁gained▁much▁widespread▁respect▁among▁African▁Americans▁and▁civil▁rights▁activists.
+08: ▁of▁police▁explaining▁their▁refusal,▁express▁the▁pressure▁of▁the▁masses▁in▁action.▁Police▁fratern
+09: ▁that▁Wenger▁believes▁should▁matter,▁given▁the▁respect▁he▁commands▁from▁his▁peers.▁“I
+10: ▁pull▁out▁of▁Iran,▁because▁of▁a▁combination▁of▁pressure▁by▁the▁United▁States▁and▁other▁Western▁governments
+
+#223 - into_be_programmable (mixed)
+Description: This feature activates when the text describes processes or entities moving 'into' something, being 'created' or 'grown', and involving 'programmable' elements.
+Examples:
+01: s▁saw▁a▁bevy▁of▁this▁sort▁of▁research▁into▁so-called▁animats—electronic
+02: ver▁is▁the▁first▁complex,▁functioning▁organ▁to▁be▁grown▁in▁the▁lab▁from▁human,▁skin-
+03: ▁for▁biological▁machines—moving,▁programmable▁living▁tissues▁that▁take▁synthetic▁biology
+04: ▁brain-computer▁interfaces▁(BCI),▁beginning▁with▁BrainGate,▁an▁early▁BCI
+05: ▁US,▁attached▁a▁guinea▁pig▁retina▁to▁an▁array▁of▁electrodes,▁while▁sustaining
+06: ▁MIT▁achieved▁just▁that.▁By▁embedding▁the▁brain▁into▁a▁gel▁that▁swells▁up▁when▁pump
+07: ▁individual▁scale.▁In▁2013▁scientists▁at▁Maastricht▁University,▁in▁the▁Netherlands
+08: ▁Fédérale▁de▁Lausanne▁in▁Switzerland▁have▁unveiled▁a▁bionic▁arm▁with▁three
+09: ▁example,▁Medical▁News▁Today▁reported▁on▁a▁study▁in▁which▁researchers▁reprogrammed▁pancreatic▁du
+10: ▁the▁University▁California,▁Berkeley,▁report▁the▁development▁of▁an▁implantable▁radio-controlled▁neural
+
+#222 - prepositional_phrases_indicating_location_or_association (structural)
+Description: This feature activates when the text contains prepositional phrases that indicate a location within a prison or penitentiary, such as 'in', 'at', and 'of'. Example tokens include <<in>> Michigan State prisons, <<as>> Angola, and <<of>> incarceration.
+Examples:
+01: ▁the▁New▁Orleans▁Times-Picayune▁found▁that▁Louisiana▁incarcerates▁more▁people▁per▁cap
+02: upled.▁It▁now▁has▁the▁highest▁rate▁of▁incarceration▁in▁the▁world▁(7
+03: amark▁won▁a▁bid▁to▁take▁over▁food▁services▁in▁Michigan▁State▁prisons,▁replacing▁hundreds▁of▁state
+04: ▁the▁Louisiana▁State▁Penitentiary,▁better▁known▁as▁Angola.▁It▁came▁from▁a▁man▁she
+05: ing▁Louisiana▁State▁Penitentiary,▁otherwise▁known▁as▁Angola,▁for▁the▁post▁office▁that▁serves
+06: ▁are▁currently▁in▁prison.▁They▁make▁up▁almost▁half▁of▁the▁total▁prison▁population.▁According▁to▁statistics▁gathered
+07: ▁its▁sponsors.▁Become▁one.▁Texas▁has▁the▁nation’s▁most▁generous▁compensation▁law
+08: ▁are▁nearly▁six▁times▁as▁man▁y▁black▁inmates▁as▁there▁are▁whites.▁Is▁that▁because▁some
+09: ▁“It▁cost▁about▁$3▁million▁per▁day▁to▁operate▁our▁Department▁of▁Corrections.▁And▁yet
+10: .▁Even▁crazier,▁65▁percent▁of▁private▁prison▁contracts▁require▁an▁occupancy▁guarantee
+
+#221 - fast_and_loose_expression (syntactic)
+Description: This feature activates when the phrase 'fast and loose' is used, often in a context suggesting reckless or careless behavior. Example tokens: 'fast and loose', 'play fast and loose'.
+Examples:
+01: ence▁amid▁a▁protracted▁global▁economic▁crisis.▁Fast-forward▁four▁years▁band▁the▁American▁economic▁recovery
+02: ▁Luck▁and▁the▁Colts▁coming▁to▁town.▁Fast-forward▁a▁few▁months▁and▁the▁Rams
+03: .S.▁economy.▁We▁should▁not▁be▁playing▁fast▁and▁loose▁with▁the▁laws▁and▁details▁surrounding▁the
+04: ▁and▁promises▁to▁do▁better.▁This▁article▁series▁describes▁FastFormat,▁a▁new▁open-source▁C++
+05: 's▁"peace▁process"▁actually▁put▁Israelis▁and▁Palestinians▁on▁a▁new▁collision▁course
+06: ▁of▁reach▁for▁many▁thousands▁of▁people▁whose▁lives▁might▁be▁saved.▁There▁just▁aren't▁enough▁org
+07: ▁would▁beside▁myself▁that▁my▁kids’▁health▁could▁be▁at▁risk,”▁Obama▁said.▁“And
+08: s▁kind,▁whether▁it▁is▁Wario’s▁Woods▁for▁the▁original▁NES,▁to▁Pro
+09: ▁Pontine▁Glioma▁(DIPG).▁Each▁year▁there▁are▁approximately▁300▁to▁3
+10: Hub,▁Reddit,▁and▁Vimeo.▁Fast▁Company▁spoke▁with▁the▁organizer▁of▁both▁this
+
+#220 - comment_prompts (structural)
+Description: This feature activates when text prompts users to leave a comment, as indicated by the phrase '<<comment>>' or similar variations in angled brackets.
+Examples:
+01: ▁a▁current▁Venturing▁field▁uniform?▁Leave▁a▁comment▁below.▁Question▁6▁Do▁you▁have▁any
+02: ▁AEST).▁We▁welcome▁your▁questions▁in▁that▁thread▁and▁hope▁you▁enjoy▁the▁answers▁below.▁If
+03: ▁to▁see▁if▁you▁guys▁like▁the▁poster▁by▁commenting▁about▁that▁as▁well.I▁used▁the▁new
+04: ations,▁on▁connecting▁with▁unlike▁minds▁—▁by▁commenting▁below.▁———-▁Dear▁white
+05: ▁Feel▁free▁to▁leave▁“patriotic”▁comments▁about▁how▁much▁America▁sucks▁under▁Obama
+06: Z▁control▁panels▁information▁also▁goes▁here▁Post▁a▁reply▁1▁post▁•▁Page▁1▁of▁
+07: ▁a▁comment▁I▁wrote▁some▁time▁ago▁in▁the▁discussion▁thread▁on▁this▁article.▁I’ve▁extracted▁it
+08: why’▁you▁hate▁it.▁Tell▁us▁in▁this▁post▁or▁in▁the▁Fan▁Art▁thread▁:▁If
+09: ▁to▁see:▁If▁you▁agree,▁please▁share▁and▁comment▁below.▁By▁sharing▁this▁story,▁you▁are
+10: ▁about▁shipping▁-▁please▁don't▁post▁a▁comment▁on▁the▁project...▁email▁us▁directly▁at▁m
+
+#219 - ice_phenomena (semantic)
+Description: This feature activates when text mentions various forms of ice, such as 'ice fishing', 'ice sheet', and 'ice-free'.
+Examples:
+01: ▁right▁now:▁snowmobiling,▁hunting,▁ice▁fishing,▁and▁birdwatching.▁I
+02: ohlleben,▁senior▁ice▁forecaster▁at▁the▁Canadian▁Ice▁Service.▁She▁said▁it▁was▁“spectac
+03: ▁of▁force.▁ADVERTISEMENTSkip▁“No▁matter▁how▁these▁allegations▁pan▁out,”
+04: ▁hostel▁England.▁The▁modern▁hostel,▁located▁in▁Whitechapel,▁opened▁2
+05: ▁devices▁around▁the▁entire▁perimeter▁of▁the▁Greenland▁ice▁sheet▁in▁order▁to▁collect▁new▁data.▁(
+06: 20▁whites▁in▁the▁territory.▁article▁continues▁below▁“I▁don’t▁think▁much▁of▁the▁h
+07: -round▁by▁small▁aircraft,▁and▁by▁boats▁in▁ice-free▁summer▁months.▁“The▁people▁here
+08: ▁without▁a▁certain▁collapse▁of▁the▁West▁Antarctic▁Ice▁Sheet.▁Although▁past▁anthropogenic
+09: are▁before▁undergoing▁a▁harsh▁winter▁in▁an▁ice▁cave▁on▁Inexpressible▁Island.▁Ant
+10: ▁cell▁phones▁simply▁can’t.▁nbsp;▁Three▁Modes▁of▁Communication▁When▁elect
+
+#218 - races_and_marathons (semantic)
+Description: This feature activates when the text mentions specific races and marathons, such as 'Windsor Zucchini Festival', 'Fort Lauderdale Half Marathon', and 'Sir Walter Miler'.
+Examples:
+01: ▁Saturday▁mornings▁to▁get▁to▁such▁famous▁races▁as▁the▁Windsor▁Zucchini▁Festival
+02: ▁Lauderdale▁Half▁Marathon▁with▁a▁stellar▁time▁of▁1▁hour▁21▁minutes
+03: 7▁fifth-place▁finish▁in▁the▁Sir▁Walter▁Miler▁in▁Raleigh▁marked▁the▁culmination
+04: ▁performers▁in▁2015.▁California▁native▁Meb▁Keflezighi▁was▁ranked
+05: ▁Roadrunners▁Thanksgiving▁Day▁Five-Miler▁&▁One-Mile▁Fun▁Run▁on▁Th
+06: 2,▁Chicago▁will▁host▁the▁37th▁annual▁Bank▁of▁America▁Chicago▁Marathon.▁Whether▁you
+07: ▁time▁of▁3:11:45▁at▁the▁Via▁Marathon▁in▁Allentown,
+08: ▁City▁before▁ending▁near▁the▁Santa▁Monica▁Pier.▁The▁Skechers▁Performance▁Los▁Angeles▁Marathon
+09: ▁ruck▁marchers,▁will▁not▁be▁allowed▁on▁the▁course▁due▁to▁increased▁field▁size▁of▁
+10: ▁for▁the▁Virginia▁Beach▁Rock▁‘n’▁Roll▁Marathon.▁Saturday▁and▁Sunday:▁Prepare▁for
+
+#217 - suicide_verbs (syntactic)
+Description: This feature activates when the verb 'commit' or its variations ('committed', 'committing') is used, indicating an act of suicide.
+Examples:
+01: erson,▁an▁11-year▁safety▁who▁committed▁suicide▁last▁year.▁Evidence▁of▁C
+02: ▁safety▁Dave▁Duerson,▁50,▁who▁committed▁suicide▁in▁February.▁The▁brains▁of
+03: 2-year-old▁Houcine▁Falhi▁committed▁suicide▁by▁electrocuting▁himself▁at▁a
+04: ▁six▁months▁left▁on▁his▁current▁deal▁and▁is▁free▁to▁leave▁in▁June▁Manchester▁City▁and▁Paris▁Saint-
+05: ▁loanee▁from▁last▁season▁had▁effectively▁agreed▁to▁rejoin▁them▁this▁season▁before▁renegading▁on
+06: s▁Kyle▁Walker,▁who▁has▁decided▁to▁“reassess▁his▁Tottenham▁future▁at▁the
+07: ▁Reynolds▁dies▁at▁84,▁one▁day▁after▁daughter▁Carrie▁Fisher▁passes▁Reynolds,
+08: ’s▁“90▁percent”▁sure▁he▁will▁re-sign▁with▁OKC.▁The▁Knicks
+09: nington▁died▁on▁July▁20▁after▁committing▁suicide▁at▁the▁age▁of▁41
+10: yd▁bravely▁spoke▁out▁about▁his▁brother▁Scott▁taking▁his▁own▁life▁last▁week.▁One▁furious
+
+#216 - organization_names (mixed)
+Description: This feature detects the activation of organization names, such as 'Islamic State', 'Manchester police', and 'UN rights chief'.
+Examples:
+01: )▁-▁A▁suicide▁attack▁claimed▁by▁Islamic▁State▁near▁a▁cricket▁match▁in▁the▁Afghan▁capital
+02: ▁out▁to▁vigil▁in▁support▁of▁victims▁of▁the▁suicide▁attack,▁which▁killed▁22
+03: ▁people▁were▁killed▁and▁dozens▁were▁wounded▁in▁the▁two▁explosions.▁Police▁told▁SANA
+04: ▁behind▁the▁attack▁as▁22-year-old▁Salman▁Abedi.▁Police▁staged▁an
+05: ▁defence▁ministry▁spokesman▁Kim▁Min-Seok▁told▁reporters.▁The▁energy▁ministry
+06: ▁case▁in▁point,"▁Mr▁Hamilton▁said,▁referring▁to▁the▁perpet
+07: ▁Baker,▁questioned▁three▁days▁after▁Islamic▁State▁group▁militants▁killed▁130▁people▁in
+08: ▁killing▁11▁people▁in▁an▁attack▁claimed▁by▁the▁Taliban,▁which▁called▁it▁an▁act
+09: ▁At▁least▁45▁people▁have▁been▁killed▁in▁three▁blasts▁near▁the▁Shia▁shrine▁of
+10: ▁National▁Council▁head▁Mustafa▁Abdel▁Jalil▁said,▁Al▁Jazeera▁television▁reported.
+
+#215 - possessive_pronouns (morphological)
+Description: This feature activates when the text contains possessive pronouns such as 'its', 'her', 'his', 'our', and 'their'.
+Examples:
+01: ▁piqued▁our▁interest.▁The▁Korean▁company▁revealed▁its▁new▁uber-mega-drive▁this
+02: or▁more▁accurately,▁the▁mechanical▁obtainment)▁of▁graphene,▁applications▁within▁different▁scientific▁disciplines
+03: ▁Martin▁Luther▁King,▁Jr.▁once▁said▁that▁"we▁must▁learn▁to▁live▁together▁as▁brothers..."▁I
+04: .▁ss/blc▁(AFP,▁dpa,▁Reuters)</s></s></s></s>
+05: ▁hard▁drives.▁However,▁Samsung▁on▁Monday▁introduced▁its▁new▁850▁Evo▁and▁
+06: ▁(Louis▁DeLuca/The▁Dallas▁Morning▁News)▁TORONTO▁-▁The▁Rangers
+07: Andy▁Jacobsohn/The▁Dallas▁Morning▁News)▁Dallas▁Cowboys▁head▁coach▁Jason▁Gar
+08: Jae▁S.▁Lee/The▁Dallas▁Morning▁News)▁After▁the▁Stars'▁morning▁skate▁on
+09: ath▁their▁T-shirts,▁the▁judge▁reversed▁his▁instructions,▁something▁quite▁rare▁in▁UK
+10: J.▁McCarthy/The▁Dallas▁Morning▁News)▁Cowboys▁fans▁are▁going▁to▁like
+
+#214 - uninterested_uninterrupted_reinterpret (mixed)
+Description: This feature activates when the text describes a state of being 'uninterested' or 'uninterrupted', and when words are 'reinterpreted'. Example tokens include 'uninterested', 'uninterrupted', and 'reinterpret'.
+Examples:
+01: ▁that▁roughly▁35%▁of▁men▁are▁uninterested▁in▁fashion▁while▁65%▁of
+02: ▁the▁parkland▁beyond,▁the▁shed▁was▁re-interpreted▁as▁a▁compact▁leaf-covered
+03: ▁year▁by▁the▁U.S.▁Department▁of▁the▁Interior▁as▁National▁Recreation▁Trails,
+04: ▁can▁serve▁Honeycomb▁as▁part▁of▁a▁gluten-free,▁vegan▁buffet▁or▁after
+05: ▁debit-card▁fees,▁known▁as▁“interchange,”▁that▁Apple▁must▁pay.▁(Th
+06: ▁secretary▁for▁the▁U.S.▁Department▁of▁the▁Interior,▁called▁the▁project▁a▁"totally
+07: ▁town▁because▁everyone▁is▁so▁boring▁and▁so▁uninteresting▁but▁then▁he▁met▁me.▁Then
+08: ▁As▁Izvestia▁found▁out,▁the▁Ministry▁of▁Interior▁launched▁a▁criminal▁case▁of▁“Intentional
+09: ▁step▁off▁the▁tourist▁trail,▁they▁seem▁uninterested.▁They▁just▁want▁to▁follow▁everyone▁else
+10: pector▁General's▁Office▁of▁the▁Department▁of▁Interior▁faults▁staff▁at▁the▁agency▁for
+
+#213 - building_developing_do_like_from_next_generation_self_driving_cars (semantic)
+Description: This feature activates when texts discuss companies building or developing self-driving cars, as indicated by tokens such as 'build', 'develop', and 'self-driving cars'.
+Examples:
+01: ▁Google,▁Intel,▁and▁Samsung,▁plan▁to▁build▁the▁technologies▁needed▁to▁support▁and▁operate▁autonom
+02: ▁carmakers▁and▁silicon▁valley▁companies▁are▁working▁on▁developing▁a▁self-driving▁car.
+03: ▁firms,▁who▁are▁investing▁billions▁to▁develop▁self-driving▁cars,▁have▁resist
+04: ▁to▁validate▁our▁earlier▁hypothesis▁that▁leading-edge▁companies▁like▁Tesla▁and▁Google▁might▁be▁better▁able
+05: ▁European▁Union.▁While▁self-driving▁cars▁from▁Google▁or▁Ford▁get▁most▁of▁the▁credit▁for
+06: ▁75▁percent▁of▁all▁the▁companies▁that▁are▁doing▁research▁and▁development▁in▁this▁space▁are▁in▁sout
+07: ▁investment▁analyst.▁The▁huge▁investment▁cost▁for▁selling▁cars▁would▁be▁“catastroph
+08: ively▁partner,▁invest▁in▁and▁develop▁next-generation▁technologies▁in▁an▁effort▁to▁stake▁out
+09: ▁can▁build▁a▁better▁self-driving▁car▁than▁Elon▁Musk▁This▁26-
+10: ▁BMW,▁all▁of▁which▁are▁investing▁heavily▁in▁a▁technology▁seen▁by▁transport▁minister▁Alexander▁Dobr
+
+#212 - looking_looking_for_look (syntactic)
+Description: This feature activates when the verb 'look' or its gerund form 'looking' is used in various tenses and contexts, indicating an action of seeking or observing.
+Examples:
+01: uring▁this▁holiday▁season▁when▁we're▁all▁looking▁to▁help▁out▁the▁community,▁this▁is▁one
+02: icle▁next▁to▁the▁author.▁As▁the▁Society▁of▁Professional▁Journalists▁states▁in▁its▁Code▁of▁Ethics
+03: ▁damn▁exciting▁and▁something▁I▁find▁myself▁constantly▁looking▁forward▁to▁ever▁since▁I▁nailed▁down▁plans
+04: ▁it▁be▁short▁or▁whether▁it▁be▁long▁—▁we▁look▁back▁on▁what▁we
+05: ▁hatred▁and▁internal▁fighting.▁Today,▁when▁we▁look▁around▁and▁see▁the▁myriad▁of▁challeng
+06: ▁the▁turn▁of▁the▁century,▁is▁avidly▁looking▁for▁alternatives▁to▁traditional▁banking.▁One▁in
+07: 2014.▁REUTERS/Danish▁Siddiqui▁MUMBAI▁(
+08: ▁have▁been▁working▁hard▁for▁the▁opportunity▁and▁are▁desperate▁to▁go▁out▁and▁perform.▁I’m
+09: ▁and▁the▁other▁actors▁figured▁out▁what▁the▁fans▁were▁looking▁for.▁"Over▁30▁years▁of
+10: ists▁attending▁the▁NLGJA▁convention▁look▁forward▁to▁all▁year.▁“I’m
+
+#211 - quotations_of_emphasis (structural)
+Description: This feature detects quotation marks indicating emphasis or direct speech, as seen in examples like <<“fantastic”>>, <<“rape”>>, and <<“aggravated”>>.
+Examples:
+01: 00▁people▁in▁Tamil▁Nadu▁have▁been▁moved▁to▁relief▁centers,▁with▁plans▁for▁tens
+02: 7▁tablet▁last▁summer,▁we▁called▁it▁a▁“fantastic▁$200▁tablet
+03: <s>▁MOSCOW▁—▁The▁law▁on▁“propaganda▁of▁nontraditional▁sexual▁relations
+04: ▁who▁has▁seen▁this▁episode▁before▁knows▁it▁as▁the▁“rape▁analogy▁episode”▁and▁to▁be
+05: ganda▁offers▁life▁sentences▁for▁those▁convicted▁of▁“aggravated▁homosexuality,”
+06: 5,000▁civilians,▁Ukrainian▁soldiers▁and▁pro-separatist▁figh
+07: ▁10▁protesters▁and▁29▁policemen▁were▁injured,▁the▁official▁Xinhua
+08: <s>▁Russian▁North▁coast▁takes▁a▁huge▁territory.▁There▁is▁long▁polar
+09: aakov,”▁and▁unknown▁accomplices▁conspired▁to▁“knowingly▁and▁unlawfully▁seize,
+10: ▁and▁said▁anyone▁who▁did▁so▁was▁putting▁themselves▁in▁“considerable▁danger”.▁It▁said▁people▁who
+
+#210 - place_names_ending_in_ant (morphological)
+Description: This feature activates when place names end in 'ant'. Example tokens include 'Antioch', 'Antwerp', and 'Antwon'.
+Examples:
+01: ellow▁Springs,▁long▁home▁to▁the▁progressive▁Antioch▁College.▁The▁village’s▁left
+02: ▁title▁over▁Cleveland▁Central▁Catholic▁after▁CCC's▁Antwon▁Lillard▁was▁called▁for▁hanging
+03: ▁David▁Hunter,▁sought▁Right▁to▁Farm▁protection▁for▁their▁Antwerp▁Township▁hobby▁farm▁last▁year▁when
+04: ▁the▁Rams▁or▁the▁authorities.▁Another▁man,▁Antwan▁Reeves,▁was▁with▁Bailey
+05: inda▁school▁board▁member▁last▁week.▁Police▁officials▁in▁Antioch,▁Pittsburg▁and▁Orinda▁confirmed
+06: ,▁Redwood▁City,▁South▁San▁Francisco,▁and▁Antioch,▁have▁decided▁to▁keep▁their▁arm
+07: 2▁CASE▁HISTORY▁Status▁Court▁Filing▁Date▁Anticipated▁Due▁Date▁Activity▁PEND▁CA▁
+08: ▁Beach,▁Deerfield,▁Kildeer,▁Antioch,▁Lindenhurst▁and▁High
+09: ▁doesn't▁join▁Ahmad▁Carroll,▁Antuan▁Edwards,▁Terrell▁Buckley▁and▁V
+10: .▁Cities▁in▁the▁district▁include▁Alamo,▁Antioch,▁Bay▁Point,▁Blackhawk
+#249 - preposition_of (syntactic)
+Description: This feature activates when the token '<<of>>' is used as a preposition indicating possession or association.
+Examples:
+01: ▁down▁Guy▁McPherson▁appeared▁recently▁by▁Scott▁Johnson▁at▁Fractal▁Planet.▁And▁one▁could▁hardly
+02: wise,▁Justin▁Ling,▁a▁popular▁blogger▁for▁the▁entertainment▁website▁Vice,▁also▁chimed
+03: .▁Felix▁Kjellberg,▁the▁creator▁of▁the▁most▁subscribed▁channel▁on▁YouTube,▁recently
+04: phelia▁Benson▁responded▁to▁the▁article▁nicely▁at▁Butterflies▁and▁Wheels.)▁Ess
+05: ▁be▁a▁CEO▁a▁program,”▁Rob▁Dauster▁of▁our▁sister▁site▁CollegeBasketballTalk.
+06: ▁an▁Indian▁history▁enthusiast,▁is▁the▁blogger▁behind▁Poetry▁in▁Stone,▁that▁celebrates▁South
+07: ▁with▁consumers.▁As▁Danny▁Sullivan▁of▁SearchEngineLand▁points▁out,▁the▁entire▁process
+08: ▁the▁discovery▁so▁much.▁Hemant▁Mehta▁of▁Friendly▁Atheist▁was▁“infuri
+09: ists▁including▁John▁Maynard▁Keynes,▁Lawrence▁Summers,▁Victoria▁P.▁Summers,
+10: ▁take.▁Megan▁McArdle,▁over▁at▁the▁Atlantic,▁is▁one▁of▁the▁best▁writers
+
+#248 - remains_still_on_the_run_missing (mixed)
+Description: This feature activates when a subject is described as being in a state of persistence or continuation, often involving a lack of resolution or completion. Example tokens include 'remains', 'still', 'on the run', and 'missing'.
+Examples:
+01: asm▁between▁my▁efforts▁and▁plans▁and▁where▁I▁found▁myself,▁faced▁with▁one▁of▁the▁biggest▁decisions
+02: ator▁--▁Hayat▁Boumeddiene▁--▁is▁still▁on▁the▁run.▁The▁last▁place▁authorities▁sp
+03: ▁for▁the▁week▁ahead▁to▁advise▁them▁Jakubowski▁remains▁at-large.▁“I▁can▁tell▁you
+04: ▁a▁key▁Knights▁Templar▁boss,▁remains▁at▁large.▁Follow▁L.A.▁Times
+05: ▁they▁did▁not▁create.▁Osama▁Bin▁Laden▁remains▁free▁and▁the▁Al▁Qaeda▁network▁grows
+06: ▁single,▁"Born▁This▁Way,"▁set▁for▁release▁on▁Friday.▁"I▁wrote▁['Born
+07: ▁into▁seats.▁But▁more▁than▁100▁remain▁missing.▁The▁overwhelming▁majority▁of
+08: asant▁actors▁might▁play▁in▁the▁vacuum▁he▁left▁behind.▁President▁Trump’s▁newly▁stated▁national
+09: ing▁it,▁was▁seen▁as▁a▁reflection▁of▁his▁real▁views.▁But▁the▁shift▁on▁Social▁Security▁isn
+10: ally▁stabbed.▁Lastly,▁a▁woman▁remains▁in▁the▁hospital▁after▁being▁shot▁in▁the▁head
+
+#247 - proper_nouns_of_people (semantic)
+Description: This feature activates when proper nouns of people are present, such as 'Lites', 'Shuang', 'Minister', and 'Clinton'.
+Examples:
+01: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+02: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+03: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+04: Tex.),▁who▁has▁vowed▁to▁battle▁the▁“sanctuary▁cities”▁that▁refuse▁to▁help▁the
+05: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+06: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+07: ’t▁speak▁about▁victims,”▁a▁sheriff’s▁spokesperson▁said.</s>
+08: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+09: ▁in▁the▁wake▁of▁Donald▁Trump’s▁US▁election▁win,▁claiming:▁“It▁feels▁like
+10: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+
+#246 - hamas_group_mention (semantic)
+Description: This feature activates when the text mentions '<<Hamas>>', a Palestinian political and paramilitary organization.
+Examples:
+01: icted▁co-conspirator▁in▁a▁Hamas▁terror▁funding▁case▁—▁so▁named▁by▁the
+02: ▁pro-Duterte▁or▁pro-government,▁do▁it▁in▁your▁own▁time."▁In
+03: ▁to▁Salah▁al-Arouri,▁a▁Hamas▁commander▁whom▁the▁PA▁accuses▁of▁planning▁multiple
+04: ▁1,000▁acres▁would▁become▁"state▁land"▁Officials▁told▁CNN▁the▁decision▁was
+05: ▁operation▁today▁in▁Jerusalem▁is▁a▁pilgrim▁[to▁Mecca]▁Martyr▁Musbah▁Abu
+06: .▁When▁we▁came▁out▁with▁Stone▁11th▁Anniversary▁Ale,▁we▁were▁all▁thr
+07: ▁not▁clapping▁or▁otherwise▁showing▁their▁support▁whenever▁a▁government▁minister▁or▁parliamentary▁secretary▁responded▁during▁question
+08: ,▁which▁cited▁rules▁barring▁release▁of▁"state▁secrets".▁That▁led▁to▁criticism▁from▁the
+09: ▁Stevens▁believed▁he▁was▁on▁an▁al-Qaida▁hit▁list▁and▁so▁wrote▁in▁his▁diary
+10: ▁there▁was▁violence▁outside▁the▁Lion’s▁Gate▁entrance▁to▁the▁holy▁site,▁Friday▁prayers▁ended▁peace
+
+#245 - upending_political_race_dynamics (semantic)
+Description: This feature activates when the text describes a situation where one candidate or group of voters significantly alters the course of a political race, often by unexpectedly gaining momentum or causing another candidate to lose support.
+Examples:
+01: ters,▁mostly▁evangelical▁voters,▁had▁upended▁the▁G.O.P.▁race▁by
+02: ▁for▁tea-party▁support▁in▁Iowa▁and▁South▁Carolina▁featuring▁a▁group▁of▁middleweight▁contenders▁—▁van
+03: ▁later.▁Santorum’s▁bid▁had▁been▁broken▁by▁his▁defeat▁in▁Illinois▁two▁weeks▁prior,▁and
+04: ▁might▁win.▁Rival▁campaigns▁had▁speculated▁that▁Donald▁Trump▁would▁suffer▁in▁a▁system▁required
+05: ▁last▁year,▁noting▁that▁Santorum’s▁rival,▁former▁Massachusetts▁governor▁Mitt▁Romney▁(R
+06: AC)▁for▁the▁third▁year▁running,▁cruising▁past▁Scott▁Walker▁(remember▁him?)▁and▁posit
+07: ▁top▁among▁Republican▁presidential▁candidates▁in▁South▁Carolina,▁while▁Sen.▁Hillary▁Clinton's▁lead
+08: ing▁the▁Texas▁supporters▁that▁had▁propped▁up▁his▁flagging▁presidential▁bid.▁"It
+09: ▁has▁shot▁to▁the▁top▁of▁national▁Republican▁polls▁after▁winning▁the▁South▁Carolina▁primary.▁"The▁'
+10: ▁junior▁U.S▁senator▁from▁Texas▁and▁surging▁presidential▁candidate,▁told▁a▁standing-room
+
+#244 - detects_prepositions_of (syntactic)
+Description: This feature activates when the token 'of' is used as a preposition, indicating a relationship between two nouns or pronouns. Example tokens: <<of>>
+Examples:
+01: 2013▁The▁hearing▁was▁far▁more▁critical▁of▁the▁government▁than▁previous▁hearings▁have▁been.
+02: ▁what▁has▁everyone▁concerned:▁it's▁the▁fact▁that▁this▁program▁collects▁data.▁It's
+03: ▁is▁now▁a▁reality,▁with▁revelations▁this▁week▁that▁our▁data▁and▁communications▁are▁almost▁certainly▁being
+04: ▁the▁Patriot▁Act.▁"They▁don't▁cover▁other▁programs▁the▁government▁carries▁out▁under▁Section
+05: ▁becomes▁increasingly▁alarming.▁Last▁week▁we▁discovered▁that▁the▁NSA▁shares▁information▁with▁a▁division▁of
+06: :▁There▁are▁two▁key▁findings.▁One▁is▁that▁there▁are▁members▁of▁the▁Congress▁who▁have▁responsibility
+07: profits▁challenged▁FISA▁on▁the▁basis▁that▁the▁government▁is▁very▁likely▁monitoring▁their▁communications
+08: ▁the▁unprecedented▁bulk▁surveillance▁revealed▁by▁whistle-blower▁Edward▁Snowden
+09: ▁are▁wary▁of▁them▁because▁of▁the▁revelations▁about▁the▁NSA’s▁surveillance▁of
+10: ,▁when▁and▁for▁how▁long,▁like▁it▁did▁with▁the▁telephone▁records▁collection▁under▁section▁2
+
+#243 - pronoun_he (syntactic)
+Description: This feature activates when the pronoun 'he' is used to refer to a male suspect or perpetrator in crime-related news articles.
+Examples:
+01: ▁morning▁to▁rob▁Selco▁Community▁Credit▁Union.▁He▁was▁caught▁less▁than▁40▁minutes▁later
+02: eriff's▁office▁spokesman,▁said▁a▁man▁entered▁the▁,▁at▁10:
+03: 0▁block▁of▁Northwest▁13th▁Street▁after▁she▁slapped▁a▁cellphone▁out▁of▁another
+04: ,▁was▁taken▁into▁custody▁at▁the▁scene.▁He▁faces▁12▁charges,▁including▁attempted▁murder
+05: :30▁p.m.,▁authorities▁said.▁He▁was▁released▁on▁bail,▁said▁Transit
+06: 51,▁of▁Ostrander▁Road▁was▁arrested▁after▁he▁allegedly▁entered▁the▁home's▁bas
+07: ▁arrested▁Gom▁Thursday▁night.▁Gomes▁reportedly▁attacked▁David▁Teague▁III,▁a
+08: ▁positively▁identified▁the▁man▁as▁the▁thief.▁He▁was▁taken▁to▁the▁Washtenaw▁County
+09: 911▁to▁report▁what▁had▁happened.▁Appleton▁was▁taken▁to▁a▁Scottsdale▁police▁station
+10: ▁to▁allow▁police▁to▁process▁the▁crime▁scene.▁Nalls▁was▁being▁held▁without▁bail▁at▁Santa▁R
+
+#242 - momentous_historical_events (semantic)
+Description: This feature activates when texts describe significant historical events, as indicated by the quoted tokens 'momentous', 'defeat', 'surrenders', 'Battle of Princeton', and 'Civil War'.
+Examples:
+01: ▁to▁fame▁as▁Continental▁Army▁commander▁during▁the▁momentous▁American▁defeat▁of▁a▁British▁army▁at▁Sarat
+02: ▁of▁many▁spliced▁out▁of▁the▁grand▁plan▁when▁city▁residents▁demanded▁an▁antidote▁to▁the
+03: ▁watched▁Ric▁Burns's▁sprawling▁documentary▁about▁New▁Amsterdam,▁Gotham▁and▁New▁York,
+04: ists.▁A▁skilled▁military▁engineer,▁he▁helped▁defend▁Saratoga▁from▁British▁attack,▁and▁designed
+05: ▁Independ▁was▁not▁unique.▁In▁the▁War▁of▁Independence,▁which▁was▁also▁a▁civil▁war▁between▁Ang
+06: ▁he▁opposed▁erecting▁monuments▁on▁the▁battlefields▁where▁the▁Southern▁soldiers▁under▁his▁command▁had▁fought▁against
+07: bor,▁we▁Americans▁choose▁to▁celebrate▁the▁day▁when▁we▁first▁boldly▁decided▁to▁chase▁the
+08: ▁matches▁between▁massive▁armies,▁epitomized▁by▁the▁carnage▁of▁Borodino,
+09: ▁forces▁would▁not▁have▁been▁able▁to▁fight▁and▁win▁the▁battles▁that▁they▁did.▁Gunpowder
+10: burg:▁A▁Hazardous▁Move,”▁we▁described▁how▁the▁Post▁reported▁the▁initial▁news▁of▁the▁invasion
+
+#241 - preposition_on (positional)
+Description: This feature activates when the preposition 'on' is used to indicate a position, time, or topic.
+Examples:
+01: ▁real▁estate▁finance▁at▁Goldman▁Sachs▁before▁joining▁the▁de▁Blasio▁administration▁as▁its▁deput
+02: ▁in▁Portland▁participate.▁The▁Office▁of▁Community▁&▁Civic▁Life's▁Crime▁Prevention
+03: ▁$13,000▁in▁donations▁for▁de▁Blasio’s▁re-e
+04: ▁the▁Center▁for▁American▁Progress▁(closely▁tied▁to▁both▁Clinton▁and▁the▁Democratic▁Party).▁In▁a
+05: ▁deficit▁under▁control.▁Molina▁criticized▁both▁the▁Central▁Bank▁and▁the▁government▁for▁not▁taking
+06: ▁issues,▁following▁public▁outcry▁over▁an▁ad▁on▁the▁Israeli-Palestinian▁conflict
+07: tega▁Díaz▁said▁she▁was▁acting▁to▁defend▁both▁the▁embattled▁nation’s▁constitution▁and
+08: ▁Minister▁Hisham▁Kandil▁posted▁a▁video▁on▁his▁Facebook▁page,▁calling▁citizens▁to▁provide
+09: 't▁find▁him▁at▁work▁and▁only▁later▁heard▁on▁the▁media▁what▁had▁happened.▁"I▁didn
+10: ▁as▁normal.▁The▁detained▁youths▁were▁taken▁to▁the▁Schenectady▁Police▁Department▁be
+
+#240 - proper_nouns_of_actors (syntactic)
+Description: This feature activates when proper nouns of actors are mentioned, often in the context of their roles or appearances in TV shows or movies. Example tokens include 'ASHTON <<KUTCHER>>', 'LUCY LAWLESS <<WAS>>', and 'SHE <<was>> like the ultimate down-to-'.
+Examples:
+01: .▁2.▁ASHTON▁KUTCHER▁WAS▁A▁MODEL▁BEFORE
+02: ▁day.▁LUCY▁LAWLESS▁WAS▁NOT▁THE▁FIRST▁CHOICE▁TO
+03: ▁hit▁sitcom▁Who's▁the▁Boss.▁She▁was▁like▁the▁ultimate▁down-to-
+04: ▁almost▁came▁five▁years▁earlier▁than▁Family▁Matters▁when▁he▁was▁cast▁as▁“Rudy”▁on
+05: ▁Borino-Quinn▁had▁no▁acting▁experience▁when▁she▁was▁hired▁for▁the▁show▁in▁2
+06: .▁Dan▁Lauria▁and▁Allie▁Mills,▁who▁played▁Kevin's▁(played▁by▁Fred
+07: ed.▁(Weirdly,▁Brewster▁actually▁guest▁starred▁on▁Community▁last▁season,▁as
+08: on▁Kutcher▁have▁emerged▁from▁the▁shadow▁of▁the▁hit▁TV▁Show▁but▁Grace▁has▁to▁be
+09: o▁Huxtable▁on▁The▁Cosby▁Show.▁She▁later▁appeared▁on▁various▁television▁programs▁during▁the▁late
+10: ▁don't▁you▁think?▁Gene▁Hackman▁originally▁wanted▁to▁direct▁and▁write▁the▁screenplay▁for
+
+#239 - concepts_related_to_energy_generation_and_water_treatment (semantic)
+Description: This feature activates when the text discusses concepts for generating electricity or treating water, as seen in examples like 'electricity and clean water generation', 'desalination project', 'reverse osmosis desalinization plants', 'portable solar and wind powered desalination unit', 'generate 950 to 150 m3', 'produce immediately 6,000 m3', 'support up to 20 megawatts of renewable electricity production', 'artificial surf lagoon powered by Wavegarden technology', 'learning kit for children to harnessing the power of ocean waves to create energy', 'process eliminates the need for electricity, which is used by massive desalination plants currently costing millions to operate', 'large roof surface will be clad in red photovoltaic panels', 'use fuel cells to generate electricity from the gas', 'concentrating solar-energy system focuses the Sun’s rays on', 'generate 10 megawatts of electricity, enough to power twice the number of homes', 'transforming existing infrastructure, like gas generators, into architecture for renewable energy'.
+Examples:
+01: ▁come▁up▁with▁aesthetically▁pleasing▁concepts▁for▁electricity▁and▁clean▁water▁generation▁that▁could▁potentially
+02: ▁the▁10-mile▁pipeline▁being▁built▁to▁carry▁filtered▁water▁from▁the▁coastal▁plant▁east▁through
+03: ity▁and▁to▁power▁reverse▁osmosis▁desalinization▁plants▁at▁coastal▁sites.▁The▁reactor
+04: ▁and▁wind▁powered▁desalination▁unit▁that▁can▁produce▁950▁to▁150
+05: ▁10▁million▁in▁the▁first▁phase▁which▁will▁produce▁immediately▁6,000▁m3
+06: ades▁of▁salt▁dumping▁by▁desalination▁plants▁producing▁freshwater▁for▁human▁consumption,▁adds▁to▁the
+07: 20▁megawatts▁of▁renewable▁electricity▁production,▁BOEM▁said.▁What▁is▁ocean
+08: ▁back▁into▁water.▁The▁environmentally▁friendly▁closed▁cycle▁solution▁is,▁according▁to▁the▁company,▁designed▁to
+09: ,▁with▁three▁quarters▁of▁their▁hot▁water▁produced▁using▁solar▁energy.▁They▁also▁have▁angled▁fac
+10: ▁electricity,▁which▁is▁used▁by▁massive▁desalination▁plants▁currently▁costing▁millions▁to▁operate.▁If
+
+#238 - revealsdiscoversfindsshowedindicateddescribedexaminationautopsyinvestigationforensicspathologistmedical_examiner (mixed)
+Description: This feature detects verbs and phrases that indicate the discovery or revelation of information, often related to medical examinations, autopsies, or investigations. Example tokens include 'revealed', 'discovered', 'finds', 'showed', 'indicated', 'described', 'examination', 'autopsy', 'investigation', and 'forensics'.
+Examples:
+01: ▁the▁metallic▁object▁in▁the▁neck▁and▁reveal▁multiple▁fractures▁to▁the▁ribs,
+02: .▁Forensic▁examinations▁and▁investigations▁revealed▁the▁pair▁had▁been▁killed▁prior▁to▁the▁fire
+03: 48▁and▁96▁hours,▁and▁said▁that▁her▁death▁was▁caused▁by▁a▁massive▁blow▁to
+04: ▁that▁a▁man▁found▁dead▁in▁a▁compost▁heap▁had▁made▁lots▁of▁enemies,▁and▁Branch▁looks▁for
+05: ▁trauma▁to▁the▁head.▁A▁construction▁hammer▁was▁found▁in▁Brent's▁truck.
+06: ▁the▁murder▁weapon.▁The▁next▁morning,▁Jjaks▁awakens▁having▁no▁memory▁of▁anything▁that
+07: ▁claiming▁that▁investigators▁have▁stated▁the▁part▁to▁be▁a▁man’s▁severed▁arm).▁The
+08: ▁15.▁Police▁said▁an▁autopsy▁found▁she▁had▁been▁a▁victim▁of▁sexual▁crime▁and
+09: ▁local▁time.▁A▁preliminary▁investigation▁reportedly▁found▁that▁the▁women▁were▁taking▁medication▁after▁suffering
+10: er▁Gerry▁Cvitanovich▁said▁Friday▁that▁McKnight▁had▁wounds▁to▁his▁left▁hand
+
+#237 - quoting_pronouns (morphological)
+Description: This feature activates when the token is a pronoun, specifically 'it' and 'that', often used in place of a previously mentioned noun or phrase.
+Examples:
+01: ▁the▁lab—the▁principal▁investigator▁(PI).▁“The▁PI▁sets▁the▁tone▁for▁how▁a
+02: ▁We've▁been▁in▁traffic▁for▁about▁two▁hours,”▁said▁driver▁Gary▁Brown.▁Heavy▁rain▁ex
+03: ▁for▁the▁events▁Tuesday▁as▁the▁pipe▁band▁practised▁its▁part.▁Cirillo▁is▁sorely
+04: ▁precious,”▁Johnson▁continued,▁“and▁if▁it▁wasn’t▁so▁precious▁Eric▁Garner▁would
+05: ▁I’t▁be▁working▁for▁TNT,▁he▁wouldn’t▁be▁playing▁for▁Houston▁and▁Brad▁[
+06: aves▁Baby▁With▁'Incurable'▁Cancer▁“We▁estimate▁the▁cost▁to▁manufacture▁a▁do
+07: .▁Sony▁has▁announced▁it▁has▁sold▁40▁million▁units▁of▁its▁system▁in▁about▁two▁and▁a
+08: ▁Nintendo▁now▁forecasts▁sales▁of▁50▁million▁Switch▁games▁for▁the▁year,▁up▁from▁its
+09: ▁of▁force.▁ADVERTISEMENTSkip▁“No▁matter▁how▁these▁allegations▁pan▁out,”
+10: ition▁of▁groups▁backing▁a▁path▁toward▁fresh▁elections.▁“The▁nomination▁of▁ElBaradei▁viol
+
+#236 - proper_nouns_of_people (syntactic)
+Description: This feature activates when proper nouns of people (e.g., 'Geng', 'Clinton', 'Maduro') are mentioned in the text.
+Examples:
+01: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+02: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+03: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+04: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+05: unning▁-▁even▁by▁Trenton▁standards,”▁he▁said▁in▁a▁statement▁accompanying▁the▁veto
+06: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+07: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+08: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+09: ▁in▁the▁wake▁of▁Donald▁Trump’s▁US▁election▁win,▁claiming:▁“It▁feels▁like
+10: ▁something?”▁Trump▁asked,▁labelling▁the▁Canadian▁Prime▁Minister▁a▁“social▁media▁whore”.▁“He
+
+#235 - numbers_in_range (morphological)
+Description: This feature activates when a number between 1 and 5 (inclusive) is used as an adjective or noun, often indicating quantity or order.
+Examples:
+01: ▁the▁operator▁owns▁roughly▁140▁MHz▁of▁spectrum▁nationwide▁but▁is▁only▁using▁around
+02: ice▁of▁a▁lemon▁over▁the▁salad▁and▁drizzle▁lightly▁with▁oil▁(very▁light
+03: ▁pulled▁away▁from▁the▁stems.▁When▁three▁or▁four▁clusters▁of▁grapes▁had▁been▁stripped
+04: 11am/2pm▁ET▁today▁on▁all▁platforms,▁Bungie▁revealed▁the▁patch
+05: ▁debut▁album▁Dangerously▁in▁Love,▁earned▁her▁five▁Grammys.▁12.▁Her
+06: es▁that▁the▁world▁has▁been▁experiencing▁since▁the▁mid-1990s,▁while▁simultaneously
+07: growing▁market▁for▁soybeans▁from▁the▁mid-twentieth▁century▁onward.▁It
+08: ,▁anti-fungal)▁10▁drops▁lemon▁essential▁oil▁(antibacter
+09: ’s▁entry▁into▁each▁constellation▁of▁the▁zodiac,▁here.▁When▁the▁equino
+10: ,▁in▁the▁Official▁UK▁Single▁Chart,▁Ellie▁Goulding‘s▁position▁at▁Number▁One▁is
+
+#234 - organizational_titles (semantic)
+Description: This feature activates when the text contains titles of organizations or positions within those organizations, such as 'Minister', 'Board', and 'Chairman'.
+Examples:
+01: 8▁owned▁by▁the▁country’s▁Federal▁Minister▁of▁Education▁and▁Research,▁Johanna▁Wanka.▁There
+02: ▁Dieter▁Zetsche,▁Chairman▁of▁the▁Board▁for▁Daimler▁AG▁and▁Head▁of▁Mer
+03: ▁teams▁with▁rising-star▁artist▁Jorge▁Jimenez▁(EARTH▁2)▁to▁bring▁you▁the▁advent
+04: achette▁Book▁Group,▁cited▁“lower▁unearned▁advances▁and▁continued▁strong▁sales▁of▁H
+05: hip▁with▁publisher▁Devolver▁Digital▁(Hotline▁Miami,▁Broforce,▁The▁Talos▁Princi
+06: ▁Chula▁Vista▁police▁Crimes▁of▁Violence▁and▁Professional▁Standard▁units▁are▁investigating▁per▁department
+07: rimson▁Tide▁advanced▁to▁the▁College▁Football▁Playoff▁title▁game▁against▁Clemson▁on▁Jan.
+08: ▁as▁possible."▁Ahead▁of▁its▁patch,▁publisher▁Warner▁Bros.▁offered▁guidelines▁on
+09: ▁video▁game▁series▁created▁Avalanche▁Studios▁and▁published▁by▁Square▁Enix."▁Late▁last▁year,▁the
+10: ▁in▁Iran,▁according▁to▁numbers▁from▁antivirus▁firm▁Symantec▁in▁July.▁Rieger
+
+#233 - headlining_artists (semantic)
+Description: This feature activates when the text mentions specific artists headlining an event, such as 'Arctic Monkeys', 'Calvin Harris', and 'Public Image Ltd'.
+Examples:
+01: ▁year’s▁event▁–▁which▁will▁be▁headlined▁by▁Arctic▁Monkeys,▁Calvin▁Harris▁and
+02: ▁slashed▁the▁odds▁on▁the▁Homeland▁star▁from▁25/1▁to▁3/
+03: ▁also▁said▁that▁the▁Stones’▁fellow▁headliners▁at▁Worthy▁Farm▁last▁month,▁M
+04: ▁United▁Manager.▁Giggs▁is▁best▁priced▁at▁16/1▁whilst▁Phil▁Neville
+05: aving▁a▁paltry▁ten▁acts▁with▁female▁members,▁including▁Wolf▁Alice▁and▁Azealia▁Banks—
+06: ▁to▁win▁the▁league▁(via▁Oddschecker):▁5-1▁King▁Louis,▁The▁Iron
+07: ▁at▁the▁beginning▁of▁October▁(dates▁and▁details▁below).▁Glastonbury▁2016
+08: ▁to▁be▁confirmed▁for▁the▁event,▁which▁will▁also▁feature▁Travis▁Scott▁and▁French▁Montana,▁Se
+09: hily,▁won▁by▁two▁lengths▁at▁odds▁of▁100-30,▁with
+10: ▁acts▁for▁its▁2014▁line-up▁today.▁DJ▁Fosta▁and▁Thibo
+
+#232 - negative_consequences_for_actions (semantic)
+Description: This feature activates when the text describes negative consequences or punishments resulting from specific actions, such as 'suspended <<for>> a tweet' and 'banned <<from>> using his Twitter account'.
+Examples:
+01: ▁the▁"LOL"▁statement▁literally▁--▁that▁she▁was▁"laughing▁out▁loud"▁at▁her▁dr
+02: ,▁also▁in▁Kansas,▁a▁student▁was▁suspended▁for▁a▁tweet▁that▁made▁the▁principal▁“un
+03: ▁imagine,▁seeing▁someone▁getting▁a▁custodial▁sentence▁for▁making▁jokes,▁however▁disgusting
+04: ji.▁Even▁though▁Schultz’s▁comment▁was,▁if▁anything,▁supportive▁of▁black▁people
+05: ▁Tim▁Thomas▁is▁an▁obnoxious▁idiot▁for▁saying▁that▁shit▁on▁Facebook▁and▁thinking▁everyone
+06: ▁how▁people▁on▁twitter▁want▁me▁to▁get▁in▁trouble▁for▁a▁tweet▁that▁they▁are▁retweeting
+07: ▁time▁a▁lawmaker▁has▁gotten▁in▁hot▁water▁for▁something▁written▁on▁Twitter.▁An▁ethics▁compla
+08: ▁and▁we▁had▁never▁heard▁of▁anyone▁getting▁in▁trouble▁for▁posting▁anything▁on▁social▁media,▁it▁was▁the
+09: 0▁days▁for▁'violating▁community▁standards'▁by▁reposting▁some▁of▁those▁abusive
+10: ▁websites,▁Mendez▁worsened▁her▁situation▁by▁spewing▁more▁hatred▁on▁the▁SSI
+
+#231 - conjunction_and_in_missing_person_reports (syntactic)
+Description: The feature activates when the conjunction 'and' is used to connect clauses describing a person's last known location or activity, indicating that they have gone missing.
+Examples:
+01: ▁at▁their▁South▁Nyack▁home▁a▁week▁ago,▁and▁her▁mother▁tweeted▁earlier▁on▁Tues
+02: 3,▁went▁missing▁Friday▁in▁the▁early▁afternoon,▁and▁police▁are▁encouraging▁the▁public▁to▁provide▁any
+03: ▁James▁was▁last▁seen▁in▁Wynwood▁on▁Saturday▁and▁never▁showed▁up▁to▁her▁job▁at▁Basel
+04: .▁Jones▁his▁five▁children▁disappeared▁two▁weeks▁ago,▁and▁he▁was▁arrested▁in▁Mississippi▁on▁Saturday▁when▁he
+05: ▁Elizabeth▁Thomas,▁who▁disappeared▁on▁March▁13▁and▁were▁found▁Thursday.▁Read:▁Man
+06: ane▁Montgomery,▁21,▁has▁been▁missing▁since▁early▁Thanksgiving▁morning.▁He
+07: ,▁a▁professional▁tax▁preparer,▁had▁been▁reported▁missing▁hours▁before▁her▁body▁was▁discovered.▁Her▁family
+08: .▁Kroup,▁24,▁had▁been▁missing▁since▁around▁midnight▁Feb.▁18
+09: ▁trying▁to▁get▁a▁jet▁boat▁on▁site.▁Young▁is▁the▁sister▁of▁George▁Benjamin▁Young,▁4
+10: ated▁Major▁Crime▁Unit▁has▁taken▁over▁the▁investigation.▁She▁was▁reported▁missing▁on▁Monday▁by▁her▁family▁and
+
+#230 - proper_nouns_of_political_figures (mixed)
+Description: This feature detects proper nouns of political figures, such as 'Lites', 'Clinton', and 'Maduro'.
+Examples:
+01: ▁of▁hockey.”▁Stars▁president▁and▁CEO▁Jim▁Lites▁said▁Strader’s▁“voice▁is▁syn
+02: ▁considered▁a▁front-runner▁to▁replace▁Hillary▁Clinton▁as▁the▁nation’s▁top▁foreign▁policy▁official
+03: ▁foreign▁ministry▁spokesman▁Geng▁Shuang▁said▁in▁response▁to▁a▁question▁about▁the▁apps
+04: .▁But▁what▁folks▁think▁of▁Monty▁soon▁won’t▁matter.▁The▁house▁Alex▁is▁rent
+05: ▁the▁“ISIL▁man▁of▁the▁year,”▁said▁Graham,▁referring▁to▁the▁extremist▁Islamic▁State
+06: ▁to▁repeal▁and▁replace▁former▁President▁Barack▁Obama’s▁health▁law.▁The▁House▁narrowly
+07: ys▁contributors▁with▁ties▁to▁Hillary▁Clinton’s▁campaign.▁But▁employing▁a▁contrib
+08: ▁-▁Venezuela’s▁opposition▁blamed▁President▁Nicolas▁Maduro’s▁government▁on▁Monday▁for▁the▁death▁of
+09: ’s▁promise▁to▁gut▁former▁President▁Barack▁Obama’s▁landmark▁health▁care▁law,▁a
+10: 0▁as▁of▁Oct.▁28▁for▁last▁month’s▁re-election▁bid.”▁“

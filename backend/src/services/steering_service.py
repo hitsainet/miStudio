@@ -129,6 +129,11 @@ class SteeringService:
         sae_path: Path,
         sae_id: str,
         force_reload: bool = False,
+        # Fallback metadata from database (used when config is not in checkpoint)
+        layer: Optional[int] = None,
+        d_model: Optional[int] = None,
+        n_features: Optional[int] = None,
+        architecture: Optional[str] = None,
     ) -> LoadedSAE:
         """
         Load an SAE from disk.
@@ -137,6 +142,10 @@ class SteeringService:
             sae_path: Path to the SAE directory
             sae_id: Unique identifier for caching
             force_reload: Whether to reload even if cached
+            layer: Fallback layer from database
+            d_model: Fallback hidden dimension from database
+            n_features: Fallback latent dimension from database
+            architecture: Fallback architecture type from database
 
         Returns:
             LoadedSAE instance
@@ -152,36 +161,106 @@ class SteeringService:
             device=self._device,
         )
 
-        if config is None:
-            raise ValueError(f"Could not load config for SAE at {sae_path}")
+        # Determine dimensions - from config if available, otherwise from weights/database
+        if config is not None:
+            d_in = config.d_in
+            d_sae = config.d_sae
+            sae_layer = config.hook_point_layer
+            arch_type = config.architecture or "standard"
+            normalize = config.normalize_activations or "none"
+            l1_coef = config.l1_coefficient or 0.001
+        else:
+            # Infer dimensions from weights
+            # encoder.weight shape is [d_sae, d_in] for miStudio format
+            encoder_weight = state_dict.get("encoder.weight")
+            if encoder_weight is not None:
+                d_sae, d_in = encoder_weight.shape
+            else:
+                # Use database fallbacks
+                d_in = d_model or 768
+                d_sae = n_features or 8192
+
+            # Use database fallbacks for other params
+            sae_layer = layer or 0
+            arch_type = architecture or "standard"
+            normalize = "constant_norm_rescale"  # Default for miStudio
+            l1_coef = 0.001
+
+            logger.info(f"Using inferred dimensions: d_in={d_in}, d_sae={d_sae}, layer={sae_layer}")
 
         # Create SAE model
         sae_model = create_sae(
-            architecture_type=config.architecture if config.architecture else "standard",
-            hidden_dim=config.d_in,
-            latent_dim=config.d_sae,
-            l1_alpha=config.l1_coefficient or 0.001,
-            normalize_activations=config.normalize_activations or "none",
+            architecture_type=arch_type,
+            hidden_dim=d_in,
+            latent_dim=d_sae,
+            l1_alpha=l1_coef,
+            normalize_activations=normalize,
         )
 
-        # Load weights
+        # Load weights and ensure correct dtype
         sae_model.load_state_dict(state_dict)
         sae_model.to(self._device)
+        # Convert to FP16 if on CUDA to match model dtype
+        if self._device == "cuda":
+            sae_model.half()
         sae_model.eval()
 
         loaded = LoadedSAE(
             model=sae_model,
             config=config,
-            layer=config.hook_point_layer,
-            d_in=config.d_in,
-            d_sae=config.d_sae,
+            layer=sae_layer,
+            d_in=d_in,
+            d_sae=d_sae,
             device=self._device,
         )
 
         self._loaded_saes[sae_id] = loaded
-        logger.info(f"Loaded SAE {sae_id}: d_in={config.d_in}, d_sae={config.d_sae}, layer={config.hook_point_layer}")
+        logger.info(f"Loaded SAE {sae_id}: d_in={d_in}, d_sae={d_sae}, layer={sae_layer}")
 
         return loaded
+
+    def _find_hf_model_path(self, base_path: Path) -> Optional[Path]:
+        """
+        Find the actual model path in HuggingFace cache structure.
+
+        HF cache structure is: base_path/models--org--name/snapshots/hash/
+        This method finds the most recent snapshot.
+
+        Args:
+            base_path: Base path that may contain HF cache structure
+
+        Returns:
+            Path to the actual model files or None if not found
+        """
+        base_path = Path(base_path)
+
+        # Check if there's a models-- subdirectory (HF cache format)
+        model_dirs = list(base_path.glob("models--*"))
+        if not model_dirs:
+            # Not HF cache format, check if it's a direct model directory
+            if (base_path / "config.json").exists():
+                return base_path
+            return None
+
+        # Get the first (should be only one) model directory
+        model_dir = model_dirs[0]
+
+        # Find snapshots
+        snapshots_dir = model_dir / "snapshots"
+        if not snapshots_dir.exists():
+            return None
+
+        # Get the most recent snapshot (by directory listing order)
+        snapshots = list(snapshots_dir.iterdir())
+        if not snapshots:
+            return None
+
+        # Return the first snapshot (usually there's only one)
+        for snapshot in snapshots:
+            if (snapshot / "config.json").exists():
+                return snapshot
+
+        return None
 
     async def load_model(
         self,
@@ -214,6 +293,15 @@ class SteeringService:
         local_path = settings.data_dir / "models" / model_id
         if local_path.exists():
             load_path = str(local_path)
+
+        # If model_path is provided, check for HF cache structure
+        if model_path:
+            actual_model_path = self._find_hf_model_path(Path(model_path))
+            if actual_model_path:
+                load_path = str(actual_model_path)
+                logger.info(f"Found model in HF cache at {load_path}")
+            else:
+                logger.warning(f"Could not find model files in {model_path}, using as-is")
 
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(
@@ -299,12 +387,15 @@ class SteeringService:
         """
         Create a steering hook function.
 
-        The hook:
-        1. Extracts activations from the layer output
-        2. Encodes activations through the SAE
-        3. Modifies feature activations based on steering strength
-        4. Decodes back to model space
-        5. Returns modified activations
+        The hook adds steering contributions to the original activations WITHOUT
+        doing a full SAE reconstruction (which would corrupt the activations).
+
+        For each steered feature, we:
+        1. Encode activations to get feature activation values
+        2. Compute the additional contribution: (multiplier - 1) * feature_act * decoder_weight
+        3. Add this delta to the original activations
+
+        This preserves the original model activations while adding steering effects.
 
         Args:
             sae: Loaded SAE model
@@ -330,15 +421,60 @@ class SteeringService:
             activations = hidden_states.view(-1, hidden_dim)
 
             with torch.no_grad():
-                # Encode through SAE
+                # Encode to get feature activations
                 feature_acts = sae.model.encode(activations)
 
-                # Apply steering to selected features
-                for config in feature_configs:
-                    feature_acts[:, config.feature_idx] *= config.multiplier
+                # Start with original activations (no reconstruction!)
+                steered_activations = activations.clone()
 
-                # Decode back to model space
-                steered_activations = sae.model.decode(feature_acts)
+                # Get decoder weights - handle different SAE architectures
+                decoder_weight = None
+
+                if hasattr(sae.model, 'tied_weights') and sae.model.tied_weights:
+                    # Tied weights: decoder = encoder.weight.T
+                    # encoder.weight shape is [latent_dim, hidden_dim]
+                    # We need [hidden_dim, latent_dim] for indexing
+                    decoder_weight = sae.model.encoder.weight.t()  # [hidden_dim, latent_dim]
+                elif hasattr(sae.model, 'decoder') and sae.model.decoder is not None:
+                    if hasattr(sae.model.decoder, 'weight'):
+                        # Standard nn.Linear decoder: weight shape is [hidden_dim, latent_dim]
+                        decoder_weight = sae.model.decoder.weight  # [hidden_dim, latent_dim]
+                elif hasattr(sae.model, 'decoder_weight'):
+                    # Direct weight attribute
+                    decoder_weight = sae.model.decoder_weight
+
+                if decoder_weight is None:
+                    logger.warning("Could not find decoder weights, using fallback decode method")
+
+                # Add steering delta for each feature
+                for config in feature_configs:
+                    feat_idx = config.feature_idx
+                    # Extra strength: multiplier - 1 (so multiplier=1 means no change)
+                    extra_strength = config.multiplier - 1.0
+
+                    if extra_strength == 0:
+                        continue  # No change needed
+
+                    # Get the feature activation for all tokens
+                    feat_act = feature_acts[:, feat_idx]  # [batch*seq]
+
+                    if decoder_weight is not None:
+                        # Get the decoder direction for this feature
+                        # For nn.Linear, weight is [d_in, d_sae], so column feat_idx
+                        feat_direction = decoder_weight[:, feat_idx]  # [d_in]
+
+                        # Compute steering delta: extra_strength * feat_act * direction
+                        # feat_act: [batch*seq], feat_direction: [d_in]
+                        # Result: [batch*seq, d_in]
+                        steering_delta = extra_strength * feat_act.unsqueeze(-1) * feat_direction.unsqueeze(0)
+                    else:
+                        # Fallback: create a one-hot and decode it
+                        one_hot = torch.zeros_like(feature_acts)
+                        one_hot[:, feat_idx] = feat_act * extra_strength
+                        steering_delta = sae.model.decode(one_hot) - sae.model.decode(torch.zeros_like(feature_acts))
+
+                    # Add the steering delta to activations
+                    steered_activations = steered_activations + steering_delta
 
             # Reshape back
             steered_hidden = steered_activations.view(original_shape)
@@ -431,7 +567,7 @@ class SteeringService:
             max_length=2048 - params.max_new_tokens,
         ).to(self._device)
 
-        # Build generation config
+        # Build generation config with sensible defaults
         gen_kwargs = {
             "max_new_tokens": params.max_new_tokens,
             "do_sample": True,
@@ -440,11 +576,13 @@ class SteeringService:
             "top_k": params.top_k if params.top_k > 0 else None,
             "pad_token_id": tokenizer.pad_token_id,
             "eos_token_id": tokenizer.eos_token_id,
+            "repetition_penalty": 1.15,  # Default to prevent degenerate repetition
         }
 
         if params.seed is not None:
             torch.manual_seed(params.seed)
 
+        # Override with advanced params if provided
         if advanced_params:
             gen_kwargs["repetition_penalty"] = advanced_params.repetition_penalty
             gen_kwargs["do_sample"] = advanced_params.do_sample
@@ -657,6 +795,11 @@ class SteeringService:
         sae_path: Path,
         model_id: str,
         model_path: Optional[str] = None,
+        # SAE metadata from database for fallback
+        sae_layer: Optional[int] = None,
+        sae_d_model: Optional[int] = None,
+        sae_n_features: Optional[int] = None,
+        sae_architecture: Optional[str] = None,
     ) -> SteeringComparisonResponse:
         """
         Generate a steering comparison with steered and unsteered outputs.
@@ -666,6 +809,10 @@ class SteeringService:
             sae_path: Path to the SAE directory
             model_id: Model identifier
             model_path: Optional local model path
+            sae_layer: SAE target layer from database
+            sae_d_model: Model hidden dimension from database
+            sae_n_features: Number of SAE features from database
+            sae_architecture: SAE architecture type from database
 
         Returns:
             SteeringComparisonResponse with all outputs and metrics
@@ -674,10 +821,27 @@ class SteeringService:
         comparison_id = f"cmp_{uuid4().hex[:12]}"
 
         # Load SAE and model
-        sae = await self.load_sae(sae_path, request.sae_id)
+        sae = await self.load_sae(
+            sae_path,
+            request.sae_id,
+            layer=sae_layer,
+            d_model=sae_d_model,
+            n_features=sae_n_features,
+            architecture=sae_architecture,
+        )
         model, tokenizer = await self.load_model(model_id, model_path)
 
-        # Convert selected features to configs
+        # Convert selected features to configs with deduplication
+        seen_features = set()
+        unique_features = []
+        for f in request.selected_features:
+            key = (f.feature_idx, f.layer)
+            if key not in seen_features:
+                seen_features.add(key)
+                unique_features.append(f)
+            else:
+                logger.warning(f"Duplicate feature ignored: feature_idx={f.feature_idx}, layer={f.layer}")
+
         feature_configs = [
             FeatureSteeringConfig(
                 feature_idx=f.feature_idx,
@@ -686,7 +850,7 @@ class SteeringService:
                 label=f.label,
                 color=f.color,
             )
-            for f in request.selected_features
+            for f in unique_features
         ]
 
         # Generate unsteered baseline
@@ -713,45 +877,51 @@ class SteeringService:
                 metrics=metrics,
             )
 
-        # Generate steered outputs
+        # Generate steered outputs - one per feature, each feature tested individually
         steered_outputs = []
 
-        # Register steering hooks
-        handles = self._register_steering_hooks(model, sae, feature_configs)
+        for feature in unique_features:
+            # Create config for just this feature
+            single_feature_config = [
+                FeatureSteeringConfig(
+                    feature_idx=feature.feature_idx,
+                    layer=feature.layer,
+                    strength=feature.strength,
+                    label=feature.label,
+                )
+            ]
 
-        try:
-            # Generate with steering
-            text, token_count, gen_time = await self._generate_text(
-                model, tokenizer, request.prompt,
-                request.generation_params,
-                request.advanced_params,
-            )
+            # Register steering hooks for this single feature
+            handles = self._register_steering_hooks(model, sae, single_feature_config)
 
-            metrics = None
-            if request.compute_metrics:
-                feature_labels = [
-                    f.label or f"Feature {f.feature_idx}"
-                    for f in request.selected_features
-                ]
-                metrics = await self._compute_metrics(
+            try:
+                # Generate with steering for this feature
+                text, token_count, gen_time = await self._generate_text(
                     model, tokenizer, request.prompt,
-                    text, token_count, gen_time,
-                    unsteered_text=unsteered_text,
-                    feature_labels=feature_labels,
+                    request.generation_params,
+                    request.advanced_params,
                 )
 
-            # Create output for each feature (they're all applied together)
-            for feature in request.selected_features:
+                metrics = None
+                if request.compute_metrics:
+                    feature_label = feature.label or f"Feature {feature.feature_idx}"
+                    metrics = await self._compute_metrics(
+                        model, tokenizer, request.prompt,
+                        text, token_count, gen_time,
+                        unsteered_text=unsteered_text,
+                        feature_labels=[feature_label],
+                    )
+
                 steered_outputs.append(SteeredOutput(
                     text=text,
                     feature_config=feature,
                     metrics=metrics,
                 ))
 
-        finally:
-            # Clean up hooks
-            for handle in handles:
-                handle.remove()
+            finally:
+                # Clean up hooks before next feature
+                for handle in handles:
+                    handle.remove()
 
         # Build metrics summary
         metrics_summary = None
@@ -783,6 +953,11 @@ class SteeringService:
         sae_path: Path,
         model_id: str,
         model_path: Optional[str] = None,
+        # SAE metadata from database for fallback
+        sae_layer: Optional[int] = None,
+        sae_d_model: Optional[int] = None,
+        sae_n_features: Optional[int] = None,
+        sae_architecture: Optional[str] = None,
     ) -> StrengthSweepResponse:
         """
         Generate a strength sweep testing multiple steering strengths.
@@ -792,6 +967,10 @@ class SteeringService:
             sae_path: Path to the SAE directory
             model_id: Model identifier
             model_path: Optional local model path
+            sae_layer: SAE target layer from database
+            sae_d_model: Model hidden dimension from database
+            sae_n_features: Number of SAE features from database
+            sae_architecture: SAE architecture type from database
 
         Returns:
             StrengthSweepResponse with results for each strength
@@ -800,7 +979,14 @@ class SteeringService:
         sweep_id = f"sweep_{uuid4().hex[:12]}"
 
         # Load SAE and model
-        sae = await self.load_sae(sae_path, request.sae_id)
+        sae = await self.load_sae(
+            sae_path,
+            request.sae_id,
+            layer=sae_layer,
+            d_model=sae_d_model,
+            n_features=sae_n_features,
+            architecture=sae_architecture,
+        )
         model, tokenizer = await self.load_model(model_id, model_path)
 
         # Generate unsteered baseline
@@ -902,10 +1088,47 @@ class SteeringService:
         return False
 
     def clear_cache(self):
-        """Clear all cached models and SAEs."""
+        """Clear all cached models and SAEs and free GPU memory."""
+        import gc
+
+        # Log what we're clearing
+        sae_count = len(self._loaded_saes)
+        model_count = len(self._loaded_models)
+        logger.info(f"Clearing steering cache: {sae_count} SAEs, {model_count} models")
+
+        # Move models to CPU before clearing to help with memory release
+        for model_id, (model, tokenizer) in list(self._loaded_models.items()):
+            try:
+                model.cpu()
+                del model
+                del tokenizer
+            except Exception as e:
+                logger.warning(f"Error moving model {model_id} to CPU: {e}")
+
+        # Clear SAEs
+        for sae_id, loaded_sae in list(self._loaded_saes.items()):
+            try:
+                if hasattr(loaded_sae, 'model'):
+                    loaded_sae.model.cpu()
+                    del loaded_sae.model
+            except Exception as e:
+                logger.warning(f"Error clearing SAE {sae_id}: {e}")
+
+        # Clear the dictionaries
         self._loaded_saes.clear()
         self._loaded_models.clear()
         self._sentence_model = None
+
+        # Force garbage collection
+        gc.collect()
+
+        # Clear CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            logger.info("CUDA cache cleared")
+
+        logger.info("Steering cache cleared successfully")
 
 
 # Global service instance

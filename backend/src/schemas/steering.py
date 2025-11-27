@@ -58,7 +58,7 @@ class GenerationParams(BaseModel):
 class AdvancedGenerationParams(BaseModel):
     """Schema for advanced generation parameters."""
 
-    repetition_penalty: float = Field(1.0, ge=0.5, le=2.0, description="Repetition penalty")
+    repetition_penalty: float = Field(1.15, ge=0.5, le=2.0, description="Repetition penalty (1.0=none, 1.1-1.2=mild, 1.3+=strong)")
     presence_penalty: float = Field(0.0, ge=-2.0, le=2.0, description="Presence penalty")
     frequency_penalty: float = Field(0.0, ge=-2.0, le=2.0, description="Frequency penalty")
     do_sample: bool = Field(True, description="Whether to use sampling (vs greedy)")
@@ -94,8 +94,8 @@ class SteeringComparisonRequest(BaseModel):
         default_factory=GenerationParams,
         description="Generation parameters"
     )
-    advanced_params: Optional[AdvancedGenerationParams] = Field(
-        None,
+    advanced_params: AdvancedGenerationParams = Field(
+        default_factory=AdvancedGenerationParams,
         description="Advanced generation parameters"
     )
 

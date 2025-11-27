@@ -833,6 +833,91 @@ def emit_deletion_progress(
     return emit_progress(channel, "task_update", data)
 
 
+# ============================================================================
+# SAE Download/Upload Emission Functions
+# ============================================================================
+
+
+def emit_sae_download_progress(
+    sae_id: str,
+    progress: float,
+    status: str,
+    message: Optional[str] = None,
+    stage: Optional[str] = None,
+) -> bool:
+    """
+    Emit SAE download progress update.
+
+    Args:
+        sae_id: SAE UUID
+        progress: Progress percentage (0-100)
+        status: Status string (downloading, converting, ready, failed)
+        message: Optional status message
+        stage: Optional stage (download, convert)
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        sae/{sae_id}/download
+    """
+    channel = f"sae/{sae_id}/download"
+    data = {
+        "sae_id": sae_id,
+        "progress": progress,
+        "status": status,
+    }
+
+    if message:
+        data["message"] = message
+    if stage:
+        data["stage"] = stage
+
+    return emit_progress(channel, "sae:download", data)
+
+
+def emit_sae_upload_progress(
+    sae_id: str,
+    progress: float,
+    status: str,
+    message: Optional[str] = None,
+    stage: Optional[str] = None,
+    repo_url: Optional[str] = None,
+) -> bool:
+    """
+    Emit SAE upload progress update.
+
+    Args:
+        sae_id: SAE UUID
+        progress: Progress percentage (0-100)
+        status: Status string (converting, uploading, completed, failed)
+        message: Optional status message
+        stage: Optional stage (convert, upload)
+        repo_url: Optional repository URL (on success)
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        sae/{sae_id}/upload
+    """
+    channel = f"sae/{sae_id}/upload"
+    data = {
+        "sae_id": sae_id,
+        "progress": progress,
+        "status": status,
+    }
+
+    if message:
+        data["message"] = message
+    if stage:
+        data["stage"] = stage
+    if repo_url:
+        data["repo_url"] = repo_url
+
+    return emit_progress(channel, "sae:upload", data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -853,4 +938,7 @@ __all__ = [
     # Feature labeling functions
     "emit_labeling_progress",
     "emit_labeling_result",
+    # SAE download/upload functions
+    "emit_sae_download_progress",
+    "emit_sae_upload_progress",
 ]

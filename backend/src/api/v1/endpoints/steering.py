@@ -7,11 +7,14 @@ This module defines REST API endpoints for model steering operations including:
 - Managing steering experiments
 """
 
+import asyncio
 import logging
+import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.database import get_db
@@ -25,8 +28,59 @@ from ....schemas.steering import (
 )
 from ....services.sae_manager_service import SAEManagerService
 from ....services.steering_service import get_steering_service
+from ....services.model_service import ModelService
 
 logger = logging.getLogger(__name__)
+
+# Steering configuration
+STEERING_TIMEOUT_SECONDS = getattr(settings, 'steering_timeout_seconds', 30)
+RATE_LIMIT_REQUESTS = 5  # requests per minute
+RATE_LIMIT_WINDOW = 60  # seconds
+
+
+class RateLimiter:
+    """Simple in-memory rate limiter per client IP."""
+
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._requests: dict[str, list[float]] = defaultdict(list)
+
+    def is_allowed(self, client_id: str) -> bool:
+        """Check if client is allowed to make a request."""
+        now = time.time()
+        # Clean old requests
+        self._requests[client_id] = [
+            t for t in self._requests[client_id]
+            if now - t < self.window_seconds
+        ]
+        # Check limit
+        if len(self._requests[client_id]) >= self.max_requests:
+            return False
+        # Record request
+        self._requests[client_id].append(now)
+        return True
+
+    def time_until_allowed(self, client_id: str) -> float:
+        """Get seconds until client can make another request."""
+        if not self._requests[client_id]:
+            return 0
+        oldest = min(self._requests[client_id])
+        return max(0, self.window_seconds - (time.time() - oldest))
+
+
+# Global rate limiter for steering endpoints
+_rate_limiter = RateLimiter(RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW)
+
+
+def get_client_id(request: Request) -> str:
+    """Get client identifier for rate limiting."""
+    # Use X-Forwarded-For if behind proxy, otherwise use client host
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 
 router = APIRouter(prefix="/steering", tags=["Steering"])
 
@@ -34,6 +88,7 @@ router = APIRouter(prefix="/steering", tags=["Steering"])
 @router.post("/compare", response_model=SteeringComparisonResponse)
 async def generate_steering_comparison(
     request: SteeringComparisonRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -48,7 +103,20 @@ async def generate_steering_comparison(
     - +100: Double activation (2x)
     - +200: Triple activation (3x)
     - +300: Quadruple activation (4x)
+
+    Rate limited to 5 requests per minute per client.
+    Times out after 30 seconds.
     """
+    # Rate limiting
+    client_id = get_client_id(http_request)
+    if not _rate_limiter.is_allowed(client_id):
+        retry_after = int(_rate_limiter.time_until_allowed(client_id)) + 1
+        raise HTTPException(
+            429,
+            f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     # Get SAE from database
     sae = await SAEManagerService.get_sae(db, request.sae_id)
     if not sae:
@@ -79,23 +147,41 @@ async def generate_steering_comparison(
                 "Please provide a model_id in the request."
             )
 
-    # Check if it's a local model
+    # Look up model from database to get actual file_path
     model_path = None
-    local_model_path = settings.data_dir / "models" / model_id
-    if local_model_path.exists():
-        model_path = str(local_model_path)
+    model = await ModelService.get_model(db, model_id)
+    if model and model.file_path:
+        model_path = model.file_path
+        # Use model name or repo_id as the identifier for HF loading
+        model_id = model.repo_id or model.name
 
     # Get steering service
     steering_service = get_steering_service()
 
     try:
-        response = await steering_service.generate_comparison(
-            request=request,
-            sae_path=sae_path,
-            model_id=model_id,
-            model_path=model_path,
+        response = await asyncio.wait_for(
+            steering_service.generate_comparison(
+                request=request,
+                sae_path=sae_path,
+                model_id=model_id,
+                model_path=model_path,
+                # Pass SAE metadata from database for miStudio format SAEs
+                sae_layer=sae.layer,
+                sae_d_model=sae.d_model,
+                sae_n_features=sae.n_features,
+                sae_architecture=sae.architecture,
+            ),
+            timeout=STEERING_TIMEOUT_SECONDS,
         )
         return response
+
+    except asyncio.TimeoutError:
+        logger.warning(f"Steering comparison timed out after {STEERING_TIMEOUT_SECONDS}s")
+        raise HTTPException(
+            408,
+            f"Generation timed out after {STEERING_TIMEOUT_SECONDS} seconds. "
+            "Try reducing max_new_tokens or using fewer features.",
+        )
 
     except Exception as e:
         logger.exception(f"Error generating steering comparison: {e}")
@@ -105,6 +191,7 @@ async def generate_steering_comparison(
 @router.post("/sweep", response_model=StrengthSweepResponse)
 async def generate_strength_sweep(
     request: SteeringStrengthSweepRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -113,7 +200,19 @@ async def generate_strength_sweep(
     Useful for finding the optimal steering strength for a feature.
     Tests a single feature at multiple strength values and returns
     outputs for comparison.
+
+    Rate limited to 5 requests per minute per client.
+    Times out after 30 seconds.
     """
+    # Rate limiting
+    client_id = get_client_id(http_request)
+    if not _rate_limiter.is_allowed(client_id):
+        retry_after = int(_rate_limiter.time_until_allowed(client_id)) + 1
+        raise HTTPException(
+            429,
+            f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)},
+        )
     # Get SAE from database
     sae = await SAEManagerService.get_sae(db, request.sae_id)
     if not sae:
@@ -142,23 +241,41 @@ async def generate_strength_sweep(
                 "No model specified and SAE has no linked model."
             )
 
-    # Check if it's a local model
+    # Look up model from database to get actual file_path
     model_path = None
-    local_model_path = settings.data_dir / "models" / model_id
-    if local_model_path.exists():
-        model_path = str(local_model_path)
+    model = await ModelService.get_model(db, model_id)
+    if model and model.file_path:
+        model_path = model.file_path
+        # Use model name or repo_id as the identifier for HF loading
+        model_id = model.repo_id or model.name
 
     # Get steering service
     steering_service = get_steering_service()
 
     try:
-        response = await steering_service.generate_strength_sweep(
-            request=request,
-            sae_path=sae_path,
-            model_id=model_id,
-            model_path=model_path,
+        response = await asyncio.wait_for(
+            steering_service.generate_strength_sweep(
+                request=request,
+                sae_path=sae_path,
+                model_id=model_id,
+                model_path=model_path,
+                # Pass SAE metadata from database for miStudio format SAEs
+                sae_layer=sae.layer,
+                sae_d_model=sae.d_model,
+                sae_n_features=sae.n_features,
+                sae_architecture=sae.architecture,
+            ),
+            timeout=STEERING_TIMEOUT_SECONDS,
         )
         return response
+
+    except asyncio.TimeoutError:
+        logger.warning(f"Strength sweep timed out after {STEERING_TIMEOUT_SECONDS}s")
+        raise HTTPException(
+            408,
+            f"Generation timed out after {STEERING_TIMEOUT_SECONDS} seconds. "
+            "Try reducing the number of strength values or max_new_tokens.",
+        )
 
     except Exception as e:
         logger.exception(f"Error generating strength sweep: {e}")

@@ -451,6 +451,10 @@ def tokenize_dataset_task(
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
+    # Initialize variables that might be referenced in exception handler
+    dataset_uuid = None
+    tokenization_id = None
+
     try:
         dataset_uuid = UUID(dataset_id)
 
@@ -512,13 +516,20 @@ def tokenize_dataset_task(
                 db.commit()
                 print(f"Created new tokenization record: {tokenization_id}")
 
-        # Update status to processing
+        # Update status to processing (both tokenization and parent dataset)
         with self.get_db() as db:
             tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
             if tokenization_obj:
                 tokenization_obj.status = TokenizationStatus.PROCESSING
                 tokenization_obj.progress = 0.0
-                db.commit()
+
+            # Also update parent dataset status to PROCESSING
+            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+            if dataset_obj:
+                dataset_obj.status = DatasetStatus.PROCESSING
+                dataset_obj.progress = 0.0
+
+            db.commit()
 
         # Update Celery task state: Starting
         self.update_state(
@@ -1004,7 +1015,9 @@ def tokenize_dataset_task(
             "statistics": stats,
         }
 
-    except Exception as e:
+    except BaseException as e:
+        # IMPORTANT: Catch BaseException to handle SystemExit from signal handler
+        # SystemExit is NOT a subclass of Exception, so "except Exception" won't catch it
         error_message = f"Tokenization failed: {str(e)}"
         print(f"Tokenization error: {error_message}")
 
@@ -1042,13 +1055,23 @@ def tokenize_dataset_task(
                 "recovered_after_error": True,
             }
 
-        # Update tokenization status to ERROR (data was not saved)
-        with self.get_db() as db:
-            tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
-            if tokenization_obj:
-                tokenization_obj.status = TokenizationStatus.ERROR
-                tokenization_obj.error_message = error_message
-                tokenization_obj.progress = None
+        # Update tokenization AND dataset status to ERROR (data was not saved)
+        # Guard against early failure where tokenization_id/dataset_uuid might not be set
+        if tokenization_id and dataset_uuid:
+            with self.get_db() as db:
+                tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+                if tokenization_obj:
+                    tokenization_obj.status = TokenizationStatus.ERROR
+                    tokenization_obj.error_message = error_message
+                    tokenization_obj.progress = None
+
+                # Also update parent dataset status to READY (allow retry)
+                dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                if dataset_obj:
+                    dataset_obj.status = DatasetStatus.READY  # Allow retry
+                    dataset_obj.progress = 0.0
+                    dataset_obj.error_message = error_message
+
                 db.commit()
 
         emit_dataset_progress(

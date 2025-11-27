@@ -160,3 +160,4 @@ site/
 !package-lock.json
 !poetry.lock
 !Pipfile.lock
+**/tmp_api/

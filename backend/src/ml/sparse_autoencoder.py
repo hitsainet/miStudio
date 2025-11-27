@@ -1070,15 +1070,28 @@ def create_sae(
         )
     elif architecture_type == 'jumprelu':
         # JumpReLU SAE with learnable thresholds (Gemma Scope architecture)
-        # Extract JumpReLU-specific parameters
-        initial_threshold = kwargs.pop('initial_threshold', 0.001)
-        bandwidth = kwargs.pop('bandwidth', 0.001)
-        normalize_decoder = kwargs.pop('normalize_decoder', True)
-        tied_weights = kwargs.pop('tied_weights', False)
-        normalize_activations = kwargs.pop('normalize_activations', 'constant_norm_rescale')
+        # Extract JumpReLU-specific parameters with None handling
+        # (hp.get() may pass explicit None values which we should treat as "use default")
+        initial_threshold = kwargs.pop('initial_threshold', None)
+        if initial_threshold is None:
+            initial_threshold = 0.001
+        bandwidth = kwargs.pop('bandwidth', None)
+        if bandwidth is None:
+            bandwidth = 0.001
+        normalize_decoder = kwargs.pop('normalize_decoder', None)
+        if normalize_decoder is None:
+            normalize_decoder = True
+        tied_weights = kwargs.pop('tied_weights', None)
+        if tied_weights is None:
+            tied_weights = False
+        normalize_activations = kwargs.pop('normalize_activations', None)
+        if normalize_activations is None:
+            normalize_activations = 'constant_norm_rescale'
         # JumpReLU uses L0 loss with sparsity_coeff instead of L1
         # Map l1_alpha to sparsity_coeff for consistency
-        sparsity_coeff = kwargs.pop('sparsity_coeff', l1_alpha)
+        sparsity_coeff = kwargs.pop('sparsity_coeff', None)
+        if sparsity_coeff is None:
+            sparsity_coeff = l1_alpha
         return JumpReLUSAE(
             d_model=hidden_dim,
             d_sae=latent_dim,

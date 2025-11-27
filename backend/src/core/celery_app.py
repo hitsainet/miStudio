@@ -99,6 +99,17 @@ celery_app.conf.update(
         "src.workers.cleanup_stuck_trainings.*": {
             "queue": "low_priority",
         },
+
+        # SAE operations: HuggingFace downloads/uploads
+        "src.workers.sae_tasks.*": {
+            "queue": "sae",
+        },
+        "sae.download": {
+            "queue": "sae",
+        },
+        "sae.upload": {
+            "queue": "sae",
+        },
     },
 
     # Task priority queues (higher priority = processed first)
@@ -174,6 +185,7 @@ celery_app.autodiscover_tasks(
         "src.workers.system_monitor_tasks",
         "src.workers.cleanup_stuck_extractions",
         "src.workers.cleanup_stuck_trainings",
+        "src.workers.sae_tasks",
     ],
     force=True,
 )
@@ -336,6 +348,7 @@ def get_queue_lengths() -> dict:
         "processing",
         "training",
         "extraction",
+        "sae",
         "low_priority",
     ]
 

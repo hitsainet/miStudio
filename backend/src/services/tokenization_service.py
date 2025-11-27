@@ -43,6 +43,7 @@ class _TokenizationMapper:
         junk_ratio_threshold: float = 0.7,
         remove_all_punctuation: bool = False,
         custom_filter_chars: Optional[str] = None,
+        cache_dir: Optional[str] = None,
     ):
         """Initialize the tokenization mapper with parameters."""
         self.tokenizer_name = tokenizer_name
@@ -60,6 +61,7 @@ class _TokenizationMapper:
         self.junk_ratio_threshold = junk_ratio_threshold
         self.remove_all_punctuation = remove_all_punctuation
         self.custom_filter_chars = custom_filter_chars
+        self.cache_dir = cache_dir  # Local cache for tokenizer files
         self._tokenizer = None  # Lazy-loaded in worker process
         self._text_cleaner = None  # Lazy-loaded in worker process
         self._token_filter = None  # Lazy-loaded in worker process
@@ -67,7 +69,12 @@ class _TokenizationMapper:
     def _get_tokenizer(self):
         """Lazy-load tokenizer in worker process (avoids pickling issues)."""
         if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
+            # Use local cache if provided (for gated models that are already downloaded)
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self.tokenizer_name,
+                cache_dir=self.cache_dir,
+                local_files_only=self.cache_dir is not None,
+            )
             # Ensure tokenizer has padding token
             if self._tokenizer.pad_token is None:
                 if self._tokenizer.eos_token is not None:
@@ -289,6 +296,7 @@ class TokenizationService:
         junk_ratio_threshold: float = 0.7,
         remove_all_punctuation: bool = False,
         custom_filter_chars: Optional[str] = None,
+        cache_dir: Optional[str] = None,
     ) -> HFDataset:
         """
         Tokenize a dataset using the provided tokenizer.
@@ -444,6 +452,7 @@ class TokenizationService:
                 junk_ratio_threshold=junk_ratio_threshold,
                 remove_all_punctuation=remove_all_punctuation,
                 custom_filter_chars=custom_filter_chars,
+                cache_dir=cache_dir,
             )
 
             logger.info(

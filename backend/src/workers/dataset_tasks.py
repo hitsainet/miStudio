@@ -742,6 +742,8 @@ def tokenize_dataset_task(
                 junk_ratio_threshold=filter_threshold,
                 remove_all_punctuation=remove_all_punctuation,
                 custom_filter_chars=custom_filter_chars,
+                # Use model's local cache for tokenizer (avoids HF auth for gated models)
+                cache_dir=model_cache_dir,
             )
         finally:
             # Always restore original tqdm regardless of success/failure

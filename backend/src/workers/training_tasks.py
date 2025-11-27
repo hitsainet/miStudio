@@ -811,7 +811,12 @@ def train_sae_task(
                     layer_sparsities[layer_idx] = (z != 0).float().mean().item()
                     layer_dead_neurons[layer_idx] = (z == 0).all(dim=0).sum().item()
                     # Store FVU if available (JumpReLU SAE computes this)
-                    layer_fvu[layer_idx] = losses.get('fvu', None)
+                    # Convert tensor to float for database storage
+                    fvu_val = losses.get('fvu', None)
+                    if fvu_val is not None:
+                        layer_fvu[layer_idx] = fvu_val.item() if hasattr(fvu_val, 'item') else float(fvu_val)
+                    else:
+                        layer_fvu[layer_idx] = None
 
                 # Calculate aggregated metrics across all layers
                 avg_loss = sum(layer_losses.values()) / len(layer_losses)
@@ -819,7 +824,7 @@ def train_sae_task(
                 avg_dead_neurons = sum(layer_dead_neurons.values()) / len(layer_dead_neurons)
                 # Calculate avg FVU only if any layer has FVU (JumpReLU)
                 fvu_values = [v for v in layer_fvu.values() if v is not None]
-                avg_fvu = sum(fvu_values) / len(fvu_values) if fvu_values else None
+                avg_fvu = float(sum(fvu_values) / len(fvu_values)) if fvu_values else None
 
                 # Clear GPU cache after every step
                 if torch.cuda.is_available():

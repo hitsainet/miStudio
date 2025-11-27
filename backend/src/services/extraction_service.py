@@ -37,7 +37,7 @@ from src.services.checkpoint_service import CheckpointService
 # Labeling services removed - labeling is now a separate independent process
 # from src.services.local_labeling_service import LocalLabelingService
 # from src.services.openai_labeling_service import OpenAILabelingService
-from src.ml.sparse_autoencoder import SparseAutoencoder
+from src.ml.sparse_autoencoder import SparseAutoencoder, create_sae
 from src.ml.model_loader import load_model_from_hf
 from src.ml.forward_hooks import HookManager, HookType
 from src.models.model import Model as ModelRecord, QuantizationFormat
@@ -790,11 +790,23 @@ class ExtractionService:
 
             logger.info(f"Loading SAE checkpoint from {checkpoint.storage_path}")
 
-            # Initialize SAE model
-            sae = SparseAutoencoder(
-                hidden_dim=training.hyperparameters["hidden_dim"],
+            # Initialize SAE model using factory to support all architectures
+            hp = training.hyperparameters
+            architecture_type = hp.get('architecture_type', 'standard')
+            logger.info(f"Creating {architecture_type} SAE for extraction")
+
+            sae = create_sae(
+                architecture_type=architecture_type,
+                hidden_dim=hp["hidden_dim"],
                 latent_dim=latent_dim,
-                l1_alpha=training.hyperparameters.get("l1_alpha", 0.001)
+                l1_alpha=hp.get("l1_alpha", 0.001),
+                # JumpReLU-specific parameters (ignored for other architectures)
+                initial_threshold=hp.get("initial_threshold"),
+                bandwidth=hp.get("bandwidth"),
+                sparsity_coeff=hp.get("sparsity_coeff"),
+                normalize_decoder=hp.get("normalize_decoder"),
+                tied_weights=hp.get("tied_weights"),
+                normalize_activations=hp.get("normalize_activations"),
             )
 
             # Load checkpoint weights (device already set at top of function)

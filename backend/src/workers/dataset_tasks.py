@@ -459,7 +459,10 @@ def tokenize_dataset_task(
                 raise ValueError(f"Model {model_id} not found")
 
             tokenizer_name = model_obj.repo_id
+            # Get model's local cache directory for tokenizer files
+            model_cache_dir = model_obj.file_path
             print(f"Using tokenizer from model {model_id}: {tokenizer_name}")
+            print(f"Model cache directory: {model_cache_dir}")
 
             # Check if tokenization already exists
             tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
@@ -558,8 +561,12 @@ def tokenize_dataset_task(
             }
         )
 
-        # Load tokenizer
-        tokenizer = TokenizationService.load_tokenizer(tokenizer_name)
+        # Load tokenizer from model's local cache (downloaded with model)
+        # This avoids needing HuggingFace auth for gated models
+        tokenizer = TokenizationService.load_tokenizer(
+            tokenizer_name,
+            cache_dir=model_cache_dir
+        )
 
         # Update Celery task state: Loading dataset
         self.update_state(

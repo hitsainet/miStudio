@@ -228,13 +228,15 @@ class TokenizationService:
         }
 
     @staticmethod
-    def load_tokenizer(tokenizer_name: str, use_fast: bool = True):
+    def load_tokenizer(tokenizer_name: str, use_fast: bool = True, cache_dir: str = None):
         """
         Load a HuggingFace tokenizer with proper configuration.
 
         Args:
             tokenizer_name: Name or path of tokenizer (e.g., 'gpt2', 'bert-base-uncased')
             use_fast: Whether to use fast tokenizer implementation
+            cache_dir: Local cache directory containing downloaded tokenizer files.
+                       If provided, loads from local cache without needing HuggingFace auth.
 
         Returns:
             Loaded tokenizer instance
@@ -245,7 +247,9 @@ class TokenizationService:
         try:
             tokenizer = AutoTokenizer.from_pretrained(
                 tokenizer_name,
-                use_fast=use_fast
+                use_fast=use_fast,
+                cache_dir=cache_dir,
+                local_files_only=cache_dir is not None,  # Use local files if cache provided
             )
 
             # Ensure tokenizer has padding token (required for batched tokenization)

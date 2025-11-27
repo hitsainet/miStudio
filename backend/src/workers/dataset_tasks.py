@@ -426,9 +426,25 @@ def tokenize_dataset_task(
     Returns:
         dict: Tokenization result with statistics
     """
+    # Graceful shutdown state - allows completion if we're past the critical tokenization point
+    graceful_shutdown_requested = False
+    tokenization_complete = False
+    saved_tokenized_dataset = None
+    saved_tokenized_path = None
+
     # Register signal handlers for proper cleanup of child processes
     def signal_handler(signum, frame):
-        print(f"[SIGNAL] Received signal {signum}, cleaning up child processes...")
+        nonlocal graceful_shutdown_requested
+        print(f"[SIGNAL] Received signal {signum}")
+        graceful_shutdown_requested = True
+
+        # If tokenization is already complete, let it finish saving
+        if tokenization_complete:
+            print(f"[SIGNAL] Tokenization complete, allowing graceful save...")
+            return  # Don't raise, let the task finish saving
+
+        # Otherwise, clean up and terminate
+        print(f"[SIGNAL] Tokenization in progress, cleaning up child processes...")
         cleanup_child_processes()
         raise SystemExit(f"Task terminated by signal {signum}")
 
@@ -750,6 +766,10 @@ def tokenize_dataset_task(
             sys.modules['tqdm'].tqdm = original_tqdm
             sys.modules['tqdm.auto'].tqdm = original_tqdm
 
+        # Mark tokenization as complete - from here on, graceful shutdown is allowed
+        tokenization_complete = True
+        print(f"[TOKENIZATION] Tokenization complete, marking for graceful shutdown protection")
+
         # Force cleanup of input dataset to prevent multiprocessing cleanup issues
         try:
             del dataset
@@ -759,6 +779,48 @@ def tokenize_dataset_task(
         # Force garbage collection to clean up multiprocessing resources
         import gc
         gc.collect()
+
+        # CRITICAL: Save tokenized dataset IMMEDIATELY after tokenization
+        # This ensures data is saved even if SIGTERM is received during statistics
+        print(f"[TOKENIZATION] Saving tokenized dataset immediately to prevent data loss...")
+        tokenized_path = Path(raw_path).parent / f"{Path(raw_path).name}_tokenized_{model_id}"
+        TokenizationService.save_tokenized_dataset(
+            tokenized_dataset,
+            tokenized_path,
+        )
+        saved_tokenized_path = str(tokenized_path)
+        print(f"[TOKENIZATION] Dataset saved to {saved_tokenized_path}")
+
+        # Check if graceful shutdown was requested during tokenization
+        if graceful_shutdown_requested:
+            print(f"[SIGNAL] Graceful shutdown requested, skipping statistics calculation")
+            # Still update database with basic success status
+            with self.get_db() as db:
+                tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+                if tokenization_obj:
+                    tokenization_obj.status = TokenizationStatus.READY
+                    tokenization_obj.progress = 100.0
+                    tokenization_obj.completed_at = datetime.now(UTC)
+                    tokenization_obj.tokenized_path = saved_tokenized_path
+
+                dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                if dataset_obj:
+                    dataset_obj.status = DatasetStatus.READY
+                    dataset_obj.progress = 100.0
+
+                db.commit()
+
+            # Release Redis lock and return
+            release_redis_lock(dataset_id)
+            return {
+                "tokenization_id": tokenization_id,
+                "dataset_id": dataset_id,
+                "model_id": model_id,
+                "status": "ready",
+                "tokenized_path": saved_tokenized_path,
+                "statistics": None,  # Statistics were skipped due to shutdown
+                "graceful_shutdown": True,
+            }
 
         # Update Celery task state: Calculating statistics
         self.update_state(
@@ -829,25 +891,7 @@ def tokenize_dataset_task(
             elapsed_seconds=elapsed,
         )
 
-        # Update Celery task state: Saving dataset
-        self.update_state(
-            state='PROGRESS',
-            meta={
-                'current': 90,
-                'total': 100,
-                'percent': 90.0,
-                'status': 'Saving tokenized dataset...'
-            }
-        )
-
-        # Save tokenized dataset with model-specific naming
-        tokenized_path = Path(raw_path).parent / f"{Path(raw_path).name}_tokenized_{model_id}"
-        TokenizationService.save_tokenized_dataset(
-            tokenized_dataset,
-            tokenized_path,
-        )
-
-        # Update Celery task state: Finalizing
+        # Update Celery task state: Finalizing (dataset already saved above)
         self.update_state(
             state='PROGRESS',
             meta={
@@ -876,7 +920,7 @@ def tokenize_dataset_task(
                 tokenization_obj.status = TokenizationStatus.READY
                 tokenization_obj.progress = 100.0
                 tokenization_obj.completed_at = datetime.now(UTC)
-                tokenization_obj.tokenized_path = str(tokenized_path)
+                tokenization_obj.tokenized_path = saved_tokenized_path
                 tokenization_obj.vocab_size = stats["vocab_size"]
                 tokenization_obj.num_tokens = stats["num_tokens"]
                 tokenization_obj.avg_seq_length = stats["avg_seq_length"]
@@ -956,7 +1000,7 @@ def tokenize_dataset_task(
             "dataset_id": dataset_id,
             "model_id": model_id,
             "status": "ready",
-            "tokenized_path": str(tokenized_path),
+            "tokenized_path": saved_tokenized_path,
             "statistics": stats,
         }
 
@@ -967,7 +1011,38 @@ def tokenize_dataset_task(
         # Clean up any child processes
         cleanup_child_processes()
 
-        # Update tokenization status to ERROR
+        # Check if data was already saved before the error
+        if saved_tokenized_path and Path(saved_tokenized_path).exists():
+            print(f"[RECOVERY] Tokenized data was saved before error at {saved_tokenized_path}")
+            # Mark as READY since data was saved successfully
+            with self.get_db() as db:
+                tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+                if tokenization_obj:
+                    tokenization_obj.status = TokenizationStatus.READY
+                    tokenization_obj.progress = 100.0
+                    tokenization_obj.completed_at = datetime.now(UTC)
+                    tokenization_obj.tokenized_path = saved_tokenized_path
+                    # Note: statistics may be missing, but data is saved
+
+                dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                if dataset_obj:
+                    dataset_obj.status = DatasetStatus.READY
+                    dataset_obj.progress = 100.0
+
+                db.commit()
+
+            release_redis_lock(dataset_id)
+            return {
+                "tokenization_id": tokenization_id,
+                "dataset_id": dataset_id,
+                "model_id": model_id,
+                "status": "ready",
+                "tokenized_path": saved_tokenized_path,
+                "statistics": None,
+                "recovered_after_error": True,
+            }
+
+        # Update tokenization status to ERROR (data was not saved)
         with self.get_db() as db:
             tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
             if tokenization_obj:

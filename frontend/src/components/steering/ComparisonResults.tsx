@@ -5,12 +5,13 @@
  * - Side-by-side display of unsteered and steered outputs
  * - Color-coded feature cards
  * - Generation metrics (perplexity, coherence, etc.)
- * - Copy output button
+ * - Copy output button on all tiles
+ * - Copy all button to copy all outputs
  * - Save experiment button
  */
 
-import { useState } from 'react';
-import { Copy, Check, Save, Clock, Hash, Layers, Zap } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Copy, Check, Save, Clock, Hash, Layers, Zap, CopyPlus } from 'lucide-react';
 import {
   SteeringComparisonResponse,
   SteeredOutput,
@@ -30,15 +31,79 @@ export function ComparisonResults({ comparison, onSaveExperiment }: ComparisonRe
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const { selectedFeatures } = useSteeringStore();
 
-  const handleCopy = async (text: string, id: string) => {
+  const handleCopy = useCallback(async (text: string, id: string) => {
+    if (!text) {
+      console.warn('[ComparisonResults] No text to copy for id:', id);
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch (error) {
       console.error('Failed to copy:', error);
+      // Fallback for older browsers
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 2000);
+      } catch (fallbackError) {
+        console.error('Fallback copy also failed:', fallbackError);
+      }
     }
-  };
+  }, []);
+
+  // Build all content for "copy all" feature
+  const buildAllContent = useCallback(() => {
+    const lines: string[] = [];
+
+    // Add prompt
+    lines.push('=== PROMPT ===');
+    lines.push(comparison.prompt);
+    lines.push('');
+
+    // Add unsteered baseline
+    if (comparison.unsteered) {
+      lines.push('=== BASELINE (Unsteered) ===');
+      lines.push(comparison.unsteered.text);
+      if (comparison.unsteered.metrics?.perplexity) {
+        lines.push(`Perplexity: ${comparison.unsteered.metrics.perplexity.toFixed(2)}`);
+      }
+      lines.push('');
+    }
+
+    // Add steered outputs
+    comparison.steered.forEach((output) => {
+      const matchingFeature = selectedFeatures.find(
+        (f) =>
+          f.feature_idx === output.feature_config.feature_idx &&
+          f.layer === output.feature_config.layer
+      );
+      const label = matchingFeature?.label || `Feature #${output.feature_config.feature_idx}`;
+      const featureIdx = output.feature_config.feature_idx;
+
+      lines.push(`=== ${label.toUpperCase()} [#${featureIdx}] (Layer ${output.feature_config.layer}, Strength ${output.feature_config.strength > 0 ? '+' : ''}${output.feature_config.strength}) ===`);
+      lines.push(output.text);
+      if (output.metrics?.perplexity) {
+        lines.push(`Perplexity: ${output.metrics.perplexity.toFixed(2)}`);
+      }
+      lines.push('');
+    });
+
+    return lines.join('\n');
+  }, [comparison, selectedFeatures]);
+
+  const handleCopyAll = useCallback(async () => {
+    const allContent = buildAllContent();
+    await handleCopy(allContent, 'all');
+  }, [buildAllContent, handleCopy]);
 
   const formatTime = (ms: number): string => {
     if (ms < 1000) return `${ms}ms`;
@@ -153,20 +218,52 @@ export function ComparisonResults({ comparison, onSaveExperiment }: ComparisonRe
             {comparison.steered.length} steered output{comparison.steered.length !== 1 ? 's' : ''}
           </p>
         </div>
-        {onSaveExperiment && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={onSaveExperiment}
-            className={`px-4 py-2 flex items-center gap-2 ${COMPONENTS.button.secondary}`}
+            onClick={handleCopyAll}
+            className={`px-4 py-2 flex items-center gap-2 ${COMPONENTS.button.ghost}`}
+            title="Copy all outputs to clipboard"
           >
-            <Save className="w-4 h-4" />
-            Save Experiment
+            {copiedId === 'all' ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-400" />
+                Copied!
+              </>
+            ) : (
+              <>
+                <CopyPlus className="w-4 h-4" />
+                Copy All
+              </>
+            )}
           </button>
-        )}
+          {onSaveExperiment && (
+            <button
+              onClick={onSaveExperiment}
+              className={`px-4 py-2 flex items-center gap-2 ${COMPONENTS.button.secondary}`}
+            >
+              <Save className="w-4 h-4" />
+              Save Experiment
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Prompt display */}
       <div className={`${COMPONENTS.card.base} p-3`}>
-        <span className="text-xs text-slate-500 uppercase tracking-wide">Prompt</span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-500 uppercase tracking-wide">Prompt</span>
+          <button
+            onClick={() => handleCopy(comparison.prompt, 'prompt')}
+            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            title="Copy prompt"
+          >
+            {copiedId === 'prompt' ? (
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
         <p className="text-slate-200 mt-1">{comparison.prompt}</p>
       </div>
 

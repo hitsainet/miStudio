@@ -87,6 +87,7 @@ interface SteeringState {
   addFeature: (feature: Omit<SelectedFeature, 'color'>) => boolean;
   removeFeature: (featureIdx: number, layer: number) => void;
   updateFeatureStrength: (featureIdx: number, layer: number, strength: number) => void;
+  applyStrengthPreset: (strength: number) => void;
   clearFeatures: () => void;
   reorderFeatures: (fromIndex: number, toIndex: number) => void;
 
@@ -121,6 +122,10 @@ interface SteeringState {
   // Actions - Error Handling
   setError: (error: string | null) => void;
   clearError: () => void;
+
+  // Actions - Cache Management
+  clearModelCache: () => Promise<void>;
+  isUnloadingCache: boolean;
 }
 
 export const useSteeringStore = create<SteeringState>()(
@@ -149,6 +154,7 @@ export const useSteeringStore = create<SteeringState>()(
         hasMore: false,
       },
       error: null,
+      isUnloadingCache: false,
 
       // Select an SAE for steering
       selectSAE: (sae: SAE | null) => {
@@ -214,6 +220,16 @@ export const useSteeringStore = create<SteeringState>()(
         }));
       },
 
+      // Apply strength preset to all selected features
+      applyStrengthPreset: (strength: number) => {
+        set((state) => ({
+          selectedFeatures: state.selectedFeatures.map((f) => ({
+            ...f,
+            strength,
+          })),
+        }));
+      },
+
       // Clear all selected features
       clearFeatures: () => {
         set({ selectedFeatures: [], currentComparison: null });
@@ -250,7 +266,7 @@ export const useSteeringStore = create<SteeringState>()(
             advancedParams: state.advancedParams
               ? { ...state.advancedParams, ...params }
               : {
-                  repetition_penalty: 1.0,
+                  repetition_penalty: 1.15,
                   presence_penalty: 0.0,
                   frequency_penalty: 0.0,
                   do_sample: true,
@@ -540,6 +556,19 @@ export const useSteeringStore = create<SteeringState>()(
       // Clear error
       clearError: () => {
         set({ error: null });
+      },
+
+      // Clear model cache
+      clearModelCache: async () => {
+        set({ isUnloadingCache: true, error: null });
+        try {
+          await steeringApi.clearSteeringCache();
+          set({ isUnloadingCache: false });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to clear cache';
+          set({ error: errorMessage, isUnloadingCache: false });
+          throw error;
+        }
       },
     }),
     {

@@ -115,3 +115,31 @@ export async function getComparisonStatus(
     `/steering/compare/${comparisonId}/status`
   );
 }
+
+/**
+ * Clear all cached models and SAEs from the steering service.
+ * Use this to free GPU memory after steering operations.
+ */
+export async function clearSteeringCache(): Promise<{ message: string }> {
+  return fetchAPI<{ message: string }>('/steering/cache/clear', {
+    method: 'POST',
+  });
+}
+
+/**
+ * Unload a specific model from the steering cache.
+ */
+export async function unloadModel(modelId: string): Promise<{ message: string }> {
+  return fetchAPI<{ message: string }>(`/steering/cache/model/${encodeURIComponent(modelId)}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Unload a specific SAE from the steering cache.
+ */
+export async function unloadSAE(saeId: string): Promise<{ message: string }> {
+  return fetchAPI<{ message: string }>(`/steering/cache/sae/${encodeURIComponent(saeId)}`, {
+    method: 'DELETE',
+  });
+}

@@ -162,7 +162,7 @@ export function GenerationConfig({ compact = false }: GenerationConfigProps) {
               min="1"
               max="2"
               step="0.1"
-              value={advancedParams?.repetition_penalty ?? 1.0}
+              value={advancedParams?.repetition_penalty ?? 1.15}
               onChange={(e) => handleAdvancedChange('repetition_penalty', parseFloat(e.target.value))}
               className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
             />

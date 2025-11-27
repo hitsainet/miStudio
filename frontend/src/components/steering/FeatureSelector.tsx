@@ -27,8 +27,16 @@ export function FeatureSelector() {
     selectSAE,
     removeFeature,
     updateFeatureStrength,
+    applyStrengthPreset,
     clearFeatures,
   } = useSteeringStore();
+
+  // Strength preset values
+  const PRESETS = [
+    { label: 'Subtle', value: 10 },
+    { label: 'Moderate', value: 50 },
+    { label: 'Strong', value: 100 },
+  ] as const;
 
   const { saes } = useSAEsStore();
   const readySAEs = saes.filter((sae) => sae.status === SAEStatus.READY);
@@ -94,6 +102,24 @@ export function FeatureSelector() {
                 </button>
               )}
             </div>
+
+            {/* Strength Presets */}
+            {selectedFeatures.length > 0 && (
+              <div className="px-4 pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Apply to all:</span>
+                  {PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      onClick={() => applyStrengthPreset(preset.value)}
+                      className="bg-slate-800 hover:bg-slate-700 rounded px-3 py-1 text-xs text-slate-300 transition-colors"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Selected features list */}
             <div className="px-4 space-y-3">

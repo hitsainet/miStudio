@@ -14,12 +14,13 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain } from 'lucide-react';
+import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power } from 'lucide-react';
 import { useSteeringStore, selectCanGenerate } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { SAEStatus } from '../../types/sae';
 import { FeatureSelector } from '../steering/FeatureSelector';
 import { GenerationConfig } from '../steering/GenerationConfig';
+import { ComparisonPreview } from '../steering/ComparisonPreview';
 import { ComparisonResults } from '../steering/ComparisonResults';
 import { COMPONENTS } from '../../config/brand';
 
@@ -36,9 +37,11 @@ export function SteeringPanel() {
     progressMessage,
     currentComparison,
     error,
+    isUnloadingCache,
     setPrompt,
     generateComparison,
     clearError,
+    clearModelCache,
   } = useSteeringStore();
 
   const { saes, fetchSAEs } = useSAEsStore();
@@ -60,6 +63,14 @@ export function SteeringPanel() {
 
   const handleSaveExperiment = () => {
     setShowSaveModal(true);
+  };
+
+  const handleUnloadModel = async () => {
+    try {
+      await clearModelCache();
+    } catch (error) {
+      console.error('[SteeringPanel] Failed to unload model:', error);
+    }
   };
 
   return (
@@ -90,11 +101,34 @@ export function SteeringPanel() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
           {/* Header */}
-          <div>
-            <h1 className="text-xl font-semibold text-slate-100 mb-2">Feature Steering</h1>
-            <p className="text-slate-400">
-              Steer model outputs by adjusting feature activations during generation
-            </p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-slate-100 mb-2">Feature Steering</h1>
+              <p className="text-slate-400">
+                Steer model outputs by adjusting feature activations during generation
+              </p>
+            </div>
+            {/* Unload Model button - shown after generation */}
+            {currentComparison && !isGenerating && (
+              <button
+                onClick={handleUnloadModel}
+                disabled={isUnloadingCache}
+                className={`px-3 py-2 flex items-center gap-2 text-sm ${COMPONENTS.button.ghost} text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50`}
+                title="Unload model and SAE from GPU memory"
+              >
+                {isUnloadingCache ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin" />
+                    Unloading...
+                  </>
+                ) : (
+                  <>
+                    <Power className="w-4 h-4" />
+                    Unload Model
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Error message */}
@@ -174,6 +208,20 @@ export function SteeringPanel() {
                   </button>
                 </div>
               </div>
+
+              {/* Comparison preview cards */}
+              {selectedFeatures.length > 0 && (
+                <div className={`${COMPONENTS.card.base} p-4`}>
+                  <ComparisonPreview
+                    selectedFeatures={selectedFeatures}
+                    onAddFeature={
+                      selectedFeatures.length < 4
+                        ? () => setSidebarCollapsed(false)
+                        : undefined
+                    }
+                  />
+                </div>
+              )}
 
               {/* Generation config */}
               <GenerationConfig />

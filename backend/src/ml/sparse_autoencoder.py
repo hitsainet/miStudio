@@ -1,22 +1,29 @@
 """
 Sparse Autoencoder (SAE) PyTorch implementations for mechanistic interpretability.
 
-This module provides three SAE architectures:
+This module provides four SAE architectures:
 1. SparseAutoencoder - Standard SAE with L1 sparsity penalty
 2. SkipAutoencoder - SAE with residual/skip connections
 3. Transcoder - Layer-to-layer SAE for transcoding activations
+4. JumpReLUSAE - Gemma Scope-style SAE with JumpReLU activation and L0 penalty
 
 All implementations support:
-- L1 sparsity penalty for feature learning
+- L1/L0 sparsity penalty for feature learning
 - Dead neuron tracking and optional resampling
 - Flexible encoder/decoder initialization
 - Comprehensive loss computation with multiple components
+
+JumpReLU implementation based on:
+- Gemma Scope: arXiv:2408.05147v2
+- JumpReLU paper: arXiv:2407.14435 (Rajamanoharan et al. 2024)
 """
 
 from typing import Tuple, Optional, Dict
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Function
 
 
 class SparseAutoencoder(nn.Module):
@@ -526,6 +533,482 @@ class Transcoder(nn.Module):
         return magnitudes < threshold
 
 
+# =============================================================================
+# JumpReLU Implementation (Gemma Scope / arXiv:2407.14435)
+# =============================================================================
+
+class JumpReLUFunction(Function):
+    """
+    Custom autograd function for JumpReLU with Straight-Through Estimator (STE).
+
+    Forward: JumpReLU_θ(z) = z ⊙ H(z - θ)
+    Backward: Uses STE with kernel density estimation for threshold gradients.
+
+    Reference: Rajamanoharan et al. 2024, "Jumping Ahead: Improving
+    Reconstruction Fidelity with JumpReLU Sparse Autoencoders"
+    """
+
+    @staticmethod
+    def forward(ctx, z: torch.Tensor, threshold: torch.Tensor, bandwidth: float = 0.001):
+        """
+        Forward pass for JumpReLU activation.
+
+        Args:
+            z: Pre-activations [batch, latent_dim]
+            threshold: Per-feature thresholds [latent_dim]
+            bandwidth: KDE bandwidth for STE gradient estimation (ε)
+
+        Returns:
+            Activated features with threshold gating
+        """
+        # Heaviside step function: H(z - θ) = 1 if z > θ, else 0
+        gate = (z > threshold).float()
+
+        # JumpReLU output: z ⊙ H(z - θ)
+        output = z * gate
+
+        # Save for backward pass
+        ctx.save_for_backward(z, threshold, gate)
+        ctx.bandwidth = bandwidth
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        """
+        Backward pass using Straight-Through Estimator.
+
+        For z: Standard gradient through gate
+        For θ: KDE approximation of step function derivative
+        """
+        z, threshold, gate = ctx.saved_tensors
+        bandwidth = ctx.bandwidth
+
+        # Gradient w.r.t. z: pass through where gate is active
+        # grad_z = grad_output * gate
+        grad_z = grad_output * gate
+
+        # Gradient w.r.t. threshold using KDE (Gaussian kernel)
+        # The derivative of Heaviside is approximated by a Gaussian kernel
+        # centered at the threshold with bandwidth ε
+        # d/dθ H(z - θ) ≈ -1/(ε√(2π)) * exp(-(z-θ)²/(2ε²))
+        # This gives gradient that pushes threshold toward where z values are
+
+        # Compute distance from threshold
+        delta = z - threshold
+
+        # Gaussian kernel density estimate
+        # K(u) = 1/(ε√(2π)) * exp(-u²/(2ε²))
+        kernel = torch.exp(-0.5 * (delta / bandwidth) ** 2) / (bandwidth * math.sqrt(2 * math.pi))
+
+        # Gradient of threshold: negative because increasing θ decreases activation
+        # Sum over batch dimension, keeping feature dimension
+        # grad_θ = -sum_batch(grad_output * z * kernel)
+        grad_threshold = -(grad_output * z * kernel).sum(dim=0)
+
+        return grad_z, grad_threshold, None  # None for bandwidth (not a tensor)
+
+
+class JumpReLU(nn.Module):
+    """
+    JumpReLU activation with learnable per-feature thresholds.
+
+    JumpReLU_θ(z) = z ⊙ H(z - θ)
+
+    Where:
+        θ = learned threshold vector (positive values)
+        H = Heaviside step function (1 if input > 0, else 0)
+        ⊙ = element-wise multiplication
+
+    The key innovation is that each feature has its own learnable threshold,
+    allowing the SAE to better balance feature detection vs magnitude estimation.
+
+    Args:
+        num_features: Number of features (latent_dim)
+        initial_threshold: Initial threshold value (default: 0.001)
+        bandwidth: KDE bandwidth for STE gradient estimation (default: 0.001)
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        initial_threshold: float = 0.001,
+        bandwidth: float = 0.001,
+    ):
+        super().__init__()
+
+        self.num_features = num_features
+        self.bandwidth = bandwidth
+
+        # Learnable thresholds initialized to small positive value
+        # Using log-space to ensure thresholds stay positive
+        self.log_threshold = nn.Parameter(
+            torch.full((num_features,), math.log(initial_threshold), dtype=torch.float32)
+        )
+
+    @property
+    def threshold(self) -> torch.Tensor:
+        """Get positive thresholds from log-space parameters."""
+        return torch.exp(self.log_threshold)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """
+        Apply JumpReLU activation.
+
+        Args:
+            z: Pre-activations [batch, latent_dim] or [batch, seq, latent_dim]
+
+        Returns:
+            Activated features with threshold gating
+        """
+        return JumpReLUFunction.apply(z, self.threshold, self.bandwidth)
+
+    def extra_repr(self) -> str:
+        return f'num_features={self.num_features}, bandwidth={self.bandwidth}'
+
+
+class JumpReLUSAE(nn.Module):
+    """
+    Sparse Autoencoder with JumpReLU activation (Gemma Scope architecture).
+
+    This is the state-of-the-art SAE architecture from Google DeepMind's
+    Gemma Scope project. Key differences from standard SAE:
+
+    1. JumpReLU activation with learnable per-feature thresholds
+    2. L0 sparsity penalty instead of L1
+    3. Decoder columns constrained to unit norm
+    4. Gradient projection to maintain unit norm
+
+    Architecture:
+        z = W_enc @ x + b_enc  (pre-activations)
+        f = JumpReLU_θ(z)      (sparse features)
+        x_hat = W_dec @ f + b_dec  (reconstruction)
+
+    Loss:
+        L = ||x - x_hat||² + λ||f||₀
+
+    Args:
+        d_model: Input/output dimension (model hidden size)
+        d_sae: SAE latent dimension (number of features)
+        sparsity_coeff: L0 sparsity penalty coefficient (λ)
+        initial_threshold: Initial JumpReLU threshold value
+        bandwidth: KDE bandwidth for threshold gradient estimation
+        normalize_decoder: Whether to normalize decoder columns to unit norm
+        tied_weights: Whether to tie encoder/decoder weights (not recommended)
+
+    Reference:
+        Lieberum et al. 2024, "Gemma Scope: Open Sparse Autoencoders
+        Everywhere All At Once on Gemma 2" (arXiv:2408.05147v2)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_sae: int,
+        sparsity_coeff: float = 6e-4,
+        initial_threshold: float = 0.001,
+        bandwidth: float = 0.001,
+        normalize_decoder: bool = True,
+        tied_weights: bool = False,
+        normalize_activations: str = 'constant_norm_rescale',
+    ):
+        super().__init__()
+
+        self.d_model = d_model
+        self.d_sae = d_sae
+        self.sparsity_coeff = sparsity_coeff
+        self.normalize_decoder_flag = normalize_decoder
+        self.tied_weights = tied_weights
+        self.normalize_activations = normalize_activations
+
+        # Aliases for compatibility with existing code
+        self.hidden_dim = d_model
+        self.latent_dim = d_sae
+        self.l1_alpha = sparsity_coeff  # For compatibility, though we use L0
+
+        # Encoder weights and bias
+        self.W_enc = nn.Parameter(torch.empty(d_sae, d_model))
+        self.b_enc = nn.Parameter(torch.zeros(d_sae))
+
+        # Decoder weights and bias
+        if tied_weights:
+            # W_dec will be computed as W_enc.T
+            self.W_dec = None
+        else:
+            self.W_dec = nn.Parameter(torch.empty(d_model, d_sae))
+        self.b_dec = nn.Parameter(torch.zeros(d_model))
+
+        # JumpReLU activation with learnable thresholds
+        self.activation = JumpReLU(
+            num_features=d_sae,
+            initial_threshold=initial_threshold,
+            bandwidth=bandwidth,
+        )
+
+        # Initialize weights following Gemma Scope methodology
+        self._init_weights()
+
+        # Normalize decoder if requested
+        if normalize_decoder:
+            self.normalize_decoder()
+
+    def _init_weights(self):
+        """Initialize weights following Gemma Scope methodology."""
+        # He-uniform initialization for decoder
+        if not self.tied_weights:
+            nn.init.kaiming_uniform_(self.W_dec, mode='fan_in', nonlinearity='relu')
+
+        # Initialize encoder
+        nn.init.kaiming_uniform_(self.W_enc, mode='fan_out', nonlinearity='relu')
+
+        # Zero biases
+        nn.init.zeros_(self.b_enc)
+        nn.init.zeros_(self.b_dec)
+
+    @property
+    def decoder_weight(self) -> torch.Tensor:
+        """Get decoder weights (handles tied weights)."""
+        if self.tied_weights:
+            return self.W_enc.T
+        return self.W_dec
+
+    def normalize_decoder(self):
+        """
+        Project decoder columns to unit norm.
+
+        Should be called after each optimizer step to maintain the
+        unit norm constraint on decoder vectors.
+        """
+        if self.tied_weights:
+            # For tied weights, normalize encoder rows instead
+            with torch.no_grad():
+                self.W_enc.data = F.normalize(self.W_enc.data, dim=1, p=2)
+        else:
+            with torch.no_grad():
+                # Normalize each column (feature direction) to unit norm
+                self.W_dec.data = F.normalize(self.W_dec.data, dim=0, p=2)
+
+    def normalize(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Normalize activations to have unit mean squared norm.
+
+        This allows hyperparameter transfer across layers and sites.
+        """
+        if self.normalize_activations == 'constant_norm_rescale':
+            x_norm = x.norm(dim=-1, keepdim=True)
+            x_norm = torch.clamp(x_norm, min=1e-6)
+            norm_coeff = math.sqrt(self.d_model) / x_norm
+            x_normalized = x * norm_coeff
+            return x_normalized, norm_coeff
+        elif self.normalize_activations == 'none':
+            return x, torch.ones_like(x[..., :1])
+        else:
+            raise ValueError(f"Unknown normalization method: {self.normalize_activations}")
+
+    def denormalize(self, x: torch.Tensor, norm_coeff: torch.Tensor) -> torch.Tensor:
+        """Denormalize activations."""
+        if self.normalize_activations == 'constant_norm_rescale':
+            return x / norm_coeff
+        return x
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Encode input to sparse feature representation.
+
+        Args:
+            x: Input activations [batch, d_model] or [batch, seq, d_model]
+
+        Returns:
+            f: Sparse features [batch, d_sae] or [batch, seq, d_sae]
+        """
+        # Pre-activations: z = W_enc @ x + b_enc
+        z = F.linear(x, self.W_enc, self.b_enc)
+
+        # Apply JumpReLU activation
+        f = self.activation(z)
+
+        return f
+
+    def decode(self, f: torch.Tensor) -> torch.Tensor:
+        """
+        Decode sparse features back to input space.
+
+        Args:
+            f: Sparse features [batch, d_sae] or [batch, seq, d_sae]
+
+        Returns:
+            x_hat: Reconstructed activations [batch, d_model]
+        """
+        # x_hat = f @ W_dec.T + b_dec
+        # F.linear expects weight of shape [out_features, in_features]
+        # decoder_weight is [d_model, d_sae], which is [out_features, in_features]
+        x_hat = F.linear(f, self.decoder_weight, self.b_dec)
+        return x_hat
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        return_loss: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Full forward pass: encode then decode.
+
+        Args:
+            x: Input activations [batch, d_model]
+            return_loss: Whether to compute and return loss components
+
+        Returns:
+            x_hat: Reconstructed activations [batch, d_model]
+            f: Sparse feature activations [batch, d_sae]
+            losses: Dictionary of loss components
+        """
+        # Normalize inputs
+        x_normalized, norm_coeff = self.normalize(x)
+
+        # Encode to sparse features
+        f = self.encode(x_normalized)
+
+        # Decode back to input space (still normalized)
+        x_hat_norm = self.decode(f)
+
+        # Denormalize output
+        x_hat = self.denormalize(x_hat_norm, norm_coeff)
+
+        # Compute losses
+        losses = {}
+        if return_loss:
+            # Reconstruction loss (MSE)
+            loss_reconstruction = F.mse_loss(x_hat, x, reduction='mean')
+
+            # L0 sparsity: count of non-zero features per sample
+            # This is the key difference from standard SAE
+            l0_per_sample = (f != 0).float().sum(dim=-1)  # [batch] or [batch, seq]
+            l0_mean = l0_per_sample.mean()  # Average active features
+
+            # L0 sparsity as fraction (for logging compatibility)
+            l0_sparsity = (f != 0).float().mean()
+
+            # L0 penalty: λ * mean(||f||₀)
+            loss_l0 = self.sparsity_coeff * l0_mean
+
+            # Total loss
+            loss_total = loss_reconstruction + loss_l0
+
+            # Compute FVU (Fraction of Variance Unexplained)
+            var_original = x.var()
+            var_residuals = (x - x_hat).var()
+            fvu = var_residuals / (var_original + 1e-8)
+
+            # Zero ablation loss (decoder bias only)
+            x_zero = self.b_dec.expand_as(x)
+            loss_zero = F.mse_loss(x_zero, x, reduction='mean')
+
+            # L1 penalty for compatibility with existing code
+            l1_penalty = f.abs().sum(dim=-1).mean()
+
+            losses = {
+                'loss': loss_total,
+                'loss_reconstruction': loss_reconstruction,
+                'loss_l0': loss_l0,
+                'loss_zero': loss_zero,
+                'l0_sparsity': l0_sparsity,
+                'l0_mean': l0_mean,  # Average number of active features
+                'l1_penalty': l1_penalty,  # For compatibility
+                'fvu': fvu,
+                'threshold_mean': self.activation.threshold.mean(),
+                'threshold_min': self.activation.threshold.min(),
+                'threshold_max': self.activation.threshold.max(),
+            }
+
+        return x_hat, f, losses
+
+    def get_l0(self, f: torch.Tensor) -> torch.Tensor:
+        """
+        Compute L0 norm (sparsity) of features.
+
+        Args:
+            f: Feature activations
+
+        Returns:
+            Mean number of active features per token
+        """
+        return (f != 0).float().sum(dim=-1).mean()
+
+    def get_feature_magnitudes(self, z: torch.Tensor) -> torch.Tensor:
+        """Get per-feature activation magnitudes."""
+        return z.mean(dim=0)
+
+    def get_dead_neurons(
+        self,
+        z: torch.Tensor,
+        threshold: float = 1e-6
+    ) -> torch.Tensor:
+        """Identify dead neurons (features that never activate)."""
+        magnitudes = self.get_feature_magnitudes(z)
+        return magnitudes < threshold
+
+    # Compatibility properties for existing code
+    @property
+    def encoder(self):
+        """Compatibility: return a module-like object for encoder."""
+        class EncoderWrapper:
+            def __init__(wrapper_self, sae):
+                wrapper_self.weight = sae.W_enc
+                wrapper_self.bias = sae.b_enc
+        return EncoderWrapper(self)
+
+    @property
+    def decoder(self):
+        """Compatibility: return a module-like object for decoder."""
+        class DecoderWrapper:
+            def __init__(wrapper_self, sae):
+                wrapper_self.weight = sae.decoder_weight.T if sae.W_dec is not None else sae.W_enc
+                wrapper_self.bias = sae.b_dec
+        return DecoderWrapper(self)
+
+    @property
+    def decoder_bias(self):
+        """Compatibility: return decoder bias."""
+        return self.b_dec
+
+
+def project_decoder_gradients(model: nn.Module):
+    """
+    Project decoder gradients to be orthogonal to decoder columns.
+
+    This maintains the unit norm constraint on decoder vectors during training.
+    Should be called after loss.backward() and before optimizer.step().
+
+    Args:
+        model: A JumpReLUSAE model (or any model with W_dec parameter)
+    """
+    # Handle JumpReLUSAE
+    if hasattr(model, 'W_dec') and model.W_dec is not None and model.W_dec.grad is not None:
+        with torch.no_grad():
+            W = model.W_dec.data  # [d_model, d_sae]
+            G = model.W_dec.grad  # [d_model, d_sae]
+
+            # Project out component parallel to W for each column
+            # G_perp = G - W * (W^T @ G) for each column
+            # Since columns are unit norm: parallel_component = (W * G).sum(dim=0)
+            parallel_component = (W * G).sum(dim=0, keepdim=True)
+            G_perp = G - W * parallel_component
+
+            model.W_dec.grad = G_perp
+
+    # Handle standard SAE with decoder.weight
+    elif hasattr(model, 'decoder') and model.decoder is not None:
+        if hasattr(model.decoder, 'weight') and model.decoder.weight.grad is not None:
+            with torch.no_grad():
+                W = model.decoder.weight.data  # [hidden_dim, latent_dim]
+                G = model.decoder.weight.grad
+
+                parallel_component = (W * G).sum(dim=0, keepdim=True)
+                G_perp = G - W * parallel_component
+
+                model.decoder.weight.grad = G_perp
+
+
 def create_sae(
     architecture_type: str,
     hidden_dim: int,
@@ -551,16 +1034,22 @@ def create_sae(
     """
     architecture_type = architecture_type.lower()
 
+    # JumpReLU-specific parameters to filter out for non-JumpReLU architectures
+    jumprelu_params = {'initial_threshold', 'bandwidth', 'sparsity_coeff', 'normalize_decoder', 'tied_weights'}
+
     if architecture_type == 'standard':
+        # Filter out JumpReLU-specific and unsupported parameters
+        standard_kwargs = {k: v for k, v in kwargs.items() if k not in jumprelu_params}
         return SparseAutoencoder(
             hidden_dim=hidden_dim,
             latent_dim=latent_dim,
             l1_alpha=l1_alpha,
-            **kwargs
+            **standard_kwargs
         )
     elif architecture_type == 'skip':
-        # SkipAutoencoder doesn't support ghost_gradient_penalty
-        skip_kwargs = {k: v for k, v in kwargs.items() if k != 'ghost_gradient_penalty'}
+        # SkipAutoencoder doesn't support ghost_gradient_penalty or JumpReLU params
+        skip_kwargs = {k: v for k, v in kwargs.items()
+                       if k != 'ghost_gradient_penalty' and k not in jumprelu_params}
         return SkipAutoencoder(
             hidden_dim=hidden_dim,
             latent_dim=latent_dim,
@@ -568,9 +1057,10 @@ def create_sae(
             **skip_kwargs
         )
     elif architecture_type == 'transcoder':
-        # Transcoder doesn't support ghost_gradient_penalty
+        # Transcoder doesn't support ghost_gradient_penalty or JumpReLU params
         output_dim = kwargs.pop('output_dim', hidden_dim)
-        transcoder_kwargs = {k: v for k, v in kwargs.items() if k != 'ghost_gradient_penalty'}
+        transcoder_kwargs = {k: v for k, v in kwargs.items()
+                             if k != 'ghost_gradient_penalty' and k not in jumprelu_params}
         return Transcoder(
             input_dim=hidden_dim,
             output_dim=output_dim,
@@ -578,8 +1068,29 @@ def create_sae(
             l1_alpha=l1_alpha,
             **transcoder_kwargs
         )
+    elif architecture_type == 'jumprelu':
+        # JumpReLU SAE with learnable thresholds (Gemma Scope architecture)
+        # Extract JumpReLU-specific parameters
+        initial_threshold = kwargs.pop('initial_threshold', 0.001)
+        bandwidth = kwargs.pop('bandwidth', 0.001)
+        normalize_decoder = kwargs.pop('normalize_decoder', True)
+        tied_weights = kwargs.pop('tied_weights', False)
+        normalize_activations = kwargs.pop('normalize_activations', 'constant_norm_rescale')
+        # JumpReLU uses L0 loss with sparsity_coeff instead of L1
+        # Map l1_alpha to sparsity_coeff for consistency
+        sparsity_coeff = kwargs.pop('sparsity_coeff', l1_alpha)
+        return JumpReLUSAE(
+            d_model=hidden_dim,
+            d_sae=latent_dim,
+            sparsity_coeff=sparsity_coeff,
+            initial_threshold=initial_threshold,
+            bandwidth=bandwidth,
+            normalize_decoder=normalize_decoder,
+            tied_weights=tied_weights,
+            normalize_activations=normalize_activations,
+        )
     else:
         raise ValueError(
             f"Unknown architecture_type: {architecture_type}. "
-            f"Must be one of: 'standard', 'skip', 'transcoder'"
+            f"Must be one of: 'standard', 'skip', 'transcoder', 'jumprelu'"
         )

@@ -51,6 +51,9 @@ class TrainingMetric(Base):
     l1_sparsity = Column(Float, nullable=True)  # L1 sparsity penalty
     dead_neurons = Column(Integer, nullable=True)  # Count of dead neurons
 
+    # Reconstruction quality metrics
+    fvu = Column(Float, nullable=True)  # Fraction of Variance Unexplained (var_residuals / var_original)
+
     # Training dynamics
     learning_rate = Column(Float, nullable=True)  # Current learning rate
     grad_norm = Column(Float, nullable=True)  # Gradient norm

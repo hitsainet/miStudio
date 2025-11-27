@@ -19,7 +19,7 @@ from celery import Task
 from datasets import load_from_disk
 
 from .base_task import DatabaseTask
-from ..ml.sparse_autoencoder import create_sae
+from ..ml.sparse_autoencoder import create_sae, project_decoder_gradients, JumpReLUSAE
 from ..models.training import Training, TrainingStatus
 from ..models.dataset import Dataset
 from ..models.model import Model
@@ -96,6 +96,7 @@ class TrainingTask(DatabaseTask):
         gpu_memory_used_mb: Optional[float] = None,
         samples_per_second: Optional[float] = None,
         layer_idx: Optional[int] = None,
+        fvu: Optional[float] = None,
     ):
         """
         Log training metric to database.
@@ -112,6 +113,7 @@ class TrainingTask(DatabaseTask):
             gpu_memory_used_mb: GPU memory usage
             samples_per_second: Training throughput
             layer_idx: Layer index (None for aggregated metrics)
+            fvu: Fraction of Variance Unexplained (var_residuals / var_original)
         """
         with self.get_db() as db:
             from ..models.training_metric import TrainingMetric
@@ -128,6 +130,7 @@ class TrainingTask(DatabaseTask):
                 gpu_memory_used_mb=gpu_memory_used_mb,
                 samples_per_second=samples_per_second,
                 layer_idx=layer_idx,
+                fvu=fvu,
             )
             db.add(metric)
             db.commit()
@@ -326,22 +329,35 @@ def train_sae_task(
 
         for layer_idx in training_layers:
             # Create SAE for this layer
+            architecture_type = hp.get('architecture_type', 'standard')
             model = create_sae(
-                architecture_type=hp.get('architecture_type', 'standard'),
+                architecture_type=architecture_type,
                 hidden_dim=hp['hidden_dim'],
                 latent_dim=hp['latent_dim'],
                 l1_alpha=hp['l1_alpha'],
                 ghost_gradient_penalty=hp.get('ghost_gradient_penalty', 0.0),
                 normalize_activations=hp.get('normalize_activations', 'constant_norm_rescale'),
                 top_k_sparsity=hp.get('top_k_sparsity', None),
+                # JumpReLU-specific parameters
+                initial_threshold=hp.get('initial_threshold', 0.001),
+                bandwidth=hp.get('bandwidth', 0.001),
+                sparsity_coeff=hp.get('sparsity_coeff'),
+                normalize_decoder=hp.get('normalize_decoder', True),
             ).to(device)
             models[layer_idx] = model
 
             # Initialize optimizer for this layer
+            # JumpReLU uses Adam with betas=(0.0, 0.999) per Gemma Scope paper
+            if architecture_type == 'jumprelu':
+                adam_betas = (0.0, 0.999)
+            else:
+                adam_betas = (0.9, 0.999)  # Default Adam betas
+
             optimizer = optim.Adam(
                 model.parameters(),
                 lr=hp['learning_rate'],
                 weight_decay=hp.get('weight_decay', 0.0),
+                betas=adam_betas,
             )
             optimizers[layer_idx] = optimizer
 
@@ -719,6 +735,7 @@ def train_sae_task(
                 layer_losses = {}
                 layer_sparsities = {}
                 layer_dead_neurons = {}
+                layer_fvu = {}
 
                 for layer_idx in training_layers:
                     x = layer_activations[layer_idx]
@@ -771,6 +788,11 @@ def train_sae_task(
                         if grad_clip_norm:
                             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
 
+                        # JumpReLU: Project decoder gradients orthogonal to decoder columns
+                        # This prevents the decoder from learning to increase norms
+                        if isinstance(model, JumpReLUSAE):
+                            project_decoder_gradients(model)
+
                         # Optimizer step with scaler
                         if scaler is not None:
                             scaler.step(optimizer)
@@ -778,17 +800,26 @@ def train_sae_task(
                         else:
                             optimizer.step()
 
+                        # JumpReLU: Normalize decoder columns to unit norm after each step
+                        if isinstance(model, JumpReLUSAE):
+                            model.normalize_decoder()
+
                         scheduler.step()
 
                     # Store layer metrics
                     layer_losses[layer_idx] = loss.item() * grad_accum_steps  # Undo accumulation scaling
                     layer_sparsities[layer_idx] = (z != 0).float().mean().item()
                     layer_dead_neurons[layer_idx] = (z == 0).all(dim=0).sum().item()
+                    # Store FVU if available (JumpReLU SAE computes this)
+                    layer_fvu[layer_idx] = losses.get('fvu', None)
 
                 # Calculate aggregated metrics across all layers
                 avg_loss = sum(layer_losses.values()) / len(layer_losses)
                 avg_sparsity = sum(layer_sparsities.values()) / len(layer_sparsities)
                 avg_dead_neurons = sum(layer_dead_neurons.values()) / len(layer_dead_neurons)
+                # Calculate avg FVU only if any layer has FVU (JumpReLU)
+                fvu_values = [v for v in layer_fvu.values() if v is not None]
+                avg_fvu = sum(fvu_values) / len(fvu_values) if fvu_values else None
 
                 # Clear GPU cache after every step
                 if torch.cuda.is_available():
@@ -884,6 +915,7 @@ def train_sae_task(
                     learning_rate=current_lr,
                     gpu_memory_used_mb=gpu_memory_mb,
                     layer_idx=None,  # Aggregated across all layers
+                    fvu=avg_fvu,  # FVU metric (for JumpReLU SAE)
                 )
 
                 # Log per-layer metrics
@@ -896,6 +928,7 @@ def train_sae_task(
                         dead_neurons=int(layer_dead_neurons[layer_idx]),
                         learning_rate=current_lr,
                         layer_idx=layer_idx,
+                        fvu=layer_fvu.get(layer_idx),  # Per-layer FVU
                     )
 
                 # Update progress with aggregated metrics

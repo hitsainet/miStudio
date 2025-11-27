@@ -581,6 +581,7 @@ export const TrainingPanel: React.FC = () => {
                 <option value={SAEArchitectureType.STANDARD}>Standard</option>
                 <option value={SAEArchitectureType.SKIP}>Skip Connection</option>
                 <option value={SAEArchitectureType.TRANSCODER}>Transcoder</option>
+                <option value={SAEArchitectureType.JUMPRELU}>JumpReLU (Gemma Scope)</option>
               </select>
             </div>
 

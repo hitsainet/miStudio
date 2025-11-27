@@ -19,6 +19,7 @@ class SAEArchitectureType(str, Enum):
     STANDARD = "standard"
     SKIP = "skip"
     TRANSCODER = "transcoder"
+    JUMPRELU = "jumprelu"  # Gemma Scope architecture with learnable thresholds
 
 
 class TrainingHyperparameters(BaseModel):
@@ -61,6 +62,30 @@ class TrainingHyperparameters(BaseModel):
     normalize_activations: Optional[str] = Field(
         "constant_norm_rescale",
         description="Activation normalization method: 'constant_norm_rescale' (SAELens standard) or 'none'"
+    )
+
+    # JumpReLU-specific parameters (Gemma Scope architecture)
+    initial_threshold: Optional[float] = Field(
+        0.001,
+        gt=0,
+        le=1.0,
+        description="Initial threshold value for JumpReLU activation (default: 0.001)"
+    )
+    bandwidth: Optional[float] = Field(
+        0.001,
+        gt=0,
+        le=1.0,
+        description="KDE bandwidth (epsilon) for STE gradient estimation in JumpReLU (default: 0.001)"
+    )
+    sparsity_coeff: Optional[float] = Field(
+        None,
+        gt=0,
+        le=1.0,
+        description="L0 sparsity coefficient for JumpReLU (default: 6e-4 per Gemma Scope). Overrides l1_alpha for JumpReLU."
+    )
+    normalize_decoder: bool = Field(
+        True,
+        description="Whether to normalize decoder columns to unit norm after each step (required for JumpReLU)"
     )
 
     # Training
@@ -243,6 +268,9 @@ class TrainingMetricResponse(BaseModel):
     l0_sparsity: Optional[float] = Field(None, description="L0 sparsity")
     l1_sparsity: Optional[float] = Field(None, description="L1 sparsity penalty")
     dead_neurons: Optional[int] = Field(None, description="Dead neuron count")
+
+    # Reconstruction quality metrics
+    fvu: Optional[float] = Field(None, description="Fraction of Variance Unexplained (var_residuals / var_original)")
 
     # Training dynamics
     learning_rate: Optional[float] = Field(None, description="Learning rate")

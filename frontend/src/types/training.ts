@@ -51,6 +51,7 @@ export enum SAEArchitectureType {
   STANDARD = 'standard',
   SKIP = 'skip',
   TRANSCODER = 'transcoder',
+  JUMPRELU = 'jumprelu',  // Gemma Scope architecture with learnable thresholds
 }
 
 /**
@@ -77,6 +78,16 @@ export interface HyperparametersConfig {
   target_l0?: number;
   /** Top-K sparsity percentage (e.g., 5 for 5%). Guarantees exact sparsity. */
   top_k_sparsity?: number;
+
+  // JumpReLU-specific parameters (Gemma Scope architecture)
+  /** Initial threshold value for JumpReLU activation (default: 0.001) */
+  initial_threshold?: number;
+  /** KDE bandwidth for STE gradient estimation in JumpReLU (default: 0.001) */
+  bandwidth?: number;
+  /** L0 sparsity coefficient for JumpReLU (default: 6e-4). Overrides l1_alpha for JumpReLU. */
+  sparsity_coeff?: number;
+  /** Whether to normalize decoder columns to unit norm (required for JumpReLU) */
+  normalize_decoder?: boolean;
 
   // Training
   /** Initial learning rate */

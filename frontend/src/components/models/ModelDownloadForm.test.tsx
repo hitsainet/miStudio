@@ -626,7 +626,7 @@ describe('ModelDownloadForm', () => {
 
     it('should detect unsupported architecture and show helpful message', async () => {
       const unsupportedArchError = new Error(
-        'Unsupported architecture: CoDA. Supported architectures: falcon, gpt2, gpt_neox, llama, mistral, mixtral, phi, phi3, phi3_v, pythia, qwen'
+        'Unsupported architecture: CoDA. Supported architectures: falcon, gemma, gemma2, gemma3, gpt2, gpt_neox, llama, mistral, mixtral, phi, phi3, phi3_v, pythia, qwen, qwen2, qwen3'
       );
       mockOnDownload.mockRejectedValueOnce(unsupportedArchError);
 

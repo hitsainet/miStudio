@@ -15,6 +15,9 @@ from src.ml.sparse_autoencoder import (
     SkipAutoencoder,
     Transcoder,
     create_sae,
+    JumpReLU,
+    JumpReLUSAE,
+    project_decoder_gradients,
 )
 
 
@@ -573,3 +576,477 @@ class TestSparseAutoencoderGradientFlow:
         for name, param in model.named_parameters():
             if param.grad is not None:
                 assert not torch.isinf(param.grad).any(), f"Gradient for {name} contains Inf"
+
+
+class TestJumpReLUActivation:
+    """Test JumpReLU activation module with learnable thresholds."""
+
+    def test_jumprelu_forward_pass(self):
+        """Test JumpReLU forward pass applies threshold gating correctly."""
+        num_features = 1024
+        batch_size = 32
+
+        jumprelu = JumpReLU(num_features=num_features, initial_threshold=0.5)
+
+        # Create input with some values below and above threshold
+        z = torch.randn(batch_size, num_features)
+
+        output = jumprelu(z)
+
+        # Output should be zero where input is below threshold
+        threshold = jumprelu.threshold.detach()
+        expected_zeros = (z <= threshold).float()
+        actual_zeros = (output == 0).float()
+
+        # Check that values below threshold are zeroed
+        assert (actual_zeros >= expected_zeros).all(), \
+            "Values below threshold should be zeroed"
+
+    def test_jumprelu_threshold_is_learnable(self):
+        """Test that JumpReLU threshold is learnable (has gradients)."""
+        num_features = 1024
+        batch_size = 32
+
+        jumprelu = JumpReLU(num_features=num_features, initial_threshold=0.1)
+
+        z = torch.randn(batch_size, num_features, requires_grad=True)
+        output = jumprelu(z)
+        loss = output.sum()
+        loss.backward()
+
+        # Threshold parameter should have gradients
+        assert jumprelu.log_threshold.grad is not None, \
+            "Threshold parameter should have gradients"
+
+    def test_jumprelu_ste_gradient_approximation(self):
+        """Test that STE provides gradient approximation for threshold."""
+        num_features = 100
+        batch_size = 16
+        bandwidth = 0.01
+
+        jumprelu = JumpReLU(
+            num_features=num_features,
+            initial_threshold=0.1,
+            bandwidth=bandwidth,
+        )
+
+        # Create input with values around threshold
+        z = torch.randn(batch_size, num_features, requires_grad=True)
+        output = jumprelu(z)
+
+        # Compute loss that depends on output
+        loss = output.sum()
+        loss.backward()
+
+        # Check that gradients exist and are finite
+        assert not torch.isnan(jumprelu.log_threshold.grad).any(), \
+            "Threshold gradients should not be NaN"
+        assert not torch.isinf(jumprelu.log_threshold.grad).any(), \
+            "Threshold gradients should not be Inf"
+
+    def test_jumprelu_threshold_stays_positive(self):
+        """Test that threshold stays positive via log parameterization."""
+        num_features = 100
+
+        jumprelu = JumpReLU(num_features=num_features, initial_threshold=0.001)
+
+        # Threshold should be positive
+        assert (jumprelu.threshold > 0).all(), \
+            "Threshold should be positive"
+
+        # Even after optimization steps
+        optimizer = torch.optim.Adam([jumprelu.log_threshold], lr=0.1)
+        for _ in range(10):
+            z = torch.randn(32, num_features)
+            output = jumprelu(z)
+            loss = -output.sum()  # Try to increase threshold
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        assert (jumprelu.threshold > 0).all(), \
+            "Threshold should remain positive after optimization"
+
+
+class TestJumpReLUSAEForwardPass:
+    """Test JumpReLUSAE forward pass and output shapes."""
+
+    def test_forward_pass_output_shapes(self):
+        """Test that forward pass returns correct output shapes."""
+        d_model = 768
+        d_sae = 8192
+        batch_size = 32
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        x_reconstructed, z, losses = model(x, return_loss=True)
+
+        assert x_reconstructed.shape == (batch_size, d_model), \
+            "Reconstructed output shape mismatch"
+        assert z.shape == (batch_size, d_sae), \
+            "Latent representation shape mismatch"
+
+    def test_forward_pass_no_nan_values(self):
+        """Test that forward pass produces no NaN values."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        x_reconstructed, z, losses = model(x, return_loss=True)
+
+        assert not torch.isnan(x_reconstructed).any(), \
+            "Reconstructed output contains NaN"
+        assert not torch.isnan(z).any(), \
+            "Latent representation contains NaN"
+        assert not torch.isnan(losses['loss']), \
+            "Total loss is NaN"
+
+    def test_latent_activations_are_non_negative(self):
+        """Test that latent activations are non-negative (after JumpReLU)."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        _, z, _ = model(x, return_loss=True)
+
+        assert (z >= 0).all(), \
+            "Latent activations contain negative values"
+
+
+class TestJumpReLUSAELossCalculation:
+    """Test JumpReLUSAE loss calculation with L0 penalty."""
+
+    def test_loss_has_all_components(self):
+        """Test that loss dict contains all expected components."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        _, _, losses = model(x, return_loss=True)
+
+        # Check all loss components exist
+        assert 'loss' in losses, "Total loss missing"
+        assert 'loss_reconstruction' in losses, "Reconstruction loss missing"
+        assert 'loss_l0' in losses, "L0 loss missing"
+        assert 'l0_sparsity' in losses, "L0 sparsity missing"
+        assert 'fvu' in losses, "FVU missing"
+
+    def test_l0_sparsity_calculation(self):
+        """Test that L0 sparsity is fraction of active (non-zero) features."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        _, z, losses = model(x, return_loss=True)
+
+        # Manually compute L0 sparsity
+        expected_l0 = (z > 0).float().mean()
+
+        # Compare with model's L0 sparsity
+        assert torch.allclose(losses['l0_sparsity'], expected_l0, atol=1e-6), \
+            "L0 sparsity does not match fraction of active features"
+
+    def test_fvu_calculation(self):
+        """Test FVU (Fraction of Variance Unexplained) calculation."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        x_reconstructed, _, losses = model(x, return_loss=True)
+
+        # Manually compute FVU: var(residuals) / var(original)
+        residuals = x - x_reconstructed
+        var_residuals = residuals.var()
+        var_original = x.var()
+        expected_fvu = (var_residuals / var_original).item()
+
+        # Compare with model's FVU
+        assert abs(losses['fvu'] - expected_fvu) < 1e-5, \
+            "FVU does not match manual calculation"
+
+    def test_total_loss_composition(self):
+        """Test that total loss = reconstruction_loss + l0_loss (coefficient already applied)."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+        sparsity_coeff = 6e-4
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=sparsity_coeff,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        _, _, losses = model(x, return_loss=True)
+
+        # loss_l0 already includes sparsity_coeff (lambda * L0_count)
+        expected_total = losses['loss_reconstruction'] + losses['loss_l0']
+
+        # Compare with model's total loss
+        assert torch.allclose(losses['loss'], expected_total, atol=1e-5), \
+            "Total loss does not match sum of components"
+
+
+class TestJumpReLUSAEDecoderNormalization:
+    """Test JumpReLUSAE decoder normalization."""
+
+    def test_decoder_columns_are_unit_norm(self):
+        """Test that decoder columns have unit norm after normalization."""
+        d_model = 512
+        d_sae = 4096
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            normalize_decoder=True,
+        )
+
+        # Call normalize_decoder
+        model.normalize_decoder()
+
+        # Check decoder column norms
+        column_norms = model.W_dec.norm(dim=0)
+
+        # All column norms should be 1.0
+        assert torch.allclose(column_norms, torch.ones(d_sae), atol=1e-5), \
+            "Decoder columns should have unit norm"
+
+    def test_normalize_decoder_preserves_direction(self):
+        """Test that normalization preserves column directions."""
+        d_model = 512
+        d_sae = 100  # Smaller for easier testing
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            normalize_decoder=False,  # Start without normalization
+        )
+
+        # Store original directions
+        original_directions = model.W_dec.data / model.W_dec.data.norm(dim=0, keepdim=True)
+
+        # Normalize
+        model.normalize_decoder()
+
+        # Check directions are preserved
+        new_directions = model.W_dec.data / model.W_dec.data.norm(dim=0, keepdim=True)
+
+        assert torch.allclose(original_directions, new_directions, atol=1e-5), \
+            "Normalization should preserve column directions"
+
+
+class TestGradientProjection:
+    """Test gradient projection utility function."""
+
+    def test_project_decoder_gradients_orthogonality(self):
+        """Test that projected gradients are orthogonal to decoder columns."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+        )
+
+        # Forward and backward pass
+        x = torch.randn(batch_size, d_model)
+        _, _, losses = model(x, return_loss=True)
+        losses['loss'].backward()
+
+        # Project gradients
+        project_decoder_gradients(model)
+
+        # Check orthogonality: dot product of gradient with decoder column should be ~0
+        W = model.W_dec.data
+        G = model.W_dec.grad
+
+        # Compute dot products for each column
+        dot_products = (W * G).sum(dim=0)
+
+        # All dot products should be close to 0
+        assert torch.allclose(dot_products, torch.zeros(d_sae), atol=1e-5), \
+            "Projected gradients should be orthogonal to decoder columns"
+
+    def test_project_decoder_gradients_preserves_magnitude_component(self):
+        """Test that projection removes only parallel component."""
+        d_model = 512
+        d_sae = 100
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+        )
+
+        # Forward and backward pass
+        x = torch.randn(batch_size, d_model)
+        _, _, losses = model(x, return_loss=True)
+        losses['loss'].backward()
+
+        # Store original gradient
+        original_grad = model.W_dec.grad.clone()
+
+        # Project gradients
+        project_decoder_gradients(model)
+
+        # The projected gradient should have smaller or equal norm
+        # (we removed the parallel component)
+        original_norm = original_grad.norm()
+        projected_norm = model.W_dec.grad.norm()
+
+        assert projected_norm <= original_norm + 1e-5, \
+            "Projected gradient norm should be <= original"
+
+
+class TestJumpReLUSAEFactory:
+    """Test create_sae factory function for JumpReLU."""
+
+    def test_create_jumprelu_sae(self):
+        """Test creating JumpReLU SAE via factory."""
+        model = create_sae(
+            architecture_type='jumprelu',
+            hidden_dim=512,
+            latent_dim=4096,
+            l1_alpha=6e-4,
+        )
+
+        assert isinstance(model, JumpReLUSAE), \
+            "Should create JumpReLUSAE"
+
+    def test_create_jumprelu_with_custom_params(self):
+        """Test creating JumpReLU SAE with custom parameters."""
+        model = create_sae(
+            architecture_type='jumprelu',
+            hidden_dim=768,
+            latent_dim=8192,
+            l1_alpha=6e-4,
+            initial_threshold=0.01,
+            bandwidth=0.005,
+            sparsity_coeff=1e-3,
+        )
+
+        assert isinstance(model, JumpReLUSAE)
+        # Check threshold initialization
+        expected_threshold = 0.01
+        actual_threshold = model.activation.threshold.mean().item()
+        assert abs(actual_threshold - expected_threshold) < 1e-3, \
+            "Initial threshold should match specified value"
+
+
+class TestJumpReLUSAEGradientFlow:
+    """Test gradient flow through JumpReLU SAE."""
+
+    def test_gradients_flow_through_model(self):
+        """Test that gradients flow through the model during backprop."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        _, _, losses = model(x, return_loss=True)
+
+        # Backward pass
+        loss = losses['loss']
+        loss.backward()
+
+        # Check that gradients exist for all parameters
+        for name, param in model.named_parameters():
+            assert param.grad is not None, f"Gradient for {name} is None"
+
+    def test_threshold_gradients_flow(self):
+        """Test that gradients flow to threshold parameters via STE."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        _, _, losses = model(x, return_loss=True)
+
+        loss = losses['loss']
+        loss.backward()
+
+        # Check threshold gradients specifically
+        threshold_grad = model.activation.log_threshold.grad
+        assert threshold_grad is not None, \
+            "Threshold gradient should not be None"
+        assert not torch.isnan(threshold_grad).any(), \
+            "Threshold gradient should not contain NaN"
+        assert not torch.isinf(threshold_grad).any(), \
+            "Threshold gradient should not contain Inf"
+
+    def test_no_nan_gradients(self):
+        """Test that gradients contain no NaN values."""
+        d_model = 512
+        d_sae = 4096
+        batch_size = 16
+
+        model = JumpReLUSAE(
+            d_model=d_model,
+            d_sae=d_sae,
+            sparsity_coeff=6e-4,
+        )
+
+        x = torch.randn(batch_size, d_model)
+        _, _, losses = model(x, return_loss=True)
+
+        loss = losses['loss']
+        loss.backward()
+
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                assert not torch.isnan(param.grad).any(), \
+                    f"Gradient for {name} contains NaN"

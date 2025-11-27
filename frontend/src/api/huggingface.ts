@@ -16,6 +16,9 @@ const HF_DATASETS_SERVER_API = 'https://datasets-server.huggingface.co';
 // Supported model architectures (based on backend error message)
 const SUPPORTED_ARCHITECTURES = [
   'falcon',
+  'gemma',
+  'gemma2',
+  'gemma3',
   'gpt2',
   'gpt_neox',
   'llama',

@@ -37,6 +37,9 @@ SUPPORTED_ARCHITECTURES = {
     "qwen2",  # Qwen2 models
     "qwen3",  # Qwen3 models (added to transformers 2025-03-31)
     "falcon",
+    "gemma",   # Gemma models (google/gemma-*)
+    "gemma2",  # Gemma 2 models (google/gemma-2-2b, etc.)
+    "gemma3",  # Gemma 3 models (future)
 }
 
 

@@ -136,7 +136,7 @@ class HookManager:
         architecture = architecture.lower()
 
         # Common paths for different architectures
-        if architecture in ["llama", "mistral", "mixtral"]:
+        if architecture in ["llama", "mistral", "mixtral", "gemma", "gemma2", "gemma3"]:
             if hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
                 return self.model.model.layers
         elif architecture == "gpt2":

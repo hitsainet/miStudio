@@ -423,7 +423,57 @@ def is_mistudio_format(path: Path) -> bool:
         except Exception:
             return False
 
+    # Check for layer_* subdirectories (multi-layer SAE structure)
+    layer_dirs = list(path.glob("layer_*"))
+    if layer_dirs:
+        for layer_dir in layer_dirs:
+            checkpoint_path = layer_dir / "checkpoint.safetensors"
+            if checkpoint_path.exists():
+                try:
+                    weights = load_file(str(checkpoint_path), device="cpu")
+                    if any(k.startswith("model.") for k in weights.keys()):
+                        return True
+                except Exception:
+                    continue
+
     return False
+
+
+def find_mistudio_checkpoint(path: Path) -> Optional[Path]:
+    """
+    Find miStudio checkpoint file in various directory structures.
+
+    Handles:
+    1. Direct checkpoint file
+    2. checkpoint.safetensors in directory
+    3. layer_*/checkpoint.safetensors subdirectories
+
+    Args:
+        path: Base path to search
+
+    Returns:
+        Path to checkpoint file, or None if not found
+    """
+    path = Path(path)
+
+    # Direct file
+    if path.suffix == ".safetensors" and path.exists():
+        return path
+
+    # Direct checkpoint in directory
+    checkpoint_path = path / "checkpoint.safetensors"
+    if checkpoint_path.exists():
+        return checkpoint_path
+
+    # Check layer subdirectories
+    layer_dirs = sorted(path.glob("layer_*"))
+    if layer_dirs:
+        # Return first layer's checkpoint (for single-layer SAEs)
+        checkpoint_path = layer_dirs[0] / "checkpoint.safetensors"
+        if checkpoint_path.exists():
+            return checkpoint_path
+
+    return None
 
 
 def get_hook_name_from_layer(layer: int, hook_type: str = "resid_post") -> str:
@@ -471,6 +521,7 @@ def load_sae_auto_detect(
     Supports:
     1. Community Standard format (cfg.json + sae_weights.safetensors)
     2. miStudio checkpoint format (checkpoint.safetensors with model.* keys)
+    3. Multi-layer SAE structure (layer_*/checkpoint.safetensors)
 
     Args:
         path: Path to SAE directory or checkpoint file
@@ -486,11 +537,11 @@ def load_sae_auto_detect(
         state_dict, config, _ = load_sae_community_format(path, device)
         return state_dict, config, "community_standard"
 
-    # Check for miStudio format
+    # Check for miStudio format (including layer subdirectories)
     if is_mistudio_format(path):
-        checkpoint_path = path
-        if path.is_dir():
-            checkpoint_path = path / "checkpoint.safetensors"
+        checkpoint_path = find_mistudio_checkpoint(path)
+        if checkpoint_path is None:
+            raise ValueError(f"Could not find checkpoint file in {path}")
 
         weights = load_file(str(checkpoint_path), device=device)
 

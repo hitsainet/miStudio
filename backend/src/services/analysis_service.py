@@ -34,7 +34,7 @@ from src.schemas.feature import (
     CorrelatedFeature,
     AblationResponse
 )
-from src.ml.sparse_autoencoder import SparseAutoencoder
+from src.ml.sparse_autoencoder import SparseAutoencoder, create_sae
 from src.ml.model_loader import load_model_from_hf
 from src.services.checkpoint_service import CheckpointService
 
@@ -124,11 +124,23 @@ class AnalysisService:
 
             logger.info(f"Loading SAE checkpoint from {checkpoint.storage_path}")
 
-            # Initialize and load SAE model
-            sae = SparseAutoencoder(
-                hidden_dim=training.hyperparameters["hidden_dim"],
-                latent_dim=training.hyperparameters["latent_dim"],
-                l1_alpha=training.hyperparameters.get("l1_alpha", 0.001)
+            # Initialize SAE model using factory to support all architectures (standard, JumpReLU, etc.)
+            hp = training.hyperparameters
+            architecture_type = hp.get('architecture_type', 'standard')
+            logger.info(f"Creating {architecture_type} SAE for logit lens analysis")
+
+            sae = create_sae(
+                architecture_type=architecture_type,
+                hidden_dim=hp["hidden_dim"],
+                latent_dim=hp["latent_dim"],
+                l1_alpha=hp.get("l1_alpha", 0.001),
+                # JumpReLU-specific parameters (ignored for other architectures)
+                initial_threshold=hp.get("initial_threshold"),
+                bandwidth=hp.get("bandwidth"),
+                sparsity_coeff=hp.get("sparsity_coeff"),
+                normalize_decoder=hp.get("normalize_decoder"),
+                tied_weights=hp.get("tied_weights"),
+                normalize_activations=hp.get("normalize_activations"),
             )
 
             CheckpointService.load_checkpoint(
@@ -155,11 +167,15 @@ class AnalysisService:
             logger.info(f"Loading base model {model_record.repo_id}")
 
             # Load base model and tokenizer
+            # Use local_files_only=True when model is already downloaded to avoid
+            # HuggingFace API calls that require authentication for gated models
+            model_is_downloaded = model_record.file_path and Path(model_record.file_path).exists()
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
-                cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
-                device_map=device
+                cache_dir=Path(model_record.file_path) if model_record.file_path else None,
+                device_map=device,
+                local_files_only=model_is_downloaded,
             )
             base_model.eval()
 
@@ -170,9 +186,33 @@ class AnalysisService:
             # where W_dec is the SAE decoder weights and W_U is the LM head weights
             with torch.no_grad():
                 # Get decoder direction for this specific feature
-                # sae.decoder.weight shape: [hidden_dim, latent_dim]
+                # Decoder weight shape: [hidden_dim, latent_dim]
                 # We want the column corresponding to this feature: [hidden_dim]
-                decoder_direction = sae.decoder.weight[:, feature.neuron_index]
+                #
+                # Different SAE architectures store decoder weights differently:
+                # - Standard SAE: sae.decoder.weight (nn.Linear module)
+                # - JumpReLU SAE: sae.decoder_weight (property returning nn.Parameter)
+
+                # Debug: Log SAE type and available attributes
+                logger.info(f"SAE type: {type(sae).__name__}")
+                logger.info(f"SAE has 'decoder' attr: {hasattr(sae, 'decoder')}")
+                if hasattr(sae, 'decoder'):
+                    logger.info(f"sae.decoder type: {type(sae.decoder)}")
+                    logger.info(f"sae.decoder is None: {sae.decoder is None}")
+                    if sae.decoder is not None:
+                        logger.info(f"sae.decoder has 'weight': {hasattr(sae.decoder, 'weight')}")
+                logger.info(f"SAE has 'decoder_weight' attr: {hasattr(sae, 'decoder_weight')}")
+
+                if hasattr(sae, 'decoder') and sae.decoder is not None and hasattr(sae.decoder, 'weight'):
+                    # Standard SAE with nn.Linear decoder
+                    logger.info(f"Using standard SAE decoder.weight, shape: {sae.decoder.weight.shape}")
+                    decoder_direction = sae.decoder.weight[:, feature.neuron_index]
+                elif hasattr(sae, 'decoder_weight'):
+                    # JumpReLU SAE with decoder_weight property
+                    logger.info(f"Using JumpReLU SAE decoder_weight, shape: {sae.decoder_weight.shape}")
+                    decoder_direction = sae.decoder_weight[:, feature.neuron_index]
+                else:
+                    raise ValueError(f"Unknown SAE architecture: cannot find decoder weights")
 
                 # Get the unembedding matrix (LM head weights)
                 # base_model.lm_head.weight shape: [vocab_size, hidden_dim]

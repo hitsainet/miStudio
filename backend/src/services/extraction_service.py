@@ -267,7 +267,7 @@ class ExtractionService:
             )
             training = result.scalar_one_or_none()
             if training and extraction_job.progress:
-                total_features = training.hyperparameters.get("dict_size", 16384)
+                total_features = training.hyperparameters.get("latent_dim", 16384)
                 features_extracted = int(total_features * extraction_job.progress)
 
         return {
@@ -377,7 +377,7 @@ class ExtractionService:
             elif extraction_job.status == ExtractionStatus.EXTRACTING.value:
                 # Estimate based on progress
                 if training and extraction_job.progress:
-                    total_features = training.hyperparameters.get("dict_size", 16384)
+                    total_features = training.hyperparameters.get("latent_dim", 16384)
                     features_extracted = int(total_features * extraction_job.progress)
 
             extractions_list.append({
@@ -744,10 +744,21 @@ class ExtractionService:
             # Default 0.001 = 0.1% means neurons must fire on at least 1 in 1000 samples
             min_activation_frequency = config.get("min_activation_frequency", 0.001)
 
+            # Look up model to get vocab_size for accurate memory calculation
+            # Models like Gemma-2-2b have 256k vocab (8x typical) which massively impacts memory!
+            model_record_for_config = self.db.query(ModelRecord).filter(
+                ModelRecord.id == training.model_id
+            ).first()
+            model_vocab_size = 32000  # Default fallback
+            if model_record_for_config and model_record_for_config.architecture_config:
+                model_vocab_size = model_record_for_config.architecture_config.get("vocab_size", 32000)
+                logger.info(f"Model vocab_size from architecture_config: {model_vocab_size}")
+
             # Calculate recommended resource settings based on available system resources
             recommended_settings = ResourceConfig.get_optimal_settings(
                 training_config=training.hyperparameters,
-                extraction_config=config
+                extraction_config=config,
+                model_vocab_size=model_vocab_size
             )
 
             # Use provided resource settings or fall back to recommended
@@ -877,11 +888,15 @@ class ExtractionService:
             logger.info(f"Loading base model: {model_record.repo_id}")
 
             # Load base model for activation extraction
+            # Use local_files_only=True when model is already downloaded to avoid
+            # HuggingFace API calls that require authentication for gated models
+            model_is_downloaded = model_record.file_path and Path(model_record.file_path).exists()
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
-                cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
-                device_map=device
+                cache_dir=Path(model_record.file_path) if model_record.file_path else None,
+                device_map=device,
+                local_files_only=model_is_downloaded,
             )
             base_model.eval()
 

@@ -68,6 +68,7 @@ export interface SelectedFeature {
   strength: number; // -100 to +300
   label: string | null;
   color: FeatureColor;
+  feature_id: string | null; // Database feature ID if extracted
 }
 
 /**

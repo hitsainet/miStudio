@@ -8,6 +8,7 @@
  * - Strength slider with warning zones
  * - Remove button
  * - Drag handle for reordering
+ * - Right-click context menu for viewing feature details
  */
 
 import { GripVertical, X, Hash, Layers } from 'lucide-react';
@@ -18,6 +19,7 @@ interface SelectedFeatureCardProps {
   feature: SelectedFeature;
   onStrengthChange: (strength: number) => void;
   onRemove: () => void;
+  onContextMenu?: (event: React.MouseEvent, feature: SelectedFeature) => void;
   isDragging?: boolean;
   dragHandleProps?: Record<string, any>;
 }
@@ -26,16 +28,26 @@ export function SelectedFeatureCard({
   feature,
   onStrengthChange,
   onRemove,
+  onContextMenu,
   isDragging = false,
   dragHandleProps,
 }: SelectedFeatureCardProps) {
   const colorClasses = FEATURE_COLORS[feature.color];
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    if (onContextMenu) {
+      event.preventDefault();
+      event.stopPropagation();
+      onContextMenu(event, feature);
+    }
+  };
 
   return (
     <div
       className={`rounded-lg border-2 p-3 transition-all ${colorClasses.border} ${colorClasses.light} ${
         isDragging ? 'opacity-50 scale-95' : ''
       }`}
+      onContextMenu={handleContextMenu}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-3">

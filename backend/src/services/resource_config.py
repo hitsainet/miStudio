@@ -61,17 +61,19 @@ class ResourceConfig:
         num_features: int,
         top_k_examples: int,
         sequence_length: int = 512,
-        hidden_dim: int = 768
+        hidden_dim: int = 768,
+        vocab_size: int = 32000
     ) -> Dict[str, int]:
         """
         Calculate optimal extraction settings based on available resources.
-        
+
         Args:
             num_features: Number of SAE features (latent_dim)
             top_k_examples: Number of examples to store per feature
             sequence_length: Max sequence length
             hidden_dim: Hidden dimension size
-            
+            vocab_size: Model vocabulary size (critical for memory calculation!)
+
         Returns:
             Dictionary with optimal settings:
             - batch_size: Samples to process at once
@@ -79,45 +81,67 @@ class ResourceConfig:
             - db_commit_batch: Features to commit at once
         """
         resources = cls.get_system_resources()
-        
+
         logger.info(f"Calculating extraction config for {resources['cpu_cores']} cores, "
-                   f"{resources['available_ram_gb']:.1f}GB available RAM")
-        
+                   f"{resources['available_ram_gb']:.1f}GB available RAM, vocab_size={vocab_size}")
+
         # 1. Calculate batch size based on available RAM and GPU memory
         usable_ram_gb = resources["available_ram_gb"] * (1 - cls.RAM_SAFETY_MARGIN)
-        
+
         # Memory for batch processing (activation tensors, intermediate results)
         batch_memory_overhead_mb = 500  # Base overhead
         per_sample_ram_mb = cls.RAM_PER_SAMPLE_MB * sequence_length / 512  # Scale with seq length
-        
+
         # Memory for feature heap storage
         heap_memory_mb = (num_features * top_k_examples * cls.RAM_PER_FEATURE_HEAP_KB) / 1024
-        
+
         # Available for batches
         available_for_batches_mb = (usable_ram_gb * 1024) - batch_memory_overhead_mb - heap_memory_mb
         max_batch_from_ram = int(available_for_batches_mb / per_sample_ram_mb)
-        
+
         # Constrain by GPU memory if available
         if resources["gpu_available"]:
             gpu_available_gb = resources["gpu_memory_available_gb"] * (1 - cls.GPU_SAFETY_MARGIN)
 
             # Conservative estimate for transformer forward pass:
-            # - Model weights (already loaded): ~1-2GB for GPT-2 class models
-            # - Per-sample memory: seq_len * hidden_dim * 4 bytes * num_layers * 3 (input + intermediate + output)
-            # - For GPT-2: 512 * 768 * 4 * 12 * 3 ≈ 50MB per sample
-            per_sample_gpu_mb = (sequence_length * hidden_dim * 4 * 12 * 3) / (1024**2)  # Assume ~12 layers
+            # - Model weights are already loaded and using GPU memory
+            # - Per-sample memory components:
+            #   1. Layer activations: seq_len * hidden_dim * 4 bytes * num_layers * 3
+            #   2. LM head output: seq_len * vocab_size * 4 bytes (THIS IS HUGE FOR LARGE VOCAB!)
 
-            # Reserve space for model and SAE (~2GB)
-            available_for_batch_gb = max(0.5, gpu_available_gb - 2.0)
-            max_batch_from_gpu = int((available_for_batch_gb * 1024) / per_sample_gpu_mb)
+            # Estimate num_layers from hidden_dim
+            estimated_layers = max(12, int(hidden_dim / 768 * 12))
+
+            # Layer activations memory
+            layer_activations_mb = (sequence_length * hidden_dim * 4 * estimated_layers * 3) / (1024**2)
+
+            # LM head output memory - CRITICAL for large vocab models like Gemma-2-2b (256k vocab)
+            # This is often the largest single allocation!
+            lm_head_output_mb = (sequence_length * vocab_size * 4) / (1024**2)
+
+            # Total per-sample GPU memory
+            per_sample_gpu_mb = layer_activations_mb + lm_head_output_mb
+
+            logger.info(f"Per-sample GPU memory: {per_sample_gpu_mb:.1f}MB "
+                       f"(activations: {layer_activations_mb:.1f}MB, lm_head: {lm_head_output_mb:.1f}MB)")
+
+            # Estimate model memory from hidden_dim (rough: larger models use more)
+            estimated_model_gb = max(2.0, (hidden_dim / 768) ** 2 * 0.5)
+
+            # Reserve space for model + SAE + overhead
+            reserved_gb = estimated_model_gb + 1.0
+            available_for_batch_gb = max(0.5, gpu_available_gb - reserved_gb)
+            max_batch_from_gpu = max(1, int((available_for_batch_gb * 1024) / per_sample_gpu_mb))
 
             batch_size = min(max_batch_from_ram, max_batch_from_gpu)
-            logger.info(f"GPU-constrained batch size: {max_batch_from_gpu} (available: {gpu_available_gb:.1f}GB)")
+            logger.info(f"GPU-constrained batch size: {max_batch_from_gpu} "
+                       f"(available: {gpu_available_gb:.1f}GB, reserved: {reserved_gb:.1f}GB, "
+                       f"hidden_dim: {hidden_dim}, vocab_size: {vocab_size})")
         else:
             batch_size = max_batch_from_ram
 
-        # Clamp to reasonable range - more conservative for extraction
-        batch_size = max(8, min(batch_size, 64))  # Between 8 and 64 (reduced from 256)
+        # Clamp to reasonable range - allow very small batches for large models
+        batch_size = max(1, min(batch_size, 32))
         
         # 2. Calculate number of CPU workers
         # Use 50-75% of cores for CPU-bound feature processing
@@ -155,7 +179,8 @@ class ResourceConfig:
     def get_optimal_settings(
         cls,
         training_config: Dict[str, Any],
-        extraction_config: Dict[str, Any]
+        extraction_config: Dict[str, Any],
+        model_vocab_size: int = 32000
     ) -> Dict[str, int]:
         """
         Get optimal settings for extraction based on training and extraction configs.
@@ -163,6 +188,8 @@ class ResourceConfig:
         Args:
             training_config: Training hyperparameters (latent_dim, hidden_dim, etc.)
             extraction_config: Extraction parameters (top_k_examples, evaluation_samples)
+            model_vocab_size: Model vocabulary size (critical for memory calculation!)
+                             Gemma-2-2b has 256k vocab vs typical 32k - 8x memory difference!
 
         Returns:
             Optimal extraction settings
@@ -171,7 +198,8 @@ class ResourceConfig:
             num_features=training_config.get("latent_dim", 8192),
             top_k_examples=extraction_config.get("top_k_examples", 100),
             sequence_length=extraction_config.get("max_length", 512),
-            hidden_dim=training_config.get("hidden_dim", 768)
+            hidden_dim=training_config.get("hidden_dim", 768),
+            vocab_size=model_vocab_size
         )
 
     @classmethod

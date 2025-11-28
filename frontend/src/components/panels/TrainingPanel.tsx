@@ -426,6 +426,13 @@ export const TrainingPanel: React.FC = () => {
           weight_decay: config.weight_decay,
           grad_clip_norm: config.grad_clip_norm,
           checkpoint_interval: config.checkpoint_interval,
+          // JumpReLU-specific parameters
+          ...(config.architecture_type === SAEArchitectureType.JUMPRELU && {
+            initial_threshold: (config as any).initial_threshold,
+            bandwidth: (config as any).bandwidth,
+            sparsity_coeff: (config as any).sparsity_coeff,
+            normalize_decoder: (config as any).normalize_decoder,
+          }),
         },
         is_favorite: false,
       });
@@ -472,6 +479,13 @@ export const TrainingPanel: React.FC = () => {
           l1_alpha: config.l1_alpha,
           target_l0: config.target_l0,
           top_k_sparsity: (config as any).top_k_sparsity,
+          // JumpReLU-specific parameters (only sent when JumpReLU is selected)
+          ...(config.architecture_type === SAEArchitectureType.JUMPRELU && {
+            initial_threshold: (config as any).initial_threshold,
+            bandwidth: (config as any).bandwidth,
+            sparsity_coeff: (config as any).sparsity_coeff,
+            normalize_decoder: (config as any).normalize_decoder,
+          }),
           learning_rate: config.learning_rate,
           batch_size: config.batch_size,
           total_steps: config.total_steps,
@@ -978,6 +992,109 @@ export const TrainingPanel: React.FC = () => {
                     Guarantees exact sparsity by keeping only top-K neurons. Leave empty for L1 penalty (soft sparsity).
                   </p>
                 </div>
+
+                {/* JumpReLU-specific parameters - only shown when JumpReLU is selected */}
+                {config.architecture_type === SAEArchitectureType.JUMPRELU && (
+                  <>
+                    {/* JumpReLU Section Header */}
+                    <div className="col-span-2 mt-4 mb-2">
+                      <div className="flex items-center gap-2 pb-2 border-b border-slate-700">
+                        <span className="text-sm font-semibold text-emerald-400">JumpReLU Parameters</span>
+                        <span className="text-xs text-slate-500">(Gemma Scope Architecture)</span>
+                      </div>
+                    </div>
+
+                    {/* L0 Sparsity Coefficient */}
+                    <div>
+                      <HyperparameterLabel
+                        paramName="sparsity_coeff"
+                        label="L0 Sparsity Coefficient"
+                        htmlFor="sparsity-coeff"
+                        className="mb-2"
+                      />
+                      <input
+                        id="sparsity-coeff"
+                        type="number"
+                        value={(config as any).sparsity_coeff ?? 0.0006}
+                        onChange={(e) => updateConfig({ sparsity_coeff: parseFloat(e.target.value) } as any)}
+                        min={0.00001}
+                        max={0.1}
+                        step={0.0001}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                      />
+                      <p className="mt-1 text-xs text-slate-400">
+                        L0 penalty coefficient (default: 6e-4 per Gemma Scope). Replaces L1 for JumpReLU.
+                      </p>
+                    </div>
+
+                    {/* Initial Threshold */}
+                    <div>
+                      <HyperparameterLabel
+                        paramName="initial_threshold"
+                        label="Initial Threshold"
+                        htmlFor="initial-threshold"
+                        className="mb-2"
+                      />
+                      <input
+                        id="initial-threshold"
+                        type="number"
+                        value={(config as any).initial_threshold ?? 0.001}
+                        onChange={(e) => updateConfig({ initial_threshold: parseFloat(e.target.value) } as any)}
+                        min={0.00001}
+                        max={1.0}
+                        step={0.0001}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                      />
+                      <p className="mt-1 text-xs text-slate-400">
+                        Starting threshold for JumpReLU activation. Each feature learns its own optimal threshold.
+                      </p>
+                    </div>
+
+                    {/* KDE Bandwidth */}
+                    <div>
+                      <HyperparameterLabel
+                        paramName="bandwidth"
+                        label="KDE Bandwidth (ε)"
+                        htmlFor="bandwidth"
+                        className="mb-2"
+                      />
+                      <input
+                        id="bandwidth"
+                        type="number"
+                        value={(config as any).bandwidth ?? 0.001}
+                        onChange={(e) => updateConfig({ bandwidth: parseFloat(e.target.value) } as any)}
+                        min={0.00001}
+                        max={0.1}
+                        step={0.0001}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                      />
+                      <p className="mt-1 text-xs text-slate-400">
+                        Smoothness of STE gradient estimation. Default: 0.001.
+                      </p>
+                    </div>
+
+                    {/* Normalize Decoder */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={(config as any).normalize_decoder ?? true}
+                            onChange={(e) => updateConfig({ normalize_decoder: e.target.checked } as any)}
+                            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                          />
+                          <span className="text-sm font-medium text-slate-300">
+                            Normalize Decoder Columns
+                          </span>
+                        </label>
+                        <HyperparameterTooltip paramName="normalize_decoder" />
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        Required for JumpReLU. Normalizes decoder columns to unit norm after each step.
+                      </p>
+                    </div>
+                  </>
+                )}
 
                 {/* Normalize Activations */}
                 <div>

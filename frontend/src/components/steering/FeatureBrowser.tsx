@@ -8,18 +8,28 @@
  * - Shows feature statistics (activation count, mean, max)
  * - Layer filter
  * - Manual feature index entry
+ * - Right-click context menu to view feature details
  */
 
-import { useState, useEffect } from 'react';
-import { Search, Hash, Plus, Layers, ChevronLeft, ChevronRight, Zap } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, Hash, Plus, Layers, ChevronLeft, ChevronRight, Zap, Eye } from 'lucide-react';
 import { useSAEsStore } from '../../stores/saesStore';
 import { useSteeringStore } from '../../stores/steeringStore';
 import { SAEFeatureSummary } from '../../types/sae';
 import { FEATURE_COLOR_ORDER, FEATURE_COLORS } from '../../types/steering';
 import { COMPONENTS } from '../../config/brand';
+import { FeatureDetailModal } from '../features/FeatureDetailModal';
 
 interface FeatureBrowserProps {
   saeId: string;
+}
+
+// Context menu state interface
+interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  feature: SAEFeatureSummary | null;
 }
 
 export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
@@ -28,6 +38,21 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
   const [manualLayer, setManualLayer] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
   const pageSize = 20;
+
+  // Context menu and modal state
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    feature: null,
+  });
+  const [selectedFeatureForModal, setSelectedFeatureForModal] = useState<{
+    featureId: string;
+    trainingId: string;
+  } | null>(null);
+  // Track which feature tile is highlighted (clicked but not added)
+  const [highlightedFeature, setHighlightedFeature] = useState<{ featureIdx: number; layer: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const { featureBrowser, browseFeatures, clearFeatureBrowser } = useSAEsStore();
   const { selectedFeatures, addFeature, selectedSAE } = useSteeringStore();
@@ -60,12 +85,86 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
     return () => clearFeatureBrowser();
   }, [clearFeatureBrowser]);
 
+  // Close context menu when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!contextMenu.visible) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu((prev) => ({ ...prev, visible: false }));
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu((prev) => ({ ...prev, visible: false }));
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [contextMenu.visible]);
+
+  // Handle right-click on feature tile
+  const handleContextMenu = (event: React.MouseEvent, feature: SAEFeatureSummary) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      visible: true,
+      x: event.clientX,
+      y: event.clientY,
+      feature,
+    });
+  };
+
+  // Handle view feature details from context menu
+  const handleViewFeatureDetails = async () => {
+    if (!contextMenu.feature || !selectedSAE?.training_id) {
+      console.log('[FeatureBrowser] Cannot view details - no feature or training_id', {
+        hasFeature: !!contextMenu.feature,
+        trainingId: selectedSAE?.training_id,
+      });
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    const trainingId = selectedSAE.training_id;
+    const feature = contextMenu.feature;
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+
+    // If feature_id is directly available from the SAE browse endpoint, use it
+    if (feature.feature_id) {
+      console.log('[FeatureBrowser] Using feature_id directly:', feature.feature_id);
+      setSelectedFeatureForModal({
+        featureId: feature.feature_id,
+        trainingId: trainingId,
+      });
+      return;
+    }
+
+    // Fallback: feature wasn't extracted, show helpful message
+    console.log('[FeatureBrowser] Feature not extracted - feature_id is null for feature_idx:', feature.feature_idx);
+    alert(`Feature #${feature.feature_idx} has not been extracted yet.\n\nOnly features that activated during an extraction job have detailed data available.\n\nTo view details for this feature, run a new extraction job on the Extractions tab that includes this feature.`);
+  };
+
+  // Close feature detail modal
+  const handleCloseModal = () => {
+    setSelectedFeatureForModal(null);
+  };
+
   const handleSelectFeature = (feature: SAEFeatureSummary) => {
     const success = addFeature({
       feature_idx: feature.feature_idx,
       layer: feature.layer,
       strength: 100, // Default strength
       label: feature.label,
+      feature_id: feature.feature_id,
     });
 
     if (!success) {
@@ -89,6 +188,7 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
       layer: effectiveLayer,
       strength: 100,
       label: null,
+      feature_id: null, // Manual entry - no database ID
     });
 
     if (success) {
@@ -98,6 +198,19 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
 
   const isFeatureSelected = (featureIdx: number, layer: number) => {
     return selectedFeatures.some((f) => f.feature_idx === featureIdx && f.layer === layer);
+  };
+
+  const isFeatureHighlighted = (featureIdx: number, layer: number) => {
+    return highlightedFeature?.featureIdx === featureIdx && highlightedFeature?.layer === layer;
+  };
+
+  const handleTileClick = (feature: SAEFeatureSummary) => {
+    // Toggle highlight: if already highlighted, unhighlight; otherwise highlight this one
+    if (isFeatureHighlighted(feature.feature_idx, feature.layer)) {
+      setHighlightedFeature(null);
+    } else {
+      setHighlightedFeature({ featureIdx: feature.feature_idx, layer: feature.layer });
+    }
   };
 
   const getNextColor = () => {
@@ -203,23 +316,21 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
             <div className="space-y-2 max-h-80 overflow-y-auto">
               {featureBrowser.data.features.map((feature) => {
                 const isSelected = isFeatureSelected(feature.feature_idx, feature.layer);
+                const isHighlighted = isFeatureHighlighted(feature.feature_idx, feature.layer);
                 const colorClass = nextColor ? FEATURE_COLORS[nextColor] : FEATURE_COLORS.teal;
 
                 return (
                   <div
                     key={`${feature.feature_idx}-${feature.layer}`}
-                    className={`p-3 rounded-lg border transition-all ${
+                    className={`p-3 rounded-lg border transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-emerald-500/10 border-emerald-500/50 cursor-not-allowed'
-                        : canAddMore
-                        ? 'bg-slate-800 border-slate-700 hover:border-slate-600 cursor-pointer'
-                        : 'bg-slate-800 border-slate-700 opacity-50 cursor-not-allowed'
+                        ? 'bg-emerald-500/10 border-emerald-500/50'
+                        : isHighlighted
+                        ? 'bg-slate-700/50 border-slate-500 ring-1 ring-slate-500/50'
+                        : 'bg-slate-800 border-slate-700 hover:border-slate-600'
                     }`}
-                    onClick={() => {
-                      if (!isSelected && canAddMore) {
-                        handleSelectFeature(feature);
-                      }
-                    }}
+                    onClick={() => handleTileClick(feature)}
+                    onContextMenu={(e) => handleContextMenu(e, feature)}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -262,10 +373,22 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
                         )}
                       </div>
 
-                      {/* Add indicator */}
+                      {/* Add button */}
                       {!isSelected && canAddMore && (
-                        <div className={`p-1.5 rounded ${colorClass.light}`}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectFeature(feature);
+                          }}
+                          className={`p-1.5 rounded ${colorClass.light} hover:opacity-80 transition-opacity cursor-pointer`}
+                          title="Add to selected features"
+                        >
                           <Plus className={`w-4 h-4 ${colorClass.text}`} />
+                        </button>
+                      )}
+                      {!isSelected && !canAddMore && (
+                        <div className="p-1.5 rounded bg-slate-700/50 opacity-50" title="Maximum features selected">
+                          <Plus className="w-4 h-4 text-slate-500" />
                         </div>
                       )}
                       {isSelected && (
@@ -301,6 +424,38 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
             </div>
           )}
         </>
+      )}
+
+      {/* Context Menu */}
+      {contextMenu.visible && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={handleViewFeatureDetails}
+            disabled={!selectedSAE?.training_id}
+            className="w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Eye className="w-4 h-4" />
+            View Feature Details
+          </button>
+          {contextMenu.feature && (
+            <div className="px-4 py-1 text-xs text-slate-500 border-t border-slate-700 mt-1">
+              Feature #{contextMenu.feature.feature_idx} • L{contextMenu.feature.layer}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Feature Detail Modal */}
+      {selectedFeatureForModal && (
+        <FeatureDetailModal
+          featureId={selectedFeatureForModal.featureId}
+          trainingId={selectedFeatureForModal.trainingId}
+          onClose={handleCloseModal}
+        />
       )}
     </div>
   );

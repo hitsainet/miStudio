@@ -615,7 +615,7 @@ export const HYPERPARAMETER_DOCS: Record<string, HyperparameterDoc> = {
     name: 'SAE Architecture Type',
     purpose: 'Selects the SAE architecture variant. Different architectures have different trade-offs.',
     description:
-      'Standard: Classic SAE with encoder and decoder. Skip: Adds residual connections for better reconstruction. Transcoder: Layer-to-layer mapping for cross-layer features.',
+      'Standard: Classic SAE with encoder and decoder. Skip: Adds residual connections for better reconstruction. Transcoder: Layer-to-layer mapping for cross-layer features. JumpReLU: Gemma Scope architecture with learnable per-feature thresholds.',
     examples: [
       {
         value: 'standard',
@@ -632,13 +632,157 @@ export const HYPERPARAMETER_DOCS: Record<string, HyperparameterDoc> = {
         effect: 'x_i → ReLU(W_enc·x_i + b) → W_dec·z → x_j',
         useCase: 'Maps layer i → layer j (cross-layer features)',
       },
+      {
+        value: 'jumprelu',
+        effect: 'z → JumpReLU_θ(z) = z ⊙ H(z - θ): Learnable thresholds',
+        useCase: 'Gemma Scope: Per-feature learnable thresholds for optimal sparsity',
+      },
     ],
     recommendations: [
       'Default: Standard (most research uses this)',
+      'JumpReLU: State-of-art from Gemma Scope paper, uses L0 loss instead of L1',
       'Skip: Use if reconstruction quality is priority',
       'Transcoder: Advanced use case, study layer relationships',
     ],
-    relatedParams: ['hidden_dim', 'latent_dim'],
+    relatedParams: ['hidden_dim', 'latent_dim', 'sparsity_coeff'],
+  },
+
+  // JumpReLU-specific parameters (Gemma Scope architecture)
+  initial_threshold: {
+    name: 'Initial JumpReLU Threshold',
+    purpose: 'Sets the starting threshold value for JumpReLU activation. Each feature learns its own optimal threshold during training.',
+    description:
+      'JumpReLU uses a learnable per-feature threshold θ: JumpReLU_θ(z) = z ⊙ H(z - θ), where H is the Heaviside step function. The initial_threshold sets the starting point for all thresholds, which then adapt during training to achieve optimal sparsity per feature.',
+    examples: [
+      {
+        value: 0.0001,
+        effect: 'Very low initial threshold → Features start more active',
+        useCase: 'Dense features initially, gradually become sparse',
+      },
+      {
+        value: 0.001,
+        effect: 'Default threshold → Balanced starting point (recommended)',
+        useCase: 'Standard JumpReLU training (Gemma Scope default)',
+      },
+      {
+        value: 0.01,
+        effect: 'Higher threshold → Features start more sparse',
+        useCase: 'When you want features to be sparse from the start',
+      },
+    ],
+    recommendations: [
+      'Default: 0.001 (per Gemma Scope paper)',
+      'Lower values → more features active initially',
+      'Higher values → sparser from start, may lead to dead features',
+      'Thresholds adapt during training via gradient descent',
+    ],
+    relatedParams: ['bandwidth', 'sparsity_coeff', 'architecture_type'],
+  },
+
+  bandwidth: {
+    name: 'KDE Bandwidth (ε)',
+    purpose: 'Controls the smoothness of gradient estimation for the JumpReLU threshold. Used in the Straight-Through Estimator (STE) for backpropagation.',
+    description:
+      'Since JumpReLU uses a step function (H), gradients would be zero almost everywhere. The bandwidth ε defines a Gaussian kernel K_ε(z - θ) for smooth gradient estimation. Smaller ε → sharper gradients near threshold. Larger ε → smoother gradients over wider range.',
+    examples: [
+      {
+        value: 0.0001,
+        effect: 'Very sharp gradients → Only updates near threshold',
+        useCase: 'When features have clear activation boundaries',
+      },
+      {
+        value: 0.001,
+        effect: 'Default smoothness → Good gradient flow (recommended)',
+        useCase: 'Standard JumpReLU training (Gemma Scope default)',
+      },
+      {
+        value: 0.01,
+        effect: 'Smoother gradients → More stable but less precise',
+        useCase: 'If training is unstable near thresholds',
+      },
+    ],
+    recommendations: [
+      'Default: 0.001 (per Gemma Scope paper)',
+      'Smaller ε → more precise threshold learning',
+      'Larger ε → more stable training',
+      'Usually no need to tune this parameter',
+    ],
+    relatedParams: ['initial_threshold', 'sparsity_coeff'],
+    warnings: [
+      'Very small bandwidth (< 0.0001) may cause noisy gradients',
+      'Very large bandwidth (> 0.1) may prevent thresholds from converging',
+    ],
+  },
+
+  sparsity_coeff: {
+    name: 'L0 Sparsity Coefficient (λ₀)',
+    purpose: 'Controls the strength of the L0 sparsity penalty in JumpReLU. This is the key sparsity hyperparameter for JumpReLU (replaces l1_alpha).',
+    description:
+      'JumpReLU uses L0 loss (count of non-zero features) instead of L1. Loss = reconstruction_loss + λ₀ × L0. The sparsity_coeff (λ₀) directly penalizes the number of active features, encouraging thresholds to increase and deactivate features.',
+    examples: [
+      {
+        value: 0.0001,
+        effect: 'Very weak L0 penalty → Dense features (L0 > 10%)',
+        useCase: 'Prioritizing reconstruction over sparsity',
+      },
+      {
+        value: 0.0006,
+        effect: 'Default L0 penalty → Balanced sparsity (L0 ≈ 3-5%)',
+        useCase: 'Standard JumpReLU (Gemma Scope default: 6e-4)',
+      },
+      {
+        value: 0.001,
+        effect: 'Moderate L0 penalty → Sparser features (L0 ≈ 1-3%)',
+        useCase: 'When you need very sparse features',
+      },
+      {
+        value: 0.01,
+        effect: 'Strong L0 penalty → Risk of dead features',
+        useCase: 'NOT RECOMMENDED: May collapse features',
+      },
+    ],
+    recommendations: [
+      'Default: 0.0006 (6e-4 per Gemma Scope paper)',
+      'This replaces l1_alpha for JumpReLU architecture',
+      'Lower values → more features active → better reconstruction',
+      'Higher values → fewer features active → better interpretability',
+      'JumpReLU is generally more robust to this tuning than L1',
+    ],
+    relatedParams: ['initial_threshold', 'l1_alpha', 'target_l0'],
+    warnings: [
+      'Values > 0.01 may cause feature collapse',
+      'Unlike L1, L0 penalty is non-differentiable (handled by STE)',
+    ],
+  },
+
+  normalize_decoder: {
+    name: 'Normalize Decoder Columns',
+    purpose: 'Whether to normalize decoder columns to unit norm after each training step. Required for proper JumpReLU training.',
+    description:
+      'In JumpReLU SAEs, decoder columns (features) are constrained to unit norm. This ensures that the magnitude of each feature\'s contribution is controlled by the encoder, not the decoder. Gradients are projected orthogonal to decoder columns to preserve this constraint.',
+    examples: [
+      {
+        value: 'true',
+        effect: 'Decoder columns normalized to ||W_dec[:,i]|| = 1',
+        useCase: 'Required for JumpReLU (default and recommended)',
+      },
+      {
+        value: 'false',
+        effect: 'Decoder columns can have arbitrary norm',
+        useCase: 'NOT RECOMMENDED for JumpReLU',
+      },
+    ],
+    recommendations: [
+      'Default: true (always use for JumpReLU)',
+      'Required per Gemma Scope paper',
+      'Ensures interpretable feature directions',
+      'Decoder gradients are projected orthogonal to columns',
+    ],
+    relatedParams: ['architecture_type', 'sparsity_coeff'],
+    warnings: [
+      'Disabling this for JumpReLU will break training',
+      'Decoder norm explosion may occur without normalization',
+    ],
   },
 };
 

@@ -524,11 +524,15 @@ def train_sae_task(
             dataset = load_from_disk(tokenization.tokenized_path)
 
             logger.info(f"Loading base model: {model_record.repo_id}")
+            # Use local_files_only=True when model is already downloaded to avoid
+            # HuggingFace API calls that require authentication for gated models
+            model_is_downloaded = model_record.file_path and Path(model_record.file_path).exists()
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
-                cache_dir=Path(model_record.file_path).parent if model_record.file_path else None,
-                device_map=device
+                cache_dir=Path(model_record.file_path) if model_record.file_path else None,
+                device_map=device,
+                local_files_only=model_is_downloaded,
             )
             base_model.eval()
 

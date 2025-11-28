@@ -213,6 +213,7 @@ def load_model_from_hf(
     trust_remote_code: bool = False,
     hf_token: Optional[str] = None,
     auto_fallback: bool = True,
+    local_files_only: bool = False,
 ) -> Tuple[AutoModelForCausalLM, AutoTokenizer, AutoConfig, Dict[str, Any]]:
     """
     Load a language model from HuggingFace Hub with specified quantization.
@@ -225,6 +226,9 @@ def load_model_from_hf(
         trust_remote_code: Whether to trust remote code execution
         hf_token: HuggingFace API token for gated models
         auto_fallback: Automatically fallback to less aggressive quantization on OOM
+        local_files_only: If True, only use locally cached files (no network calls).
+            Use this when the model is already downloaded to avoid HF API validation
+            for gated models.
 
     Returns:
         Tuple of (model, tokenizer, config, metadata dict)
@@ -234,7 +238,7 @@ def load_model_from_hf(
         OutOfMemoryError: If loading fails due to OOM and auto_fallback is False
         ValueError: If architecture is unsupported
     """
-    logger.info(f"Loading model {repo_id} with quantization {quant_format.value}")
+    logger.info(f"Loading model {repo_id} with quantization {quant_format.value} (local_files_only={local_files_only})")
 
     try:
         # Load configuration first to validate architecture
@@ -243,6 +247,7 @@ def load_model_from_hf(
             cache_dir=str(cache_dir) if cache_dir else None,
             trust_remote_code=trust_remote_code,
             token=hf_token,
+            local_files_only=local_files_only,
         )
 
         # Validate architecture
@@ -273,6 +278,7 @@ def load_model_from_hf(
                 cache_dir=str(cache_dir) if cache_dir else None,
                 trust_remote_code=trust_remote_code,
                 token=hf_token,
+                local_files_only=local_files_only,
             )
 
             logger.info(f"Successfully loaded model with {quant_format.value} quantization")
@@ -295,6 +301,7 @@ def load_model_from_hf(
                             trust_remote_code=trust_remote_code,
                             hf_token=hf_token,
                             auto_fallback=auto_fallback,
+                            local_files_only=local_files_only,
                         )
                     else:
                         raise OutOfMemoryError(
@@ -315,6 +322,7 @@ def load_model_from_hf(
             cache_dir=str(cache_dir) if cache_dir else None,
             trust_remote_code=trust_remote_code,
             token=hf_token,
+            local_files_only=local_files_only,
         )
 
         # Calculate metadata

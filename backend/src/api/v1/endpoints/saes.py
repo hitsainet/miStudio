@@ -458,7 +458,8 @@ async def browse_sae_features(
                     mean_activation=f.mean_activation,
                     max_activation=f.max_activation,
                     top_tokens=top_tokens,
-                    neuronpedia_url=None
+                    neuronpedia_url=None,
+                    feature_id=f.id
                 )
             )
 

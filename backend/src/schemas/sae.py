@@ -224,6 +224,7 @@ class SAEFeatureSummary(BaseModel):
     max_activation: Optional[float] = Field(None, description="Maximum activation value")
     top_tokens: List[str] = Field(default_factory=list, description="Top activating tokens")
     neuronpedia_url: Optional[str] = Field(None, description="Neuronpedia link if available")
+    feature_id: Optional[str] = Field(None, description="Database feature ID if extracted")
 
 
 class SAEFeatureBrowserResponse(BaseModel):

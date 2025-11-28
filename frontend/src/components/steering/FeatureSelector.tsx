@@ -7,19 +7,47 @@
  * - Feature browser toggle
  * - Clear all button
  * - Max 4 features indicator
+ * - Right-click context menu for viewing feature details
  */
 
-import { useState } from 'react';
-import { Brain, Plus, Trash2, ChevronUp, Search } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Brain, Plus, Trash2, ChevronUp, Search, Eye } from 'lucide-react';
 import { useSteeringStore } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { SAEStatus } from '../../types/sae';
+import { SelectedFeature } from '../../types/steering';
 import { SelectedFeatureCard } from './SelectedFeatureCard';
 import { FeatureBrowser } from './FeatureBrowser';
+import { FeatureDetailModal } from '../features/FeatureDetailModal';
 import { COMPONENTS } from '../../config/brand';
+
+// Context menu state interface
+interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  featureIdx: number | null;
+  layer: number | null;
+  featureId: string | null;
+}
 
 export function FeatureSelector() {
   const [showBrowser, setShowBrowser] = useState(false);
+
+  // Context menu and modal state
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    featureIdx: null,
+    layer: null,
+    featureId: null,
+  });
+  const [selectedFeatureForModal, setSelectedFeatureForModal] = useState<{
+    featureId: string;
+    trainingId: string;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const {
     selectedSAE,
@@ -40,6 +68,80 @@ export function FeatureSelector() {
 
   const { saes } = useSAEsStore();
   const readySAEs = saes.filter((sae) => sae.status === SAEStatus.READY);
+
+  // Close context menu when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!contextMenu.visible) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu((prev) => ({ ...prev, visible: false }));
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu((prev) => ({ ...prev, visible: false }));
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [contextMenu.visible]);
+
+  // Handle right-click on selected feature card
+  const handleSelectedFeatureContextMenu = (event: React.MouseEvent, feature: SelectedFeature) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      visible: true,
+      x: event.clientX,
+      y: event.clientY,
+      featureIdx: feature.feature_idx,
+      layer: feature.layer,
+      featureId: feature.feature_id,
+    });
+  };
+
+  // Handle view feature details from context menu
+  const handleViewFeatureDetails = () => {
+    if (contextMenu.featureIdx === null || !selectedSAE?.training_id) {
+      console.log('[FeatureSelector] Cannot view details - no featureIdx or training_id', {
+        featureIdx: contextMenu.featureIdx,
+        trainingId: selectedSAE?.training_id,
+      });
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    const trainingId = selectedSAE.training_id;
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+
+    // If feature_id is directly available, use it
+    if (contextMenu.featureId) {
+      console.log('[FeatureSelector] Using feature_id directly:', contextMenu.featureId);
+      setSelectedFeatureForModal({
+        featureId: contextMenu.featureId,
+        trainingId: trainingId,
+      });
+      return;
+    }
+
+    // Fallback: feature wasn't extracted, show helpful message
+    console.log('[FeatureSelector] Feature not extracted - feature_id is null for feature_idx:', contextMenu.featureIdx);
+    alert(`Feature #${contextMenu.featureIdx} has not been extracted yet.\n\nOnly features that activated during an extraction job have detailed data available.\n\nTo view details for this feature, run a new extraction job on the Extractions tab that includes this feature.`);
+  };
+
+  // Close feature detail modal
+  const handleCloseModal = () => {
+    setSelectedFeatureForModal(null);
+  };
 
   const handleSAEChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const saeId = e.target.value;
@@ -131,6 +233,7 @@ export function FeatureSelector() {
                     updateFeatureStrength(feature.feature_idx, feature.layer, strength)
                   }
                   onRemove={() => removeFeature(feature.feature_idx, feature.layer)}
+                  onContextMenu={handleSelectedFeatureContextMenu}
                 />
               ))}
 
@@ -187,6 +290,43 @@ export function FeatureSelector() {
           </div>
         )}
       </div>
+
+      {/* Context Menu */}
+      {contextMenu.visible && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={handleViewFeatureDetails}
+            disabled={!selectedSAE?.training_id}
+            className="w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Eye className="w-4 h-4" />
+            View Feature Details
+          </button>
+          {contextMenu.featureIdx !== null && (
+            <div className="px-4 py-1 text-xs text-slate-500 border-t border-slate-700 mt-1">
+              Feature #{contextMenu.featureIdx} • L{contextMenu.layer}
+            </div>
+          )}
+          {!selectedSAE?.training_id && (
+            <div className="px-4 py-1 text-xs text-amber-500 border-t border-slate-700 mt-1">
+              Feature details not available for downloaded SAEs
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Feature Detail Modal */}
+      {selectedFeatureForModal && (
+        <FeatureDetailModal
+          featureId={selectedFeatureForModal.featureId}
+          trainingId={selectedFeatureForModal.trainingId}
+          onClose={handleCloseModal}
+        />
+      )}
     </div>
   );
 }

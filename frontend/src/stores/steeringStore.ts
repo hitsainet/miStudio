@@ -187,13 +187,14 @@ export const useSteeringStore = create<SteeringState>()(
         const usedColors = selectedFeatures.map((f) => f.color);
         const nextColor = FEATURE_COLOR_ORDER.find((c) => !usedColors.includes(c)) || FEATURE_COLOR_ORDER[0];
 
-        // Explicitly set all properties to ensure label is preserved
+        // Explicitly set all properties to ensure label and feature_id are preserved
         const newFeature: SelectedFeature = {
           feature_idx: feature.feature_idx,
           layer: feature.layer,
           strength: feature.strength,
           label: feature.label,
           color: nextColor,
+          feature_id: feature.feature_id,
         };
 
         set({ selectedFeatures: [...selectedFeatures, newFeature] });

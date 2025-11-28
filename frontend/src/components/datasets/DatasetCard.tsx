@@ -37,7 +37,8 @@ export function DatasetCard({ dataset, tokenizationProgress, onClick, onDelete, 
   // Normalize status to string for consistent comparisons
   const statusString = String(dataset.status).toLowerCase();
 
-  const isClickable = statusString === 'ready' || statusString === 'error';
+  // Allow clicking during processing (tokenization) so user can view/manage tokenization jobs
+  const isClickable = statusString === 'ready' || statusString === 'error' || statusString === 'processing';
   const showProgress = statusString === 'downloading' || statusString === 'processing';
   const isTokenized = dataset.metadata?.tokenization !== undefined;
   const isActive = statusString === 'downloading' || statusString === 'processing';

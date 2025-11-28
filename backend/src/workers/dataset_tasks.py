@@ -889,6 +889,14 @@ def tokenize_dataset_task(
             progress_callback=stats_progress_callback
         )
 
+        # IMPORTANT: Override vocab_size with tokenizer's actual vocab_size
+        # calculate_statistics returns unique tokens USED in dataset, but we need
+        # the tokenizer's full vocab_size for validation during extraction
+        # (to ensure dataset was tokenized with a compatible tokenizer)
+        stats["unique_tokens_used"] = stats["vocab_size"]  # Keep for informational purposes
+        stats["vocab_size"] = tokenizer.vocab_size
+        print(f"[TOKENIZATION] Tokenizer vocab_size: {tokenizer.vocab_size}, unique tokens in dataset: {stats['unique_tokens_used']}")
+
         # Emit detailed progress: saving stage
         elapsed = time.time() - start_time
         emit_tokenization_progress(

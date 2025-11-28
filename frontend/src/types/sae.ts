@@ -240,6 +240,7 @@ export interface SAEFeatureSummary {
   max_activation: number | null;
   top_tokens: string[];
   neuronpedia_url: string | null;
+  feature_id: string | null;
 }
 
 /**

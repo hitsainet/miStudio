@@ -203,14 +203,17 @@ class AnalysisService:
                         logger.info(f"sae.decoder has 'weight': {hasattr(sae.decoder, 'weight')}")
                 logger.info(f"SAE has 'decoder_weight' attr: {hasattr(sae, 'decoder_weight')}")
 
-                if hasattr(sae, 'decoder') and sae.decoder is not None and hasattr(sae.decoder, 'weight'):
-                    # Standard SAE with nn.Linear decoder
-                    logger.info(f"Using standard SAE decoder.weight, shape: {sae.decoder.weight.shape}")
-                    decoder_direction = sae.decoder.weight[:, feature.neuron_index]
-                elif hasattr(sae, 'decoder_weight'):
-                    # JumpReLU SAE with decoder_weight property
+                # Check for JumpReLU's decoder_weight FIRST (before compatibility wrapper)
+                # JumpReLU has both decoder_weight (direct, correct shape) and decoder (compat wrapper with transposed weights)
+                # Standard SAE only has decoder (nn.Linear module)
+                if hasattr(sae, 'decoder_weight') and not isinstance(getattr(sae, 'decoder', None), torch.nn.Linear):
+                    # JumpReLU SAE with decoder_weight property - shape [d_model, d_sae]
                     logger.info(f"Using JumpReLU SAE decoder_weight, shape: {sae.decoder_weight.shape}")
                     decoder_direction = sae.decoder_weight[:, feature.neuron_index]
+                elif hasattr(sae, 'decoder') and sae.decoder is not None and hasattr(sae.decoder, 'weight'):
+                    # Standard SAE with nn.Linear decoder - shape [hidden_dim, latent_dim]
+                    logger.info(f"Using standard SAE decoder.weight, shape: {sae.decoder.weight.shape}")
+                    decoder_direction = sae.decoder.weight[:, feature.neuron_index]
                 else:
                     raise ValueError(f"Unknown SAE architecture: cannot find decoder weights")
 

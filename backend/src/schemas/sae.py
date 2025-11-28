@@ -46,7 +46,7 @@ class HFRepoPreviewRequest(BaseModel):
 class HFFileInfo(BaseModel):
     """Information about a file in a HuggingFace repository."""
 
-    path: str = Field(..., description="File path within repository")
+    filepath: str = Field(..., description="File path within repository")
     size_bytes: Optional[int] = Field(None, description="File size in bytes")
     is_sae: bool = Field(False, description="Whether this appears to be an SAE file")
 
@@ -58,6 +58,7 @@ class HFRepoPreviewResponse(BaseModel):
     repo_type: str = Field("model", description="Repository type (model, dataset, space)")
     description: Optional[str] = Field(None, description="Repository description")
     files: List[HFFileInfo] = Field(..., description="List of files in repository")
+    sae_files: List[HFFileInfo] = Field(default_factory=list, description="List of detected SAE files")
     sae_paths: List[str] = Field(..., description="Detected SAE file paths")
     model_name: Optional[str] = Field(None, description="Detected target model name")
     total_size_bytes: Optional[int] = Field(None, description="Total repository size")

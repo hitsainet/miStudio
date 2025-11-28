@@ -8,6 +8,7 @@ with progress tracking, and upload operations.
 
 import logging
 import os
+import re
 from typing import Optional, List, Dict, Any, Callable
 from pathlib import Path
 import asyncio
@@ -36,6 +37,7 @@ class HuggingFaceSAEService:
         "cfg.json",
         "config.json",
         "sparsity_*.json",
+        "params.npz",  # Gemma Scope format
     ]
 
     # Known SAE repository patterns (model name hints)
@@ -62,7 +64,10 @@ class HuggingFaceSAEService:
         Returns:
             Repository preview with file list and detected SAE paths
         """
+        # Use provided token, or settings token, but treat empty/whitespace/"None" as None
         token = access_token or settings.hf_token
+        if not token or not token.strip() or token.strip().lower() == "none":
+            token = None
 
         def _preview() -> HFRepoPreviewResponse:
             api = HfApi(token=token)
@@ -94,7 +99,7 @@ class HuggingFaceSAEService:
                 is_sae = HuggingFaceSAEService._is_sae_file(file_path)
 
                 file_info = HFFileInfo(
-                    path=file_path,
+                    filepath=file_path,
                     size_bytes=None,  # Would need additional API call per file
                     is_sae=is_sae
                 )
@@ -110,11 +115,19 @@ class HuggingFaceSAEService:
             # Detect model name from repo
             model_name = HuggingFaceSAEService._detect_model_name(repo_id)
 
+            # Filter SAE files for the sae_files list and sort by layer number
+            sae_files = [f for f in file_infos if f.is_sae]
+            sae_files.sort(key=lambda f: HuggingFaceSAEService._extract_layer_number(f.filepath))
+
+            # Sort SAE paths by layer number as well
+            sae_paths.sort(key=HuggingFaceSAEService._extract_layer_number)
+
             return HFRepoPreviewResponse(
                 repo_id=repo_id,
                 repo_type="model",
                 description=None,  # Would need additional API call
                 files=file_infos,
+                sae_files=sae_files,
                 sae_paths=sae_paths if sae_paths else ["."],
                 model_name=model_name,
                 total_size_bytes=total_size if total_size > 0 else None
@@ -124,10 +137,30 @@ class HuggingFaceSAEService:
         return await loop.run_in_executor(_executor, _preview)
 
     @staticmethod
+    def _extract_layer_number(path: str) -> int:
+        """Extract layer number from a path for natural sorting.
+
+        Handles paths like:
+        - layer_1/width_65k/...
+        - layer_10/width_65k/...
+        - gemma-scope-2b-pt-res/layer_5/...
+
+        Returns a large number (999999) if no layer is found.
+        """
+        match = re.search(r'layer[_/](\d+)', path, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        return 999999  # Put paths without layer numbers at the end
+
+    @staticmethod
     def _is_sae_file(file_path: str) -> bool:
         """Check if a file path looks like an SAE file."""
         path = Path(file_path)
         name = path.name.lower()
+
+        # Check for Gemma Scope params.npz format
+        if name == "params.npz":
+            return True
 
         # Check for SAE-specific files
         sae_indicators = [
@@ -150,6 +183,12 @@ class HuggingFaceSAEService:
         if path.suffix == ".safetensors":
             parent = str(path.parent).lower()
             if any(x in parent for x in ["layer", "width", "canonical", "res", "mlp", "attn"]):
+                return True
+
+        # Check for npz files in Gemma Scope style directories
+        if path.suffix == ".npz":
+            parent = str(path.parent).lower()
+            if any(x in parent for x in ["layer", "width", "average_l0"]):
                 return True
 
         return False
@@ -188,7 +227,10 @@ class HuggingFaceSAEService:
         Returns:
             Dict with download info including local_path, file_size, metadata
         """
+        # Use provided token, or settings token, but treat empty/whitespace/"None" as None
         token = access_token or settings.hf_token
+        if not token or not token.strip() or token.strip().lower() == "none":
+            token = None
         local_dir.mkdir(parents=True, exist_ok=True)
 
         def _download() -> Dict[str, Any]:

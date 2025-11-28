@@ -1006,8 +1006,19 @@ def train_sae_task(
                                             model.encoder.bias[dead_idx] = 0.0
 
                                             # Reinitialize decoder weights
+                                            # IMPORTANT: Handle JumpReLUSAE separately - its decoder property is a wrapper
+                                            # that returns a TRANSPOSED copy, so assignments don't update the actual W_dec
                                             if not model.tied_weights:
-                                                model.decoder.weight[:, dead_idx] = torch.randn_like(model.decoder.weight[:, dead_idx]) * 0.01
+                                                if hasattr(model, 'W_dec') and model.W_dec is not None:
+                                                    # JumpReLUSAE: W_dec shape is [d_model, d_sae]
+                                                    model.W_dec.data[:, dead_idx] = torch.randn_like(model.W_dec.data[:, dead_idx]) * 0.01
+                                                elif hasattr(model, 'decoder') and hasattr(model.decoder, 'weight'):
+                                                    # Standard SAE: decoder.weight shape is [hidden_dim, latent_dim]
+                                                    model.decoder.weight[:, dead_idx] = torch.randn_like(model.decoder.weight[:, dead_idx]) * 0.01
+
+                                        # Re-normalize decoder columns after resampling (critical for JumpReLUSAE)
+                                        if hasattr(model, 'normalize_decoder') and callable(model.normalize_decoder):
+                                            model.normalize_decoder()
 
                                         logger.info(f"  Resampled {min(num_dead, len(topk_indices))} neurons using high-loss examples")
 

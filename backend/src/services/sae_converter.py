@@ -23,6 +23,8 @@ from ..ml.community_format import (
     load_sae_auto_detect,
     is_community_format,
     is_mistudio_format,
+    is_gemma_scope_format,
+    load_gemma_scope_format,
     migrate_mistudio_to_community,
     convert_community_to_mistudio_weights,
 )
@@ -173,12 +175,14 @@ class SAEConverterService:
             path: Path to SAE directory or file
 
         Returns:
-            Format string: "community_standard", "mistudio", or "unknown"
+            Format string: "community_standard", "gemma_scope", "mistudio", or "unknown"
         """
         p = Path(path)
 
         if is_community_format(p):
             return "community_standard"
+        elif is_gemma_scope_format(p):
+            return "gemma_scope"
         elif is_mistudio_format(p):
             return "mistudio"
         else:
@@ -251,6 +255,35 @@ class SAEConverterService:
                     "d_sae": config.get("d_sae"),
                     "architecture": config.get("architecture"),
                 })
+
+        elif format_type == "gemma_scope":
+            # Load Gemma Scope params.npz to get dimensions
+            import numpy as np
+            import re
+
+            npz_path = p / "params.npz" if p.is_dir() else p
+            if npz_path.exists():
+                with np.load(str(npz_path)) as data:
+                    W_enc = data["W_enc"]
+                    d_in, d_sae = W_enc.shape
+                    has_threshold = "threshold" in data.files
+
+                info.update({
+                    "d_in": d_in,
+                    "d_sae": d_sae,
+                    "architecture": "jumprelu" if has_threshold else "standard",
+                    "model_name": SAEConverterService.infer_model_from_dimensions(d_in),
+                })
+
+                # Extract layer from path
+                layer_match = re.search(r"layer[_/](\d+)", str(p), re.IGNORECASE)
+                if layer_match:
+                    info["layer"] = int(layer_match.group(1))
+
+                # Extract L0 sparsity from path
+                l0_match = re.search(r"average_l0[_/](\d+)", str(p), re.IGNORECASE)
+                if l0_match:
+                    info["l0_sparsity"] = int(l0_match.group(1))
 
         elif format_type == "mistudio":
             # Check for metadata.json

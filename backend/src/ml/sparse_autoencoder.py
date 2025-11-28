@@ -354,15 +354,21 @@ class SkipAutoencoder(SparseAutoencoder):
             return_loss: Whether to compute and return loss components
 
         Returns:
-            x_reconstructed: Reconstructed activations [batch, hidden_dim]
+            x_reconstructed: Reconstructed activations [batch, hidden_dim] (denormalized)
             z: Latent activations [batch, latent_dim]
             losses: Dictionary of loss components if return_loss=True
         """
-        # Encode
-        z = self.encode(x)
+        # Normalize inputs (consistent with base SparseAutoencoder)
+        x_normalized, norm_coeff = self.normalize(x)
 
-        # Decode with skip connection
-        x_reconstructed = self.decode(z, x)
+        # Encode (on normalized inputs)
+        z = self.encode(x_normalized)
+
+        # Decode with skip connection (on normalized inputs)
+        x_reconstructed_norm = self.decode(z, x_normalized)
+
+        # Denormalize output
+        x_reconstructed = self.denormalize(x_reconstructed_norm, norm_coeff)
 
         # Compute losses (same as base SAE)
         losses = {}
@@ -372,7 +378,7 @@ class SkipAutoencoder(SparseAutoencoder):
             l1_penalty = z.abs().sum(dim=-1).mean()
             l0_sparsity = (z > 0).float().mean()
 
-            # Zero ablation: just the skip connection
+            # Zero ablation: just the skip connection (in denormalized space)
             x_zero = self.skip_scale * x
             loss_zero = F.mse_loss(x_zero, x, reduction='mean')
 

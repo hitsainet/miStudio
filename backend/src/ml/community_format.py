@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 
+import numpy as np
 import torch
 import torch.nn as nn
 from safetensors.torch import save_file, load_file
@@ -136,12 +137,33 @@ class CommunityStandardConfig:
         """
         # Map architecture type
         arch_type = hyperparams.get("architecture_type", "standard")
+
+        # Determine activation function
         activation_fn = "relu"
-        if hyperparams.get("top_k_sparsity") is not None:
+        if arch_type == "jumprelu":
+            activation_fn = "jumprelu"
+        elif hyperparams.get("top_k_sparsity") is not None:
             activation_fn = "topk"
 
         # Generate hook point name
         hook_point = f"blocks.{layer}.hook_resid_post"
+
+        # Build extra metadata
+        extra_metadata = {
+            "ghost_gradient_penalty": hyperparams.get("ghost_gradient_penalty"),
+            "top_k_sparsity": hyperparams.get("top_k_sparsity"),
+            "warmup_steps": hyperparams.get("warmup_steps"),
+            "weight_decay": hyperparams.get("weight_decay"),
+        }
+
+        # Add JumpReLU-specific parameters to metadata
+        if arch_type == "jumprelu":
+            extra_metadata.update({
+                "initial_threshold": hyperparams.get("initial_threshold"),
+                "bandwidth": hyperparams.get("bandwidth"),
+                "sparsity_coeff": hyperparams.get("sparsity_coeff"),
+                "normalize_decoder": hyperparams.get("normalize_decoder"),
+            })
 
         return cls(
             model_name=model_name,
@@ -152,18 +174,13 @@ class CommunityStandardConfig:
             architecture=arch_type,
             activation_fn_str=activation_fn,
             normalize_activations=hyperparams.get("normalize_activations", "none"),
-            l1_coefficient=hyperparams.get("l1_alpha"),
+            l1_coefficient=hyperparams.get("l1_alpha") or hyperparams.get("sparsity_coeff"),
             lr=hyperparams.get("learning_rate"),
             total_training_tokens=hyperparams.get("total_steps", 0) * hyperparams.get("batch_size", 1),
             train_batch_size=hyperparams.get("batch_size"),
             mistudio_training_id=training_id,
             mistudio_checkpoint_step=checkpoint_step,
-            extra_metadata={
-                "ghost_gradient_penalty": hyperparams.get("ghost_gradient_penalty"),
-                "top_k_sparsity": hyperparams.get("top_k_sparsity"),
-                "warmup_steps": hyperparams.get("warmup_steps"),
-                "weight_decay": hyperparams.get("weight_decay"),
-            }
+            extra_metadata=extra_metadata,
         )
 
 
@@ -174,18 +191,28 @@ def convert_mistudio_to_community_weights(
     """
     Convert miStudio SAE state dict to Community Standard weight format.
 
-    miStudio uses PyTorch nn.Linear convention:
+    Handles two SAE formats:
+
+    1. Standard SAE (SparseAutoencoder, SkipAutoencoder, Transcoder):
         encoder.weight: [d_sae, d_in]
         encoder.bias: [d_sae]
         decoder.weight: [d_in, d_sae]
         decoder.bias: [d_in]
         decoder_bias: [d_in]
 
-    Community Standard uses:
-        W_enc: [d_in, d_sae]  (transposed)
+    2. JumpReLU SAE:
+        W_enc: [d_sae, d_in]
         b_enc: [d_sae]
-        W_dec: [d_sae, d_in]  (transposed)
+        W_dec: [d_in, d_sae]
         b_dec: [d_in]
+        activation.log_threshold: [d_sae]
+
+    Community Standard uses:
+        W_enc: [d_in, d_sae]  (transposed from miStudio)
+        b_enc: [d_sae]
+        W_dec: [d_sae, d_in]  (transposed from miStudio)
+        b_dec: [d_in]
+        (JumpReLU) threshold: [d_sae]  (exp of log_threshold)
 
     Args:
         state_dict: miStudio model state dict
@@ -196,30 +223,62 @@ def convert_mistudio_to_community_weights(
     """
     community_weights = {}
 
-    # Encoder weights: transpose from [d_sae, d_in] to [d_in, d_sae]
-    if "encoder.weight" in state_dict:
-        community_weights["W_enc"] = state_dict["encoder.weight"].t().contiguous()
+    # Detect JumpReLU SAE by presence of W_enc (direct parameter) vs encoder.weight (nn.Linear)
+    is_jumprelu = "W_enc" in state_dict
 
-    # Encoder bias: direct copy
-    if "encoder.bias" in state_dict:
-        community_weights["b_enc"] = state_dict["encoder.bias"]
+    if is_jumprelu:
+        # JumpReLU SAE format
+        # W_enc is [d_sae, d_in], transpose to [d_in, d_sae]
+        if "W_enc" in state_dict:
+            community_weights["W_enc"] = state_dict["W_enc"].t().contiguous()
 
-    # Decoder weights
-    if tied_weights:
-        # For tied weights, W_dec = W_enc.T
-        # Community Standard expects [d_sae, d_in], which is encoder.weight without transpose
-        if "encoder.weight" in state_dict:
-            community_weights["W_dec"] = state_dict["encoder.weight"].contiguous()
+        # b_enc is [d_sae], direct copy
+        if "b_enc" in state_dict:
+            community_weights["b_enc"] = state_dict["b_enc"]
+
+        # Decoder weights
+        if tied_weights:
+            if "W_enc" in state_dict:
+                community_weights["W_dec"] = state_dict["W_enc"].contiguous()
+        else:
+            # W_dec is [d_in, d_sae], transpose to [d_sae, d_in]
+            if "W_dec" in state_dict:
+                community_weights["W_dec"] = state_dict["W_dec"].t().contiguous()
+
+        # b_dec is [d_in], direct copy
+        if "b_dec" in state_dict:
+            community_weights["b_dec"] = state_dict["b_dec"]
+
+        # JumpReLU thresholds (stored as log_threshold, convert to actual threshold)
+        if "activation.log_threshold" in state_dict:
+            community_weights["threshold"] = torch.exp(state_dict["activation.log_threshold"])
+
     else:
-        # Decoder weights: transpose from [d_in, d_sae] to [d_sae, d_in]
-        if "decoder.weight" in state_dict:
-            community_weights["W_dec"] = state_dict["decoder.weight"].t().contiguous()
+        # Standard SAE format (SparseAutoencoder, SkipAutoencoder, Transcoder)
+        # Encoder weights: transpose from [d_sae, d_in] to [d_in, d_sae]
+        if "encoder.weight" in state_dict:
+            community_weights["W_enc"] = state_dict["encoder.weight"].t().contiguous()
 
-    # Decoder bias: prefer decoder_bias if present, else decoder.bias
-    if "decoder_bias" in state_dict:
-        community_weights["b_dec"] = state_dict["decoder_bias"]
-    elif "decoder.bias" in state_dict:
-        community_weights["b_dec"] = state_dict["decoder.bias"]
+        # Encoder bias: direct copy
+        if "encoder.bias" in state_dict:
+            community_weights["b_enc"] = state_dict["encoder.bias"]
+
+        # Decoder weights
+        if tied_weights:
+            # For tied weights, W_dec = W_enc.T
+            # Community Standard expects [d_sae, d_in], which is encoder.weight without transpose
+            if "encoder.weight" in state_dict:
+                community_weights["W_dec"] = state_dict["encoder.weight"].contiguous()
+        else:
+            # Decoder weights: transpose from [d_in, d_sae] to [d_sae, d_in]
+            if "decoder.weight" in state_dict:
+                community_weights["W_dec"] = state_dict["decoder.weight"].t().contiguous()
+
+        # Decoder bias: prefer decoder_bias if present, else decoder.bias
+        if "decoder_bias" in state_dict:
+            community_weights["b_dec"] = state_dict["decoder_bias"]
+        elif "decoder.bias" in state_dict:
+            community_weights["b_dec"] = state_dict["decoder.bias"]
 
     return community_weights
 
@@ -227,6 +286,7 @@ def convert_mistudio_to_community_weights(
 def convert_community_to_mistudio_weights(
     community_weights: Dict[str, torch.Tensor],
     tied_weights: bool = False,
+    is_jumprelu: bool = False,
 ) -> Dict[str, torch.Tensor]:
     """
     Convert Community Standard weight format to miStudio state dict.
@@ -236,42 +296,79 @@ def convert_community_to_mistudio_weights(
         b_enc: [d_sae]
         W_dec: [d_sae, d_in]
         b_dec: [d_in]
+        (JumpReLU) threshold: [d_sae]
 
-    miStudio uses PyTorch nn.Linear convention:
+    miStudio Standard SAE uses PyTorch nn.Linear convention:
         encoder.weight: [d_sae, d_in]
         encoder.bias: [d_sae]
         decoder.weight: [d_in, d_sae]
         decoder.bias: [d_in]
         decoder_bias: [d_in]
 
+    miStudio JumpReLU SAE uses direct parameters:
+        W_enc: [d_sae, d_in]
+        b_enc: [d_sae]
+        W_dec: [d_in, d_sae]
+        b_dec: [d_in]
+        activation.log_threshold: [d_sae]
+
     Args:
         community_weights: Community Standard format weight dict
         tied_weights: Whether to use tied weights
+        is_jumprelu: Whether to output JumpReLU format (auto-detected if threshold present)
 
     Returns:
         miStudio model state dict
     """
+    # Auto-detect JumpReLU if threshold is present
+    if "threshold" in community_weights:
+        is_jumprelu = True
+
     mistudio_weights = {}
 
-    # Encoder weights: transpose from [d_in, d_sae] to [d_sae, d_in]
-    if "W_enc" in community_weights:
-        mistudio_weights["encoder.weight"] = community_weights["W_enc"].t().contiguous()
+    if is_jumprelu:
+        # JumpReLU SAE format
+        # W_enc: transpose from [d_in, d_sae] to [d_sae, d_in]
+        if "W_enc" in community_weights:
+            mistudio_weights["W_enc"] = community_weights["W_enc"].t().contiguous()
 
-    # Encoder bias: direct copy
-    if "b_enc" in community_weights:
-        mistudio_weights["encoder.bias"] = community_weights["b_enc"]
+        # b_enc: direct copy
+        if "b_enc" in community_weights:
+            mistudio_weights["b_enc"] = community_weights["b_enc"]
 
-    # Decoder weights (only if not tied)
-    if not tied_weights and "W_dec" in community_weights:
-        # Transpose from [d_sae, d_in] to [d_in, d_sae]
-        mistudio_weights["decoder.weight"] = community_weights["W_dec"].t().contiguous()
+        # W_dec: transpose from [d_sae, d_in] to [d_in, d_sae]
+        if not tied_weights and "W_dec" in community_weights:
+            mistudio_weights["W_dec"] = community_weights["W_dec"].t().contiguous()
 
-    # Decoder bias
-    if "b_dec" in community_weights:
-        mistudio_weights["decoder_bias"] = community_weights["b_dec"]
-        # Also set decoder.bias if not tied
-        if not tied_weights:
-            mistudio_weights["decoder.bias"] = torch.zeros_like(community_weights["b_dec"])
+        # b_dec: direct copy
+        if "b_dec" in community_weights:
+            mistudio_weights["b_dec"] = community_weights["b_dec"]
+
+        # JumpReLU thresholds (convert back to log_threshold)
+        if "threshold" in community_weights:
+            mistudio_weights["activation.log_threshold"] = torch.log(community_weights["threshold"])
+
+    else:
+        # Standard SAE format (SparseAutoencoder, SkipAutoencoder, Transcoder)
+        # Encoder weights: transpose from [d_in, d_sae] to [d_sae, d_in]
+        if "W_enc" in community_weights:
+            mistudio_weights["encoder.weight"] = community_weights["W_enc"].t().contiguous()
+
+        # Encoder bias: direct copy
+        if "b_enc" in community_weights:
+            mistudio_weights["encoder.bias"] = community_weights["b_enc"]
+
+        # Decoder weights (only if not tied)
+        if not tied_weights and "W_dec" in community_weights:
+            # Transpose from [d_sae, d_in] to [d_in, d_sae]
+            mistudio_weights["decoder.weight"] = community_weights["W_dec"].t().contiguous()
+
+        # Decoder bias
+        if "b_dec" in community_weights:
+            mistudio_weights["decoder_bias"] = community_weights["b_dec"]
+            # Also set decoder.bias if not tied
+            if not tied_weights:
+                mistudio_weights["decoder.bias"] = torch.zeros_like(community_weights["b_dec"])
 
     return mistudio_weights
 
@@ -391,6 +488,166 @@ def is_community_format(path: Path) -> bool:
         (path / "cfg.json").exists() and
         (path / "sae_weights.safetensors").exists()
     )
+
+
+def is_gemma_scope_format(path: Path) -> bool:
+    """
+    Check if a path contains Gemma Scope format (params.npz).
+
+    Gemma Scope SAEs from Google use NumPy archives containing:
+    - W_enc: [d_in, d_sae]
+    - W_dec: [d_sae, d_in]
+    - b_enc: [d_sae]
+    - b_dec: [d_in]
+    - threshold: [d_sae] (for JumpReLU)
+
+    Args:
+        path: Directory or file path to check
+
+    Returns:
+        True if params.npz exists
+    """
+    path = Path(path)
+
+    # Check for direct params.npz file
+    if path.name == "params.npz" and path.exists():
+        return True
+
+    # Check for params.npz in directory
+    if path.is_dir() and (path / "params.npz").exists():
+        return True
+
+    return False
+
+
+def load_gemma_scope_format(
+    input_path: Path,
+    device: str = "cpu",
+) -> Tuple[Dict[str, torch.Tensor], CommunityStandardConfig]:
+    """
+    Load an SAE from Gemma Scope format (params.npz).
+
+    Gemma Scope weight format:
+        W_enc: [d_in, d_sae] - encoder weights
+        W_dec: [d_sae, d_in] - decoder weights
+        b_enc: [d_sae] - encoder bias
+        b_dec: [d_in] - decoder bias (often zero)
+        threshold: [d_sae] - JumpReLU thresholds
+
+    Converts to miStudio JumpReLU format:
+        W_enc: [d_sae, d_in]
+        W_dec: [d_in, d_sae]
+        b_enc: [d_sae]
+        b_dec: [d_in]
+        activation.log_threshold: [d_sae]
+
+    Args:
+        input_path: Path to params.npz file or directory containing it
+        device: Device to load tensors onto
+
+    Returns:
+        Tuple of (miStudio state_dict, config)
+    """
+    input_path = Path(input_path)
+
+    # Find params.npz
+    if input_path.name == "params.npz":
+        npz_path = input_path
+    else:
+        npz_path = input_path / "params.npz"
+
+    if not npz_path.exists():
+        raise FileNotFoundError(f"params.npz not found at {npz_path}")
+
+    # Load numpy arrays
+    with np.load(str(npz_path)) as data:
+        # Gemma Scope format: W_enc [d_in, d_sae], W_dec [d_sae, d_in]
+        W_enc_np = data["W_enc"]  # [d_in, d_sae]
+        W_dec_np = data["W_dec"]  # [d_sae, d_in]
+        b_enc_np = data["b_enc"]  # [d_sae]
+
+        # b_dec may or may not exist
+        b_dec_np = data.get("b_dec", np.zeros(W_dec_np.shape[1], dtype=W_enc_np.dtype))
+
+        # threshold for JumpReLU
+        threshold_np = data.get("threshold", None)
+
+    # Get dimensions
+    d_in, d_sae = W_enc_np.shape
+
+    # Convert to PyTorch tensors
+    # miStudio JumpReLU format: W_enc [d_sae, d_in], W_dec [d_in, d_sae]
+    # So we need to transpose from Gemma Scope format
+    W_enc = torch.from_numpy(W_enc_np.T).contiguous().to(device)  # [d_sae, d_in]
+    W_dec = torch.from_numpy(W_dec_np.T).contiguous().to(device)  # [d_in, d_sae]
+    b_enc = torch.from_numpy(b_enc_np).to(device)
+    b_dec = torch.from_numpy(b_dec_np).to(device)
+
+    # Build state dict in miStudio JumpReLU format
+    mistudio_weights = {
+        "W_enc": W_enc,
+        "W_dec": W_dec,
+        "b_enc": b_enc,
+        "b_dec": b_dec,
+    }
+
+    # Handle JumpReLU thresholds
+    if threshold_np is not None:
+        # Convert threshold to log_threshold for JumpReLU activation
+        threshold = torch.from_numpy(threshold_np).to(device)
+        # Clamp to avoid log(0)
+        threshold = torch.clamp(threshold, min=1e-10)
+        mistudio_weights["activation.log_threshold"] = torch.log(threshold)
+
+    # Try to extract metadata from path
+    # Gemma Scope paths: layer_{N}/width_{width}/average_l0_{l0}/params.npz
+    layer = None
+    model_name = "google/gemma-2-2b"  # Default assumption for Gemma Scope
+    l0_sparsity = None
+
+    path_str = str(input_path)
+    import re
+
+    # Extract layer
+    layer_match = re.search(r"layer[_/](\d+)", path_str, re.IGNORECASE)
+    if layer_match:
+        layer = int(layer_match.group(1))
+
+    # Extract L0 sparsity from path
+    l0_match = re.search(r"average_l0[_/](\d+)", path_str, re.IGNORECASE)
+    if l0_match:
+        l0_sparsity = int(l0_match.group(1))
+
+    # Detect model from d_in
+    if d_in == 2304:
+        model_name = "google/gemma-2-2b"
+    elif d_in == 3584:
+        model_name = "google/gemma-2-9b"
+    elif d_in == 4608:
+        model_name = "google/gemma-2-27b"
+
+    # Create config
+    config = CommunityStandardConfig(
+        model_name=model_name,
+        hook_point=f"blocks.{layer or 0}.hook_resid_post",
+        hook_point_layer=layer or 0,
+        d_in=d_in,
+        d_sae=d_sae,
+        architecture="jumprelu",
+        activation_fn_str="jumprelu",
+        normalize_activations="none",
+        extra_metadata={
+            "source_format": "gemma_scope",
+            "l0_sparsity": l0_sparsity,
+        },
+    )
+
+    logger.info(
+        f"Loaded Gemma Scope SAE: d_in={d_in}, d_sae={d_sae}, "
+        f"layer={layer}, has_threshold={threshold_np is not None}"
+    )
+
+    return mistudio_weights, config
 
 
 def is_mistudio_format(path: Path) -> bool:
@@ -520,8 +777,9 @@ def load_sae_auto_detect(
 
     Supports:
     1. Community Standard format (cfg.json + sae_weights.safetensors)
-    2. miStudio checkpoint format (checkpoint.safetensors with model.* keys)
-    3. Multi-layer SAE structure (layer_*/checkpoint.safetensors)
+    2. Gemma Scope format (params.npz - JumpReLU SAEs from Google)
+    3. miStudio checkpoint format (checkpoint.safetensors with model.* keys)
+    4. Multi-layer SAE structure (layer_*/checkpoint.safetensors)
 
     Args:
         path: Path to SAE directory or checkpoint file
@@ -536,6 +794,11 @@ def load_sae_auto_detect(
     if is_community_format(path):
         state_dict, config, _ = load_sae_community_format(path, device)
         return state_dict, config, "community_standard"
+
+    # Check for Gemma Scope format (params.npz)
+    if is_gemma_scope_format(path):
+        state_dict, config = load_gemma_scope_format(path, device)
+        return state_dict, config, "gemma_scope"
 
     # Check for miStudio format (including layer subdirectories)
     if is_mistudio_format(path):
@@ -555,7 +818,8 @@ def load_sae_auto_detect(
 
     raise ValueError(
         f"Unrecognized SAE format at {path}. "
-        f"Expected either Community Standard format (cfg.json + sae_weights.safetensors) "
+        f"Expected either Community Standard format (cfg.json + sae_weights.safetensors), "
+        f"Gemma Scope format (params.npz), "
         f"or miStudio format (checkpoint.safetensors with model.* keys)"
     )
 

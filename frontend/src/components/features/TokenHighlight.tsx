@@ -194,8 +194,13 @@ export const TokenHighlightContext: React.FC<TokenHighlightContextProps> = ({
   className = '',
   showGradient: _showGradient = true,
 }) => {
-  // Use enhanced format if available, otherwise fall back to legacy
-  const hasContextFormat = prefixTokens !== undefined && primeToken !== undefined && suffixTokens !== undefined;
+  // Use enhanced format if all context fields are present with valid data
+  // Check for both null and undefined, and ensure arrays have content
+  const hasContextFormat =
+    prefixTokens != null &&
+    primeToken != null &&
+    suffixTokens != null &&
+    (Array.isArray(prefixTokens) || Array.isArray(suffixTokens));
 
   if (!hasContextFormat && !tokens) {
     console.warn('TokenHighlightContext: No tokens provided');
@@ -211,8 +216,9 @@ export const TokenHighlightContext: React.FC<TokenHighlightContextProps> = ({
   const allTokens = [...(prefixTokens || []), primeToken || '', ...(suffixTokens || [])];
   const primeIndex = primeActivationIndex ?? (prefixTokens?.length ?? 0);
 
-  if (allTokens.length !== activations.length) {
-    console.warn('TokenHighlightContext: tokens and activations length mismatch');
+  // Only warn if there's a significant mismatch (not just by 1 due to edge cases)
+  if (allTokens.length !== activations.length && Math.abs(allTokens.length - activations.length) > 1) {
+    console.warn(`TokenHighlightContext: tokens (${allTokens.length}) and activations (${activations.length}) length mismatch`);
   }
 
   return (

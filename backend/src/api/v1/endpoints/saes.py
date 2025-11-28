@@ -174,9 +174,9 @@ async def download_sae_from_hf(
 
 async def _download_sae_background(sae_id: str, request: SAEDownloadRequest):
     """Background task to download SAE from HuggingFace."""
-    from ....core.database import async_session_maker
+    from ....core.database import AsyncSessionLocal
 
-    async with async_session_maker() as db:
+    async with AsyncSessionLocal() as db:
         try:
             # Update status to downloading
             await SAEManagerService.update_download_progress(

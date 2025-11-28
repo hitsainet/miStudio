@@ -428,6 +428,8 @@ class SteeringService:
                 steered_activations = activations.clone()
 
                 # Get decoder weights - handle different SAE architectures
+                # IMPORTANT: Check decoder_weight FIRST for JumpReLUSAE
+                # JumpReLUSAE has both decoder (compat wrapper with TRANSPOSED weights) and decoder_weight (correct shape)
                 decoder_weight = None
 
                 if hasattr(sae.model, 'tied_weights') and sae.model.tied_weights:
@@ -435,13 +437,14 @@ class SteeringService:
                     # encoder.weight shape is [latent_dim, hidden_dim]
                     # We need [hidden_dim, latent_dim] for indexing
                     decoder_weight = sae.model.encoder.weight.t()  # [hidden_dim, latent_dim]
+                elif hasattr(sae.model, 'decoder_weight') and not isinstance(getattr(sae.model, 'decoder', None), nn.Linear):
+                    # JumpReLUSAE: decoder_weight property returns [d_model, d_sae] (correct shape)
+                    # The decoder compat wrapper returns TRANSPOSED weights, so check decoder_weight first
+                    decoder_weight = sae.model.decoder_weight  # [hidden_dim, latent_dim]
                 elif hasattr(sae.model, 'decoder') and sae.model.decoder is not None:
                     if hasattr(sae.model.decoder, 'weight'):
                         # Standard nn.Linear decoder: weight shape is [hidden_dim, latent_dim]
                         decoder_weight = sae.model.decoder.weight  # [hidden_dim, latent_dim]
-                elif hasattr(sae.model, 'decoder_weight'):
-                    # Direct weight attribute
-                    decoder_weight = sae.model.decoder_weight
 
                 if decoder_weight is None:
                     logger.warning("Could not find decoder weights, using fallback decode method")

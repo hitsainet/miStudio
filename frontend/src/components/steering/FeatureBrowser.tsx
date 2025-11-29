@@ -162,7 +162,7 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
     const success = addFeature({
       feature_idx: feature.feature_idx,
       layer: feature.layer,
-      strength: 100, // Default strength
+      strength: 10, // Default strength (Neuronpedia-compatible raw coefficient)
       label: feature.label,
       feature_id: feature.feature_id,
     });
@@ -186,7 +186,7 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
     const success = addFeature({
       feature_idx: featureIdx,
       layer: effectiveLayer,
-      strength: 100,
+      strength: 10, // Default strength (Neuronpedia-compatible raw coefficient)
       label: null,
       feature_id: null, // Manual entry - no database ID
     });

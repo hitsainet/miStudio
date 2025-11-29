@@ -117,11 +117,24 @@ export async function getComparisonStatus(
 }
 
 /**
+ * Response from clearing the steering cache.
+ */
+export interface ClearCacheResponse {
+  models_unloaded: number;
+  saes_unloaded: number;
+  vram_before_gb: number;
+  vram_after_gb: number;
+  vram_freed_gb: number;
+  was_already_clear: boolean;
+  message: string;
+}
+
+/**
  * Clear all cached models and SAEs from the steering service.
  * Use this to free GPU memory after steering operations.
  */
-export async function clearSteeringCache(): Promise<{ message: string }> {
-  return fetchAPI<{ message: string }>('/steering/cache/clear', {
+export async function clearSteeringCache(): Promise<ClearCacheResponse> {
+  return fetchAPI<ClearCacheResponse>('/steering/cache/clear', {
     method: 'POST',
   });
 }

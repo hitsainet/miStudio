@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power } from 'lucide-react';
+import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power, Check, Info } from 'lucide-react';
 import { useSteeringStore, selectCanGenerate } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { SAEStatus } from '../../types/sae';
@@ -27,6 +27,7 @@ import { COMPONENTS } from '../../config/brand';
 export function SteeringPanel() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [cacheMessage, setCacheMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
 
   const {
     selectedSAE,
@@ -65,11 +66,19 @@ export function SteeringPanel() {
     setShowSaveModal(true);
   };
 
-  const handleUnloadModel = async () => {
+  const handleClearVRAM = async () => {
+    setCacheMessage(null);
     try {
-      await clearModelCache();
+      const result = await clearModelCache();
+      if (result.was_already_clear) {
+        setCacheMessage({ text: result.message, type: 'info' });
+      } else {
+        setCacheMessage({ text: result.message, type: 'success' });
+      }
+      // Auto-dismiss after 5 seconds
+      setTimeout(() => setCacheMessage(null), 5000);
     } catch (error) {
-      console.error('[SteeringPanel] Failed to unload model:', error);
+      console.error('[SteeringPanel] Failed to clear VRAM:', error);
     }
   };
 
@@ -108,27 +117,44 @@ export function SteeringPanel() {
                 Steer model outputs by adjusting feature activations during generation
               </p>
             </div>
-            {/* Unload Model button - shown after generation */}
-            {currentComparison && !isGenerating && (
+            {/* Clear VRAM button - always visible */}
+            <div className="flex items-center gap-3">
+              {/* Feedback message */}
+              {cacheMessage && (
+                <div
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${
+                    cacheMessage.type === 'success'
+                      ? 'bg-emerald-500/10 text-emerald-400'
+                      : 'bg-blue-500/10 text-blue-400'
+                  }`}
+                >
+                  {cacheMessage.type === 'success' ? (
+                    <Check className="w-4 h-4" />
+                  ) : (
+                    <Info className="w-4 h-4" />
+                  )}
+                  {cacheMessage.text}
+                </div>
+              )}
               <button
-                onClick={handleUnloadModel}
-                disabled={isUnloadingCache}
+                onClick={handleClearVRAM}
+                disabled={isUnloadingCache || isGenerating}
                 className={`px-3 py-2 flex items-center gap-2 text-sm ${COMPONENTS.button.ghost} text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50`}
-                title="Unload model and SAE from GPU memory"
+                title="Clear GPU VRAM by unloading models and SAEs"
               >
                 {isUnloadingCache ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin" />
-                    Unloading...
+                    Clearing...
                   </>
                 ) : (
                   <>
                     <Power className="w-4 h-4" />
-                    Unload Model
+                    Clear VRAM
                   </>
                 )}
               </button>
-            )}
+            </div>
           </div>
 
           {/* Error message */}

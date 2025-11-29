@@ -1,12 +1,13 @@
 /**
  * StrengthSlider - Custom slider for steering strength control.
  *
- * Features:
- * - Range: -100 to +300 (multiplier: 0x to 4x)
+ * Neuronpedia-compatible calibration:
+ * - Range: -200 to +200 (raw coefficients)
+ * - Values like 0.07 = subtle, 80 = strong effect
  * - Color-coded zones (normal, caution, extreme)
  * - Visual warning indicators
- * - Precise value input
- * - Shows multiplier value
+ * - Precise value input (supports decimals)
+ * - Shows coefficient value
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -14,7 +15,6 @@ import { AlertTriangle, AlertCircle } from 'lucide-react';
 import {
   STRENGTH_THRESHOLDS,
   getStrengthWarningLevel,
-  strengthToMultiplier,
   FeatureColor,
   FEATURE_COLORS,
 } from '../../types/steering';
@@ -39,7 +39,6 @@ export function StrengthSlider({
   const sliderRef = useRef<HTMLDivElement>(null);
 
   const warningLevel = getStrengthWarningLevel(value);
-  const multiplier = strengthToMultiplier(value);
 
   // Sync input value with prop
   useEffect(() => {
@@ -54,9 +53,9 @@ export function StrengthSlider({
 
   const handleInputBlur = () => {
     setIsEditing(false);
-    const parsed = parseInt(inputValue, 10);
+    const parsed = parseFloat(inputValue);
     if (!isNaN(parsed)) {
-      const clamped = Math.max(-100, Math.min(300, parsed));
+      const clamped = Math.max(-200, Math.min(200, parsed));
       onChange(clamped);
       setInputValue(clamped.toString());
     } else {
@@ -74,8 +73,8 @@ export function StrengthSlider({
     if (disabled || !sliderRef.current) return;
     const rect = sliderRef.current.getBoundingClientRect();
     const percent = (e.clientX - rect.left) / rect.width;
-    const newValue = Math.round(-100 + percent * 400); // -100 to 300
-    onChange(Math.max(-100, Math.min(300, newValue)));
+    const newValue = Math.round(-200 + percent * 400); // -200 to 200
+    onChange(Math.max(-200, Math.min(200, newValue)));
   };
 
   const handleSliderDrag = (e: React.MouseEvent) => {
@@ -83,15 +82,15 @@ export function StrengthSlider({
     handleSliderClick(e);
   };
 
-  // Calculate thumb position (0-100%)
-  const thumbPosition = ((value + 100) / 400) * 100;
+  // Calculate thumb position (0-100%) - range is -200 to +200 (400 total)
+  const thumbPosition = ((value + 200) / 400) * 100;
 
-  // Calculate zone positions
+  // Calculate zone positions for the -200 to +200 range
   const zonePositions = {
-    extremeLow: ((STRENGTH_THRESHOLDS.EXTREME_LOW + 100) / 400) * 100,
-    cautionLow: ((STRENGTH_THRESHOLDS.CAUTION_LOW + 100) / 400) * 100,
-    cautionHigh: ((STRENGTH_THRESHOLDS.CAUTION_HIGH + 100) / 400) * 100,
-    extremeHigh: ((STRENGTH_THRESHOLDS.EXTREME_HIGH + 100) / 400) * 100,
+    extremeLow: ((STRENGTH_THRESHOLDS.EXTREME_LOW + 200) / 400) * 100,
+    cautionLow: ((STRENGTH_THRESHOLDS.CAUTION_LOW + 200) / 400) * 100,
+    cautionHigh: ((STRENGTH_THRESHOLDS.CAUTION_HIGH + 200) / 400) * 100,
+    extremeHigh: ((STRENGTH_THRESHOLDS.EXTREME_HIGH + 200) / 400) * 100,
   };
 
   const colorClasses = FEATURE_COLORS[color];
@@ -122,7 +121,7 @@ export function StrengthSlider({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Multiplier display */}
+          {/* Coefficient display - shows the raw steering coefficient */}
           <span
             className={`text-sm font-mono ${
               warningLevel === 'extreme'
@@ -131,8 +130,9 @@ export function StrengthSlider({
                 ? 'text-amber-400'
                 : 'text-slate-400'
             }`}
+            title="Raw steering coefficient (Neuronpedia-compatible)"
           >
-            {multiplier.toFixed(2)}x
+            coef: {value}
           </span>
 
           {/* Warning icons */}
@@ -193,10 +193,10 @@ export function StrengthSlider({
           style={{ left: 0, width: `${thumbPosition}%` }}
         />
 
-        {/* Zero line marker */}
+        {/* Zero line marker - at 50% for -200 to +200 range */}
         <div
           className="absolute w-0.5 h-full bg-slate-500"
-          style={{ left: '25%' }}
+          style={{ left: '50%' }}
           title="Baseline (strength = 0)"
         />
 
@@ -216,11 +216,11 @@ export function StrengthSlider({
       {/* Scale labels */}
       {!compact && (
         <div className="flex justify-between text-xs text-slate-500">
+          <span>-200</span>
           <span>-100</span>
           <span>0</span>
           <span>100</span>
           <span>200</span>
-          <span>300</span>
         </div>
       )}
 

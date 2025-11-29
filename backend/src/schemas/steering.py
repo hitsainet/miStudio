@@ -22,9 +22,13 @@ class SelectedFeature(BaseModel):
     layer: int = Field(..., ge=0, description="Target layer for steering (L0, L1, etc.)")
     strength: float = Field(
         ...,
-        ge=-100.0,
-        le=300.0,
-        description="Steering strength (-100 to +300). Negative suppresses, positive amplifies."
+        ge=-200.0,
+        le=200.0,
+        description=(
+            "Raw steering coefficient (Neuronpedia-compatible). "
+            "Values like 0.07 for subtle effects, 80 for strong effects. "
+            "Negative values suppress the feature."
+        )
     )
     label: Optional[str] = Field(None, description="Feature label for display")
     color: Literal["teal", "blue", "purple", "amber"] = Field(
@@ -35,7 +39,7 @@ class SelectedFeature(BaseModel):
     @field_validator("strength")
     @classmethod
     def validate_strength(cls, v: float) -> float:
-        """Validate and warn about extreme steering strengths."""
+        """Validate steering strength - now Neuronpedia-compatible raw coefficients."""
         # Just validate range - warnings are handled in UI
         return v
 

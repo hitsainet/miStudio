@@ -30,6 +30,7 @@ import {
 } from '../types/steering';
 import { SAE } from '../types/sae';
 import * as steeringApi from '../api/steering';
+import type { ClearCacheResponse } from '../api/steering';
 
 // Maximum number of features that can be selected
 const MAX_SELECTED_FEATURES = 4;
@@ -124,8 +125,9 @@ interface SteeringState {
   clearError: () => void;
 
   // Actions - Cache Management
-  clearModelCache: () => Promise<void>;
+  clearModelCache: () => Promise<ClearCacheResponse>;
   isUnloadingCache: boolean;
+  lastCacheResult: ClearCacheResponse | null;
 }
 
 export const useSteeringStore = create<SteeringState>()(
@@ -155,6 +157,7 @@ export const useSteeringStore = create<SteeringState>()(
       },
       error: null,
       isUnloadingCache: false,
+      lastCacheResult: null,
 
       // Select an SAE for steering
       selectSAE: (sae: SAE | null) => {
@@ -561,10 +564,11 @@ export const useSteeringStore = create<SteeringState>()(
 
       // Clear model cache
       clearModelCache: async () => {
-        set({ isUnloadingCache: true, error: null });
+        set({ isUnloadingCache: true, error: null, lastCacheResult: null });
         try {
-          await steeringApi.clearSteeringCache();
-          set({ isUnloadingCache: false });
+          const result = await steeringApi.clearSteeringCache();
+          set({ isUnloadingCache: false, lastCacheResult: result });
+          return result;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to clear cache';
           set({ error: errorMessage, isUnloadingCache: false });

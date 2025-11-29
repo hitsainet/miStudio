@@ -58,7 +58,7 @@ class FeatureSteeringConfig:
 
     feature_idx: int
     layer: int
-    strength: float  # -100 to +300
+    strength: float  # Raw steering coefficient (matches Neuronpedia)
     label: Optional[str] = None
     color: str = "teal"
 
@@ -67,14 +67,20 @@ class FeatureSteeringConfig:
         """
         Convert strength to activation multiplier.
 
-        Mapping:
-            -100 -> 0x (full suppression)
-            0 -> 1x (no change)
-            +100 -> 2x (double)
-            +200 -> 3x (triple)
-            +300 -> 4x (quadruple)
+        Neuronpedia-compatible calibration:
+        The strength value IS the raw coefficient used in the formula:
+            activations += coefficient * steering_vector
+
+        Examples:
+            0 -> no change
+            0.07 -> very subtle effect
+            1 -> add 1x the feature direction
+            80 -> strong effect (80x the feature direction)
+            -1 -> subtract 1x the feature direction (suppression)
+
+        This matches Neuronpedia's steering interface exactly.
         """
-        return 1 + (self.strength / 100.0)
+        return 1 + self.strength
 
 
 @dataclass
@@ -161,6 +167,11 @@ class SteeringService:
             device=self._device,
         )
 
+        # Debug logging
+        logger.info(f"SAE format detected: {format_type}")
+        logger.info(f"State dict keys: {list(state_dict.keys())}")
+        logger.info(f"Config: {config}")
+
         # Determine dimensions - from config if available, otherwise from weights/database
         if config is not None:
             d_in = config.d_in
@@ -189,6 +200,7 @@ class SteeringService:
             logger.info(f"Using inferred dimensions: d_in={d_in}, d_sae={d_sae}, layer={sae_layer}")
 
         # Create SAE model
+        logger.info(f"Creating SAE with arch_type={arch_type}, d_in={d_in}, d_sae={d_sae}")
         sae_model = create_sae(
             architecture_type=arch_type,
             hidden_dim=d_in,
@@ -196,6 +208,7 @@ class SteeringService:
             l1_alpha=l1_coef,
             normalize_activations=normalize,
         )
+        logger.info(f"Model expects keys: {list(sae_model.state_dict().keys())}")
 
         # Load weights and ensure correct dtype
         sae_model.load_state_dict(state_dict)
@@ -1119,9 +1132,19 @@ class SteeringService:
             return True
         return False
 
-    def clear_cache(self):
-        """Clear all cached models and SAEs and free GPU memory."""
+    def clear_cache(self) -> dict:
+        """
+        Clear all cached models and SAEs and free GPU memory.
+
+        Returns:
+            Dict with clearing results including VRAM usage info.
+        """
         import gc
+
+        # Get VRAM usage before clearing
+        vram_before_gb = 0.0
+        if torch.cuda.is_available():
+            vram_before_gb = torch.cuda.memory_allocated() / (1024 ** 3)
 
         # Log what we're clearing
         sae_count = len(self._loaded_saes)
@@ -1160,7 +1183,24 @@ class SteeringService:
             torch.cuda.synchronize()
             logger.info("CUDA cache cleared")
 
+        # Get VRAM usage after clearing
+        vram_after_gb = 0.0
+        if torch.cuda.is_available():
+            vram_after_gb = torch.cuda.memory_allocated() / (1024 ** 3)
+
         logger.info("Steering cache cleared successfully")
+
+        # Minimum VRAM threshold (baseline usage from PyTorch/CUDA context)
+        MIN_VRAM_THRESHOLD_GB = 0.05  # ~50MB baseline
+
+        return {
+            "models_unloaded": model_count,
+            "saes_unloaded": sae_count,
+            "vram_before_gb": round(vram_before_gb, 3),
+            "vram_after_gb": round(vram_after_gb, 3),
+            "vram_freed_gb": round(vram_before_gb - vram_after_gb, 3),
+            "was_already_clear": model_count == 0 and sae_count == 0 and vram_before_gb < MIN_VRAM_THRESHOLD_GB,
+        }
 
 
 # Global service instance

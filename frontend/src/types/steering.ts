@@ -65,7 +65,7 @@ export const FEATURE_COLOR_ORDER: FeatureColor[] = ['teal', 'blue', 'purple', 'a
 export interface SelectedFeature {
   feature_idx: number;
   layer: number;
-  strength: number; // -100 to +300
+  strength: number; // Raw coefficient (Neuronpedia-compatible: 0.07 subtle, 80 strong)
   label: string | null;
   color: FeatureColor;
   feature_id: string | null; // Database feature ID if extracted
@@ -273,13 +273,14 @@ export interface SteeringEffectAnalysis {
 }
 
 /**
- * Warning thresholds for steering strength.
+ * Warning thresholds for steering strength (raw coefficients).
+ * These are Neuronpedia-compatible values.
  */
 export const STRENGTH_THRESHOLDS = {
   CAUTION_LOW: -50,
-  CAUTION_HIGH: 150,
-  EXTREME_LOW: -80,
-  EXTREME_HIGH: 250,
+  CAUTION_HIGH: 100,
+  EXTREME_LOW: -100,
+  EXTREME_HIGH: 150,
 };
 
 /**
@@ -297,8 +298,9 @@ export function getStrengthWarningLevel(strength: number): 'normal' | 'caution' 
 
 /**
  * Calculate the multiplier from strength.
- * Formula: multiplier = 1 + strength/100
+ * Neuronpedia-compatible: strength IS the raw coefficient.
+ * Formula: multiplier = 1 + strength (coefficient = strength)
  */
 export function strengthToMultiplier(strength: number): number {
-  return 1 + strength / 100;
+  return 1 + strength;
 }

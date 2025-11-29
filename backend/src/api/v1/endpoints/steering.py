@@ -288,10 +288,32 @@ async def clear_steering_cache():
     Clear all cached models and SAEs from the steering service.
 
     Use this to free GPU memory when switching between models.
+
+    Returns:
+        Dict with cache clearing results including:
+        - models_unloaded: Number of models unloaded
+        - saes_unloaded: Number of SAEs unloaded
+        - vram_before_gb: VRAM usage before clearing (GB)
+        - vram_after_gb: VRAM usage after clearing (GB)
+        - vram_freed_gb: Amount of VRAM freed (GB)
+        - was_already_clear: True if nothing needed to be cleared
+        - message: Human-readable status message
     """
     steering_service = get_steering_service()
-    steering_service.clear_cache()
-    return {"message": "Cache cleared successfully"}
+    result = steering_service.clear_cache()
+
+    # Generate appropriate message
+    if result["was_already_clear"]:
+        result["message"] = f"VRAM is already clear ({result['vram_after_gb']:.2f} GB in use)"
+    elif result["models_unloaded"] > 0 or result["saes_unloaded"] > 0:
+        result["message"] = (
+            f"Unloaded {result['models_unloaded']} model(s) and {result['saes_unloaded']} SAE(s), "
+            f"freed {result['vram_freed_gb']:.2f} GB VRAM"
+        )
+    else:
+        result["message"] = f"Cache cleared, VRAM now at {result['vram_after_gb']:.2f} GB"
+
+    return result
 
 
 @router.delete("/cache/sae/{sae_id}")

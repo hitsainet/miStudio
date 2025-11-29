@@ -11,7 +11,16 @@
 import { useState } from 'react';
 import { Settings, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { useSteeringStore } from '../../stores/steeringStore';
+import { DEFAULT_GENERATION_PARAMS } from '../../types/steering';
 import { COMPONENTS } from '../../config/brand';
+
+// Default advanced params for fallback
+const DEFAULT_ADVANCED_PARAMS = {
+  repetition_penalty: 1.15,
+  presence_penalty: 0,
+  frequency_penalty: 0,
+  do_sample: true,
+};
 
 interface GenerationConfigProps {
   compact?: boolean;
@@ -23,11 +32,23 @@ export function GenerationConfig({ compact = false }: GenerationConfigProps) {
   const { generationParams, advancedParams, setGenerationParams, setAdvancedParams, resetParams } =
     useSteeringStore();
 
-  const handleParamChange = (key: string, value: string | number) => {
+  const handleParamChange = (key: string, value: number | undefined) => {
+    // If value is NaN (from cleared input), reset to default
+    if (typeof value === 'number' && isNaN(value)) {
+      const defaultValue = DEFAULT_GENERATION_PARAMS[key as keyof typeof DEFAULT_GENERATION_PARAMS];
+      setGenerationParams({ [key]: defaultValue });
+      return;
+    }
     setGenerationParams({ [key]: value });
   };
 
-  const handleAdvancedChange = (key: string, value: string | number | boolean) => {
+  const handleAdvancedChange = (key: string, value: number | boolean) => {
+    // If value is NaN (from cleared input), reset to default
+    if (typeof value === 'number' && isNaN(value)) {
+      const defaultValue = DEFAULT_ADVANCED_PARAMS[key as keyof typeof DEFAULT_ADVANCED_PARAMS];
+      setAdvancedParams({ [key]: defaultValue });
+      return;
+    }
     setAdvancedParams({ [key]: value });
   };
 

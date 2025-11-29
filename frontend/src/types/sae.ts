@@ -94,6 +94,8 @@ export interface SAEDownloadRequest {
   revision?: string;
   access_token?: string;
   model_name?: string;
+  /** ID of local model to link for steering (from Models panel) */
+  model_id?: string;
 }
 
 /**

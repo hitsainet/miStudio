@@ -34,13 +34,24 @@ export interface ExtractionConfigRequest {
 }
 
 /**
+ * Extraction source type.
+ */
+export type ExtractionSourceType = 'training' | 'external_sae';
+
+/**
  * Extraction job status response.
+ * Supports both training-based and external SAE-based extractions.
  */
 export interface ExtractionStatusResponse {
   id: string;
-  training_id: string;
+  // Source identification - exactly one will be set
+  training_id: string | null;
+  external_sae_id: string | null;
+  source_type: ExtractionSourceType;
+  // Display info
   model_name: string | null;
   dataset_name: string | null;
+  sae_name: string | null;  // For external SAE sources
   status: ExtractionStatus;
   progress: number | null;
   features_extracted: number | null;

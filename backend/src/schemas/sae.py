@@ -74,6 +74,7 @@ class SAEDownloadRequest(BaseModel):
     revision: Optional[str] = Field(None, max_length=255, description="Git revision/branch (defaults to main)")
     access_token: Optional[str] = Field(None, description="HuggingFace access token for private repos")
     model_name: Optional[str] = Field(None, max_length=255, description="Target model name for compatibility checking")
+    model_id: Optional[str] = Field(None, max_length=255, description="ID of local model to link for steering (from Models panel)")
 
     @field_validator("repo_id")
     @classmethod

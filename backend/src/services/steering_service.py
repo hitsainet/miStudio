@@ -385,17 +385,25 @@ class SteeringService:
         feature_configs: List[FeatureSteeringConfig],
     ) -> Callable:
         """
-        Create a steering hook function.
-
-        The hook adds steering contributions to the original activations WITHOUT
-        doing a full SAE reconstruction (which would corrupt the activations).
+        Create a steering hook function using direct steering method.
 
         For each steered feature, we:
-        1. Encode activations to get feature activation values
-        2. Compute the additional contribution: (multiplier - 1) * feature_act * decoder_weight
-        3. Add this delta to the original activations
+        1. Get the steering vector from the SAE (feature's decoder weights)
+        2. Compute steering_coefficient = multiplier - 1 (so multiplier=1 means no change)
+        3. Add (steering_coefficient * steering_vector) to ALL token activations
 
-        This preserves the original model activations while adding steering effects.
+        This direct method applies steering uniformly to all tokens, regardless of
+        whether the feature naturally activates on the input. Benefits:
+        - Works for sparse features that may not activate on the prompt
+        - Consistent results regardless of activation values
+        - Simpler and more predictable behavior
+
+        Reference: https://www.neuronpedia.org/gemma-2-2b/20-gemmascope-res-16k/11859
+
+        IMPORTANT: We use IN-PLACE modification of hidden_states and return the
+        original output tuple. This is required for compatibility with Gemma-2 and
+        other models that use internal tensor references. Creating new tensors and
+        returning a new tuple causes shape mismatches in subsequent layers.
 
         Args:
             sae: Loaded SAE model
@@ -405,87 +413,89 @@ class SteeringService:
             Hook function compatible with PyTorch register_forward_hook
         """
         def steering_hook(module, input, output):
-            # Handle different output formats
-            if isinstance(output, tuple):
+            try:
+                # Output must be a tuple for transformer layers
+                if not isinstance(output, tuple):
+                    logger.warning("[Steering Hook] Expected tuple output, got single tensor")
+                    return output
+
                 hidden_states = output[0]
-                other_outputs = output[1:]
-            else:
-                hidden_states = output
-                other_outputs = ()
 
-            # Original shape
-            original_shape = hidden_states.shape
-            batch_size, seq_len, hidden_dim = original_shape
+                # Validate shape - ensure we have 3D tensor [batch, seq, hidden]
+                if len(hidden_states.shape) != 3:
+                    logger.warning(f"[Steering Hook] Unexpected shape: {hidden_states.shape}, skipping")
+                    return output
 
-            # Flatten for SAE processing
-            activations = hidden_states.view(-1, hidden_dim)
+                batch_size, seq_len, hidden_dim = hidden_states.shape
+                input_dtype = hidden_states.dtype
 
-            with torch.no_grad():
-                # Encode to get feature activations
-                feature_acts = sae.model.encode(activations)
+                # Validate hidden_dim matches SAE's expected input dimension
+                if hidden_dim != sae.d_in:
+                    logger.warning(
+                        f"[Steering Hook] Hidden dim mismatch: model={hidden_dim}, SAE={sae.d_in}. "
+                        f"Skipping steering."
+                    )
+                    return output
 
-                # Start with original activations (no reconstruction!)
-                steered_activations = activations.clone()
+                with torch.no_grad():
+                    # Get decoder weights - handle different SAE architectures
+                    decoder_weight = None
 
-                # Get decoder weights - handle different SAE architectures
-                # IMPORTANT: Check decoder_weight FIRST for JumpReLUSAE
-                # JumpReLUSAE has both decoder (compat wrapper with TRANSPOSED weights) and decoder_weight (correct shape)
-                decoder_weight = None
+                    if hasattr(sae.model, 'tied_weights') and sae.model.tied_weights:
+                        # Tied weights: decoder = encoder.weight.T
+                        decoder_weight = sae.model.encoder.weight.t()  # [hidden_dim, latent_dim]
+                    elif hasattr(sae.model, 'decoder_weight') and not isinstance(getattr(sae.model, 'decoder', None), nn.Linear):
+                        # JumpReLUSAE: decoder_weight property returns [d_model, d_sae]
+                        decoder_weight = sae.model.decoder_weight  # [hidden_dim, latent_dim]
+                    elif hasattr(sae.model, 'decoder') and sae.model.decoder is not None:
+                        if hasattr(sae.model.decoder, 'weight'):
+                            decoder_weight = sae.model.decoder.weight  # [hidden_dim, latent_dim]
 
-                if hasattr(sae.model, 'tied_weights') and sae.model.tied_weights:
-                    # Tied weights: decoder = encoder.weight.T
-                    # encoder.weight shape is [latent_dim, hidden_dim]
-                    # We need [hidden_dim, latent_dim] for indexing
-                    decoder_weight = sae.model.encoder.weight.t()  # [hidden_dim, latent_dim]
-                elif hasattr(sae.model, 'decoder_weight') and not isinstance(getattr(sae.model, 'decoder', None), nn.Linear):
-                    # JumpReLUSAE: decoder_weight property returns [d_model, d_sae] (correct shape)
-                    # The decoder compat wrapper returns TRANSPOSED weights, so check decoder_weight first
-                    decoder_weight = sae.model.decoder_weight  # [hidden_dim, latent_dim]
-                elif hasattr(sae.model, 'decoder') and sae.model.decoder is not None:
-                    if hasattr(sae.model.decoder, 'weight'):
-                        # Standard nn.Linear decoder: weight shape is [hidden_dim, latent_dim]
-                        decoder_weight = sae.model.decoder.weight  # [hidden_dim, latent_dim]
+                    if decoder_weight is None:
+                        logger.warning("Could not find decoder weights, skipping steering")
+                        return output
 
-                if decoder_weight is None:
-                    logger.warning("Could not find decoder weights, using fallback decode method")
+                    # Compute total steering vector for all features
+                    # Using direct steering method: activations += steering_coefficient * steering_vector
+                    # This applies steering uniformly to ALL tokens, regardless of feature activation.
+                    # Benefits:
+                    # - Works even for sparse features that don't activate on the prompt
+                    # - Consistent results regardless of activation values
+                    total_steering_vector = torch.zeros(hidden_dim, device=hidden_states.device, dtype=input_dtype)
 
-                # Add steering delta for each feature
-                for config in feature_configs:
-                    feat_idx = config.feature_idx
-                    # Extra strength: multiplier - 1 (so multiplier=1 means no change)
-                    extra_strength = config.multiplier - 1.0
+                    for config in feature_configs:
+                        feat_idx = config.feature_idx
+                        # Steering coefficient: multiplier - 1 (so multiplier=1 means no change)
+                        steering_coefficient = config.multiplier - 1.0
 
-                    if extra_strength == 0:
-                        continue  # No change needed
+                        if steering_coefficient == 0:
+                            continue  # No change needed
 
-                    # Get the feature activation for all tokens
-                    feat_act = feature_acts[:, feat_idx]  # [batch*seq]
+                        # Get the steering vector (decoder direction for this feature)
+                        steering_vector = decoder_weight[:, feat_idx]  # [d_in]
 
-                    if decoder_weight is not None:
-                        # Get the decoder direction for this feature
-                        # For nn.Linear, weight is [d_in, d_sae], so column feat_idx
-                        feat_direction = decoder_weight[:, feat_idx]  # [d_in]
+                        # Accumulate: steering_coefficient * steering_vector
+                        total_steering_vector.add_(steering_coefficient * steering_vector)
 
-                        # Compute steering delta: extra_strength * feat_act * direction
-                        # feat_act: [batch*seq], feat_direction: [d_in]
-                        # Result: [batch*seq, d_in]
-                        steering_delta = extra_strength * feat_act.unsqueeze(-1) * feat_direction.unsqueeze(0)
-                    else:
-                        # Fallback: create a one-hot and decode it
-                        one_hot = torch.zeros_like(feature_acts)
-                        one_hot[:, feat_idx] = feat_act * extra_strength
-                        steering_delta = sae.model.decode(one_hot) - sae.model.decode(torch.zeros_like(feature_acts))
+                    # Broadcast steering vector to all tokens [batch, seq, hidden]
+                    # The same steering is applied to every token position
+                    delta_3d = total_steering_vector.unsqueeze(0).unsqueeze(0).expand(batch_size, seq_len, -1)
 
-                    # Add the steering delta to activations
-                    steered_activations = steered_activations + steering_delta
+                    # Ensure delta dtype matches input dtype
+                    if delta_3d.dtype != input_dtype:
+                        delta_3d = delta_3d.to(input_dtype)
 
-            # Reshape back
-            steered_hidden = steered_activations.view(original_shape)
+                    # CRITICAL: Apply steering delta IN-PLACE
+                    # This preserves internal tensor references required by some models (e.g., Gemma-2)
+                    hidden_states.add_(delta_3d)
 
-            # Return in same format as input
-            if other_outputs:
-                return (steered_hidden,) + other_outputs
-            return steered_hidden
+                # Return the ORIGINAL output tuple (hidden_states was modified in place)
+                return output
+
+            except Exception as e:
+                logger.error(f"[Steering Hook] Error in hook: {e}", exc_info=True)
+                # Return original output on error
+                return output
 
         return steering_hook
 
@@ -532,9 +542,10 @@ class SteeringService:
             handle = target_module.register_forward_hook(hook_fn)
             handles.append(handle)
 
-            logger.debug(
-                f"Registered steering hook on layer {layer} "
-                f"for features: {[f.feature_idx for f in layer_features]}"
+            logger.info(
+                f"[Steering] Registered hook on layer {layer}, "
+                f"module type: {type(target_module).__name__}, "
+                f"features: {[f.feature_idx for f in layer_features]}"
             )
 
         return handles
@@ -546,6 +557,7 @@ class SteeringService:
         prompt: str,
         params: GenerationParams,
         advanced_params: Optional[AdvancedGenerationParams] = None,
+        disable_cache: bool = False,
     ) -> Tuple[str, int, int]:
         """
         Generate text using the model.
@@ -556,6 +568,7 @@ class SteeringService:
             prompt: Input prompt
             params: Generation parameters
             advanced_params: Optional advanced generation parameters
+            disable_cache: If True, disable KV cache (needed for some models with hooks)
 
         Returns:
             Tuple of (generated_text, token_count, generation_time_ms)
@@ -581,6 +594,12 @@ class SteeringService:
             "eos_token_id": tokenizer.eos_token_id,
             "repetition_penalty": 1.15,  # Default to prevent degenerate repetition
         }
+
+        # Disable cache if requested (needed for Gemma-2 with forward hooks)
+        # Gemma-2's hybrid cache is incompatible with forward hooks
+        if disable_cache:
+            gen_kwargs["use_cache"] = False
+            logger.debug("KV cache disabled for generation (forward hooks active)")
 
         if params.seed is not None:
             torch.manual_seed(params.seed)
@@ -861,10 +880,13 @@ class SteeringService:
         unsteered_text = None
 
         if request.include_unsteered:
+            # Disable KV cache for consistency with steered generation
+            # Some models (e.g., Gemma-2) behave differently with/without cache
             text, token_count, gen_time = await self._generate_text(
                 model, tokenizer, request.prompt,
                 request.generation_params,
                 request.advanced_params,
+                disable_cache=True,
             )
             unsteered_text = text
 
@@ -899,10 +921,13 @@ class SteeringService:
 
             try:
                 # Generate with steering for this feature
+                # Disable KV cache because some models (e.g., Gemma-2 with hybrid cache)
+                # are incompatible with forward hooks when caching is enabled
                 text, token_count, gen_time = await self._generate_text(
                     model, tokenizer, request.prompt,
                     request.generation_params,
                     request.advanced_params,
+                    disable_cache=True,
                 )
 
                 metrics = None
@@ -993,9 +1018,11 @@ class SteeringService:
         model, tokenizer = await self.load_model(model_id, model_path)
 
         # Generate unsteered baseline
+        # Disable KV cache for consistency - some models behave differently with/without cache
         text, token_count, gen_time = await self._generate_text(
             model, tokenizer, request.prompt,
             request.generation_params,
+            disable_cache=True,
         )
 
         unsteered_metrics = await self._compute_metrics(
@@ -1023,9 +1050,11 @@ class SteeringService:
             handles = self._register_steering_hooks(model, sae, [feature_config])
 
             try:
+                # Disable KV cache for consistency with unsteered generation
                 text, token_count, gen_time = await self._generate_text(
                     model, tokenizer, request.prompt,
                     request.generation_params,
+                    disable_cache=True,
                 )
 
                 metrics = await self._compute_metrics(

@@ -20,7 +20,7 @@ import { formatActivation } from '../../utils/formatters';
 
 interface FeatureDetailModalProps {
   featureId: string;
-  trainingId: string;
+  trainingId: string | null;
   onClose: () => void;
 }
 

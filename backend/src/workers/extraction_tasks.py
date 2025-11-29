@@ -103,6 +103,140 @@ def extract_features_task(
 @celery_app.task(
     bind=True,
     base=DatabaseTask,
+    name="src.workers.extraction_tasks.extract_features_from_sae",
+    max_retries=0,
+    autoretry_for=(),
+)
+def extract_features_from_sae_task(
+    self,
+    sae_id: str,
+    config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Celery task for extracting features from an external SAE.
+
+    This task:
+    1. Loads the external SAE from local_path
+    2. Loads the associated model and dataset
+    3. Extracts features through the SAE
+    4. Stores results in database
+
+    Args:
+        sae_id: ID of the external SAE
+        config: Extraction configuration (dataset_id, evaluation_samples, top_k_examples)
+
+    Returns:
+        Dict with extraction statistics
+    """
+    logger.info(f"Starting feature extraction task for external SAE {sae_id}")
+    logger.info(f"Config: {config}")
+
+    with self.get_db() as db:
+        try:
+            from src.models.extraction_job import ExtractionJob, ExtractionStatus
+            from src.models.external_sae import ExternalSAE
+            from sqlalchemy import desc
+
+            # Get extraction job for this SAE
+            extraction_job = db.query(ExtractionJob).filter(
+                ExtractionJob.external_sae_id == sae_id
+            ).order_by(desc(ExtractionJob.created_at)).first()
+
+            if not extraction_job:
+                raise ValueError(f"No extraction job found for SAE {sae_id}")
+
+            # Emit starting progress
+            from src.workers.websocket_emitter import emit_sae_extraction_progress
+            emit_sae_extraction_progress(
+                sae_id=sae_id,
+                extraction_id=extraction_job.id,
+                progress=0.0,
+                status="starting",
+                message="Starting feature extraction..."
+            )
+
+            # Idempotency check
+            if extraction_job.status == ExtractionStatus.COMPLETED.value:
+                logger.warning(f"Extraction {extraction_job.id} already completed")
+                return extraction_job.statistics or {}
+
+            if extraction_job.status == ExtractionStatus.FAILED.value:
+                logger.warning(f"Extraction {extraction_job.id} previously failed")
+                return {}
+
+            # Get external SAE record
+            external_sae = db.query(ExternalSAE).filter(ExternalSAE.id == sae_id).first()
+            if not external_sae:
+                raise ValueError(f"External SAE {sae_id} not found")
+
+            # Validate SAE local path exists
+            from pathlib import Path
+            if not external_sae.local_path:
+                extraction_job.status = ExtractionStatus.FAILED.value
+                extraction_job.error_message = f"External SAE {sae_id} has no local path"
+                db.commit()
+                raise ValueError(f"External SAE {sae_id} has no local path")
+
+            sae_path = Path(external_sae.local_path)
+            if not sae_path.exists():
+                extraction_job.status = ExtractionStatus.FAILED.value
+                extraction_job.error_message = f"SAE local path does not exist: {external_sae.local_path}"
+                db.commit()
+                raise ValueError(f"SAE local path does not exist: {external_sae.local_path}")
+
+            logger.info(f"SAE path validated: {sae_path}")
+
+            # Emit extracting progress before starting
+            emit_sae_extraction_progress(
+                sae_id=sae_id,
+                extraction_id=extraction_job.id,
+                progress=5.0,
+                status="extracting",
+                message="Loading SAE and starting feature extraction..."
+            )
+
+            # Delegate to service
+            extraction_service = ExtractionService(db)
+            statistics = extraction_service.extract_features_for_sae(sae_id, config)
+
+            logger.info(f"Feature extraction completed for SAE {sae_id}")
+            logger.info(f"Statistics: {statistics}")
+
+            # Emit completion progress
+            emit_sae_extraction_progress(
+                sae_id=sae_id,
+                extraction_id=extraction_job.id,
+                progress=100.0,
+                status="completed",
+                message="Feature extraction completed successfully",
+                features_extracted=statistics.get("total_features"),
+                total_features=statistics.get("total_features")
+            )
+
+            return statistics
+
+        except Exception as e:
+            logger.error(
+                f"Feature extraction task failed for SAE {sae_id}: {e}",
+                exc_info=True
+            )
+            # Emit failure progress
+            try:
+                emit_sae_extraction_progress(
+                    sae_id=sae_id,
+                    extraction_id=extraction_job.id if extraction_job else "unknown",
+                    progress=0.0,
+                    status="failed",
+                    message=f"Extraction failed: {str(e)}"
+                )
+            except Exception:
+                pass  # Best effort emission on failure
+            raise
+
+
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
     name="delete_extraction",
     max_retries=0,
 )

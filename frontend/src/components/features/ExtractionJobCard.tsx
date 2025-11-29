@@ -453,8 +453,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100 truncate">
-                {extraction.model_name || 'Unknown Model'} - {extraction.dataset_name || 'Unknown Dataset'}
+                {extraction.source_type === 'external_sae' && extraction.sae_name
+                  ? `${extraction.sae_name} (${extraction.model_name || 'Unknown Model'})`
+                  : `${extraction.model_name || 'Unknown Model'} - ${extraction.dataset_name || 'Unknown Dataset'}`}
               </h3>
+              {extraction.source_type === 'external_sae' && (
+                <span className="px-2 py-0.5 text-xs font-medium bg-purple-900/30 text-purple-400 rounded">SAE</span>
+              )}
               {getStatusBadge()}
               {/* Expand/Collapse button for completed extractions */}
               {isCompleted && (

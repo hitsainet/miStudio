@@ -28,6 +28,7 @@ from src.models.feature_activation import FeatureActivation
 from src.models.checkpoint import Checkpoint
 from src.models.dataset import Dataset
 from src.models.dataset_tokenization import DatasetTokenization, TokenizationStatus
+from src.models.external_sae import ExternalSAE, SAEStatus
 from src.core.database import get_db
 from src.workers.websocket_emitter import emit_training_progress
 from src.core.config import settings
@@ -38,6 +39,7 @@ from src.services.checkpoint_service import CheckpointService
 # from src.services.local_labeling_service import LocalLabelingService
 # from src.services.openai_labeling_service import OpenAILabelingService
 from src.ml.sparse_autoencoder import SparseAutoencoder, create_sae
+from src.ml.community_format import load_sae_auto_detect
 from src.ml.model_loader import load_model_from_hf
 from src.ml.forward_hooks import HookManager, HookType
 from src.models.model import Model as ModelRecord, QuantizationFormat
@@ -61,6 +63,100 @@ class ExtractionService:
     def __init__(self, db: Union[AsyncSession, Session]):
         """Initialize extraction service with either async or sync session."""
         self.db = db
+
+    async def _check_active_extraction(
+        self,
+        training_id: Optional[str] = None,
+        sae_id: Optional[str] = None
+    ) -> None:
+        """
+        Check if there's an active extraction for the given source.
+
+        This method prevents duplicate extractions by verifying no extraction
+        job is currently queued or running for the same source.
+
+        Args:
+            training_id: Training ID to check (mutually exclusive with sae_id)
+            sae_id: External SAE ID to check (mutually exclusive with training_id)
+
+        Raises:
+            ValueError: If must specify either training_id or sae_id
+            ValueError: If active extraction exists for the source
+        """
+        if not training_id and not sae_id:
+            raise ValueError("Must specify either training_id or sae_id")
+        if training_id and sae_id:
+            raise ValueError("Cannot specify both training_id and sae_id")
+
+        # Build query for active extraction
+        query = select(ExtractionJob).where(
+            ExtractionJob.status.in_([
+                ExtractionStatus.QUEUED,
+                ExtractionStatus.EXTRACTING
+            ])
+        )
+
+        if training_id:
+            query = query.where(ExtractionJob.training_id == training_id)
+            source_type = "training"
+            source_id = training_id
+        else:
+            query = query.where(ExtractionJob.external_sae_id == sae_id)
+            source_type = "SAE"
+            source_id = sae_id
+
+        query = query.order_by(desc(ExtractionJob.created_at)).limit(1)
+        result = await self.db.execute(query)
+        active_extraction = result.scalar_one_or_none()
+
+        if active_extraction:
+            from src.core.celery_app import get_task_status
+            from datetime import timedelta
+
+            if active_extraction.celery_task_id:
+                task_status = get_task_status(active_extraction.celery_task_id)
+
+                # Check if task is genuinely active
+                if task_status['state'] in ['PENDING', 'STARTED', 'RETRY']:
+                    raise ValueError(
+                        f"{source_type} {source_id} already has an active extraction job: "
+                        f"{active_extraction.id} (Celery task: {active_extraction.celery_task_id}, "
+                        f"state: {task_status['state']})"
+                    )
+                elif task_status['state'] in ['SUCCESS', 'FAILURE', 'REVOKED']:
+                    # Task finished but DB not updated - check staleness
+                    time_since_update = datetime.now(timezone.utc) - active_extraction.updated_at
+                    if time_since_update < timedelta(minutes=5):
+                        # Recent activity, task may still be committing results
+                        raise ValueError(
+                            f"{source_type} {source_id} has a recently completed extraction task "
+                            f"that may still be finalizing: {active_extraction.id}"
+                        )
+                    else:
+                        # Stale - allow new extraction but log warning
+                        logger.warning(
+                            f"Found stale extraction {active_extraction.id} with finished "
+                            f"Celery task (state: {task_status['state']}), allowing new extraction"
+                        )
+                else:
+                    # Unknown state
+                    logger.warning(
+                        f"Extraction {active_extraction.id} has Celery task in unknown state: "
+                        f"{task_status['state']}, allowing new extraction"
+                    )
+            else:
+                # Legacy job without task_id - check staleness by timestamp
+                time_since_update = datetime.now(timezone.utc) - active_extraction.updated_at
+                if time_since_update < timedelta(hours=3):
+                    raise ValueError(
+                        f"{source_type} {source_id} already has an active extraction job: "
+                        f"{active_extraction.id} (last updated {time_since_update} ago)"
+                    )
+                else:
+                    logger.warning(
+                        f"Found stale extraction {active_extraction.id} (no task_id, "
+                        f"last update {time_since_update} ago), allowing new extraction"
+                    )
 
     async def start_extraction(
         self,
@@ -102,69 +198,8 @@ class ExtractionService:
         if not latest_checkpoint:
             raise ValueError(f"Training {training_id} has no checkpoints")
 
-        # Check for active extraction on this training
-        result = await self.db.execute(
-            select(ExtractionJob).where(
-                ExtractionJob.training_id == training_id,
-                ExtractionJob.status.in_([
-                    ExtractionStatus.QUEUED,
-                    ExtractionStatus.EXTRACTING
-                ])
-            )
-            .order_by(desc(ExtractionJob.created_at))
-            .limit(1)
-        )
-        active_extraction = result.scalar_one_or_none()
-
-        if active_extraction:
-            # Verify Celery task is actually running
-            from src.core.celery_app import get_task_status
-            from datetime import timedelta
-
-            if active_extraction.celery_task_id:
-                task_status = get_task_status(active_extraction.celery_task_id)
-
-                # Check if task is genuinely active
-                if task_status['state'] in ['PENDING', 'STARTED', 'RETRY']:
-                    raise ValueError(
-                        f"Training {training_id} already has an active extraction job: "
-                        f"{active_extraction.id} (Celery task: {active_extraction.celery_task_id}, "
-                        f"state: {task_status['state']})"
-                    )
-                elif task_status['state'] in ['SUCCESS', 'FAILURE', 'REVOKED']:
-                    # Task finished but DB not updated - check staleness
-                    time_since_update = datetime.now(timezone.utc) - active_extraction.updated_at
-                    if time_since_update < timedelta(minutes=5):
-                        # Recent activity, task may still be committing results
-                        raise ValueError(
-                            f"Training {training_id} has a recently completed extraction task "
-                            f"that may still be finalizing: {active_extraction.id}"
-                        )
-                    else:
-                        # Stale - allow new extraction but log warning
-                        logger.warning(
-                            f"Found stale extraction {active_extraction.id} with finished "
-                            f"Celery task (state: {task_status['state']}), allowing new extraction"
-                        )
-                else:
-                    # Unknown state
-                    logger.warning(
-                        f"Extraction {active_extraction.id} has Celery task in unknown state: "
-                        f"{task_status['state']}, allowing new extraction"
-                    )
-            else:
-                # Legacy job without task_id - check staleness by timestamp
-                time_since_update = datetime.now(timezone.utc) - active_extraction.updated_at
-                if time_since_update < timedelta(hours=3):
-                    raise ValueError(
-                        f"Training {training_id} already has an active extraction job: "
-                        f"{active_extraction.id} (last updated {time_since_update} ago)"
-                    )
-                else:
-                    logger.warning(
-                        f"Found stale extraction {active_extraction.id} (no task_id, "
-                        f"last update {time_since_update} ago), allowing new extraction"
-                    )
+        # Check for active extraction on this training (uses shared method)
+        await self._check_active_extraction(training_id=training_id)
 
         # Create extraction job record
         extraction_job = ExtractionJob(
@@ -224,6 +259,176 @@ class ExtractionService:
         logger.info(f"Queued extraction task {task_result.id} for job {extraction_job.id}")
 
         return extraction_job
+
+    async def start_extraction_for_sae(
+        self,
+        sae_id: str,
+        config: Dict[str, Any]
+    ) -> ExtractionJob:
+        """
+        Start a feature extraction job for an external SAE.
+
+        Args:
+            sae_id: ID of the external SAE to extract features from
+            config: Extraction configuration (evaluation_samples, top_k_examples, dataset_id)
+
+        Returns:
+            ExtractionJob: Created extraction job record
+
+        Raises:
+            ValueError: If SAE not found, not ready, or active extraction exists
+        """
+        # Validate SAE exists and is ready
+        result = await self.db.execute(
+            select(ExternalSAE).where(ExternalSAE.id == sae_id)
+        )
+        external_sae = result.scalar_one_or_none()
+        if not external_sae:
+            raise ValueError(f"External SAE {sae_id} not found")
+
+        if external_sae.status != SAEStatus.READY.value:
+            raise ValueError(f"External SAE {sae_id} must be ready before extraction (status: {external_sae.status})")
+
+        if not external_sae.local_path:
+            raise ValueError(f"External SAE {sae_id} has no local path")
+
+        # Validate dataset_id is provided
+        dataset_id = config.get("dataset_id")
+        if not dataset_id:
+            raise ValueError("dataset_id is required for external SAE extraction")
+
+        # Validate dataset exists and is ready
+        dataset_result = await self.db.execute(
+            select(Dataset).where(Dataset.id == dataset_id)
+        )
+        dataset = dataset_result.scalar_one_or_none()
+        if not dataset:
+            raise ValueError(f"Dataset {dataset_id} not found")
+        if dataset.status != 'ready':
+            raise ValueError(f"Dataset {dataset_id} is not ready (status: {dataset.status})")
+
+        # Check for active extraction on this SAE (uses shared method)
+        await self._check_active_extraction(sae_id=sae_id)
+
+        # Create extraction job record with external_sae_id (no training_id)
+        extraction_job = ExtractionJob(
+            id=f"extr_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_sae_{sae_id[:8]}",
+            external_sae_id=sae_id,
+            training_id=None,  # No training - this is an external SAE
+            status=ExtractionStatus.QUEUED,
+            config=config,
+            filter_special=config.get('filter_special', True),
+            filter_single_char=config.get('filter_single_char', True),
+            filter_punctuation=config.get('filter_punctuation', True),
+            filter_numbers=config.get('filter_numbers', True),
+            filter_fragments=config.get('filter_fragments', True),
+            filter_stop_words=config.get('filter_stop_words', False),
+            context_prefix_tokens=config.get('context_prefix_tokens', 5),
+            context_suffix_tokens=config.get('context_suffix_tokens', 3),
+            progress=0.0,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+
+        self.db.add(extraction_job)
+        await self.db.commit()
+        await self.db.refresh(extraction_job)
+
+        logger.info(
+            f"Created extraction job {extraction_job.id} for external SAE {sae_id}. "
+            f"Config: {config}"
+        )
+
+        # Enqueue Celery task for async extraction
+        from src.workers.extraction_tasks import extract_features_from_sae_task
+
+        soft_time_limit = config.get("soft_time_limit", 144000)
+        time_limit = config.get("time_limit", 172800)
+
+        task_result = extract_features_from_sae_task.apply_async(
+            args=(sae_id, config),
+            soft_time_limit=soft_time_limit,
+            time_limit=time_limit
+        )
+
+        extraction_job.celery_task_id = task_result.id
+        await self.db.commit()
+        await self.db.refresh(extraction_job)
+
+        logger.info(f"Queued SAE extraction task {task_result.id} for job {extraction_job.id}")
+
+        return extraction_job
+
+    async def get_extraction_status_for_sae(self, sae_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the status of the most recent extraction job for an external SAE.
+
+        Args:
+            sae_id: ID of the external SAE
+
+        Returns:
+            Dict with extraction status or None if no extraction
+        """
+        result = await self.db.execute(
+            select(ExtractionJob)
+            .where(ExtractionJob.external_sae_id == sae_id)
+            .order_by(desc(ExtractionJob.created_at))
+            .limit(1)
+        )
+        extraction_job = result.scalar_one_or_none()
+
+        if not extraction_job:
+            return None
+
+        # Get SAE info
+        sae_result = await self.db.execute(
+            select(ExternalSAE).where(ExternalSAE.id == sae_id)
+        )
+        external_sae = sae_result.scalar_one_or_none()
+
+        features_extracted = None
+        total_features = None
+
+        if extraction_job.status == ExtractionStatus.COMPLETED.value:
+            from sqlalchemy import func
+            result = await self.db.execute(
+                select(func.count()).select_from(Feature).where(
+                    Feature.extraction_job_id == extraction_job.id
+                )
+            )
+            features_extracted = result.scalar_one()
+            total_features = features_extracted
+        elif extraction_job.status == ExtractionStatus.EXTRACTING.value:
+            if external_sae and extraction_job.progress:
+                total_features = external_sae.n_features or 16384
+                features_extracted = int(total_features * extraction_job.progress)
+
+        return {
+            "id": extraction_job.id,
+            "external_sae_id": extraction_job.external_sae_id,
+            "training_id": None,
+            "source_type": "external_sae",
+            "sae_name": external_sae.name if external_sae else None,
+            "model_name": external_sae.model_name if external_sae else None,
+            "status": extraction_job.status,
+            "progress": extraction_job.progress,
+            "features_extracted": features_extracted,
+            "total_features": total_features,
+            "error_message": extraction_job.error_message,
+            "config": extraction_job.config,
+            "statistics": extraction_job.statistics,
+            "created_at": extraction_job.created_at,
+            "updated_at": extraction_job.updated_at,
+            "completed_at": extraction_job.completed_at,
+            "filter_special": extraction_job.filter_special,
+            "filter_single_char": extraction_job.filter_single_char,
+            "filter_punctuation": extraction_job.filter_punctuation,
+            "filter_numbers": extraction_job.filter_numbers,
+            "filter_fragments": extraction_job.filter_fragments,
+            "filter_stop_words": extraction_job.filter_stop_words,
+            "context_prefix_tokens": extraction_job.context_prefix_tokens,
+            "context_suffix_tokens": extraction_job.context_suffix_tokens
+        }
 
     async def get_extraction_status(self, training_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -336,31 +541,55 @@ class ExtractionService:
         # Build response list
         extractions_list = []
         for extraction_job in extraction_jobs:
-            # Get training with model and dataset info
-            result = await self.db.execute(
-                select(Training).where(Training.id == extraction_job.training_id)
-            )
-            training = result.scalar_one_or_none()
-
-            # Get model name
+            # Determine source type
+            source_type = "external_sae" if extraction_job.external_sae_id else "training"
             model_name = None
-            if training and training.model_id:
-                model_result = await self.db.execute(
-                    select(ModelRecord).where(ModelRecord.id == training.model_id)
-                )
-                model = model_result.scalar_one_or_none()
-                if model:
-                    model_name = model.name
-
-            # Get dataset name
             dataset_name = None
-            if training and training.dataset_id:
-                dataset_result = await self.db.execute(
-                    select(Dataset).where(Dataset.id == training.dataset_id)
+            sae_name = None
+
+            if extraction_job.training_id:
+                # Training-based extraction
+                result = await self.db.execute(
+                    select(Training).where(Training.id == extraction_job.training_id)
                 )
-                dataset = dataset_result.scalar_one_or_none()
-                if dataset:
-                    dataset_name = dataset.name
+                training = result.scalar_one_or_none()
+
+                if training and training.model_id:
+                    model_result = await self.db.execute(
+                        select(ModelRecord).where(ModelRecord.id == training.model_id)
+                    )
+                    model = model_result.scalar_one_or_none()
+                    if model:
+                        model_name = model.name
+
+                if training and training.dataset_id:
+                    dataset_result = await self.db.execute(
+                        select(Dataset).where(Dataset.id == training.dataset_id)
+                    )
+                    dataset = dataset_result.scalar_one_or_none()
+                    if dataset:
+                        dataset_name = dataset.name
+
+            elif extraction_job.external_sae_id:
+                # External SAE-based extraction
+                sae_result = await self.db.execute(
+                    select(ExternalSAE).where(ExternalSAE.id == extraction_job.external_sae_id)
+                )
+                external_sae = sae_result.scalar_one_or_none()
+
+                if external_sae:
+                    sae_name = external_sae.name
+                    model_name = external_sae.model_name
+
+                    # Try to get dataset name from config
+                    dataset_id = extraction_job.config.get("dataset_id")
+                    if dataset_id:
+                        dataset_result = await self.db.execute(
+                            select(Dataset).where(Dataset.id == dataset_id)
+                        )
+                        dataset = dataset_result.scalar_one_or_none()
+                        if dataset:
+                            dataset_name = dataset.name
 
             # Calculate features_extracted and total_features
             features_extracted = None
@@ -376,15 +605,25 @@ class ExtractionService:
                 total_features = features_extracted
             elif extraction_job.status == ExtractionStatus.EXTRACTING.value:
                 # Estimate based on progress
-                if training and extraction_job.progress:
-                    total_features = training.hyperparameters.get("latent_dim", 16384)
-                    features_extracted = int(total_features * extraction_job.progress)
+                if extraction_job.training_id:
+                    training = training if 'training' in dir() else None
+                    if training and extraction_job.progress:
+                        total_features = training.hyperparameters.get("latent_dim", 16384)
+                        features_extracted = int(total_features * extraction_job.progress)
+                elif extraction_job.external_sae_id:
+                    external_sae = external_sae if 'external_sae' in dir() else None
+                    if external_sae and extraction_job.progress:
+                        total_features = external_sae.n_features or 16384
+                        features_extracted = int(total_features * extraction_job.progress)
 
             extractions_list.append({
                 "id": extraction_job.id,
                 "training_id": extraction_job.training_id,
+                "external_sae_id": extraction_job.external_sae_id,
+                "source_type": source_type,
                 "model_name": model_name,
                 "dataset_name": dataset_name,
+                "sae_name": sae_name,
                 "status": extraction_job.status,
                 "progress": extraction_job.progress,
                 "features_extracted": features_extracted,
@@ -1487,6 +1726,548 @@ class ExtractionService:
                 data={
                     "extraction_id": extraction_job.id,
                     "training_id": training_id,
+                    "error": str(e)
+                }
+            )
+
+            raise
+
+    def extract_features_for_sae(
+        self,
+        sae_id: str,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Core feature extraction logic for external SAEs (called by Celery task with sync Session).
+
+        This method loads an external SAE and extracts features using a specified dataset.
+
+        Args:
+            sae_id: ID of the external SAE
+            config: Extraction configuration including dataset_id
+
+        Returns:
+            Dict with extraction statistics
+
+        Raises:
+            Exception: If extraction fails at any step
+        """
+        from src.workers.websocket_emitter import emit_progress
+
+        # Get extraction job for this SAE (sync query)
+        extraction_job = (
+            self.db.query(ExtractionJob)
+            .filter(ExtractionJob.external_sae_id == sae_id)
+            .order_by(desc(ExtractionJob.created_at))
+            .first()
+        )
+
+        if not extraction_job:
+            raise ValueError(f"No extraction job found for SAE {sae_id}")
+
+        # Idempotency check
+        if extraction_job.status == ExtractionStatus.COMPLETED.value:
+            logger.warning(f"Extraction {extraction_job.id} already completed")
+            return extraction_job.statistics or {}
+
+        if extraction_job.status == ExtractionStatus.FAILED.value:
+            logger.warning(f"Extraction {extraction_job.id} previously failed")
+            return {}
+
+        try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                initial_memory = torch.cuda.memory_allocated(0) / (1024**3)
+                logger.info(f"GPU memory before extraction: {initial_memory:.2f}GB allocated")
+
+            # Update status to extracting
+            self.update_extraction_status_sync(
+                extraction_job.id,
+                ExtractionStatus.EXTRACTING.value,
+                progress=0.0
+            )
+
+            # Load external SAE record
+            external_sae = self.db.query(ExternalSAE).filter(ExternalSAE.id == sae_id).first()
+            if not external_sae:
+                raise ValueError(f"External SAE {sae_id} not found")
+
+            if not external_sae.local_path:
+                raise ValueError(f"External SAE {sae_id} has no local path")
+
+            logger.info(f"Starting feature extraction for external SAE {sae_id}")
+            logger.info(f"SAE: {external_sae.name} (layer {external_sae.layer})")
+            logger.info(f"Config: {config}")
+
+            # Get configuration parameters
+            evaluation_samples = config.get("evaluation_samples", 10000)
+            start_sample = config.get("start_sample", 0)
+            top_k_examples = config.get("top_k_examples", 100)
+            dataset_id = config.get("dataset_id")
+
+            if not dataset_id:
+                raise ValueError("dataset_id is required for external SAE extraction")
+
+            # Load SAE using auto-detect (supports community, gemma_scope, mistudio formats)
+            logger.info(f"Loading SAE from {external_sae.local_path}")
+            sae_state_dict, sae_config, format_type = load_sae_auto_detect(
+                Path(external_sae.local_path),
+                device=device
+            )
+            logger.info(f"SAE format detected: {format_type}")
+
+            # Determine SAE dimensions
+            latent_dim = external_sae.n_features or sae_config.d_sae if sae_config else 16384
+            hidden_dim = external_sae.d_model or sae_config.d_in if sae_config else 2304
+
+            # Create SAE model with appropriate architecture
+            architecture_type = external_sae.architecture or "standard"
+            if sae_config and sae_config.architecture:
+                architecture_type = sae_config.architecture
+
+            logger.info(f"Creating {architecture_type} SAE: hidden_dim={hidden_dim}, latent_dim={latent_dim}")
+
+            # Create SAE using factory
+            sae = create_sae(
+                architecture_type=architecture_type,
+                hidden_dim=hidden_dim,
+                latent_dim=latent_dim,
+                l1_alpha=sae_config.l1_coefficient if sae_config else 0.001,
+                initial_threshold=sae_config.threshold if (sae_config and hasattr(sae_config, 'threshold')) else None,
+            )
+
+            # Load weights into SAE
+            # Convert community format keys to miStudio format if needed
+            weight_keys = list(sae_state_dict.keys())
+            if any(k.startswith("model.") for k in weight_keys):
+                # Already has model. prefix
+                sae.load_state_dict({k.replace("model.", ""): v for k, v in sae_state_dict.items()})
+            else:
+                sae.load_state_dict(sae_state_dict)
+
+            sae.to(device)
+            sae.eval()
+            logger.info(f"SAE loaded on device: {device}")
+
+            # Find model record
+            model_record = None
+            if external_sae.model_id:
+                model_record = self.db.query(ModelRecord).filter(
+                    ModelRecord.id == external_sae.model_id
+                ).first()
+
+            if not model_record and external_sae.model_name:
+                # Try to find by name
+                model_record = self.db.query(ModelRecord).filter(
+                    ModelRecord.name.ilike(f"%{external_sae.model_name}%")
+                ).first()
+
+            if not model_record:
+                raise ValueError(
+                    f"No model found for SAE. model_id={external_sae.model_id}, "
+                    f"model_name={external_sae.model_name}"
+                )
+
+            # Load dataset and tokenization
+            dataset_record = self.db.query(Dataset).filter(Dataset.id == dataset_id).first()
+            if not dataset_record:
+                raise ValueError(f"Dataset {dataset_id} not found")
+
+            # Find tokenization for this dataset + model
+            tokenization = self.db.query(DatasetTokenization).filter(
+                DatasetTokenization.dataset_id == dataset_id,
+                DatasetTokenization.model_id == model_record.id
+            ).first()
+
+            if not tokenization or tokenization.status != TokenizationStatus.READY:
+                raise ValueError(
+                    f"No ready tokenization found for dataset {dataset_id} with model {model_record.id}. "
+                    f"Please tokenize the dataset first."
+                )
+
+            logger.info(f"Loading dataset from {tokenization.tokenized_path}")
+            dataset = load_from_disk(tokenization.tokenized_path)
+
+            # Select sample range
+            dataset_size = len(dataset)
+            end_sample = min(start_sample + evaluation_samples, dataset_size)
+            if start_sample > 0 or end_sample < dataset_size:
+                dataset = dataset.select(range(start_sample, end_sample))
+                logger.info(f"Selected samples [{start_sample}:{end_sample}]")
+
+            logger.info(f"Dataset loaded: {len(dataset)} samples")
+
+            # Load base model
+            logger.info(f"Loading base model: {model_record.repo_id}")
+            model_is_downloaded = model_record.file_path and Path(model_record.file_path).exists()
+            base_model, tokenizer, model_config, metadata = load_model_from_hf(
+                repo_id=model_record.repo_id,
+                quant_format=QuantizationFormat(model_record.quantization),
+                cache_dir=Path(model_record.file_path) if model_record.file_path else None,
+                device_map=device,
+                local_files_only=model_is_downloaded,
+            )
+            base_model.eval()
+
+            # Get resource configuration
+            from src.services.resource_config import ResourceConfig
+            recommended_settings = ResourceConfig.get_optimal_settings(
+                training_config={"hidden_dim": hidden_dim, "latent_dim": latent_dim},
+                extraction_config=config,
+            )
+            batch_size = config.get("batch_size") or recommended_settings["batch_size"]
+            db_commit_batch = config.get("db_commit_batch") or recommended_settings["db_commit_batch"]
+
+            # Import vectorized extraction utilities
+            from src.services.extraction_vectorized import (
+                IncrementalTopKHeap,
+                batch_process_features,
+                get_vectorization_config
+            )
+
+            # Get layer index for hooks
+            layer_index = external_sae.layer or 0
+            hook_types = ["residual"]
+            architecture = model_record.architecture
+
+            # Context window configuration
+            context_prefix_tokens = extraction_job.context_prefix_tokens
+            context_suffix_tokens = extraction_job.context_suffix_tokens
+            min_activation_frequency = config.get("min_activation_frequency", 0.001)
+
+            # Initialize data structures
+            incremental_heap = IncrementalTopKHeap(
+                num_features=latent_dim,
+                top_k=top_k_examples
+            )
+            feature_activation_counts = np.zeros(latent_dim)
+
+            # Process dataset with hooks
+            with HookManager(base_model) as hook_manager:
+                hook_type_enums = [HookType(ht) for ht in hook_types]
+                hook_manager.register_hooks([layer_index], hook_type_enums, architecture)
+
+                text_column = (dataset_record.extra_metadata or {}).get("text_column", "text")
+
+                with torch.no_grad():
+                    for batch_start in range(0, len(dataset), batch_size):
+                        batch_end = min(batch_start + batch_size, len(dataset))
+                        batch = dataset[batch_start:batch_end]
+
+                        # Process batch (simplified version of training extraction)
+                        batch_input_ids = []
+                        batch_texts = []
+
+                        if isinstance(batch, dict) and "input_ids" in batch:
+                            input_ids = batch["input_ids"]
+                            if not isinstance(input_ids, list):
+                                input_ids = [input_ids]
+                            for ids in input_ids:
+                                if isinstance(ids, list):
+                                    batch_input_ids.append(ids)
+                                else:
+                                    batch_input_ids.append(ids.tolist() if hasattr(ids, 'tolist') else list(ids))
+                                try:
+                                    tokens = tokenizer.convert_ids_to_tokens(batch_input_ids[-1])
+                                    batch_texts.append(" ".join([t.replace("Ġ", " ") for t in tokens if t]))
+                                except:
+                                    batch_texts.append(f"[Tokens: {len(batch_input_ids[-1])}]")
+
+                        if not batch_input_ids:
+                            continue
+
+                        # Pad sequences
+                        max_length = max(len(ids) for ids in batch_input_ids)
+                        pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id or 0
+
+                        padded_input_ids = []
+                        attention_masks = []
+                        for input_ids in batch_input_ids:
+                            padding_length = max_length - len(input_ids)
+                            padded_ids = input_ids + [pad_token_id] * padding_length
+                            mask = [1] * len(input_ids) + [0] * padding_length
+                            padded_input_ids.append(padded_ids)
+                            attention_masks.append(mask)
+
+                        input_ids_tensor = torch.tensor(padded_input_ids, device=device, dtype=torch.long)
+                        attention_mask_tensor = torch.tensor(attention_masks, device=device, dtype=torch.long)
+
+                        # Run model forward pass
+                        hook_manager.clear_activations()
+                        _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
+
+                        if not hook_manager.activations:
+                            raise ValueError("Hook did not capture activations")
+
+                        layer_name = list(hook_manager.activations.keys())[0]
+                        base_model_activations = hook_manager.activations[layer_name][0]
+
+                        # Process through SAE encoder
+                        batch_sae_features = []
+                        batch_token_strings = []
+
+                        for batch_idx in range(len(batch_input_ids)):
+                            sample_activations = base_model_activations[batch_idx]
+                            actual_length = len(batch_input_ids[batch_idx])
+                            sample_activations = sample_activations[:actual_length]
+
+                            sae_features = sae.encode(
+                                sample_activations.to(device=device, dtype=torch.float32)
+                            ).detach()
+                            batch_sae_features.append(sae_features)
+
+                            token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
+                            batch_token_strings.append(token_strings)
+
+                        if batch_sae_features:
+                            max_seq_len = max(f.shape[0] for f in batch_sae_features)
+                            padded_features = []
+                            for features in batch_sae_features:
+                                if features.shape[0] < max_seq_len:
+                                    padding = torch.zeros(
+                                        (max_seq_len - features.shape[0], features.shape[1]),
+                                        device=features.device,
+                                        dtype=features.dtype
+                                    )
+                                    features = torch.cat([features, padding], dim=0)
+                                padded_features.append(features)
+
+                            batch_sae_features_tensor = torch.stack(padded_features, dim=0)
+
+                            vectorization_batch_size = get_vectorization_config(
+                                config=config,
+                                available_vram_gb=None,
+                                latent_dim=latent_dim,
+                                seq_len=max_seq_len
+                            )
+
+                            feature_indices, max_activations, examples = batch_process_features(
+                                batch_sae_features=batch_sae_features_tensor,
+                                token_strings_batch=batch_token_strings,
+                                sample_indices=list(range(batch_start, batch_end)),
+                                vectorization_batch_size=vectorization_batch_size,
+                                top_k=5,
+                                filter_special=extraction_job.filter_special,
+                                filter_single_char=extraction_job.filter_single_char,
+                                filter_punctuation=extraction_job.filter_punctuation,
+                                filter_numbers=extraction_job.filter_numbers,
+                                filter_fragments=extraction_job.filter_fragments,
+                                filter_stop_words=extraction_job.filter_stop_words,
+                                context_prefix_tokens=context_prefix_tokens,
+                                context_suffix_tokens=context_suffix_tokens
+                            )
+
+                            for feat_idx in feature_indices:
+                                feature_activation_counts[feat_idx] += 1
+
+                            incremental_heap.add_batch(feature_indices, max_activations, examples)
+
+                            del batch_sae_features_tensor
+                            del padded_features
+                            del batch_sae_features
+
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+
+                        # Update progress
+                        progress = batch_end / len(dataset)
+                        if int(progress * 20) > int((batch_start / len(dataset)) * 20):
+                            self.update_extraction_status_sync(
+                                extraction_job.id,
+                                ExtractionStatus.EXTRACTING.value,
+                                progress=progress
+                            )
+                            emit_progress(
+                                channel=f"extraction/{extraction_job.id}",
+                                event="extraction:progress",
+                                data={
+                                    "extraction_id": extraction_job.id,
+                                    "sae_id": sae_id,
+                                    "progress": progress,
+                                    "features_extracted": int(latent_dim * progress),
+                                    "total_features": latent_dim
+                                }
+                            )
+
+            # Cleanup base model
+            base_model.cpu()
+            del base_model
+            del tokenizer
+            if torch.cuda.is_available():
+                gc.collect()
+                torch.cuda.empty_cache()
+
+            logger.info("Building final feature records...")
+
+            # Get final heaps
+            final_heaps = incremental_heap.get_heaps()
+            feature_activations = defaultdict(list)
+            heap_counter = 0
+
+            for feat_idx, examples in final_heaps.items():
+                for activation, example_dict in examples:
+                    feature_activations[feat_idx].append((activation, heap_counter, example_dict))
+                    heap_counter += 1
+
+            # Calculate activation frequencies
+            activation_frequencies = feature_activation_counts / len(dataset)
+
+            # Process features
+            interpretable_count = 0
+            total_interpretability = 0.0
+            total_activation_freq = 0.0
+            features_processed = 0
+            dead_neurons_filtered = 0
+
+            extraction_timestamp = extraction_job.id[5:20]
+
+            for neuron_idx in range(latent_dim):
+                heap_items = feature_activations[neuron_idx]
+                if not heap_items:
+                    dead_neurons_filtered += 1
+                    continue
+
+                neuron_activation_freq = activation_frequencies[neuron_idx]
+                if neuron_activation_freq < min_activation_frequency:
+                    dead_neurons_filtered += 1
+                    continue
+
+                top_examples = [example for (activation, counter, example) in
+                               sorted(heap_items, key=lambda x: x[0], reverse=True)]
+
+                interpretability_score = self.calculate_interpretability_score(top_examples)
+
+                feature_name = f"feature_{neuron_idx:05d}"
+
+                # Create feature with external_sae_id (no training_id)
+                feature = Feature(
+                    id=f"feat_sae_{extraction_timestamp}_{neuron_idx:05d}",
+                    external_sae_id=sae_id,
+                    training_id=None,  # External SAE - no training
+                    extraction_job_id=extraction_job.id,
+                    neuron_index=neuron_idx,
+                    name=feature_name,
+                    description=None,
+                    label_source=LabelSource.AUTO.value,
+                    activation_frequency=float(activation_frequencies[neuron_idx]),
+                    interpretability_score=float(interpretability_score),
+                    max_activation=float(top_examples[0]["max_activation"]),
+                    mean_activation=float(np.mean([ex["max_activation"] for ex in top_examples])),
+                    is_favorite=False,
+                    notes=None,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
+                )
+
+                self.db.add(feature)
+
+                for example in top_examples:
+                    if "prefix_tokens" in example and "prime_token" in example:
+                        activation_record = FeatureActivation(
+                            feature_id=feature.id,
+                            sample_index=example["sample_index"],
+                            max_activation=example["max_activation"],
+                            tokens=example["tokens"],
+                            activations=example["activations"],
+                            prefix_tokens=example["prefix_tokens"],
+                            prime_token=example["prime_token"],
+                            suffix_tokens=example["suffix_tokens"],
+                            prime_activation_index=example["prime_activation_index"]
+                        )
+                    else:
+                        activation_record = FeatureActivation(
+                            feature_id=feature.id,
+                            sample_index=example["sample_index"],
+                            max_activation=example["max_activation"],
+                            tokens=example["tokens"],
+                            activations=example["activations"]
+                        )
+                    self.db.add(activation_record)
+
+                if interpretability_score > 0.5:
+                    interpretable_count += 1
+                total_interpretability += interpretability_score
+                total_activation_freq += activation_frequencies[neuron_idx]
+                features_processed += 1
+
+                if features_processed % db_commit_batch == 0:
+                    self.db.commit()
+                    logger.info(f"Committed batch: {features_processed}/{latent_dim} features")
+                    self.update_extraction_status_sync(
+                        extraction_job.id,
+                        ExtractionStatus.EXTRACTING.value,
+                        features_extracted=features_processed
+                    )
+
+            self.db.commit()
+
+            live_neurons = latent_dim - dead_neurons_filtered
+            logger.info(f"Created {features_processed} features ({dead_neurons_filtered} dead neurons filtered)")
+
+            # Final statistics
+            statistics = {
+                "total_neurons": latent_dim,
+                "live_neurons": live_neurons,
+                "dead_neurons_filtered": dead_neurons_filtered,
+                "total_features": features_processed,
+                "interpretable_count": interpretable_count,
+                "avg_activation_frequency": float(total_activation_freq / features_processed) if features_processed > 0 else 0.0,
+                "avg_interpretability": float(total_interpretability / features_processed) if features_processed > 0 else 0.0,
+                "min_activation_frequency_threshold": min_activation_frequency,
+                "sae_format": format_type,
+                "sae_architecture": architecture_type
+            }
+
+            # Cleanup
+            if torch.cuda.is_available():
+                sae.cpu()
+                del sae
+                del incremental_heap
+                gc.collect()
+                torch.cuda.empty_cache()
+
+            # Mark completed
+            self.update_extraction_status_sync(
+                extraction_job.id,
+                ExtractionStatus.COMPLETED.value,
+                progress=1.0,
+                features_extracted=features_processed,
+                statistics=statistics
+            )
+
+            emit_progress(
+                channel=f"extraction/{extraction_job.id}",
+                event="extraction:completed",
+                data={
+                    "extraction_id": extraction_job.id,
+                    "sae_id": sae_id,
+                    "statistics": statistics
+                }
+            )
+
+            return statistics
+
+        except Exception as e:
+            logger.error(f"Feature extraction failed for SAE {sae_id}: {e}", exc_info=True)
+
+            if torch.cuda.is_available():
+                gc.collect()
+                torch.cuda.empty_cache()
+
+            self.update_extraction_status_sync(
+                extraction_job.id,
+                ExtractionStatus.FAILED.value,
+                error_message=str(e)
+            )
+
+            emit_progress(
+                channel=f"extraction/{extraction_job.id}",
+                event="extraction:failed",
+                data={
+                    "extraction_id": extraction_job.id,
+                    "sae_id": sae_id,
                     "error": str(e)
                 }
             )

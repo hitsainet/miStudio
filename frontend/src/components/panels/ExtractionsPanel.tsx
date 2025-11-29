@@ -3,13 +3,16 @@
  *
  * Panel for viewing and managing all feature extraction jobs.
  * Shows extractions in a grid with status, progress, and actions.
+ * Supports starting extraction from both trainings and external SAEs.
  */
 
 import React, { useEffect, useState } from 'react';
-import { Zap, Filter } from 'lucide-react';
+import { Zap, Filter, Plus } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { ExtractionJobCard } from '../features/ExtractionJobCard';
+import { StartExtractionModal } from '../extraction/StartExtractionModal';
+import { cancelSAEExtraction } from '../../api/saes';
 import { COMPONENTS } from '../../config/brand';
 
 export const ExtractionsPanel: React.FC = () => {
@@ -26,6 +29,7 @@ export const ExtractionsPanel: React.FC = () => {
   const { fetchTrainings } = useTrainingsStore();
 
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [showStartModal, setShowStartModal] = useState(false);
 
   // Load trainings and extractions on mount
   useEffect(() => {
@@ -51,14 +55,32 @@ export const ExtractionsPanel: React.FC = () => {
     });
   };
 
+  /**
+   * Handle modal close with list refresh.
+   */
+  const handleModalClose = () => {
+    setShowStartModal(false);
+    // Refresh extractions list after modal closes
+    fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);
+  };
+
   return (
     <div className="max-w-[80%] mx-auto px-6 py-8">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className={`text-2xl font-semibold ${COMPONENTS.text.primary} mb-2`}>Extractions</h1>
-        <p className={COMPONENTS.text.secondary}>
-          View and manage all feature extraction jobs
-        </p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className={`text-2xl font-semibold ${COMPONENTS.text.primary} mb-2`}>Extractions</h1>
+          <p className={COMPONENTS.text.secondary}>
+            View and manage all feature extraction jobs
+          </p>
+        </div>
+        <button
+          onClick={() => setShowStartModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+        >
+          <Plus className="w-5 h-5" />
+          Start Extraction
+        </button>
       </div>
 
       {/* Filters */}
@@ -142,12 +164,20 @@ export const ExtractionsPanel: React.FC = () => {
                     key={extraction.id}
                     extraction={extraction}
                     onCancel={async () => {
-                      await cancelExtraction(extraction.training_id);
+                      // Use different cancel endpoint based on source type
+                      if (extraction.source_type === 'external_sae' && extraction.external_sae_id) {
+                        // SAE extraction - use SAE cancel endpoint
+                        await cancelSAEExtraction(extraction.external_sae_id);
+                      } else if (extraction.training_id) {
+                        // Training extraction - use training cancel endpoint
+                        await cancelExtraction(extraction.training_id);
+                      }
                       // Refresh list after cancellation
                       fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);
                     }}
                     onDelete={async () => {
-                      await deleteExtraction(extraction.id, extraction.training_id);
+                      const sourceId = extraction.training_id || extraction.external_sae_id || '';
+                      await deleteExtraction(extraction.id, sourceId);
                       // Refresh list after deletion
                       fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);
                     }}
@@ -158,6 +188,12 @@ export const ExtractionsPanel: React.FC = () => {
           )}
         </>
       )}
+
+      {/* Start Extraction Modal */}
+      <StartExtractionModal
+        isOpen={showStartModal}
+        onClose={handleModalClose}
+      />
     </div>
   );
 };

@@ -35,11 +35,17 @@ class Feature(Base):
     __tablename__ = "features"
 
     # Primary identifiers
-    id = Column(String(255), primary_key=True)  # Format: feat_{training_id}_{neuron_index}
+    id = Column(String(255), primary_key=True)  # Format: feat_{training_id}_{neuron_index} or feat_sae_{sae_id}_{neuron_index}
     training_id = Column(
         String(255),
         ForeignKey("trainings.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,  # Nullable: either training_id OR external_sae_id must be set
+        index=True
+    )
+    external_sae_id = Column(
+        String(255),
+        ForeignKey("external_saes.id", ondelete="CASCADE"),
+        nullable=True,  # Nullable: either training_id OR external_sae_id must be set
         index=True
     )
     extraction_job_id = Column(
@@ -84,10 +90,21 @@ class Feature(Base):
 
     # Relationships
     training = relationship("Training", back_populates="features")
+    external_sae = relationship("ExternalSAE", back_populates="features")
     extraction_job = relationship("ExtractionJob", back_populates="features")
     labeling_job = relationship("LabelingJob", back_populates="features")
     activations = relationship("FeatureActivation", back_populates="feature", cascade="all, delete-orphan")
     analysis_cache = relationship("FeatureAnalysisCache", back_populates="feature", cascade="all, delete-orphan")
+
+    @property
+    def source_type(self) -> str:
+        """Return the source type: 'training' or 'external_sae'."""
+        return "external_sae" if self.external_sae_id else "training"
+
+    @property
+    def source_id(self) -> str:
+        """Return the source ID (either training_id or external_sae_id)."""
+        return self.external_sae_id if self.external_sae_id else self.training_id
 
     def __repr__(self) -> str:
         return f"<Feature(id={self.id}, name={self.name}, activation_freq={self.activation_frequency:.3f}, interpretability={self.interpretability_score:.3f})>"

@@ -148,21 +148,42 @@ def download_sae_task(
         )
         update_sae_status(sae_id, SAEStatus.CONVERTING, progress=50.0)
 
+        # Get the actual downloaded path from the result
+        # For Gemma Scope, this is the directory containing params.npz
+        downloaded_path = Path(download_result.get("local_path", str(local_path)))
+        # If it's a file (like params.npz), use its parent directory
+        if downloaded_path.is_file():
+            sae_path = downloaded_path.parent
+        else:
+            sae_path = downloaded_path
+
+        logger.info(f"Downloaded SAE path: {sae_path}")
+
         # Check format and convert if needed
         from ..services.sae_converter import SAEConverterService
 
-        format_type = SAEConverterService.detect_format(str(local_path))
+        format_type = SAEConverterService.detect_format(str(sae_path))
 
         metadata = {}
         if format_type == "community_standard":
             # Already in standard format - just extract metadata
-            info = SAEConverterService.get_sae_info(str(local_path))
+            info = SAEConverterService.get_sae_info(str(sae_path))
             metadata = {
                 "model_name": info.get("model_name"),
                 "layer": info.get("layer"),
                 "d_in": info.get("d_in"),
                 "d_sae": info.get("d_sae"),
                 "architecture": info.get("architecture"),
+            }
+        elif format_type == "gemma_scope":
+            # Gemma Scope format (params.npz) - extract metadata
+            info = SAEConverterService.get_sae_info(str(sae_path))
+            metadata = {
+                "model_name": info.get("model_name"),
+                "layer": info.get("layer"),
+                "d_in": info.get("d_in"),
+                "d_sae": info.get("d_sae"),
+                "architecture": info.get("architecture", "jumprelu"),
             }
         elif format_type == "unknown":
             # Try to detect and convert
@@ -176,13 +197,13 @@ def download_sae_task(
             stage="convert",
         )
 
-        # Update database with final info
+        # Update database with final info - use sae_path which points to actual SAE files
         with get_sync_db() as db:
             sae = db.query(ExternalSAE).filter(ExternalSAE.id == sae_id).first()
             if sae:
                 sae.status = SAEStatus.READY.value
                 sae.progress = 100.0
-                sae.local_path = str(local_path)
+                sae.local_path = str(sae_path)  # Use the actual SAE path, not root
                 if metadata:
                     sae.model_name = metadata.get("model_name") or sae.model_name
                     sae.layer = metadata.get("layer")

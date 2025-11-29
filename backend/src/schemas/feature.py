@@ -107,7 +107,7 @@ class FeatureResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    training_id: str
+    training_id: Optional[str] = None  # Nullable for external SAE extractions
     extraction_job_id: str
     neuron_index: int
     category: Optional[str] = None
@@ -160,7 +160,7 @@ class FeatureDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    training_id: str
+    training_id: Optional[str] = None  # Nullable for external SAE extractions
     extraction_job_id: str
     neuron_index: int
     category: Optional[str] = None

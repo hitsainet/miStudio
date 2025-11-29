@@ -21,6 +21,7 @@ import {
   SAESource,
   SAEStatus,
 } from '../types/sae';
+import { ExtractionStatusResponse } from '../types/features';
 import { fetchAPI, buildQueryString } from './client';
 
 /**
@@ -166,4 +167,65 @@ export async function getReadySAEs(
   }
   const query = buildQueryString(params);
   return fetchAPI<SAEListResponse>(`/saes?${query}`);
+}
+
+// ============================================================================
+// SAE Feature Extraction
+// ============================================================================
+
+// ExtractionStatusResponse is imported from '../types/features' (canonical source)
+
+/**
+ * Extraction configuration for SAE feature extraction
+ */
+export interface SAEExtractionConfig {
+  evaluation_samples?: number;
+  top_k_examples?: number;
+  batch_size?: number;
+  num_workers?: number;
+  db_commit_batch?: number;
+  filter_special?: boolean;
+  filter_single_char?: boolean;
+  filter_punctuation?: boolean;
+  filter_numbers?: boolean;
+  filter_fragments?: boolean;
+  filter_stop_words?: boolean;
+  context_prefix_tokens?: number;
+  context_suffix_tokens?: number;
+  min_activation_frequency?: number;
+}
+
+/**
+ * Start feature extraction from an SAE
+ */
+export async function startSAEExtraction(
+  saeId: string,
+  datasetId: string,
+  config: SAEExtractionConfig
+): Promise<ExtractionStatusResponse> {
+  const query = `dataset_id=${encodeURIComponent(datasetId)}`;
+  return fetchAPI<ExtractionStatusResponse>(`/saes/${saeId}/extract-features?${query}`, {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
+/**
+ * Get extraction status for an SAE
+ */
+export async function getSAEExtractionStatus(
+  saeId: string
+): Promise<ExtractionStatusResponse> {
+  return fetchAPI<ExtractionStatusResponse>(`/saes/${saeId}/extraction-status`);
+}
+
+/**
+ * Cancel extraction for an SAE
+ */
+export async function cancelSAEExtraction(
+  saeId: string
+): Promise<{ message: string }> {
+  return fetchAPI<{ message: string }>(`/saes/${saeId}/cancel-extraction`, {
+    method: 'POST',
+  });
 }

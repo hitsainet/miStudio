@@ -918,6 +918,65 @@ def emit_sae_upload_progress(
     return emit_progress(channel, "sae:upload", data)
 
 
+def emit_sae_extraction_progress(
+    sae_id: str,
+    extraction_id: str,
+    progress: float,
+    status: str,
+    message: str,
+    features_extracted: Optional[int] = None,
+    total_features: Optional[int] = None,
+) -> bool:
+    """
+    Emit progress update for SAE feature extraction.
+
+    Convenience function for SAE-based feature extraction progress with
+    standardized payload structure.
+
+    Args:
+        sae_id: External SAE ID being extracted from
+        extraction_id: Unique extraction job ID
+        progress: Progress percentage (0-100)
+        status: Current status (starting, extracting, processing, completed, failed)
+        message: Human-readable status message
+        features_extracted: Number of features processed so far
+        total_features: Total number of features to process
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        sae/{sae_id}/extraction
+
+    Examples:
+        >>> emit_sae_extraction_progress(
+        ...     sae_id="sae_abc123",
+        ...     extraction_id="extr_20250128_120000_sae_abc123",
+        ...     progress=60.0,
+        ...     status="extracting",
+        ...     message="Processing batch 6/10",
+        ...     features_extracted=6000,
+        ...     total_features=10000
+        ... )
+        True
+    """
+    channel = f"sae/{sae_id}/extraction"
+    data = {
+        "sae_id": sae_id,
+        "extraction_id": extraction_id,
+        "progress": progress,
+        "status": status,
+        "message": message,
+    }
+
+    if features_extracted is not None:
+        data["features_extracted"] = features_extracted
+    if total_features is not None:
+        data["total_features"] = total_features
+
+    return emit_progress(channel, "sae:extraction", data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -938,7 +997,8 @@ __all__ = [
     # Feature labeling functions
     "emit_labeling_progress",
     "emit_labeling_result",
-    # SAE download/upload functions
+    # SAE download/upload/extraction functions
     "emit_sae_download_progress",
     "emit_sae_upload_progress",
+    "emit_sae_extraction_progress",
 ]

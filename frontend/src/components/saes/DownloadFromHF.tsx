@@ -9,10 +9,11 @@
  * - Support for custom SAE names
  */
 
-import { useState } from 'react';
-import { Download, Search, CheckCircle, Cloud, FileCode, Loader } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, Search, CheckCircle, Cloud, FileCode, Loader, Box } from 'lucide-react';
 import { HFFileInfo } from '../../types/sae';
 import { useSAEsStore } from '../../stores/saesStore';
+import { useModelsStore } from '../../stores/modelsStore';
 import { COMPONENTS } from '../../config/brand';
 
 interface DownloadFromHFProps {
@@ -24,6 +25,7 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
   const [accessToken, setAccessToken] = useState('');
   const [customName, setCustomName] = useState('');
   const [selectedFile, setSelectedFile] = useState<HFFileInfo | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -35,6 +37,16 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
     clearHFPreview,
     downloadSAE,
   } = useSAEsStore();
+
+  const { models, fetchModels } = useModelsStore();
+
+  // Fetch models on mount for the model selector
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  // Filter to only show ready models
+  const readyModels = models.filter(m => m.status === 'ready');
 
   const validateRepoId = (input: string): boolean => {
     if (!input.trim()) {
@@ -75,6 +87,11 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
       return;
     }
 
+    if (!selectedModelId) {
+      setValidationError('Please select a model to link this SAE with for steering');
+      return;
+    }
+
     setIsDownloading(true);
     try {
       await downloadSAE({
@@ -82,6 +99,7 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
         filepath: selectedFile.filepath,
         name: customName.trim() || undefined,
         access_token: accessToken.trim() || undefined,
+        model_id: selectedModelId,  // Link to local model for steering
       });
 
       // Clear form on success
@@ -89,6 +107,7 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
       setAccessToken('');
       setCustomName('');
       setSelectedFile(null);
+      setSelectedModelId('');
       clearHFPreview();
       onDownloadComplete?.();
     } catch (error) {
@@ -174,6 +193,38 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
           disabled={hfPreviewLoading || isDownloading}
           className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 font-mono text-sm text-slate-100 placeholder-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         />
+      </div>
+
+      {/* Model Selector - Required for steering */}
+      <div>
+        <label htmlFor="sae-model" className="block text-sm font-medium text-slate-300 mb-2">
+          <span className="flex items-center gap-2">
+            <Box className="w-4 h-4" />
+            Link to Model <span className="text-red-400">*</span>
+          </span>
+          <span className="text-xs text-slate-500 font-normal mt-1 block">
+            Select a downloaded model to use with this SAE for steering
+          </span>
+        </label>
+        <select
+          id="sae-model"
+          value={selectedModelId}
+          onChange={(e) => setSelectedModelId(e.target.value)}
+          disabled={hfPreviewLoading || isDownloading}
+          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <option value="">Select a model...</option>
+          {readyModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name} {model.repo_id ? `(${model.repo_id})` : ''}
+            </option>
+          ))}
+        </select>
+        {readyModels.length === 0 && (
+          <p className="text-xs text-yellow-400 mt-1">
+            No models available. Download a model from the Models panel first.
+          </p>
+        )}
       </div>
 
       {/* Preview Button */}
@@ -274,7 +325,7 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
         <button
           type="button"
           onClick={handleDownload}
-          disabled={!selectedFile || isDownloading}
+          disabled={!selectedFile || !selectedModelId || isDownloading}
           className={`w-full py-3 flex items-center justify-center gap-2 ${COMPONENTS.button.primary}`}
         >
           {isDownloading ? (

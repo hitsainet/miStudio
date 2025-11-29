@@ -115,12 +115,12 @@ class HuggingFaceSAEService:
             # Detect model name from repo
             model_name = HuggingFaceSAEService._detect_model_name(repo_id)
 
-            # Filter SAE files for the sae_files list and sort by layer number
+            # Filter SAE files for the sae_files list and sort by layer, then L0 value
             sae_files = [f for f in file_infos if f.is_sae]
-            sae_files.sort(key=lambda f: HuggingFaceSAEService._extract_layer_number(f.filepath))
+            sae_files.sort(key=lambda f: HuggingFaceSAEService._extract_sort_key(f.filepath))
 
-            # Sort SAE paths by layer number as well
-            sae_paths.sort(key=HuggingFaceSAEService._extract_layer_number)
+            # Sort SAE paths by layer number and L0 as well
+            sae_paths.sort(key=HuggingFaceSAEService._extract_sort_key)
 
             return HFRepoPreviewResponse(
                 repo_id=repo_id,
@@ -137,20 +137,30 @@ class HuggingFaceSAEService:
         return await loop.run_in_executor(_executor, _preview)
 
     @staticmethod
-    def _extract_layer_number(path: str) -> int:
-        """Extract layer number from a path for natural sorting.
+    def _extract_sort_key(path: str) -> tuple[int, int, int]:
+        """Extract layer, dimension, and L0 value from a path for natural sorting.
 
         Handles paths like:
-        - layer_1/width_65k/...
-        - layer_10/width_65k/...
-        - gemma-scope-2b-pt-res/layer_5/...
+        - layer_1/width_65k/average_l0_71/...
+        - layer_10/width_16k/average_l0_139/...
+        - gemma-scope-2b-pt-res/layer_5/width_16k/average_l0_82/...
 
-        Returns a large number (999999) if no layer is found.
+        Returns a tuple (layer_number, dimension, l0_value) for sorting.
+        Uses 999999 as default for missing values to put them at the end.
         """
-        match = re.search(r'layer[_/](\d+)', path, re.IGNORECASE)
-        if match:
-            return int(match.group(1))
-        return 999999  # Put paths without layer numbers at the end
+        # Extract layer number
+        layer_match = re.search(r'layer[_/](\d+)', path, re.IGNORECASE)
+        layer_num = int(layer_match.group(1)) if layer_match else 999999
+
+        # Extract dimension/width (e.g., width_16k -> 16000, width_65k -> 65000)
+        width_match = re.search(r'width[_/](\d+)k', path, re.IGNORECASE)
+        dimension = int(width_match.group(1)) * 1000 if width_match else 999999
+
+        # Extract L0 value (e.g., average_l0_139, canonical_l0_71)
+        l0_match = re.search(r'_l0[_/](\d+)', path, re.IGNORECASE)
+        l0_value = int(l0_match.group(1)) if l0_match else 999999
+
+        return (layer_num, dimension, l0_value)
 
     @staticmethod
     def _is_sae_file(file_path: str) -> bool:

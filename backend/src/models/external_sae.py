@@ -37,6 +37,7 @@ class SAEStatus(str, Enum):
 class SAEFormat(str, Enum):
     """Format of SAE weights."""
     COMMUNITY_STANDARD = "community_standard"
+    GEMMA_SCOPE = "gemma_scope"  # Legacy: same as community_standard but from Gemma Scope repos
     MISTUDIO = "mistudio"
     CUSTOM = "custom"
 
@@ -121,6 +122,8 @@ class ExternalSAE(Base):
     # Relationships
     training = relationship("Training", foreign_keys=[training_id])
     model = relationship("Model", foreign_keys=[model_id])
+    extraction_jobs = relationship("ExtractionJob", back_populates="external_sae", cascade="all, delete-orphan")
+    features = relationship("Feature", back_populates="external_sae", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<ExternalSAE(id={self.id}, name={self.name}, source={self.source}, status={self.status})>"

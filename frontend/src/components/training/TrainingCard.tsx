@@ -35,13 +35,11 @@ import {
   Brain,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
-import { useFeaturesStore } from '../../stores/featuresStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { TrainingStatus } from '../../types/training';
 import type { Training } from '../../types/training';
 import type { Model } from '../../types/model';
 import type { Dataset } from '../../types/dataset';
-import { StartExtractionModal } from '../features/StartExtractionModal';
 import { COMPONENTS } from '../../config/brand';
 
 interface TrainingCardProps {
@@ -69,17 +67,11 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     deleteCheckpoint,
   } = useTrainingsStore();
 
-  const {
-    extractionStatus,
-    getExtractionStatus,
-  } = useFeaturesStore();
-
   const { importFromTraining } = useSAEsStore();
 
   // UI state
   const [showMetrics, setShowMetrics] = useState(false);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
-  const [showExtractionModal, setShowExtractionModal] = useState(false);
   const [showHyperparameters, setShowHyperparameters] = useState(false);
   const [autoSave, setAutoSave] = useState(false);
   const [autoSaveInterval, setAutoSaveInterval] = useState(1000);
@@ -296,12 +288,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     }
   }, [training.current_loss, training.current_l0_sparsity, training.current_step]);
 
-  // Fetch extraction status on mount for completed trainings
-  useEffect(() => {
-    if (training.status === TrainingStatus.COMPLETED) {
-      getExtractionStatus(training.id);
-    }
-  }, [training.id, training.status]);
 
   // Handle save checkpoint
   const handleSaveCheckpoint = async () => {
@@ -551,7 +537,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
 
           {/* Toggle Buttons - different layouts per status */}
           {training.status === TrainingStatus.COMPLETED && (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setShowCheckpoints(!showCheckpoints)}
@@ -559,20 +545,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               >
                 <Download className="w-4 h-4" />
                 <span>Checkpoints ({checkpoints.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowExtractionModal(true)}
-                className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} relative`}
-              >
-                <Zap className="w-4 h-4" />
-                <span>Start Extraction</span>
-                {extractionStatus[training.id] && (
-                  <span
-                    className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full"
-                    title="Extraction exists for this training"
-                  />
-                )}
               </button>
               <button
                 type="button"
@@ -1142,13 +1114,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           <div className="text-xs text-red-300">{training.error_message}</div>
         </div>
       )}
-
-      {/* Start Extraction Modal */}
-      <StartExtractionModal
-        training={training}
-        isOpen={showExtractionModal}
-        onClose={() => setShowExtractionModal(false)}
-      />
     </div>
   );
 };

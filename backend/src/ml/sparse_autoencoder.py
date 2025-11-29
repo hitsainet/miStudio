@@ -568,7 +568,8 @@ class JumpReLUFunction(Function):
             Activated features with threshold gating
         """
         # Heaviside step function: H(z - θ) = 1 if z > θ, else 0
-        gate = (z > threshold).float()
+        # Use z.dtype to preserve half precision (float16) when model is in half mode
+        gate = (z > threshold).to(z.dtype)
 
         # JumpReLU output: z ⊙ H(z - θ)
         output = z * gate

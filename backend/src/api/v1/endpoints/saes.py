@@ -7,15 +7,18 @@ This module defines REST API endpoints for SAE operations including:
 - Uploading SAEs to HuggingFace
 - Importing SAEs from training
 - Deleting SAEs
+- Feature extraction from SAEs
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from ....core.database import get_db
+from ....models.dataset import Dataset
 from ....models.external_sae import SAESource, SAEStatus
 from ....schemas.sae import (
     HFRepoPreviewRequest,
@@ -31,8 +34,10 @@ from ....schemas.sae import (
     SAEDeleteResponse,
     SAEFeatureBrowserResponse,
 )
+from ....schemas.extraction import ExtractionConfigRequest, ExtractionStatusResponse
 from ....services.huggingface_sae_service import HuggingFaceSAEService
 from ....services.sae_manager_service import SAEManagerService
+from ....services.extraction_service import ExtractionService
 
 logger = logging.getLogger(__name__)
 
@@ -518,3 +523,192 @@ async def browse_sae_features(
             "has_more": skip + limit < total
         }
     )
+
+
+# ============================================================================
+# Feature Extraction Operations
+# ============================================================================
+
+@router.post("/{sae_id}/extract-features", response_model=ExtractionStatusResponse)
+async def start_sae_extraction(
+    sae_id: str,
+    config: ExtractionConfigRequest,
+    dataset_id: str = Query(..., description="Dataset ID to use for extraction"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Start feature extraction from an external SAE.
+
+    Runs activations through the SAE and stores top-k activating examples
+    for each feature. This enables feature browsing and labeling.
+
+    Requires:
+    - SAE must be in READY status
+    - Dataset must exist and be downloaded
+
+    Args:
+        sae_id: ID of the SAE to extract features from
+        dataset_id: ID of the dataset to use for extraction
+        config: Extraction configuration (evaluation_samples, top_k_examples, etc.)
+    """
+    sae = await SAEManagerService.get_sae(db, sae_id)
+    if not sae:
+        raise HTTPException(404, f"SAE not found: {sae_id}")
+
+    if sae.status != SAEStatus.READY.value:
+        raise HTTPException(400, f"SAE is not ready for extraction: {sae.status}")
+
+    try:
+        extraction_service = ExtractionService(db)
+
+        # Merge dataset_id into config
+        config_dict = config.model_dump()
+        config_dict["dataset_id"] = dataset_id
+
+        extraction_job = await extraction_service.start_extraction_for_sae(
+            sae_id=sae_id,
+            config=config_dict
+        )
+
+        # Lookup dataset name
+        dataset_name = None
+        if dataset_id:
+            dataset_result = await db.execute(
+                select(Dataset).where(Dataset.id == dataset_id)
+            )
+            dataset = dataset_result.scalar_one_or_none()
+            if dataset:
+                dataset_name = dataset.name
+
+        return ExtractionStatusResponse(
+            id=extraction_job.id,
+            training_id=None,
+            external_sae_id=sae_id,
+            source_type="external_sae",
+            model_name=sae.model_id,
+            dataset_name=dataset_name,
+            sae_name=sae.name,
+            status=extraction_job.status,
+            progress=extraction_job.progress,
+            features_extracted=extraction_job.features_extracted,
+            total_features=extraction_job.total_features,
+            config=extraction_job.config or {},
+            created_at=extraction_job.created_at,
+            updated_at=extraction_job.updated_at,
+            completed_at=extraction_job.completed_at
+        )
+
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        error_message = f"Error starting extraction: {str(e)}"
+        logger.error(error_message, exc_info=True)
+
+        # Try to update the extraction job with error (if it was created)
+        try:
+            from sqlalchemy import desc
+            from ....models.extraction_job import ExtractionJob, ExtractionStatus
+            result = await db.execute(
+                select(ExtractionJob)
+                .where(ExtractionJob.external_sae_id == sae_id)
+                .order_by(desc(ExtractionJob.created_at))
+                .limit(1)
+            )
+            extraction_job = result.scalar_one_or_none()
+            if extraction_job and extraction_job.status in [ExtractionStatus.QUEUED.value, ExtractionStatus.EXTRACTING.value]:
+                extraction_job.status = ExtractionStatus.FAILED.value
+                extraction_job.error_message = str(e)
+                await db.commit()
+        except Exception:
+            pass  # Best effort
+
+        raise HTTPException(500, error_message)
+
+
+@router.get("/{sae_id}/extraction-status", response_model=ExtractionStatusResponse)
+async def get_sae_extraction_status(
+    sae_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the status of a feature extraction job for an SAE.
+
+    Returns the most recent extraction job for this SAE.
+    """
+    sae = await SAEManagerService.get_sae(db, sae_id)
+    if not sae:
+        raise HTTPException(404, f"SAE not found: {sae_id}")
+
+    try:
+        extraction_service = ExtractionService(db)
+        status = await extraction_service.get_extraction_status_for_sae(sae_id)
+
+        if not status:
+            raise HTTPException(404, f"No extraction found for SAE: {sae_id}")
+
+        return status
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting SAE extraction status: {e}", exc_info=True)
+        raise HTTPException(500, f"Error getting extraction status: {str(e)}")
+
+
+@router.post("/{sae_id}/cancel-extraction")
+async def cancel_sae_extraction(
+    sae_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an in-progress feature extraction for an SAE.
+
+    Only works for extractions in QUEUED or EXTRACTING status.
+    """
+    from ....models.extraction_job import ExtractionJob, ExtractionStatus
+    from sqlalchemy import select, desc
+    from datetime import datetime, timezone
+
+    sae = await SAEManagerService.get_sae(db, sae_id)
+    if not sae:
+        raise HTTPException(404, f"SAE not found: {sae_id}")
+
+    # Find the most recent extraction job for this SAE
+    query = select(ExtractionJob).where(
+        ExtractionJob.external_sae_id == sae_id
+    ).order_by(desc(ExtractionJob.created_at)).limit(1)
+
+    result = await db.execute(query)
+    extraction_job = result.scalar_one_or_none()
+
+    if not extraction_job:
+        raise HTTPException(404, f"No extraction found for SAE: {sae_id}")
+
+    if extraction_job.status not in [ExtractionStatus.QUEUED.value, ExtractionStatus.EXTRACTING.value]:
+        raise HTTPException(
+            400,
+            f"Cannot cancel extraction in status: {extraction_job.status}"
+        )
+
+    # Revoke Celery task if task_id is available
+    if extraction_job.celery_task_id:
+        try:
+            from ....core.celery_app import celery_app
+            celery_app.control.revoke(
+                extraction_job.celery_task_id,
+                terminate=True,
+                signal='SIGTERM'
+            )
+            logger.info(f"Revoked Celery task {extraction_job.celery_task_id} for extraction {extraction_job.id}")
+        except Exception as e:
+            logger.error(f"Failed to revoke Celery task: {e}")
+            # Continue anyway - will update database status
+
+    # Update status to FAILED with cancellation message
+    extraction_job.status = ExtractionStatus.FAILED.value
+    extraction_job.error_message = "Cancelled by user"
+    extraction_job.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {"message": f"Extraction {extraction_job.id} cancelled"}

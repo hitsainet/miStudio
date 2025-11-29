@@ -169,6 +169,7 @@ class SAEManagerService:
             hf_filepath=request.filepath,
             hf_revision=request.revision,
             model_name=request.model_name,
+            model_id=request.model_id,  # Link to local model for steering
             format=SAEFormat.COMMUNITY_STANDARD.value,
             local_path=str(local_path),
             progress=0.0,

@@ -44,6 +44,8 @@ from ..schemas.steering import (
     GenerationMetrics,
     SteeredOutput,
     UnsteeredOutput,
+    MultiStrengthResult,
+    SteeredOutputMulti,
     SteeringStrengthSweepRequest,
     StrengthSweepResponse,
     StrengthSweepResult,
@@ -866,16 +868,9 @@ class SteeringService:
         )
         model, tokenizer = await self.load_model(model_id, model_path)
 
-        # Convert selected features to configs with deduplication
-        seen_features = set()
-        unique_features = []
-        for f in request.selected_features:
-            key = (f.feature_idx, f.layer)
-            if key not in seen_features:
-                seen_features.add(key)
-                unique_features.append(f)
-            else:
-                logger.warning(f"Duplicate feature ignored: feature_idx={f.feature_idx}, layer={f.layer}")
+        # Use all selected features - duplicates with different strengths are intentional
+        # (e.g., same feature at +50 and -50 for A/B comparison)
+        unique_features = request.selected_features
 
         feature_configs = [
             FeatureSteeringConfig(
@@ -915,7 +910,50 @@ class SteeringService:
                 metrics=metrics,
             )
 
-        # Generate steered outputs - one per feature, each feature tested individually
+        # Check if any feature has additional_strengths (multi-strength mode)
+        has_multi_strength = any(
+            f.additional_strengths and len(f.additional_strengths) > 0
+            for f in unique_features
+        )
+
+        if has_multi_strength:
+            # Multi-strength mode: generate at multiple strengths per feature
+            steered_multi_outputs = await self._generate_multi_strength_outputs(
+                model=model,
+                tokenizer=tokenizer,
+                sae=sae,
+                request=request,
+                unique_features=unique_features,
+                unsteered_text=unsteered_text,
+            )
+
+            # Build metrics summary for multi-strength mode
+            metrics_summary = None
+            if request.compute_metrics and steered_multi_outputs:
+                first_result = steered_multi_outputs[0].primary_result
+                metrics_summary = {
+                    "steered_perplexity": first_result.metrics.perplexity if first_result.metrics else None,
+                    "unsteered_perplexity": unsteered_output.metrics.perplexity if unsteered_output and unsteered_output.metrics else None,
+                    "coherence": first_result.metrics.coherence if first_result.metrics else None,
+                    "behavioral_score": first_result.metrics.behavioral_score if first_result.metrics else None,
+                }
+
+            total_time_ms = int((time.time() - start_time) * 1000)
+
+            return SteeringComparisonResponse(
+                comparison_id=comparison_id,
+                sae_id=request.sae_id,
+                model_id=model_id,
+                prompt=request.prompt,
+                unsteered=unsteered_output,
+                steered=[],  # Empty for multi-strength mode
+                steered_multi=steered_multi_outputs,
+                metrics_summary=metrics_summary,
+                total_time_ms=total_time_ms,
+                created_at=datetime.utcnow(),
+            )
+
+        # Single-strength mode: one output per feature (existing behavior)
         steered_outputs = []
 
         for feature in unique_features:
@@ -983,10 +1021,115 @@ class SteeringService:
             prompt=request.prompt,
             unsteered=unsteered_output,
             steered=steered_outputs,
+            steered_multi=None,  # Not in multi-strength mode
             metrics_summary=metrics_summary,
             total_time_ms=total_time_ms,
             created_at=datetime.utcnow(),
         )
+
+    async def _generate_multi_strength_outputs(
+        self,
+        model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizer,
+        sae: LoadedSAE,
+        request: SteeringComparisonRequest,
+        unique_features: List[SelectedFeature],
+        unsteered_text: Optional[str],
+    ) -> List[SteeredOutputMulti]:
+        """
+        Generate outputs for each feature at multiple strength values.
+
+        For each feature that has additional_strengths, generates text at:
+        - The primary strength
+        - Each additional strength
+
+        Args:
+            model: The transformer model
+            tokenizer: The tokenizer
+            sae: Loaded SAE model
+            request: Original steering request
+            unique_features: List of features (may include same feature_idx/layer with different strengths)
+            unsteered_text: Baseline text for metrics comparison
+
+        Returns:
+            List of SteeredOutputMulti, one per feature with multi-strength results
+        """
+        results = []
+
+        for feature in unique_features:
+            # Collect all strengths to test for this feature
+            all_strengths = [feature.strength]  # Primary first
+            if feature.additional_strengths:
+                all_strengths.extend(feature.additional_strengths)
+
+            # Sort strengths for consistent ordering in results
+            all_strengths = sorted(all_strengths)
+
+            logger.info(
+                f"[Multi-Strength] Generating for feature {feature.feature_idx} "
+                f"at strengths: {all_strengths}"
+            )
+
+            # Generate for each strength
+            strength_results: List[MultiStrengthResult] = []
+
+            for strength in all_strengths:
+                # Create feature config with this strength
+                single_feature_config = [
+                    FeatureSteeringConfig(
+                        feature_idx=feature.feature_idx,
+                        layer=feature.layer,
+                        strength=strength,
+                        label=feature.label,
+                        color=feature.color,
+                    )
+                ]
+
+                # Register steering hooks
+                handles = self._register_steering_hooks(model, sae, single_feature_config)
+
+                try:
+                    # Generate with this strength
+                    text, token_count, gen_time = await self._generate_text(
+                        model, tokenizer, request.prompt,
+                        request.generation_params,
+                        request.advanced_params,
+                        disable_cache=True,
+                    )
+
+                    metrics = None
+                    if request.compute_metrics:
+                        feature_label = feature.label or f"Feature {feature.feature_idx}"
+                        metrics = await self._compute_metrics(
+                            model, tokenizer, request.prompt,
+                            text, token_count, gen_time,
+                            unsteered_text=unsteered_text,
+                            feature_labels=[feature_label],
+                        )
+
+                    strength_results.append(MultiStrengthResult(
+                        strength=strength,
+                        text=text,
+                        metrics=metrics,
+                    ))
+
+                finally:
+                    # Clean up hooks before next strength
+                    for handle in handles:
+                        handle.remove()
+
+            # Find primary result (matches original strength)
+            primary_idx = all_strengths.index(feature.strength)
+            primary_result = strength_results[primary_idx]
+            additional_results = [r for i, r in enumerate(strength_results) if i != primary_idx]
+
+            results.append(SteeredOutputMulti(
+                feature_config=feature,
+                primary_result=primary_result,
+                additional_results=additional_results,
+            ))
+
+        return results
 
     async def generate_strength_sweep(
         self,

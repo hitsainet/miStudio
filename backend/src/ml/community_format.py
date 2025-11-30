@@ -220,11 +220,29 @@ def convert_mistudio_to_community_weights(
 
     Returns:
         Community Standard format weight dict
+
+    Raises:
+        ValueError: If state_dict is empty or doesn't contain expected keys
     """
+    # Validate input
+    if not state_dict:
+        raise ValueError("Cannot convert empty state_dict to Community Standard format")
+
     community_weights = {}
+
+    # Log input keys for debugging
+    logger.debug(f"Converting state_dict with keys: {list(state_dict.keys())}")
 
     # Detect JumpReLU SAE by presence of W_enc (direct parameter) vs encoder.weight (nn.Linear)
     is_jumprelu = "W_enc" in state_dict
+    is_standard = "encoder.weight" in state_dict
+
+    # Validate that we can identify the format
+    if not is_jumprelu and not is_standard:
+        logger.warning(
+            f"Unrecognized state_dict format. Keys: {list(state_dict.keys())}. "
+            f"Expected either JumpReLU keys (W_enc, b_enc, ...) or Standard keys (encoder.weight, ...)."
+        )
 
     if is_jumprelu:
         # JumpReLU SAE format
@@ -280,6 +298,23 @@ def convert_mistudio_to_community_weights(
         elif "decoder.bias" in state_dict:
             community_weights["b_dec"] = state_dict["decoder.bias"]
 
+    # Validate output - conversion should produce at least W_enc and b_enc
+    if not community_weights:
+        raise ValueError(
+            f"Conversion produced empty output. Input state_dict keys: {list(state_dict.keys())}. "
+            f"Detected format: {'JumpReLU' if is_jumprelu else 'Standard' if is_standard else 'Unknown'}"
+        )
+
+    required_keys = {"W_enc", "b_enc"}
+    missing_keys = required_keys - set(community_weights.keys())
+    if missing_keys:
+        raise ValueError(
+            f"Conversion missing required keys: {missing_keys}. "
+            f"Output keys: {list(community_weights.keys())}. "
+            f"Input keys: {list(state_dict.keys())}"
+        )
+
+    logger.debug(f"Converted to Community Standard format with keys: {list(community_weights.keys())}")
     return community_weights
 
 
@@ -395,20 +430,42 @@ def save_sae_community_format(
         output_dir: Directory to save files
         sparsity: Optional feature sparsity tensor [d_sae]
         tied_weights: Whether model uses tied weights
+
+    Raises:
+        ValueError: If conversion fails or produces invalid output
+        RuntimeError: If saved file is suspiciously small
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Get model state dict
     state_dict = model.state_dict()
+    logger.info(
+        f"Saving SAE to Community Standard format: model={model.__class__.__name__}, "
+        f"state_dict_keys={list(state_dict.keys())}, tied_weights={tied_weights}"
+    )
 
-    # Convert to Community Standard format
+    # Convert to Community Standard format (this will raise ValueError if conversion fails)
     community_weights = convert_mistudio_to_community_weights(state_dict, tied_weights)
+
+    # Log tensor shapes for debugging
+    for key, tensor in community_weights.items():
+        logger.debug(f"  {key}: shape={tensor.shape}, dtype={tensor.dtype}")
 
     # Save weights
     weights_path = output_dir / "sae_weights.safetensors"
     save_file(community_weights, str(weights_path))
-    logger.info(f"Saved Community Standard weights to {weights_path}")
+
+    # Verify saved file is not empty/corrupt (safetensors with no data is ~16 bytes)
+    file_size = weights_path.stat().st_size
+    if file_size < 1000:  # Minimum reasonable size for SAE weights
+        raise RuntimeError(
+            f"Saved weights file is suspiciously small ({file_size} bytes). "
+            f"Expected at least 1KB for valid SAE weights. "
+            f"Community weights keys: {list(community_weights.keys())}"
+        )
+
+    logger.info(f"Saved Community Standard weights to {weights_path} ({file_size / 1024 / 1024:.2f} MB)")
 
     # Save config
     config_path = output_dir / "cfg.json"

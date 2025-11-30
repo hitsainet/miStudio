@@ -63,9 +63,11 @@ export const FEATURE_COLOR_ORDER: FeatureColor[] = ['teal', 'blue', 'purple', 'a
  * A feature selected for steering.
  */
 export interface SelectedFeature {
+  instance_id: string; // Unique identifier for this selection instance (allows duplicates of same feature)
   feature_idx: number;
   layer: number;
   strength: number; // Raw coefficient (Neuronpedia-compatible: 0.07 subtle, 80 strong)
+  additional_strengths?: number[]; // Up to 3 additional strengths for multi-strength testing
   label: string | null;
   color: FeatureColor;
   feature_id: string | null; // Database feature ID if extracted
@@ -153,6 +155,24 @@ export interface SteeredOutput {
 }
 
 /**
+ * Single strength result in multi-strength mode.
+ */
+export interface MultiStrengthResult {
+  strength: number;
+  text: string;
+  metrics: GenerationMetrics | null;
+}
+
+/**
+ * Multi-strength steered output (one per feature).
+ */
+export interface SteeredOutputMulti {
+  feature_config: SelectedFeature;
+  primary_result: MultiStrengthResult;
+  additional_results: MultiStrengthResult[];
+}
+
+/**
  * Unsteered baseline output.
  */
 export interface UnsteeredOutput {
@@ -170,6 +190,7 @@ export interface SteeringComparisonResponse {
   prompt: string;
   unsteered: UnsteeredOutput | null;
   steered: SteeredOutput[];
+  steered_multi?: SteeredOutputMulti[] | null; // Multi-strength results (when additional_strengths provided)
   metrics_summary: Record<string, any> | null;
   total_time_ms: number;
   created_at: string;

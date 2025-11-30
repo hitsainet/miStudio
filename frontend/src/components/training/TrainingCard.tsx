@@ -41,6 +41,7 @@ import type { Training } from '../../types/training';
 import type { Model } from '../../types/model';
 import type { Dataset } from '../../types/dataset';
 import { COMPONENTS } from '../../config/brand';
+import { formatL0Absolute } from '../../utils/formatters';
 
 interface TrainingCardProps {
   training: Training;
@@ -493,10 +494,10 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </div>
             </div>
 
-            {/* L0 Sparsity */}
+            {/* L0 Sparsity - Neuronpedia-aligned display */}
             <div className="bg-slate-800/50 rounded-lg p-2">
               <div className="text-xs text-slate-400 mb-1">L0 Sparsity</div>
-              <div className="flex items-baseline gap-2">
+              <div className="flex flex-col">
                 <div
                   className={`text-lg font-semibold ${
                     !hasMetrics
@@ -507,12 +508,27 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                       ? 'text-yellow-400'
                       : 'text-emerald-400'
                   }`}
+                  title={hasMetrics && training.hyperparameters?.latent_dim
+                    ? `~${Math.round(l0Sparsity * training.hyperparameters.latent_dim)} of ${training.hyperparameters.latent_dim} features active per token`
+                    : undefined
+                  }
                 >
-                  {hasMetrics ? (l0Sparsity * 100).toFixed(2) + '%' : '—'}
+                  {hasMetrics
+                    ? training.hyperparameters?.latent_dim
+                      ? formatL0Absolute(l0Sparsity, training.hyperparameters.latent_dim)
+                      : (l0Sparsity * 100).toFixed(2) + '%'
+                    : '—'}
                 </div>
+                {hasMetrics && training.hyperparameters?.latent_dim && (
+                  <div className="text-xs text-slate-500">
+                    {(l0Sparsity * 100).toFixed(1)}% of {training.hyperparameters.latent_dim}
+                  </div>
+                )}
                 {hasMetrics && training.hyperparameters?.target_l0 && (
                   <div className="text-xs text-slate-500">
-                    (Target: {(training.hyperparameters.target_l0 * 100).toFixed(1)}%)
+                    Target: {training.hyperparameters.latent_dim
+                      ? formatL0Absolute(training.hyperparameters.target_l0, training.hyperparameters.latent_dim)
+                      : (training.hyperparameters.target_l0 * 100).toFixed(1) + '%'}
                   </div>
                 )}
               </div>

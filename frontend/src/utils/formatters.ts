@@ -112,3 +112,61 @@ export function formatActivation(value: number, decimals: number = 3): string {
   // Use fixed decimal notation for normal range
   return value.toFixed(decimals);
 }
+
+/**
+ * Format L0 sparsity in dual format: absolute count and percentage
+ *
+ * Aligns with Neuronpedia convention where L0 is shown as absolute count
+ * (e.g., "~71 features/token") while also showing percentage for context.
+ *
+ * @param l0Fraction L0 sparsity as fraction (0-1), e.g., 0.0043
+ * @param totalFeatures Total number of features in the SAE (latent_dim)
+ * @param showBoth Whether to show both formats or just absolute
+ * @returns Formatted string (e.g., "~11 features (4.3%)" or "~11 features")
+ *
+ * @example
+ * formatL0Sparsity(0.0043, 16384) // "~71 features (0.4%)"
+ * formatL0Sparsity(0.043, 256) // "~11 features (4.3%)"
+ * formatL0Sparsity(0.043, 256, false) // "~11"
+ */
+export function formatL0Sparsity(
+  l0Fraction: number,
+  totalFeatures: number,
+  showBoth: boolean = true
+): string {
+  if (l0Fraction === 0 || totalFeatures === 0) {
+    return showBoth ? '0 features (0%)' : '0';
+  }
+
+  // Calculate absolute L0 (average features active per token)
+  const absoluteL0 = Math.round(l0Fraction * totalFeatures);
+  const percentage = (l0Fraction * 100).toFixed(1);
+
+  if (showBoth) {
+    return `~${absoluteL0} features (${percentage}%)`;
+  }
+  return `~${absoluteL0}`;
+}
+
+/**
+ * Format L0 sparsity as just the absolute count (Neuronpedia style)
+ * @param l0Fraction L0 sparsity as fraction (0-1)
+ * @param totalFeatures Total number of features in the SAE
+ * @returns Formatted string (e.g., "~71")
+ */
+export function formatL0Absolute(l0Fraction: number, totalFeatures: number): string {
+  if (l0Fraction === 0 || totalFeatures === 0) {
+    return '0';
+  }
+  const absoluteL0 = Math.round(l0Fraction * totalFeatures);
+  return `~${absoluteL0}`;
+}
+
+/**
+ * Format L0 sparsity as percentage (original miStudio style)
+ * @param l0Fraction L0 sparsity as fraction (0-1)
+ * @returns Formatted string (e.g., "4.3%")
+ */
+export function formatL0Percent(l0Fraction: number): string {
+  return `${(l0Fraction * 100).toFixed(1)}%`;
+}

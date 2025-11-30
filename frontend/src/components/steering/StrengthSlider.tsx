@@ -2,8 +2,8 @@
  * StrengthSlider - Custom slider for steering strength control.
  *
  * Neuronpedia-compatible calibration:
- * - Range: -200 to +200 (raw coefficients)
- * - Values like 0.07 = subtle, 80 = strong effect
+ * - Range: -300 to +300 (raw coefficients)
+ * - Values like 0.07 = subtle, 80 = strong, 200+ = extreme, 300 = maximum
  * - Color-coded zones (normal, caution, extreme)
  * - Visual warning indicators
  * - Precise value input (supports decimals)
@@ -55,7 +55,7 @@ export function StrengthSlider({
     setIsEditing(false);
     const parsed = parseFloat(inputValue);
     if (!isNaN(parsed)) {
-      const clamped = Math.max(-200, Math.min(200, parsed));
+      const clamped = Math.max(-300, Math.min(300, parsed));
       onChange(clamped);
       setInputValue(clamped.toString());
     } else {
@@ -73,8 +73,8 @@ export function StrengthSlider({
     if (disabled || !sliderRef.current) return;
     const rect = sliderRef.current.getBoundingClientRect();
     const percent = (e.clientX - rect.left) / rect.width;
-    const newValue = Math.round(-200 + percent * 400); // -200 to 200
-    onChange(Math.max(-200, Math.min(200, newValue)));
+    const newValue = Math.round(-300 + percent * 600); // -300 to 300
+    onChange(Math.max(-300, Math.min(300, newValue)));
   };
 
   const handleSliderDrag = (e: React.MouseEvent) => {
@@ -82,15 +82,15 @@ export function StrengthSlider({
     handleSliderClick(e);
   };
 
-  // Calculate thumb position (0-100%) - range is -200 to +200 (400 total)
-  const thumbPosition = ((value + 200) / 400) * 100;
+  // Calculate thumb position (0-100%) - range is -300 to +300 (600 total)
+  const thumbPosition = ((value + 300) / 600) * 100;
 
-  // Calculate zone positions for the -200 to +200 range
+  // Calculate zone positions for the -300 to +300 range
   const zonePositions = {
-    extremeLow: ((STRENGTH_THRESHOLDS.EXTREME_LOW + 200) / 400) * 100,
-    cautionLow: ((STRENGTH_THRESHOLDS.CAUTION_LOW + 200) / 400) * 100,
-    cautionHigh: ((STRENGTH_THRESHOLDS.CAUTION_HIGH + 200) / 400) * 100,
-    extremeHigh: ((STRENGTH_THRESHOLDS.EXTREME_HIGH + 200) / 400) * 100,
+    extremeLow: ((STRENGTH_THRESHOLDS.EXTREME_LOW + 300) / 600) * 100,
+    cautionLow: ((STRENGTH_THRESHOLDS.CAUTION_LOW + 300) / 600) * 100,
+    cautionHigh: ((STRENGTH_THRESHOLDS.CAUTION_HIGH + 300) / 600) * 100,
+    extremeHigh: ((STRENGTH_THRESHOLDS.EXTREME_HIGH + 300) / 600) * 100,
   };
 
   const colorClasses = FEATURE_COLORS[color];
@@ -193,7 +193,7 @@ export function StrengthSlider({
           style={{ left: 0, width: `${thumbPosition}%` }}
         />
 
-        {/* Zero line marker - at 50% for -200 to +200 range */}
+        {/* Zero line marker - at 50% for -300 to +300 range */}
         <div
           className="absolute w-0.5 h-full bg-slate-500"
           style={{ left: '50%' }}
@@ -216,11 +216,11 @@ export function StrengthSlider({
       {/* Scale labels */}
       {!compact && (
         <div className="flex justify-between text-xs text-slate-500">
-          <span>-200</span>
-          <span>-100</span>
+          <span>-300</span>
+          <span>-150</span>
           <span>0</span>
-          <span>100</span>
-          <span>200</span>
+          <span>150</span>
+          <span>300</span>
         </div>
       )}
 

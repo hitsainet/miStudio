@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Save, Star, Info, Activity, GitBranch, Zap, Hash } from 'lucide-react';
+import { X, Save, Star, Info, Activity, GitBranch, Zap, Hash, Copy, Check, ChevronDown } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { TokenHighlightContext } from './TokenHighlight';
 import { LogitLensView } from './LogitLensView';
@@ -17,6 +17,7 @@ import { FeatureCorrelations } from './FeatureCorrelations';
 import { AblationAnalysis } from './AblationAnalysis';
 import { FeatureTokenAnalysis } from './FeatureTokenAnalysis';
 import { formatActivation } from '../../utils/formatters';
+import { formatExamplesForClipboard, copyToClipboard, ExportFormat } from '../../utils/featureExampleFormatter';
 
 interface FeatureDetailModalProps {
   featureId: string;
@@ -49,6 +50,12 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
   const [editedDescription, setEditedDescription] = useState('');
   const [editedNotes, setEditedNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Copy examples state
+  const [copyCount, setCopyCount] = useState<number | 'all'>(10);
+  const [copyFormat, setCopyFormat] = useState<ExportFormat>('text');
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [showCopyDropdown, setShowCopyDropdown] = useState(false);
 
   // Load feature details on mount
   useEffect(() => {
@@ -103,6 +110,29 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
     if (e.target === e.currentTarget) {
       onClose();
     }
+  };
+
+  // Handle copy examples to clipboard
+  const handleCopyExamples = async () => {
+    if (featureExamples.length === 0) return;
+
+    const formattedText = formatExamplesForClipboard(
+      featureExamples,
+      copyCount,
+      copyFormat,
+      {
+        featureIndex: selectedFeature?.neuron_index,
+        featureName: selectedFeature?.name,
+        maxActivation: selectedFeature?.max_activation,
+      }
+    );
+
+    const success = await copyToClipboard(formattedText);
+    setCopyStatus(success ? 'success' : 'error');
+
+    // Reset status after 2 seconds
+    setTimeout(() => setCopyStatus('idle'), 2000);
+    setShowCopyDropdown(false);
   };
 
   if (isLoadingFeatureDetail) {
@@ -343,9 +373,93 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
             <div className="space-y-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white">Max-Activating Examples</h3>
-                <span className="text-sm text-slate-400">
-                  Showing {featureExamples.length} examples
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-400">
+                    Showing {featureExamples.length} examples
+                  </span>
+
+                  {/* Copy Examples Controls */}
+                  {featureExamples.length > 0 && (
+                    <div className="relative flex items-center gap-2">
+                      {/* Count Selector */}
+                      <select
+                        value={copyCount === 'all' ? 'all' : copyCount.toString()}
+                        onChange={(e) => setCopyCount(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                        className="px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm text-slate-300 focus:border-emerald-500 focus:outline-none cursor-pointer"
+                      >
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="all">All ({featureExamples.length})</option>
+                      </select>
+
+                      {/* Format Selector */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowCopyDropdown(!showCopyDropdown)}
+                          className="flex items-center gap-1 px-2 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm text-slate-300 hover:border-slate-600 focus:border-emerald-500 focus:outline-none"
+                        >
+                          {copyFormat === 'text' ? 'Text' : copyFormat === 'markdown' ? 'Markdown' : 'JSON'}
+                          <ChevronDown className="w-3 h-3" />
+                        </button>
+                        {showCopyDropdown && (
+                          <div className="absolute right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded shadow-lg z-10">
+                            <button
+                              onClick={() => { setCopyFormat('text'); setShowCopyDropdown(false); }}
+                              className={`block w-full px-3 py-1.5 text-sm text-left hover:bg-slate-700 ${copyFormat === 'text' ? 'text-emerald-400' : 'text-slate-300'}`}
+                            >
+                              Text
+                            </button>
+                            <button
+                              onClick={() => { setCopyFormat('markdown'); setShowCopyDropdown(false); }}
+                              className={`block w-full px-3 py-1.5 text-sm text-left hover:bg-slate-700 ${copyFormat === 'markdown' ? 'text-emerald-400' : 'text-slate-300'}`}
+                            >
+                              Markdown
+                            </button>
+                            <button
+                              onClick={() => { setCopyFormat('json'); setShowCopyDropdown(false); }}
+                              className={`block w-full px-3 py-1.5 text-sm text-left hover:bg-slate-700 ${copyFormat === 'json' ? 'text-emerald-400' : 'text-slate-300'}`}
+                            >
+                              JSON
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Copy Button */}
+                      <button
+                        onClick={handleCopyExamples}
+                        disabled={copyStatus === 'success'}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
+                          copyStatus === 'success'
+                            ? 'bg-emerald-600 text-white'
+                            : copyStatus === 'error'
+                            ? 'bg-red-600 text-white'
+                            : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                        }`}
+                      >
+                        {copyStatus === 'success' ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            Copied!
+                          </>
+                        ) : copyStatus === 'error' ? (
+                          <>
+                            <X className="w-4 h-4" />
+                            Failed
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4" />
+                            Copy
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {isLoadingExamples ? (

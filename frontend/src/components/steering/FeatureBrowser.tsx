@@ -11,8 +11,8 @@
  * - Right-click context menu to view feature details
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { Search, Hash, Plus, Layers, ChevronLeft, ChevronRight, Zap, Eye } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Search, Hash, Plus, Layers, ChevronLeft, ChevronRight, Zap, Eye, ArrowUp, ArrowDown } from 'lucide-react';
 import { useSAEsStore } from '../../stores/saesStore';
 import { useSteeringStore } from '../../stores/steeringStore';
 import { SAEFeatureSummary } from '../../types/sae';
@@ -23,6 +23,28 @@ import { FeatureDetailModal } from '../features/FeatureDetailModal';
 interface FeatureBrowserProps {
   saeId: string;
 }
+
+// Sort options for feature list
+type SortOption = 'feature_idx' | 'label' | 'max_activation';
+type SortDirection = 'asc' | 'desc';
+type SortScope = 'page' | 'all';
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'feature_idx', label: 'Feature ID' },
+  { value: 'label', label: 'Label' },
+  { value: 'max_activation', label: 'Max Activation' },
+];
+
+// Default sort directions for each sort option
+const DEFAULT_SORT_DIRECTIONS: Record<SortOption, SortDirection> = {
+  feature_idx: 'asc',
+  label: 'asc',
+  max_activation: 'desc',
+};
+
+// Page sizes for different scopes
+const PAGE_SIZE_PAGE = 20;
+const PAGE_SIZE_ALL = 1000; // Max limit supported by backend API
 
 // Context menu state interface
 interface ContextMenuState {
@@ -37,7 +59,12 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
   const [manualFeatureIdx, setManualFeatureIdx] = useState('');
   const [manualLayer, setManualLayer] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
-  const pageSize = 20;
+  const [sortBy, setSortBy] = useState<SortOption>('feature_idx');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortScope, setSortScope] = useState<SortScope>('page');
+
+  // Compute effective page size based on scope
+  const pageSize = sortScope === 'all' ? PAGE_SIZE_ALL : PAGE_SIZE_PAGE;
 
   // Context menu and modal state
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -221,6 +248,53 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
   const canAddMore = selectedFeatures.length < 4;
   const nextColor = getNextColor();
 
+  // Handle sort option change - apply default direction for new sort type
+  const handleSortByChange = (newSortBy: SortOption) => {
+    setSortBy(newSortBy);
+    setSortDirection(DEFAULT_SORT_DIRECTIONS[newSortBy]);
+  };
+
+  // Toggle sort direction
+  const handleToggleSortDirection = () => {
+    setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+  };
+
+  // Handle scope change - reset to page 0
+  const handleScopeChange = (newScope: SortScope) => {
+    setSortScope(newScope);
+    setCurrentPage(0);
+  };
+
+  // Sort features based on selected sort option and direction
+  const sortedFeatures = useMemo(() => {
+    if (!featureBrowser.data?.features) return [];
+
+    const features = [...featureBrowser.data.features];
+    const dirMultiplier = sortDirection === 'asc' ? 1 : -1;
+
+    switch (sortBy) {
+      case 'feature_idx':
+        return features.sort((a, b) => (a.feature_idx - b.feature_idx) * dirMultiplier);
+      case 'label':
+        return features.sort((a, b) => {
+          // Features with labels first (in asc), or last (in desc)
+          if (!a.label && !b.label) return (a.feature_idx - b.feature_idx) * dirMultiplier;
+          if (!a.label) return 1 * dirMultiplier;
+          if (!b.label) return -1 * dirMultiplier;
+          return a.label.localeCompare(b.label) * dirMultiplier;
+        });
+      case 'max_activation':
+        return features.sort((a, b) => {
+          const aMax = a.max_activation ?? -Infinity;
+          const bMax = b.max_activation ?? -Infinity;
+          // Base comparison: higher first (descending), then apply direction
+          return (bMax - aMax) * dirMultiplier;
+        });
+      default:
+        return features;
+    }
+  }, [featureBrowser.data?.features, sortBy, sortDirection]);
+
   return (
     <div className={`${COMPONENTS.card.base} p-4 space-y-4`}>
       {/* Header */}
@@ -233,19 +307,76 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
         )}
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-        <input
-          type="text"
-          placeholder="Search features by label..."
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setCurrentPage(0);
-          }}
-          className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 placeholder-slate-500 transition-colors"
-        />
+      {/* Search and Sort */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Search features by label..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(0);
+              }}
+              className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 placeholder-slate-500 transition-colors"
+            />
+          </div>
+        </div>
+        {/* Sort controls row */}
+        <div className="flex items-center justify-between">
+          {/* Sort direction and column */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleToggleSortDirection}
+              className="p-1.5 rounded hover:bg-slate-800 transition-colors"
+              title={`Sort ${sortDirection === 'asc' ? 'ascending' : 'descending'} - click to toggle`}
+            >
+              {sortDirection === 'asc' ? (
+                <ArrowUp className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <ArrowDown className="w-4 h-4 text-emerald-400" />
+              )}
+            </button>
+            <select
+              value={sortBy}
+              onChange={(e) => handleSortByChange(e.target.value as SortOption)}
+              className="px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 text-sm cursor-pointer"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Scope toggle */}
+          <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-0.5 border border-slate-700">
+            <button
+              onClick={() => handleScopeChange('page')}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                sortScope === 'page'
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+              title="Sort features on current page only"
+            >
+              Page
+            </button>
+            <button
+              onClick={() => handleScopeChange('all')}
+              className={`px-2 py-1 text-xs rounded transition-colors ${
+                sortScope === 'all'
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+              title="Fetch and sort all features in SAE"
+            >
+              All
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Manual feature entry */}
@@ -308,13 +439,13 @@ export function FeatureBrowser({ saeId }: FeatureBrowserProps) {
       {/* Features list */}
       {featureBrowser.data && !featureBrowser.loading && (
         <>
-          {featureBrowser.data.features.length === 0 ? (
+          {sortedFeatures.length === 0 ? (
             <div className="text-center py-8 text-slate-400">
               {searchQuery ? 'No features match your search' : 'No features found'}
             </div>
           ) : (
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {featureBrowser.data.features.map((feature) => {
+              {sortedFeatures.map((feature) => {
                 const isSelected = isFeatureSelected(feature.feature_idx, feature.layer);
                 const isHighlighted = isFeatureHighlighted(feature.feature_idx, feature.layer);
                 const colorClass = nextColor ? FEATURE_COLORS[nextColor] : FEATURE_COLORS.teal;

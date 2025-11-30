@@ -22,13 +22,17 @@ class SelectedFeature(BaseModel):
     layer: int = Field(..., ge=0, description="Target layer for steering (L0, L1, etc.)")
     strength: float = Field(
         ...,
-        ge=-200.0,
-        le=200.0,
+        ge=-300.0,
+        le=300.0,
         description=(
             "Raw steering coefficient (Neuronpedia-compatible). "
-            "Values like 0.07 for subtle effects, 80 for strong effects. "
+            "Values like 0.07 for subtle effects, 80 for strong effects, 200+ for extreme. "
             "Negative values suppress the feature."
         )
+    )
+    additional_strengths: Optional[List[float]] = Field(
+        default=None,
+        description="Up to 3 additional strengths to test simultaneously"
     )
     label: Optional[str] = Field(None, description="Feature label for display")
     color: Literal["teal", "blue", "purple", "amber"] = Field(
@@ -41,6 +45,19 @@ class SelectedFeature(BaseModel):
     def validate_strength(cls, v: float) -> float:
         """Validate steering strength - now Neuronpedia-compatible raw coefficients."""
         # Just validate range - warnings are handled in UI
+        return v
+
+    @field_validator("additional_strengths")
+    @classmethod
+    def validate_additional_strengths(cls, v: Optional[List[float]]) -> Optional[List[float]]:
+        """Validate additional strengths - max 3, each in valid range."""
+        if v is None:
+            return v
+        if len(v) > 3:
+            raise ValueError("Maximum 3 additional strengths allowed")
+        for strength in v:
+            if strength < -300.0 or strength > 300.0:
+                raise ValueError("Additional strength must be between -300 and 300")
         return v
 
 
@@ -165,6 +182,25 @@ class SteeredOutput(BaseModel):
     metrics: Optional[GenerationMetrics] = Field(None, description="Generation metrics")
 
 
+class MultiStrengthResult(BaseModel):
+    """Schema for a single strength result in multi-strength mode."""
+
+    strength: float = Field(..., description="Steering strength used")
+    text: str = Field(..., description="Generated text")
+    metrics: Optional[GenerationMetrics] = Field(None, description="Generation metrics")
+
+
+class SteeredOutputMulti(BaseModel):
+    """Schema for multi-strength steered generation output."""
+
+    feature_config: SelectedFeature = Field(..., description="Feature configuration used")
+    primary_result: MultiStrengthResult = Field(..., description="Result at primary strength")
+    additional_results: List[MultiStrengthResult] = Field(
+        default_factory=list,
+        description="Results at additional strength values"
+    )
+
+
 class UnsteeredOutput(BaseModel):
     """Schema for unsteered baseline output."""
 
@@ -186,6 +222,10 @@ class SteeringComparisonResponse(BaseModel):
     # Results
     unsteered: Optional[UnsteeredOutput] = Field(None, description="Unsteered baseline output")
     steered: List[SteeredOutput] = Field(..., description="Steered outputs for each feature")
+    steered_multi: Optional[List[SteeredOutputMulti]] = Field(
+        None,
+        description="Multi-strength steered outputs (when additional_strengths provided)"
+    )
 
     # Summary metrics
     metrics_summary: Optional[Dict[str, Any]] = Field(None, description="Summary of metrics across all outputs")

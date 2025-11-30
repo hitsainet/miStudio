@@ -23,6 +23,7 @@ import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
 import { StartLabelingButton } from '../labeling/StartLabelingButton';
 import { COMPONENTS } from '../../config/brand';
+import { formatL0Absolute } from '../../utils/formatters';
 
 interface ExtractionJobCardProps {
   extraction: ExtractionStatusResponse;
@@ -976,10 +977,22 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                   <div>Batch Size: <span className={COMPONENTS.text.primary}>{training.hyperparameters.batch_size}</span></div>
                   <div>Total Steps: <span className={COMPONENTS.text.primary}>{training.hyperparameters.total_steps.toLocaleString()}</span></div>
                   {training.hyperparameters.target_l0 !== undefined && (
-                    <div>Target L0: <span className={COMPONENTS.text.primary}>{(training.hyperparameters.target_l0 * 100).toFixed(1)}%</span></div>
+                    <div>
+                      Target L0:{' '}
+                      <span className={COMPONENTS.text.primary} title={`${(training.hyperparameters.target_l0 * 100).toFixed(1)}% of ${training.hyperparameters.latent_dim} features`}>
+                        {formatL0Absolute(training.hyperparameters.target_l0, training.hyperparameters.latent_dim)}
+                      </span>
+                      <span className="text-slate-500 ml-1">({(training.hyperparameters.target_l0 * 100).toFixed(1)}%)</span>
+                    </div>
                   )}
                   {training.current_l0_sparsity !== null && training.current_l0_sparsity !== undefined && (
-                    <div>Actual L0: <span className={COMPONENTS.text.primary}>{(training.current_l0_sparsity * 100).toFixed(1)}%</span></div>
+                    <div>
+                      Actual L0:{' '}
+                      <span className={COMPONENTS.text.primary} title={`${(training.current_l0_sparsity * 100).toFixed(1)}% of ${training.hyperparameters.latent_dim} features`}>
+                        {formatL0Absolute(training.current_l0_sparsity, training.hyperparameters.latent_dim)}
+                      </span>
+                      <span className="text-slate-500 ml-1">({(training.current_l0_sparsity * 100).toFixed(1)}%)</span>
+                    </div>
                   )}
                 </>
               )}

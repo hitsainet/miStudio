@@ -85,9 +85,13 @@ interface SteeringState {
   selectSAE: (sae: SAE | null) => void;
 
   // Actions - Feature Selection
-  addFeature: (feature: Omit<SelectedFeature, 'color'>) => boolean;
-  removeFeature: (featureIdx: number, layer: number) => void;
-  updateFeatureStrength: (featureIdx: number, layer: number, strength: number) => void;
+  addFeature: (feature: Omit<SelectedFeature, 'color' | 'instance_id'>) => boolean;
+  removeFeature: (instanceId: string) => void;
+  duplicateFeature: (instanceId: string) => boolean;
+  updateFeatureStrength: (instanceId: string, strength: number) => void;
+  setAdditionalStrengths: (instanceId: string, strengths: number[]) => void;
+  updateAdditionalStrength: (instanceId: string, strengthIndex: number, newStrength: number) => void;
+  removeAdditionalStrength: (instanceId: string, strengthIndex: number) => void;
   applyStrengthPreset: (strength: number) => void;
   clearFeatures: () => void;
   reorderFeatures: (fromIndex: number, toIndex: number) => void;
@@ -169,8 +173,9 @@ export const useSteeringStore = create<SteeringState>()(
         });
       },
 
-      // Add a feature to selection (returns false if max reached or duplicate)
-      addFeature: (feature: Omit<SelectedFeature, 'color'>) => {
+      // Add a feature to selection (returns false if max reached)
+      // Note: Duplicates of the same feature_idx/layer are now allowed (each gets unique instance_id)
+      addFeature: (feature: Omit<SelectedFeature, 'color' | 'instance_id'>) => {
         const { selectedFeatures } = get();
 
         // Check if max features reached
@@ -178,20 +183,16 @@ export const useSteeringStore = create<SteeringState>()(
           return false;
         }
 
-        // Check for duplicate
-        const isDuplicate = selectedFeatures.some(
-          (f) => f.feature_idx === feature.feature_idx && f.layer === feature.layer
-        );
-        if (isDuplicate) {
-          return false;
-        }
-
         // Find next available color
         const usedColors = selectedFeatures.map((f) => f.color);
         const nextColor = FEATURE_COLOR_ORDER.find((c) => !usedColors.includes(c)) || FEATURE_COLOR_ORDER[0];
 
+        // Generate unique instance_id
+        const instanceId = `${feature.feature_idx}-${feature.layer}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
         // Explicitly set all properties to ensure label and feature_id are preserved
         const newFeature: SelectedFeature = {
+          instance_id: instanceId,
           feature_idx: feature.feature_idx,
           layer: feature.layer,
           strength: feature.strength,
@@ -204,23 +205,110 @@ export const useSteeringStore = create<SteeringState>()(
         return true;
       },
 
-      // Remove a feature from selection
-      removeFeature: (featureIdx: number, layer: number) => {
+      // Remove a feature from selection by instance_id
+      removeFeature: (instanceId: string) => {
         set((state) => ({
           selectedFeatures: state.selectedFeatures.filter(
-            (f) => !(f.feature_idx === featureIdx && f.layer === layer)
+            (f) => f.instance_id !== instanceId
           ),
         }));
       },
 
-      // Update feature strength
-      updateFeatureStrength: (featureIdx: number, layer: number, strength: number) => {
+      // Duplicate a feature with negated strength (for A/B comparison)
+      duplicateFeature: (instanceId: string) => {
+        const { selectedFeatures } = get();
+
+        // Check if max features reached
+        if (selectedFeatures.length >= MAX_SELECTED_FEATURES) {
+          return false;
+        }
+
+        // Find the original feature by instance_id
+        const original = selectedFeatures.find(
+          (f) => f.instance_id === instanceId
+        );
+        if (!original) {
+          return false;
+        }
+
+        // Find next available color
+        const usedColors = selectedFeatures.map((f) => f.color);
+        const nextColor = FEATURE_COLOR_ORDER.find((c) => !usedColors.includes(c)) || FEATURE_COLOR_ORDER[0];
+
+        // Generate unique instance_id for the duplicate
+        const newInstanceId = `${original.feature_idx}-${original.layer}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+        // Copy and negate additional_strengths if they exist
+        const negatedAdditionalStrengths = original.additional_strengths
+          ? original.additional_strengths.map((s) => -s)
+          : undefined;
+
+        // Create duplicate with negated strength (for testing opposite direction)
+        const duplicatedFeature: SelectedFeature = {
+          instance_id: newInstanceId,
+          feature_idx: original.feature_idx,
+          layer: original.layer,
+          strength: -original.strength, // Negate the strength
+          additional_strengths: negatedAdditionalStrengths, // Copy and negate additional strengths
+          label: original.label ? `${original.label} (copy)` : null,
+          color: nextColor,
+          feature_id: original.feature_id,
+        };
+
+        set({ selectedFeatures: [...selectedFeatures, duplicatedFeature] });
+        return true;
+      },
+
+      // Update feature strength by instance_id
+      updateFeatureStrength: (instanceId: string, strength: number) => {
         set((state) => ({
           selectedFeatures: state.selectedFeatures.map((f) =>
-            f.feature_idx === featureIdx && f.layer === layer
+            f.instance_id === instanceId
               ? { ...f, strength }
               : f
           ),
+        }));
+      },
+
+      // Set all additional strengths for a feature (replaces existing) by instance_id
+      setAdditionalStrengths: (instanceId: string, strengths: number[]) => {
+        // Max 3 additional strengths
+        const clampedStrengths = strengths.slice(0, 3);
+        set((state) => ({
+          selectedFeatures: state.selectedFeatures.map((f) =>
+            f.instance_id === instanceId
+              ? { ...f, additional_strengths: clampedStrengths.length > 0 ? clampedStrengths : undefined }
+              : f
+          ),
+        }));
+      },
+
+      // Update a specific additional strength by index using instance_id
+      updateAdditionalStrength: (instanceId: string, strengthIndex: number, newStrength: number) => {
+        set((state) => ({
+          selectedFeatures: state.selectedFeatures.map((f) => {
+            if (f.instance_id === instanceId && f.additional_strengths) {
+              const newAdditional = [...f.additional_strengths];
+              if (strengthIndex >= 0 && strengthIndex < newAdditional.length) {
+                newAdditional[strengthIndex] = newStrength;
+              }
+              return { ...f, additional_strengths: newAdditional };
+            }
+            return f;
+          }),
+        }));
+      },
+
+      // Remove a specific additional strength by index using instance_id
+      removeAdditionalStrength: (instanceId: string, strengthIndex: number) => {
+        set((state) => ({
+          selectedFeatures: state.selectedFeatures.map((f) => {
+            if (f.instance_id === instanceId && f.additional_strengths) {
+              const newAdditional = f.additional_strengths.filter((_, i) => i !== strengthIndex);
+              return { ...f, additional_strengths: newAdditional.length > 0 ? newAdditional : undefined };
+            }
+            return f;
+          }),
         }));
       },
 
@@ -589,7 +677,11 @@ export const selectCanGenerate = (state: SteeringState) =>
   state.prompt.trim().length > 0 &&
   !state.isGenerating;
 
-// Selector for feature by index and layer
+// Selector for feature by instance_id
+export const selectFeatureByInstanceId = (instanceId: string) => (state: SteeringState) =>
+  state.selectedFeatures.find((f) => f.instance_id === instanceId);
+
+// Selector for feature by index and layer (finds first match - use selectFeatureByInstanceId for exact match)
 export const selectFeature = (featureIdx: number, layer: number) => (state: SteeringState) =>
   state.selectedFeatures.find((f) => f.feature_idx === featureIdx && f.layer === layer);
 

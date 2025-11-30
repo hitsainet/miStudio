@@ -542,9 +542,24 @@ class CheckpointService:
 
         Returns:
             Path to the output directory
+
+        Raises:
+            ValueError: If model state_dict is empty or conversion fails
+            RuntimeError: If saved file is too small
         """
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
+
+        # Validate model before saving
+        state_dict = model.state_dict()
+        if not state_dict:
+            raise ValueError(
+                f"Model has empty state_dict! Model class: {model.__class__.__name__}"
+            )
+        logger.info(
+            f"Saving Community Standard checkpoint: model={model.__class__.__name__}, "
+            f"layer={layer}, keys={list(state_dict.keys())}"
+        )
 
         # Create Community Standard config from training hyperparams
         config = CommunityStandardConfig.from_training_hyperparams(
@@ -603,9 +618,20 @@ class CheckpointService:
 
         Returns:
             Dictionary mapping layer_idx to output directory path
+
+        Raises:
+            ValueError: If any model has empty state_dict or conversion fails
+            RuntimeError: If any saved file is too small
         """
         base_path = Path(base_output_dir)
         base_path.mkdir(parents=True, exist_ok=True)
+
+        # Log summary of models being saved
+        logger.info(
+            f"Saving {len(training_layers)} SAE(s) to Community Standard format: "
+            f"layers={training_layers}, output={base_path}, "
+            f"hyperparams.architecture_type={hyperparams.get('architecture_type', 'unknown')}"
+        )
 
         output_paths = {}
 

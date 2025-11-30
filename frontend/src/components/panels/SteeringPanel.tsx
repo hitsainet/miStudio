@@ -87,7 +87,7 @@ export function SteeringPanel() {
       {/* Sidebar */}
       <div
         className={`transition-all duration-300 ${
-          sidebarCollapsed ? 'w-0' : 'w-80'
+          sidebarCollapsed ? 'w-0' : 'w-[420px]'
         } flex-shrink-0 overflow-hidden`}
       >
         <FeatureSelector />

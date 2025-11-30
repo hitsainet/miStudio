@@ -11,7 +11,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { Brain, Plus, Trash2, ChevronUp, Search, Eye } from 'lucide-react';
+import { Brain, Plus, Trash2, ChevronUp, Search, Eye, Copy } from 'lucide-react';
 import { useSteeringStore } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { SAEStatus } from '../../types/sae';
@@ -26,6 +26,7 @@ interface ContextMenuState {
   visible: boolean;
   x: number;
   y: number;
+  instanceId: string | null;
   featureIdx: number | null;
   layer: number | null;
   featureId: string | null;
@@ -39,6 +40,7 @@ export function FeatureSelector() {
     visible: false,
     x: 0,
     y: 0,
+    instanceId: null,
     featureIdx: null,
     layer: null,
     featureId: null,
@@ -54,7 +56,9 @@ export function FeatureSelector() {
     selectedFeatures,
     selectSAE,
     removeFeature,
+    duplicateFeature,
     updateFeatureStrength,
+    setAdditionalStrengths,
     applyStrengthPreset,
     clearFeatures,
   } = useSteeringStore();
@@ -103,6 +107,7 @@ export function FeatureSelector() {
       visible: true,
       x: event.clientX,
       y: event.clientY,
+      instanceId: feature.instance_id,
       featureIdx: feature.feature_idx,
       layer: feature.layer,
       featureId: feature.feature_id,
@@ -137,6 +142,23 @@ export function FeatureSelector() {
     console.log('[FeatureSelector] Feature not extracted - feature_id is null for feature_idx:', contextMenu.featureIdx);
     alert(`Feature #${contextMenu.featureIdx} has not been extracted yet.\n\nOnly features that activated during an extraction job have detailed data available.\n\nTo view details for this feature, run a new extraction job on the Extractions tab that includes this feature.`);
   };
+
+  // Handle duplicate feature from context menu
+  const handleDuplicateFeature = () => {
+    if (!contextMenu.instanceId) {
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    const success = duplicateFeature(contextMenu.instanceId);
+    if (!success) {
+      console.log('[FeatureSelector] Could not duplicate feature - max limit reached or feature not found');
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  // Check if we can duplicate (under max limit)
+  const canDuplicate = selectedFeatures.length < 4;
 
   // Close feature detail modal
   const handleCloseModal = () => {
@@ -227,12 +249,15 @@ export function FeatureSelector() {
             <div className="px-4 space-y-3">
               {selectedFeatures.map((feature) => (
                 <SelectedFeatureCard
-                  key={`${feature.feature_idx}-${feature.layer}`}
+                  key={feature.instance_id}
                   feature={feature}
                   onStrengthChange={(strength) =>
-                    updateFeatureStrength(feature.feature_idx, feature.layer, strength)
+                    updateFeatureStrength(feature.instance_id, strength)
                   }
-                  onRemove={() => removeFeature(feature.feature_idx, feature.layer)}
+                  onAdditionalStrengthsChange={(strengths) =>
+                    setAdditionalStrengths(feature.instance_id, strengths)
+                  }
+                  onRemove={() => removeFeature(feature.instance_id)}
                   onContextMenu={handleSelectedFeatureContextMenu}
                 />
               ))}
@@ -306,9 +331,23 @@ export function FeatureSelector() {
             <Eye className="w-4 h-4" />
             View Feature Details
           </button>
+          <button
+            onClick={handleDuplicateFeature}
+            disabled={!canDuplicate}
+            className="w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={canDuplicate ? 'Create a copy with negated strength' : 'Maximum 4 features reached'}
+          >
+            <Copy className="w-4 h-4" />
+            Duplicate (Negated)
+          </button>
           {contextMenu.featureIdx !== null && (
             <div className="px-4 py-1 text-xs text-slate-500 border-t border-slate-700 mt-1">
               Feature #{contextMenu.featureIdx} • L{contextMenu.layer}
+            </div>
+          )}
+          {!canDuplicate && (
+            <div className="px-4 py-1 text-xs text-amber-500 border-t border-slate-700 mt-1">
+              Max 4 features - remove one to duplicate
             </div>
           )}
           {!selectedSAE?.training_id && (

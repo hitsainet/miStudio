@@ -29,7 +29,7 @@ export const FeatureTokenAnalysis: React.FC<FeatureTokenAnalysisProps> = ({ feat
   const [filterPunctuation, setFilterPunctuation] = useState(true);
   const [filterNumbers, setFilterNumbers] = useState(true);
   const [filterFragments, setFilterFragments] = useState(true);
-  const [filterStopWords, setFilterStopWords] = useState(false);
+  const [filterStopWords, setFilterStopWords] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
 
   // Fetch data with current filters

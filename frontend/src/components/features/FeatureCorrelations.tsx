@@ -1,21 +1,23 @@
 /**
  * FeatureCorrelations Component
  *
- * Displays feature correlation analysis.
- * Shows features with similar activation patterns.
+ * Displays feature similarity analysis.
+ * Shows features with similar characteristics.
  *
- * Analysis: Finds features with similar activation patterns by computing
- * Pearson correlation coefficients on activation vectors.
+ * Analysis: Finds similar features using a multi-factor approach:
+ * 1. Token overlap: Features that activate on similar tokens (Jaccard index)
+ * 2. Activation frequency: Similar firing rates
+ * 3. Activation statistics: Similar mean/max activation magnitudes
  */
 
 import React, { useEffect, useState } from 'react';
 import { fetchAPI } from '../../api/client';
-import { Loader2, TrendingUp } from 'lucide-react';
+import { Loader2, TrendingUp, Sparkles } from 'lucide-react';
 
 interface CorrelatedFeature {
   feature_id: string;
   feature_name: string;
-  correlation: number;
+  correlation: number; // This is actually a similarity score (0-1)
 }
 
 interface CorrelationsResponse {
@@ -30,7 +32,7 @@ interface FeatureCorrelationsProps {
 
 /**
  * FeatureCorrelations component.
- * Fetches and displays correlation analysis for a feature.
+ * Fetches and displays similarity analysis for a feature.
  */
 export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
   featureId,
@@ -51,7 +53,7 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
         setData(data);
       } catch (err: any) {
         console.error('Error fetching correlations:', err);
-        setError(err.detail || err.message || 'Failed to load correlations analysis');
+        setError(err.detail || err.message || 'Failed to load similarity analysis');
       } finally {
         setLoading(false);
       }
@@ -64,7 +66,7 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
     return (
       <div className="flex flex-col items-center justify-center py-12 space-y-3">
         <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
-        <div className="text-slate-400 text-sm">Computing correlation analysis...</div>
+        <div className="text-slate-400 text-sm">Computing feature similarity...</div>
       </div>
     );
   }
@@ -89,9 +91,9 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
     return (
       <div className="flex flex-col items-center justify-center py-12 space-y-2">
         <TrendingUp className="h-12 w-12 text-slate-600" />
-        <div className="text-slate-400">No correlated features found</div>
+        <div className="text-slate-400">No similar features found</div>
         <div className="text-xs text-slate-500">
-          Correlation threshold: 0.5
+          Similarity threshold: 30%
         </div>
       </div>
     );
@@ -102,8 +104,9 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
       {/* Description */}
       <div className="bg-slate-800/30 rounded-lg p-4">
         <p className="text-sm text-slate-400">
-          Features with similar activation patterns (correlation ≥ 0.5).
-          Higher correlation indicates features that activate on similar inputs.
+          Features with similar characteristics based on token overlap,
+          activation frequency, and activation magnitude. Higher similarity
+          indicates features that likely detect related concepts.
         </p>
       </div>
 
@@ -119,14 +122,16 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
                 Label
               </th>
               <th className="text-right px-4 py-3 text-xs font-medium text-slate-400">
-                Correlation
+                Similarity
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700/50">
             {data.correlated_features.map((feature) => {
-              const correlationPercent = (feature.correlation * 100).toFixed(1);
+              const similarityPercent = (feature.correlation * 100).toFixed(1);
               const barWidth = Math.max(5, feature.correlation * 100);
+              // Color based on similarity strength
+              const isHighSimilarity = feature.correlation >= 0.5;
 
               return (
                 <tr
@@ -148,8 +153,15 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-sm text-slate-300 truncate max-w-xs">
-                      {feature.feature_name}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-slate-300 truncate max-w-xs">
+                        {feature.feature_name}
+                      </span>
+                      {isHighSimilarity && (
+                        <span title="High similarity">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3">
@@ -157,13 +169,19 @@ export const FeatureCorrelations: React.FC<FeatureCorrelationsProps> = ({
                       {/* Bar visualization */}
                       <div className="flex-1 max-w-[100px] bg-slate-700/50 rounded-full h-2">
                         <div
-                          className="bg-gradient-to-r from-blue-500 to-blue-400 h-2 rounded-full transition-all duration-300"
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            isHighSimilarity
+                              ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                              : 'bg-gradient-to-r from-blue-500 to-blue-400'
+                          }`}
                           style={{ width: `${barWidth}%` }}
                         />
                       </div>
                       {/* Percentage */}
-                      <span className="text-sm text-blue-400 font-mono min-w-[3.5rem] text-right">
-                        {correlationPercent}%
+                      <span className={`text-sm font-mono min-w-[3.5rem] text-right ${
+                        isHighSimilarity ? 'text-emerald-400' : 'text-blue-400'
+                      }`}>
+                        {similarityPercent}%
                       </span>
                     </div>
                   </td>

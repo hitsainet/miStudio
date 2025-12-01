@@ -296,22 +296,21 @@ class AnalysisService:
         """
         Calculate correlations with other features.
 
-        Finds features with similar activation patterns by computing
-        Pearson correlation coefficients on activation vectors.
+        Finds features with similar characteristics using a multi-factor similarity
+        approach that combines:
+        1. Token overlap: Features that activate on similar tokens
+        2. Activation statistics: Similar mean/max activation magnitudes
+        3. Activation frequency: Similar firing rates
+
+        Note: Traditional Pearson correlation on activation vectors doesn't work well
+        because each feature only stores its TOP-K activating samples, which rarely
+        overlap with other features' top samples.
 
         Args:
             feature_id: Feature ID to analyze
 
         Returns:
             CorrelationsResponse with top 10 correlated features, or None if feature not found
-
-        Process:
-            1. Check cache for recent result
-            2. Load all features for the same training
-            3. Load activation vectors from feature_activations table
-            4. Calculate Pearson correlation with all other features
-            5. Return top 10 with correlation > 0.5
-            6. Cache result for future requests
         """
         # Check cache first
         cache_entry = await self._get_cached_analysis(feature_id, AnalysisType.CORRELATIONS)
@@ -326,132 +325,114 @@ class AnalysisService:
             return None
 
         try:
-            logger.info(f"Loading activation data for feature {feature_id}")
+            logger.info(f"Computing statistics-based correlations for feature {feature_id}")
 
-            # Load activation data for current feature
-            current_activations_stmt = select(FeatureActivation).where(
-                FeatureActivation.feature_id == feature_id
-            ).order_by(FeatureActivation.sample_index)
+            # Extract current feature's token set for comparison
+            current_tokens = set()
+            if feature.example_tokens_summary:
+                if isinstance(feature.example_tokens_summary, list):
+                    current_tokens = set(t.strip().lower() for t in feature.example_tokens_summary if t)
+                elif isinstance(feature.example_tokens_summary, str):
+                    current_tokens = set(t.strip().lower() for t in feature.example_tokens_summary.split(",") if t.strip())
 
-            if isinstance(self.db, AsyncSession):
-                result = await self.db.execute(current_activations_stmt)
-                current_activations = list(result.scalars().all())
-            else:
-                current_activations = list(self.db.execute(current_activations_stmt).scalars().all())
+            current_freq = feature.activation_frequency or 0.0
+            current_mean = feature.mean_activation or 0.0
+            current_max = feature.max_activation or 0.0
 
-            if len(current_activations) < 10:
-                raise ValueError(
-                    f"Insufficient activation data for feature {feature_id} "
-                    f"(found {len(current_activations)}, need ≥10 samples)"
-                )
+            logger.info(f"Current feature: {len(current_tokens)} tokens, freq={current_freq:.3f}, mean={current_mean:.3f}, max={current_max:.3f}")
 
-            # Extract activation vector (max activation per sample)
-            current_vector = np.array([act.max_activation for act in current_activations])
-
-            logger.info(f"Loaded {len(current_activations)} activations for current feature")
-
-            # Sample a subset of features for efficiency (1000 random features)
-            # For large feature sets, checking all features is too slow
-            sample_size = 1000
-            all_features_count_stmt = select(func.count(Feature.id)).where(
+            # Load other features from the same training
+            # Sample up to 2000 for efficiency
+            sample_size = 2000
+            features_stmt = select(Feature).where(
                 and_(
                     Feature.training_id == feature.training_id,
                     Feature.id != feature_id
                 )
-            )
-
-            if isinstance(self.db, AsyncSession):
-                result = await self.db.execute(all_features_count_stmt)
-                total_features = result.scalar()
-            else:
-                total_features = self.db.execute(all_features_count_stmt).scalar()
-
-            # Get feature IDs to check (all if < sample_size, otherwise random sample)
-            if total_features <= sample_size:
-                features_stmt = select(Feature).where(
-                    and_(
-                        Feature.training_id == feature.training_id,
-                        Feature.id != feature_id
-                    )
-                )
-            else:
-                # Get random sample using ORDER BY RANDOM() LIMIT
-                features_stmt = select(Feature).where(
-                    and_(
-                        Feature.training_id == feature.training_id,
-                        Feature.id != feature_id
-                    )
-                ).order_by(func.random()).limit(sample_size)
+            ).order_by(func.random()).limit(sample_size)
 
             if isinstance(self.db, AsyncSession):
                 result = await self.db.execute(features_stmt)
-                sampled_features = list(result.scalars().all())
+                other_features = list(result.scalars().all())
             else:
-                sampled_features = list(self.db.execute(features_stmt).scalars().all())
+                other_features = list(self.db.execute(features_stmt).scalars().all())
 
-            logger.info(f"Computing correlations with {len(sampled_features)} sampled features")
+            logger.info(f"Comparing with {len(other_features)} other features")
 
-            # Batch load activation data for all sampled features
-            feature_ids = [f.id for f in sampled_features]
-            batch_activations_stmt = select(FeatureActivation).where(
-                and_(
-                    FeatureActivation.feature_id.in_(feature_ids),
-                    FeatureActivation.sample_index.in_([act.sample_index for act in current_activations])
+            # Calculate similarity scores for each feature
+            similarities = []
+            for other in other_features:
+                # Extract other feature's tokens
+                other_tokens = set()
+                if other.example_tokens_summary:
+                    if isinstance(other.example_tokens_summary, list):
+                        other_tokens = set(t.strip().lower() for t in other.example_tokens_summary if t)
+                    elif isinstance(other.example_tokens_summary, str):
+                        other_tokens = set(t.strip().lower() for t in other.example_tokens_summary.split(",") if t.strip())
+
+                other_freq = other.activation_frequency or 0.0
+                other_mean = other.mean_activation or 0.0
+                other_max = other.max_activation or 0.0
+
+                # 1. Token overlap similarity (Jaccard index) - weight: 0.5
+                token_similarity = 0.0
+                if current_tokens and other_tokens:
+                    intersection = len(current_tokens & other_tokens)
+                    union = len(current_tokens | other_tokens)
+                    if union > 0:
+                        token_similarity = intersection / union
+
+                # 2. Activation frequency similarity - weight: 0.2
+                freq_similarity = 0.0
+                if current_freq > 0 or other_freq > 0:
+                    max_freq = max(current_freq, other_freq)
+                    if max_freq > 0:
+                        freq_similarity = 1.0 - abs(current_freq - other_freq) / max_freq
+
+                # 3. Mean activation similarity - weight: 0.15
+                mean_similarity = 0.0
+                if current_mean > 0 or other_mean > 0:
+                    max_mean = max(current_mean, other_mean)
+                    if max_mean > 0:
+                        mean_similarity = 1.0 - abs(current_mean - other_mean) / max_mean
+
+                # 4. Max activation similarity - weight: 0.15
+                max_similarity = 0.0
+                if current_max > 0 or other_max > 0:
+                    max_max = max(current_max, other_max)
+                    if max_max > 0:
+                        max_similarity = 1.0 - abs(current_max - other_max) / max_max
+
+                # Combined weighted similarity score
+                # Token overlap is most important for semantic similarity
+                combined_similarity = (
+                    token_similarity * 0.50 +
+                    freq_similarity * 0.20 +
+                    mean_similarity * 0.15 +
+                    max_similarity * 0.15
                 )
-            ).order_by(FeatureActivation.feature_id, FeatureActivation.sample_index)
 
-            if isinstance(self.db, AsyncSession):
-                result = await self.db.execute(batch_activations_stmt)
-                all_activations = list(result.scalars().all())
-            else:
-                all_activations = list(self.db.execute(batch_activations_stmt).scalars().all())
+                # Only include if similarity is meaningful (>= 0.3)
+                # and there's at least some token overlap or statistical similarity
+                if combined_similarity >= 0.3 and (token_similarity > 0 or freq_similarity > 0.5):
+                    similarities.append({
+                        "feature_id": other.id,
+                        "feature_name": other.name or f"Feature {other.neuron_index}",
+                        "correlation": float(combined_similarity),
+                        "_token_sim": token_similarity,
+                        "_freq_sim": freq_similarity,
+                    })
 
-            logger.info(f"Loaded {len(all_activations)} activation records in batch")
+            # Sort by similarity score, take top 10
+            similarities.sort(key=lambda x: x["correlation"], reverse=True)
+            top_correlations = similarities[:10]
 
-            # Build activation matrix (features x samples)
-            feature_activation_map = {}
-            for act in all_activations:
-                if act.feature_id not in feature_activation_map:
-                    feature_activation_map[act.feature_id] = {}
-                feature_activation_map[act.feature_id][act.sample_index] = act.max_activation
+            # Clean up internal fields before returning
+            for corr in top_correlations:
+                corr.pop("_token_sim", None)
+                corr.pop("_freq_sim", None)
 
-            # Calculate correlations with each feature
-            correlations = []
-            for other_feature in sampled_features:
-                if other_feature.id not in feature_activation_map:
-                    continue
-
-                # Build activation vector for other feature
-                other_activations_dict = feature_activation_map[other_feature.id]
-                other_vector = np.array([
-                    other_activations_dict.get(act.sample_index, 0.0)
-                    for act in current_activations
-                ])
-
-                # Skip if too many missing values
-                if np.count_nonzero(other_vector) < len(current_activations) * 0.8:
-                    continue
-
-                # Calculate Pearson correlation
-                try:
-                    correlation, p_value = pearsonr(current_vector, other_vector)
-
-                    # Only include significant correlations
-                    if abs(correlation) > 0.5 and p_value < 0.05:
-                        correlations.append({
-                            "feature_id": other_feature.id,
-                            "feature_name": other_feature.name,
-                            "correlation": float(correlation)
-                        })
-                except Exception as e:
-                    logger.warning(f"Failed to compute correlation with feature {other_feature.id}: {e}")
-                    continue
-
-            # Sort by absolute correlation, take top 10
-            correlations.sort(key=lambda x: abs(x["correlation"]), reverse=True)
-            top_correlations = correlations[:10]
-
-            logger.info(f"Found {len(top_correlations)} significant correlations for feature {feature_id}")
+            logger.info(f"Found {len(top_correlations)} similar features for feature {feature_id}")
 
             # Convert to response objects
             correlated_features = [

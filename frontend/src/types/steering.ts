@@ -197,6 +197,28 @@ export interface SteeringComparisonResponse {
 }
 
 /**
+ * Result for a single prompt in a batch operation.
+ */
+export interface BatchPromptResult {
+  prompt: string;
+  promptIndex: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  comparison: SteeringComparisonResponse | null;
+  error: string | null;
+}
+
+/**
+ * State for batch prompt processing.
+ */
+export interface BatchState {
+  isRunning: boolean;
+  currentIndex: number;
+  totalPrompts: number;
+  results: BatchPromptResult[];
+  aborted: boolean;
+}
+
+/**
  * Single strength sweep result.
  */
 export interface StrengthSweepResult {
@@ -301,7 +323,7 @@ export const STRENGTH_THRESHOLDS = {
   CAUTION_LOW: -50,
   CAUTION_HIGH: 100,
   EXTREME_LOW: -100,
-  EXTREME_HIGH: 150,
+  EXTREME_HIGH: 151,  // >150 is red, 150 is amber
 };
 
 /**

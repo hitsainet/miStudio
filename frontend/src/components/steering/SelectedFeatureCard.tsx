@@ -73,11 +73,33 @@ export function SelectedFeatureCard({
     }
   };
 
+  // Calculate what the next additional strength would be (for tooltip)
+  const getNextStrengthInfo = (): { value: number; formula: string } => {
+    const currentCount = additionalStrengths.length;
+    let value: number;
+    let formula: string;
+
+    if (currentCount === 0) {
+      value = feature.strength * 3;
+      formula = `${feature.strength} × 3`;
+    } else if (currentCount === 1) {
+      value = additionalStrengths[0] * 2;
+      formula = `${additionalStrengths[0]} × 2`;
+    } else {
+      value = additionalStrengths[1] * 1.2;
+      formula = `${additionalStrengths[1]} × 1.2`;
+    }
+
+    return {
+      value: Math.round(Math.min(300, Math.max(-300, value))),
+      formula,
+    };
+  };
+
   const handleAddStrength = () => {
     if (canAddMore) {
-      // Add a new strength at current primary + 50 (clamped to valid range)
-      const newStrength = Math.min(300, Math.max(-300, feature.strength + 50));
-      onAdditionalStrengthsChange([...additionalStrengths, newStrength]);
+      const { value } = getNextStrengthInfo();
+      onAdditionalStrengthsChange([...additionalStrengths, value]);
     }
   };
 
@@ -180,7 +202,7 @@ export function SelectedFeatureCard({
               onClick={handleAddStrength}
               disabled={disabled}
               className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Add another strength to test"
+              title={`Add strength: ${getNextStrengthInfo().formula} = ${getNextStrengthInfo().value}`}
             >
               <Plus className="w-3 h-3" />
               Add

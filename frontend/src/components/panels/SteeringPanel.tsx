@@ -14,14 +14,16 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power, Check, Info } from 'lucide-react';
-import { useSteeringStore, selectCanGenerate } from '../../stores/steeringStore';
+import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power, Check, Info, StopCircle } from 'lucide-react';
+import { useSteeringStore, selectCanGenerate, selectCanGenerateBatch } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
+import { usePromptTemplatesStore } from '../../stores/promptTemplatesStore';
 import { SAEStatus } from '../../types/sae';
 import { FeatureSelector } from '../steering/FeatureSelector';
 import { GenerationConfig } from '../steering/GenerationConfig';
 import { ComparisonPreview } from '../steering/ComparisonPreview';
 import { ComparisonResults } from '../steering/ComparisonResults';
+import { PromptListEditor } from '../steering/PromptListEditor';
 import { COMPONENTS } from '../../config/brand';
 
 export function SteeringPanel() {
@@ -32,22 +34,36 @@ export function SteeringPanel() {
   const {
     selectedSAE,
     selectedFeatures,
-    prompt,
+    prompts,
     isGenerating,
     progress,
     progressMessage,
     currentComparison,
+    batchState,
     error,
     isUnloadingCache,
-    setPrompt,
+    addPrompt,
+    removePrompt,
+    updatePrompt,
+    clearPrompts,
+    replacePromptWithMultiple,
     generateComparison,
+    generateBatchComparison,
+    abortBatch,
+    clearBatchResults,
     clearError,
     clearModelCache,
   } = useSteeringStore();
 
   const { saes, fetchSAEs } = useSAEsStore();
+  const { templates, fetchTemplates, createTemplate } = usePromptTemplatesStore();
 
   const canGenerate = selectCanGenerate(useSteeringStore.getState());
+  const canGenerateBatch = selectCanGenerateBatch(useSteeringStore.getState());
+
+  // Check if we should use batch mode (more than one non-empty prompt)
+  const nonEmptyPrompts = prompts.filter((p) => p.trim().length > 0);
+  const isBatchMode = nonEmptyPrompts.length > 1;
 
   // Load SAEs on mount
   useEffect(() => {
@@ -56,10 +72,18 @@ export function SteeringPanel() {
 
   const handleGenerate = async () => {
     try {
-      await generateComparison(true, true);
+      if (isBatchMode) {
+        await generateBatchComparison(true, true);
+      } else {
+        await generateComparison(true, true);
+      }
     } catch (error) {
       console.error('[SteeringPanel] Generation failed:', error);
     }
+  };
+
+  const handleStopBatch = () => {
+    abortBatch();
   };
 
   const handleSaveExperiment = () => {
@@ -80,6 +104,30 @@ export function SteeringPanel() {
     } catch (error) {
       console.error('[SteeringPanel] Failed to clear VRAM:', error);
     }
+  };
+
+  // Template handlers
+  const handleSaveAsTemplate = async (name: string, description: string) => {
+    // Filter out empty prompts before saving
+    const nonEmptyPromptsList = prompts.filter((p) => p.trim().length > 0);
+    await createTemplate({
+      name,
+      description: description || undefined,
+      prompts: nonEmptyPromptsList,
+    });
+  };
+
+  const handleLoadTemplate = (templatePrompts: string[]) => {
+    // Clear current prompts and replace with template prompts
+    clearPrompts();
+    templatePrompts.forEach((prompt, index) => {
+      if (index === 0) {
+        updatePrompt(0, prompt);
+      } else {
+        addPrompt();
+        updatePrompt(index, prompt);
+      }
+    });
   };
 
   return (
@@ -191,17 +239,20 @@ export function SteeringPanel() {
           {/* Main steering interface */}
           {selectedSAE && (
             <>
-              {/* Prompt input */}
+              {/* Prompt input - Multi-prompt editor */}
               <div className={`${COMPONENTS.card.base} p-4`}>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Prompt
-                </label>
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Enter your prompt here..."
-                  rows={4}
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 placeholder-slate-500 resize-none transition-colors"
+                <PromptListEditor
+                  prompts={prompts}
+                  onAddPrompt={addPrompt}
+                  onRemovePrompt={removePrompt}
+                  onUpdatePrompt={updatePrompt}
+                  onClearPrompts={clearPrompts}
+                  onReplacePromptWithMultiple={replacePromptWithMultiple}
+                  onSaveAsTemplate={handleSaveAsTemplate}
+                  onLoadTemplate={handleLoadTemplate}
+                  availableTemplates={templates}
+                  onFetchTemplates={fetchTemplates}
+                  disabled={isGenerating}
                 />
                 <div className="flex items-center justify-between mt-3">
                   <div className="text-sm text-slate-500">
@@ -209,29 +260,44 @@ export function SteeringPanel() {
                       <span className="text-amber-400">
                         Select at least one feature from the sidebar
                       </span>
+                    ) : isBatchMode ? (
+                      <span>
+                        {selectedFeatures.length} feature{selectedFeatures.length !== 1 ? 's' : ''} × {nonEmptyPrompts.length} prompts
+                      </span>
                     ) : (
                       <span>
                         {selectedFeatures.length} feature{selectedFeatures.length !== 1 ? 's' : ''} selected
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={handleGenerate}
-                    disabled={!canGenerate || isGenerating}
-                    className={`px-6 py-2 flex items-center gap-2 ${COMPONENTS.button.primary} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {isGenerating ? (
-                      <>
-                        <Loader className="w-4 h-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        Generate Comparison
-                      </>
+                  <div className="flex items-center gap-2">
+                    {isGenerating && batchState?.isRunning && (
+                      <button
+                        onClick={handleStopBatch}
+                        className={`px-4 py-2 flex items-center gap-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors`}
+                      >
+                        <StopCircle className="w-4 h-4" />
+                        Stop Batch
+                      </button>
                     )}
-                  </button>
+                    <button
+                      onClick={handleGenerate}
+                      disabled={(!canGenerate && !canGenerateBatch) || isGenerating}
+                      className={`px-6 py-2 flex items-center gap-2 ${COMPONENTS.button.primary} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {isGenerating ? (
+                        <>
+                          <Loader className="w-4 h-4 animate-spin" />
+                          {batchState ? `Processing ${batchState.currentIndex + 1}/${batchState.totalPrompts}...` : 'Generating...'}
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4" />
+                          {isBatchMode ? `Generate ${nonEmptyPrompts.length} Comparisons` : 'Generate Comparison'}
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -272,16 +338,26 @@ export function SteeringPanel() {
                 </div>
               )}
 
-              {/* Results */}
-              {currentComparison && !isGenerating && (
+              {/* Results - Single prompt mode */}
+              {currentComparison && !isGenerating && !batchState && (
                 <ComparisonResults
                   comparison={currentComparison}
                   onSaveExperiment={handleSaveExperiment}
                 />
               )}
 
+              {/* Results - Batch mode (show progressively as each prompt completes) */}
+              {batchState && batchState.results.some(r => r.status === 'completed' || r.status === 'failed') && (
+                <ComparisonResults
+                  batchResults={batchState.results}
+                  onSaveExperiment={!batchState.isRunning ? handleSaveExperiment : undefined}
+                  onClearBatchResults={!batchState.isRunning ? clearBatchResults : undefined}
+                  isRunning={batchState.isRunning}
+                />
+              )}
+
               {/* Empty results state */}
-              {!currentComparison && !isGenerating && selectedFeatures.length > 0 && prompt.trim() && (
+              {!currentComparison && !batchState && !isGenerating && selectedFeatures.length > 0 && nonEmptyPrompts.length > 0 && (
                 <div className={`${COMPONENTS.card.base} p-8 text-center`}>
                   <Play className="w-12 h-12 text-slate-600 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-slate-300 mb-2">

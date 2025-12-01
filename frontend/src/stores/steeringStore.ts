@@ -27,6 +27,8 @@ import {
   SteeringProgressUpdate,
   FeatureColor,
   FEATURE_COLOR_ORDER,
+  BatchPromptResult,
+  BatchState,
 } from '../types/steering';
 import { SAE } from '../types/sae';
 import * as steeringApi from '../api/steering';
@@ -49,20 +51,23 @@ interface SteeringState {
   // Selected features (up to 4)
   selectedFeatures: SelectedFeature[];
 
-  // Prompt
-  prompt: string;
+  // Prompts (batch support)
+  prompts: string[];
 
   // Generation parameters
   generationParams: GenerationParams;
   advancedParams: AdvancedGenerationParams | null;
   showAdvancedParams: boolean;
 
-  // Comparison state
+  // Comparison state (single prompt - legacy)
   isGenerating: boolean;
   comparisonId: string | null;
   progress: number;
   progressMessage: string | null;
   currentComparison: SteeringComparisonResponse | null;
+
+  // Batch processing state
+  batchState: BatchState | null;
 
   // Strength sweep state
   isSweeping: boolean;
@@ -96,8 +101,13 @@ interface SteeringState {
   clearFeatures: () => void;
   reorderFeatures: (fromIndex: number, toIndex: number) => void;
 
-  // Actions - Prompt
-  setPrompt: (prompt: string) => void;
+  // Actions - Prompts (batch support)
+  addPrompt: () => void;
+  removePrompt: (index: number) => void;
+  updatePrompt: (index: number, value: string) => void;
+  clearPrompts: () => void;
+  replacePromptWithMultiple: (index: number, newPrompts: string[]) => void;
+  setPrompts: (prompts: string[]) => void;
 
   // Actions - Generation Parameters
   setGenerationParams: (params: Partial<GenerationParams>) => void;
@@ -105,10 +115,15 @@ interface SteeringState {
   toggleAdvancedParams: () => void;
   resetParams: () => void;
 
-  // Actions - Comparison
+  // Actions - Comparison (single prompt)
   generateComparison: (includeUnsteered?: boolean, computeMetrics?: boolean) => Promise<SteeringComparisonResponse>;
   abortComparison: () => Promise<void>;
   clearComparison: () => void;
+
+  // Actions - Batch Processing
+  generateBatchComparison: (includeUnsteered?: boolean, computeMetrics?: boolean) => Promise<void>;
+  abortBatch: () => void;
+  clearBatchResults: () => void;
 
   // Actions - Strength Sweep
   runStrengthSweep: (featureIdx: number, layer: number, strengthValues: number[]) => Promise<StrengthSweepResponse>;
@@ -140,7 +155,7 @@ export const useSteeringStore = create<SteeringState>()(
       // Initial state
       selectedSAE: null,
       selectedFeatures: [],
-      prompt: '',
+      prompts: [''],
       generationParams: { ...DEFAULT_GENERATION_PARAMS },
       advancedParams: null,
       showAdvancedParams: false,
@@ -149,6 +164,7 @@ export const useSteeringStore = create<SteeringState>()(
       progress: 0,
       progressMessage: null,
       currentComparison: null,
+      batchState: null,
       isSweeping: false,
       sweepResults: null,
       experiments: [],
@@ -337,9 +353,56 @@ export const useSteeringStore = create<SteeringState>()(
         });
       },
 
-      // Set prompt
-      setPrompt: (prompt: string) => {
-        set({ prompt });
+      // Add a new empty prompt to the list
+      addPrompt: () => {
+        set((state) => ({
+          prompts: [...state.prompts, ''],
+        }));
+      },
+
+      // Remove a prompt by index (minimum 1 prompt required)
+      removePrompt: (index: number) => {
+        set((state) => {
+          if (state.prompts.length <= 1) {
+            return state; // Keep at least one prompt
+          }
+          const newPrompts = state.prompts.filter((_, i) => i !== index);
+          return { prompts: newPrompts };
+        });
+      },
+
+      // Update a specific prompt by index
+      updatePrompt: (index: number, value: string) => {
+        set((state) => {
+          const newPrompts = [...state.prompts];
+          if (index >= 0 && index < newPrompts.length) {
+            newPrompts[index] = value;
+          }
+          return { prompts: newPrompts };
+        });
+      },
+
+      // Clear all prompts (reset to single empty prompt)
+      clearPrompts: () => {
+        set({ prompts: [''] });
+      },
+
+      // Replace a single prompt with multiple prompts (used for multi-line paste parsing)
+      replacePromptWithMultiple: (index: number, newPrompts: string[]) => {
+        set((state) => {
+          if (index < 0 || index >= state.prompts.length || newPrompts.length === 0) {
+            return state;
+          }
+          // Splice: keep prompts before index, insert newPrompts, keep prompts after index
+          const before = state.prompts.slice(0, index);
+          const after = state.prompts.slice(index + 1);
+          return { prompts: [...before, ...newPrompts, ...after] };
+        });
+      },
+
+      // Set all prompts at once (used for loading from template)
+      setPrompts: (prompts: string[]) => {
+        set({ prompts: prompts.length > 0 ? prompts : [''] });
       },
 
       // Set generation parameters
@@ -382,9 +445,10 @@ export const useSteeringStore = create<SteeringState>()(
         });
       },
 
-      // Generate comparison
+      // Generate comparison (uses first prompt for single-prompt mode)
       generateComparison: async (includeUnsteered = true, computeMetrics = false) => {
-        const { selectedSAE, selectedFeatures, prompt, generationParams, advancedParams } = get();
+        const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams } = get();
+        const prompt = prompts[0] || '';
 
         if (!selectedSAE) {
           throw new Error('No SAE selected');
@@ -401,6 +465,7 @@ export const useSteeringStore = create<SteeringState>()(
           progress: 0,
           progressMessage: 'Starting comparison...',
           error: null,
+          batchState: null, // Clear any batch state for single prompt mode
         });
 
         try {
@@ -475,9 +540,154 @@ export const useSteeringStore = create<SteeringState>()(
         });
       },
 
-      // Run strength sweep
+      // Generate batch comparison (iterates through all prompts)
+      generateBatchComparison: async (includeUnsteered = true, computeMetrics = false) => {
+        const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams } = get();
+
+        // Filter to only non-empty prompts
+        const validPrompts = prompts.filter((p) => p.trim().length > 0);
+
+        if (!selectedSAE) {
+          throw new Error('No SAE selected');
+        }
+        if (selectedFeatures.length === 0) {
+          throw new Error('No features selected');
+        }
+        if (validPrompts.length === 0) {
+          throw new Error('At least one prompt is required');
+        }
+
+        // Initialize batch state
+        const initialResults: BatchPromptResult[] = validPrompts.map((prompt, index) => ({
+          prompt,
+          promptIndex: index,
+          status: 'pending',
+          comparison: null,
+          error: null,
+        }));
+
+        set({
+          isGenerating: true,
+          currentComparison: null, // Clear previous single comparison
+          error: null,
+          batchState: {
+            isRunning: true,
+            currentIndex: 0,
+            totalPrompts: validPrompts.length,
+            results: initialResults,
+            aborted: false,
+          },
+        });
+
+        // Process each prompt sequentially
+        for (let i = 0; i < validPrompts.length; i++) {
+          const currentBatch = get().batchState;
+
+          // Check if aborted
+          if (currentBatch?.aborted) {
+            set((state) => ({
+              isGenerating: false,
+              batchState: state.batchState
+                ? { ...state.batchState, isRunning: false }
+                : null,
+            }));
+            return;
+          }
+
+          const prompt = validPrompts[i];
+
+          // Update current index and mark this prompt as running
+          set((state) => ({
+            progress: Math.round((i / validPrompts.length) * 100),
+            progressMessage: `Processing prompt ${i + 1} of ${validPrompts.length}...`,
+            batchState: state.batchState
+              ? {
+                  ...state.batchState,
+                  currentIndex: i,
+                  results: state.batchState.results.map((r, idx) =>
+                    idx === i ? { ...r, status: 'running' } : r
+                  ),
+                }
+              : null,
+          }));
+
+          try {
+            const request: SteeringComparisonRequest = {
+              sae_id: selectedSAE.id,
+              prompt,
+              selected_features: selectedFeatures,
+              generation_params: generationParams,
+              include_unsteered: includeUnsteered,
+              compute_metrics: computeMetrics,
+            };
+
+            if (advancedParams) {
+              request.advanced_params = advancedParams;
+            }
+
+            const response = await steeringApi.generateComparison(request);
+
+            // Mark this prompt as completed
+            set((state) => ({
+              batchState: state.batchState
+                ? {
+                    ...state.batchState,
+                    results: state.batchState.results.map((r, idx) =>
+                      idx === i ? { ...r, status: 'completed', comparison: response } : r
+                    ),
+                  }
+                : null,
+            }));
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to generate';
+
+            // Mark this prompt as failed but continue with others
+            set((state) => ({
+              batchState: state.batchState
+                ? {
+                    ...state.batchState,
+                    results: state.batchState.results.map((r, idx) =>
+                      idx === i ? { ...r, status: 'failed', error: errorMessage } : r
+                    ),
+                  }
+                : null,
+            }));
+          }
+        }
+
+        // Batch complete
+        set((state) => ({
+          isGenerating: false,
+          progress: 100,
+          progressMessage: 'Batch complete',
+          batchState: state.batchState
+            ? { ...state.batchState, isRunning: false }
+            : null,
+        }));
+      },
+
+      // Abort batch processing
+      abortBatch: () => {
+        set((state) => ({
+          batchState: state.batchState
+            ? { ...state.batchState, aborted: true }
+            : null,
+        }));
+      },
+
+      // Clear batch results
+      clearBatchResults: () => {
+        set({
+          batchState: null,
+          progress: 0,
+          progressMessage: null,
+        });
+      },
+
+      // Run strength sweep (uses first prompt)
       runStrengthSweep: async (featureIdx: number, layer: number, strengthValues: number[]) => {
-        const { selectedSAE, prompt, generationParams } = get();
+        const { selectedSAE, prompts, generationParams } = get();
+        const prompt = prompts[0] || '';
 
         if (!selectedSAE) {
           throw new Error('No SAE selected');
@@ -597,10 +807,11 @@ export const useSteeringStore = create<SteeringState>()(
       loadExperiment: (experiment: SteeringExperiment) => {
         set({
           selectedFeatures: experiment.selected_features,
-          prompt: experiment.prompt,
+          prompts: [experiment.prompt], // Convert single prompt to array
           generationParams: experiment.generation_params,
           currentComparison: experiment.results,
           comparisonId: experiment.results.comparison_id,
+          batchState: null, // Clear batch state when loading experiment
         });
       },
 
@@ -670,12 +881,20 @@ export const useSteeringStore = create<SteeringState>()(
   )
 );
 
-// Selector for checking if ready to generate
+// Selector for checking if ready to generate (uses first prompt)
 export const selectCanGenerate = (state: SteeringState) =>
   state.selectedSAE !== null &&
   state.selectedFeatures.length > 0 &&
-  state.prompt.trim().length > 0 &&
+  (state.prompts[0] || '').trim().length > 0 &&
   !state.isGenerating;
+
+// Selector for checking if ready to generate batch (at least one non-empty prompt)
+export const selectCanGenerateBatch = (state: SteeringState) =>
+  state.selectedSAE !== null &&
+  state.selectedFeatures.length > 0 &&
+  state.prompts.some((p) => p.trim().length > 0) &&
+  !state.isGenerating &&
+  !state.batchState?.isRunning;
 
 // Selector for feature by instance_id
 export const selectFeatureByInstanceId = (instanceId: string) => (state: SteeringState) =>

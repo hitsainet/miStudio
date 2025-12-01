@@ -23,7 +23,7 @@ import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
 import { StartLabelingButton } from '../labeling/StartLabelingButton';
 import { COMPONENTS } from '../../config/brand';
-import { formatL0Absolute } from '../../utils/formatters';
+import { formatL0Absolute, formatActivation, getActivationFrequencyColor, getMaxActivationColor } from '../../utils/formatters';
 
 interface ExtractionJobCardProps {
   extraction: ExtractionStatusResponse;
@@ -49,7 +49,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
 
   // Sort state (client-side sorting)
-  type SortColumn = 'id' | 'label' | 'category' | 'description' | 'activation_frequency' | 'interpretability_score' | 'is_favorite';
+  type SortColumn = 'id' | 'label' | 'category' | 'description' | 'activation_frequency' | 'max_activation' | 'is_favorite';
   const [sortColumn, setSortColumn] = useState<SortColumn>('id');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -111,9 +111,9 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           aVal = a.activation_frequency;
           bVal = b.activation_frequency;
           break;
-        case 'interpretability_score':
-          aVal = a.interpretability_score;
-          bVal = b.interpretability_score;
+        case 'max_activation':
+          aVal = a.max_activation;
+          bVal = b.max_activation;
           break;
         case 'is_favorite':
           // Favorites first (true > false), then by neuron_index
@@ -142,15 +142,15 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   }, [features, sortColumn, sortOrder, sortScope]);
 
   // Map client-side sort columns to backend sort field names
-  // Backend supports: "activation_freq", "interpretability", "feature_id"
-  const mapSortColumnToBackend = (column: SortColumn): 'activation_freq' | 'interpretability' | 'feature_id' => {
+  // Backend supports: "activation_freq", "max_activation", "feature_id"
+  const mapSortColumnToBackend = (column: SortColumn): 'activation_freq' | 'max_activation' | 'feature_id' => {
     switch (column) {
       case 'id':
         return 'feature_id';
       case 'activation_frequency':
         return 'activation_freq';
-      case 'interpretability_score':
-        return 'interpretability';
+      case 'max_activation':
+        return 'max_activation';
       // Backend doesn't support sorting by these fields - fall back to feature_id
       case 'label':
       case 'category':
@@ -763,7 +763,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                     <SortableColumnHeader column="description" label="Description" />
                     <th className={`px-4 py-3 text-left text-xs font-medium ${COMPONENTS.text.secondary} uppercase`}>Example Context</th>
                     <SortableColumnHeader column="activation_frequency" label="Activation Freq" />
-                    <SortableColumnHeader column="interpretability_score" label="Interpretability" />
+                    <SortableColumnHeader column="max_activation" label="Max Activation" />
                     <SortableColumnHeader column="is_favorite" label="Tag" />
                   </tr>
                 </thead>
@@ -824,14 +824,30 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-sm text-emerald-400">
-                            {(feature.activation_frequency * 100).toFixed(2)}%
-                          </span>
+                          {(() => {
+                            const freqColor = getActivationFrequencyColor(feature.activation_frequency);
+                            return (
+                              <span
+                                className={`text-sm ${freqColor.textClass} px-2 py-0.5 rounded ${freqColor.bgClass}`}
+                                title={freqColor.label}
+                              >
+                                {(feature.activation_frequency * 100).toFixed(2)}%
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-sm text-blue-400">
-                            {(feature.interpretability_score * 100).toFixed(1)}%
-                          </span>
+                          {(() => {
+                            const maxActColor = getMaxActivationColor(feature.max_activation);
+                            return (
+                              <span
+                                className={`text-sm ${maxActColor.textClass} px-2 py-0.5 rounded ${maxActColor.bgClass}`}
+                                title={maxActColor.label}
+                              >
+                                {formatActivation(feature.max_activation)}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3">
                           <button

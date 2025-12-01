@@ -256,6 +256,27 @@ function formatAsJson(
 }
 
 /**
+ * Format a single example for clipboard export (plain text).
+ *
+ * @param example - The feature activation example
+ * @param index - The example index (0-based)
+ * @returns Formatted string ready for clipboard
+ */
+export function formatSingleExampleForClipboard(
+  example: FeatureActivationExample,
+  index: number
+): string {
+  const lines: string[] = [];
+
+  lines.push(`Example ${index + 1} - Sample #${example.sample_index}`);
+  lines.push(`Max Activation: ${example.max_activation.toFixed(3)}`);
+  lines.push('');
+  lines.push(getTokensDisplay(example, true));
+
+  return lines.join('\n');
+}
+
+/**
  * Copy text to clipboard with fallback for older browsers.
  */
 export async function copyToClipboard(text: string): Promise<boolean> {

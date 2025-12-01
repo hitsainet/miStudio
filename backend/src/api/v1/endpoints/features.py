@@ -293,7 +293,7 @@ async def delete_extraction(
 async def list_features(
     training_id: str,
     search: str = Query(None, max_length=500, description="Full-text search query"),
-    sort_by: str = Query("activation_freq", regex="^(activation_freq|interpretability|feature_id|name|category)$"),
+    sort_by: str = Query("activation_freq", regex="^(activation_freq|max_activation|feature_id|name|category)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
@@ -306,7 +306,7 @@ async def list_features(
     Args:
         training_id: ID of the training
         search: Full-text search query on feature name and description
-        sort_by: Sort field (activation_freq, interpretability, feature_id)
+        sort_by: Sort field (activation_freq, max_activation, feature_id)
         sort_order: Sort order (asc, desc)
         is_favorite: Filter by favorite status (None = all)
         limit: Maximum number of results (1-500)
@@ -338,7 +338,7 @@ async def list_features(
 async def list_extraction_features(
     extraction_id: str,
     search: str = Query(None, max_length=500, description="Full-text search query"),
-    sort_by: str = Query("activation_freq", regex="^(activation_freq|interpretability|feature_id|name|category)$"),
+    sort_by: str = Query("activation_freq", regex="^(activation_freq|max_activation|feature_id|name|category)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
@@ -351,7 +351,7 @@ async def list_extraction_features(
     Args:
         extraction_id: ID of the extraction job
         search: Full-text search query on feature name and description
-        sort_by: Sort field (activation_freq, interpretability, feature_id)
+        sort_by: Sort field (activation_freq, max_activation, feature_id)
         sort_order: Sort order (asc, desc)
         is_favorite: Filter by favorite status (None = all)
         limit: Maximum number of results (1-500)

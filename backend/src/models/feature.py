@@ -7,8 +7,8 @@ This module defines the SQLAlchemy model for discovered SAE features.
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, Boolean, ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, Boolean, ForeignKey, Enum as SQLAlchemyEnum
+from sqlalchemy.dialects.postgresql import JSONB, ENUM as PGEnum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -66,7 +66,11 @@ class Feature(Base):
     name = Column(String(500), nullable=False)  # Specific interpretation (e.g., "trump_mentions")
     category = Column(String(255), nullable=True)  # High-level category (e.g., "political_terms")
     description = Column(Text, nullable=True)
-    label_source = Column(String(10), nullable=False, default=LabelSource.AUTO.value)
+    label_source = Column(
+        PGEnum('auto', 'user', 'llm', 'local_llm', 'openai', name='label_source_enum', create_type=False),
+        nullable=False,
+        default='auto'
+    )
 
     # Feature statistics
     activation_frequency = Column(Float, nullable=False, index=True)  # Fraction where active (>0.01)

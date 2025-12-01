@@ -153,7 +153,7 @@ export interface FeatureListResponse {
  */
 export interface FeatureSearchRequest {
   search?: string | null;
-  sort_by?: 'activation_freq' | 'interpretability' | 'feature_id';
+  sort_by?: 'activation_freq' | 'max_activation' | 'feature_id';
   sort_order?: 'asc' | 'desc';
   is_favorite?: boolean | null;
   limit?: number;

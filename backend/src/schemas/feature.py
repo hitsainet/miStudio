@@ -23,9 +23,9 @@ class FeatureSearchRequest(BaseModel):
         max_length=500,
         description="Full-text search query on feature name and description"
     )
-    sort_by: Literal["activation_freq", "interpretability", "feature_id", "name", "category"] = Field(
+    sort_by: Literal["activation_freq", "max_activation", "feature_id", "name", "category"] = Field(
         default="activation_freq",
-        description="Sort field: activation frequency, interpretability score, feature ID, name (label), or category"
+        description="Sort field: activation frequency, max activation, feature ID, name (label), or category"
     )
     sort_order: Literal["asc", "desc"] = Field(
         default="desc",

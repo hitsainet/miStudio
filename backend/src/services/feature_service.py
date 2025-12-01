@@ -124,8 +124,8 @@ class FeatureService:
         # Task 9.6: Apply sorting
         if search_params.sort_by == "activation_freq":
             sort_column = Feature.activation_frequency
-        elif search_params.sort_by == "interpretability":
-            sort_column = Feature.interpretability_score
+        elif search_params.sort_by == "max_activation":
+            sort_column = Feature.max_activation
         elif search_params.sort_by == "name":
             sort_column = Feature.name
         elif search_params.sort_by == "category":
@@ -325,8 +325,8 @@ class FeatureService:
         # Apply sorting
         if search_params.sort_by == "activation_freq":
             sort_column = Feature.activation_frequency
-        elif search_params.sort_by == "interpretability":
-            sort_column = Feature.interpretability_score
+        elif search_params.sort_by == "max_activation":
+            sort_column = Feature.max_activation
         elif search_params.sort_by == "name":
             sort_column = Feature.name
         elif search_params.sort_by == "category":

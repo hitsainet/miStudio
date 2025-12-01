@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Save, Star, Info, Activity, GitBranch, Zap, Hash, Copy, Check, ChevronDown } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
-import { TokenHighlightContext } from './TokenHighlight';
+import { ExampleRow } from './ExampleRow';
 import { LogitLensView } from './LogitLensView';
 import { FeatureCorrelations } from './FeatureCorrelations';
 import { AblationAnalysis } from './AblationAnalysis';
@@ -474,28 +474,14 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
                   No examples available for this feature.
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="bg-slate-800 rounded-lg divide-y divide-slate-700/50">
                   {featureExamples.map((example, index) => (
-                    <div key={index} className="bg-slate-800 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs text-slate-400">
-                          Sample #{example.sample_index}
-                        </span>
-                        <span className="text-xs font-mono text-emerald-400">
-                          Max: {formatActivation(example.max_activation)}
-                        </span>
-                      </div>
-                      <TokenHighlightContext
-                        prefixTokens={example.prefix_tokens}
-                        primeToken={example.prime_token}
-                        suffixTokens={example.suffix_tokens}
-                        activations={example.activations}
-                        maxActivation={example.max_activation}
-                        primeActivationIndex={example.prime_activation_index}
-                        tokens={example.tokens}
-                        showGradient={true}
-                      />
-                    </div>
+                    <ExampleRow
+                      key={index}
+                      example={example}
+                      index={index}
+                      maxActivation={selectedFeature?.max_activation}
+                    />
                   ))}
                 </div>
               )}

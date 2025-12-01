@@ -507,7 +507,8 @@ async def browse_sae_features(
             mean_activation=None,
             max_activation=None,
             top_tokens=[],
-            neuronpedia_url=None
+            neuronpedia_url=None,
+            feature_id=None  # Explicitly set for consistency
         )
         for idx in paginated_indices
     ]

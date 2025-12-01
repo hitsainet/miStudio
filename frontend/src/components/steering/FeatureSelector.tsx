@@ -126,9 +126,11 @@ export function FeatureSelector() {
     }
 
     const trainingId = selectedSAE.training_id;
+    const featureIdx = contextMenu.featureIdx;
+    const layer = contextMenu.layer;
     setContextMenu((prev) => ({ ...prev, visible: false }));
 
-    // If feature_id is directly available, use it
+    // If feature_id is directly available in the selected feature, use it
     if (contextMenu.featureId) {
       console.log('[FeatureSelector] Using feature_id directly:', contextMenu.featureId);
       setSelectedFeatureForModal({
@@ -138,9 +140,26 @@ export function FeatureSelector() {
       return;
     }
 
-    // Fallback: feature wasn't extracted, show helpful message
-    console.log('[FeatureSelector] Feature not extracted - feature_id is null for feature_idx:', contextMenu.featureIdx);
-    alert(`Feature #${contextMenu.featureIdx} has not been extracted yet.\n\nOnly features that activated during an extraction job have detailed data available.\n\nTo view details for this feature, run a new extraction job on the Extractions tab that includes this feature.`);
+    // Fallback: Try to find feature_id from the Feature Browser data
+    // This handles cases where feature_id wasn't preserved when adding to selected features
+    const { featureBrowser } = useSAEsStore.getState();
+    if (featureBrowser.data?.features) {
+      const matchingFeature = featureBrowser.data.features.find(
+        (f) => f.feature_idx === featureIdx && f.layer === layer
+      );
+      if (matchingFeature?.feature_id) {
+        console.log('[FeatureSelector] Found feature_id from Feature Browser:', matchingFeature.feature_id);
+        setSelectedFeatureForModal({
+          featureId: matchingFeature.feature_id,
+          trainingId: trainingId,
+        });
+        return;
+      }
+    }
+
+    // Final fallback: feature wasn't extracted, show helpful message
+    console.log('[FeatureSelector] Feature not extracted - feature_id is null for feature_idx:', featureIdx);
+    alert(`Feature #${featureIdx} has not been extracted yet.\n\nOnly features that activated during an extraction job have detailed data available.\n\nTo view details for this feature, run a new extraction job on the Extractions tab that includes this feature.`);
   };
 
   // Handle duplicate feature from context menu

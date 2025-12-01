@@ -30,6 +30,15 @@ from .training_template import (
     TrainingTemplateExport,
     TrainingTemplateImport,
 )
+from .prompt_template import (
+    PromptTemplateBase,
+    PromptTemplateCreate,
+    PromptTemplateUpdate,
+    PromptTemplateResponse,
+    PromptTemplateListResponse,
+    PromptTemplateExport,
+    PromptTemplateImport,
+)
 from .training import (
     SAEArchitectureType,
     TrainingHyperparameters,
@@ -111,6 +120,14 @@ __all__ = [
     "TrainingTemplateListResponse",
     "TrainingTemplateExport",
     "TrainingTemplateImport",
+    # Prompt Template schemas
+    "PromptTemplateBase",
+    "PromptTemplateCreate",
+    "PromptTemplateUpdate",
+    "PromptTemplateResponse",
+    "PromptTemplateListResponse",
+    "PromptTemplateExport",
+    "PromptTemplateImport",
     "SAEArchitectureType",
     "TrainingHyperparameters",
     "TrainingCreate",

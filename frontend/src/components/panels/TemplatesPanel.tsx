@@ -11,8 +11,9 @@ import { useState } from 'react';
 import { ExtractionTemplatesPanel } from './ExtractionTemplatesPanel';
 import { TrainingTemplatesPanel } from './TrainingTemplatesPanel';
 import { LabelingPromptTemplatesPanel } from './LabelingPromptTemplatesPanel';
+import { PromptTemplatesPanel } from './PromptTemplatesPanel';
 
-type TemplateType = 'extraction' | 'training' | 'labeling';
+type TemplateType = 'extraction' | 'training' | 'labeling' | 'prompt';
 
 export function TemplatesPanel() {
   const [activeTemplateType, setActiveTemplateType] = useState<TemplateType>('extraction');
@@ -62,6 +63,19 @@ export function TemplatesPanel() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
               )}
             </button>
+            <button
+              onClick={() => setActiveTemplateType('prompt')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activeTemplateType === 'prompt'
+                  ? 'text-emerald-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Steering Prompts
+              {activeTemplateType === 'prompt' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400"></div>
+              )}
+            </button>
           </nav>
         </div>
       </div>
@@ -71,6 +85,7 @@ export function TemplatesPanel() {
         {activeTemplateType === 'extraction' && <ExtractionTemplatesPanel />}
         {activeTemplateType === 'training' && <TrainingTemplatesPanel />}
         {activeTemplateType === 'labeling' && <LabelingPromptTemplatesPanel />}
+        {activeTemplateType === 'prompt' && <PromptTemplatesPanel />}
       </div>
     </div>
   );

@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Download, Search, CheckCircle, Cloud, FileCode, Loader, Box } from 'lucide-react';
+import { Download, Search, CheckCircle, Cloud, FileCode, Loader, Box, Eye, EyeOff } from 'lucide-react';
 import { HFFileInfo } from '../../types/sae';
 import { useSAEsStore } from '../../stores/saesStore';
 import { useModelsStore } from '../../stores/modelsStore';
@@ -28,6 +28,7 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   const {
     hfPreview,
@@ -183,16 +184,33 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
         <label htmlFor="sae-access-token" className="block text-sm font-medium text-slate-300 mb-2">
           Access Token <span className="text-slate-500">(optional, for gated repos)</span>
         </label>
-        <input
-          id="sae-access-token"
-          type="password"
-          placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-          value={accessToken}
-          onChange={(e) => setAccessToken(e.target.value)}
-          onKeyPress={handleKeyPress}
-          disabled={hfPreviewLoading || isDownloading}
-          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 font-mono text-sm text-slate-100 placeholder-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        />
+        <div className="relative">
+          <input
+            id="sae-access-token"
+            type={showToken ? 'text' : 'password'}
+            placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
+            value={accessToken}
+            onChange={(e) => setAccessToken(e.target.value)}
+            onKeyPress={handleKeyPress}
+            disabled={hfPreviewLoading || isDownloading}
+            className="w-full px-4 py-2 pr-10 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 font-mono text-sm text-slate-100 placeholder-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          />
+          {accessToken && (
+            <button
+              type="button"
+              onMouseDown={() => setShowToken(true)}
+              onMouseUp={() => setShowToken(false)}
+              onMouseLeave={() => setShowToken(false)}
+              onTouchStart={() => setShowToken(true)}
+              onTouchEnd={() => setShowToken(false)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-300 transition-colors"
+              title="Hold to reveal token"
+              tabIndex={-1}
+            >
+              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Model Selector - Required for steering */}

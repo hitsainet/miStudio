@@ -5,7 +5,7 @@
  */
 
 import React, { useState } from 'react';
-import { Download, Eye } from 'lucide-react';
+import { Download, Eye, EyeOff } from 'lucide-react';
 import { validateHfRepoId } from '../../utils/validators';
 import { DatasetPreviewModal } from './DatasetPreviewModal';
 import { COMPONENTS } from '../../config/brand';
@@ -23,6 +23,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   const handlePreview = () => {
     // Validate repository ID before showing preview
@@ -132,15 +133,32 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
           >
             Access Token (optional)
           </label>
-          <input
-            id="access-token"
-            type="password"
-            value={accessToken}
-            onChange={(e) => setAccessToken(e.target.value)}
-            placeholder="hf_..."
-            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-            disabled={isSubmitting}
-          />
+          <div className="relative">
+            <input
+              id="access-token"
+              type={showToken ? 'text' : 'password'}
+              value={accessToken}
+              onChange={(e) => setAccessToken(e.target.value)}
+              placeholder="hf_..."
+              className="w-full px-4 py-2 pr-10 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              disabled={isSubmitting}
+            />
+            {accessToken && (
+              <button
+                type="button"
+                onMouseDown={() => setShowToken(true)}
+                onMouseUp={() => setShowToken(false)}
+                onMouseLeave={() => setShowToken(false)}
+                onTouchStart={() => setShowToken(true)}
+                onTouchEnd={() => setShowToken(false)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-300 transition-colors"
+                title="Hold to reveal token"
+                tabIndex={-1}
+              >
+                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-1">
             Required for private or gated datasets
           </p>

@@ -344,6 +344,65 @@ class SteeringService:
 
         return model, tokenizer
 
+    def _clear_all_model_hooks(self, model: PreTrainedModel) -> int:
+        """
+        Clear all forward hooks from transformer layer modules.
+
+        This prevents stale hooks from previous requests that may have timed out
+        or failed from contaminating subsequent generations. Critical for ensuring
+        unsteered baselines are truly unsteered.
+
+        Args:
+            model: The transformer model to clear hooks from
+
+        Returns:
+            Number of hooks cleared
+        """
+        hooks_cleared = 0
+
+        # Get all transformer layer modules
+        layers_module = None
+
+        # Try different model architectures
+        if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+            layers_module = model.transformer.h
+        elif hasattr(model, "model") and hasattr(model.model, "layers"):
+            layers_module = model.model.layers
+        elif hasattr(model, "gpt_neox") and hasattr(model.gpt_neox, "layers"):
+            layers_module = model.gpt_neox.layers
+        elif hasattr(model, "layers"):
+            layers_module = model.layers
+
+        if layers_module is None:
+            logger.warning("Could not find transformer layers to clear hooks from")
+            return 0
+
+        # Clear forward hooks from each layer
+        for layer_idx, layer in enumerate(layers_module):
+            # Clear hooks on the layer module itself
+            if hasattr(layer, "_forward_hooks") and layer._forward_hooks:
+                count = len(layer._forward_hooks)
+                layer._forward_hooks.clear()
+                hooks_cleared += count
+
+            # Also check common submodules that might have hooks
+            for submodule_name in ["self_attn", "attn", "mlp", "feed_forward",
+                                    "post_attention_layernorm", "ln_2"]:
+                if hasattr(layer, submodule_name):
+                    submodule = getattr(layer, submodule_name)
+                    if hasattr(submodule, "_forward_hooks") and submodule._forward_hooks:
+                        count = len(submodule._forward_hooks)
+                        submodule._forward_hooks.clear()
+                        hooks_cleared += count
+
+        if hooks_cleared > 0:
+            logger.warning(
+                f"Cleared {hooks_cleared} stale forward hooks from model. "
+                "This indicates a previous request did not clean up properly."
+            )
+
+        return hooks_cleared
+
     def _get_target_module(
         self,
         model: PreTrainedModel,
@@ -487,7 +546,11 @@ class SteeringService:
                             continue  # No change needed
 
                         # Get the steering vector (decoder direction for this feature)
-                        steering_vector = decoder_weight[:, feat_idx]  # [d_in]
+                        # CRITICAL: Move to hidden_states device/dtype for proper accumulation
+                        steering_vector = decoder_weight[:, feat_idx].to(
+                            device=hidden_states.device,
+                            dtype=input_dtype
+                        )  # [d_in]
 
                         # Accumulate: steering_coefficient * steering_vector
                         total_steering_vector.add_(steering_coefficient * steering_vector)
@@ -499,6 +562,14 @@ class SteeringService:
                     # Ensure delta dtype matches input dtype
                     if delta_3d.dtype != input_dtype:
                         delta_3d = delta_3d.to(input_dtype)
+
+                    # Debug: Log steering magnitude on first few calls
+                    delta_norm = total_steering_vector.norm().item()
+                    if delta_norm > 0:
+                        logger.debug(
+                            f"[Steering Hook] Applying delta: norm={delta_norm:.4f}, "
+                            f"shape={hidden_states.shape}, device={hidden_states.device}"
+                        )
 
                     # CRITICAL: Apply steering delta IN-PLACE
                     # This preserves internal tensor references required by some models (e.g., Gemma-2)
@@ -868,6 +939,11 @@ class SteeringService:
         )
         model, tokenizer = await self.load_model(model_id, model_path)
 
+        # CRITICAL: Clear any stale hooks from previous requests that may have timed out
+        # This ensures unsteered baseline is truly unsteered and not contaminated
+        # by steering hooks from a previous request that didn't clean up properly
+        self._clear_all_model_hooks(model)
+
         # Use all selected features - duplicates with different strengths are intentional
         # (e.g., same feature at +50 and -50 for A/B comparison)
         unique_features = request.selected_features
@@ -1172,6 +1248,10 @@ class SteeringService:
             architecture=sae_architecture,
         )
         model, tokenizer = await self.load_model(model_id, model_path)
+
+        # CRITICAL: Clear any stale hooks from previous requests that may have timed out
+        # This ensures unsteered baseline is truly unsteered
+        self._clear_all_model_hooks(model)
 
         # Generate unsteered baseline
         # Disable KV cache for consistency - some models behave differently with/without cache

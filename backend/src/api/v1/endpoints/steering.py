@@ -304,14 +304,14 @@ async def clear_steering_cache():
 
     # Generate appropriate message
     if result["was_already_clear"]:
-        result["message"] = f"VRAM is already clear ({result['vram_after_gb']:.2f} GB in use)"
+        result["message"] = f"No cached models/SAEs to clear ({result['vram_after_gb']:.1f} GB system VRAM in use)"
     elif result["models_unloaded"] > 0 or result["saes_unloaded"] > 0:
         result["message"] = (
             f"Unloaded {result['models_unloaded']} model(s) and {result['saes_unloaded']} SAE(s), "
-            f"freed {result['vram_freed_gb']:.2f} GB VRAM"
+            f"freed {result['vram_freed_gb']:.1f} GB VRAM"
         )
     else:
-        result["message"] = f"Cache cleared, VRAM now at {result['vram_after_gb']:.2f} GB"
+        result["message"] = f"Cache cleared, VRAM now at {result['vram_after_gb']:.1f} GB"
 
     return result
 

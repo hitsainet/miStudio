@@ -1355,6 +1355,32 @@ class SteeringService:
             return True
         return False
 
+    def _get_system_vram_usage_gb(self) -> float:
+        """
+        Get system-wide VRAM usage using pynvml (same as System Monitor).
+
+        This measures TOTAL GPU memory used across ALL processes, not just
+        the current process. Falls back to torch.cuda.memory_allocated()
+        if pynvml is unavailable.
+
+        Returns:
+            VRAM usage in GB
+        """
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # Primary GPU
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            vram_gb = mem_info.used / (1024 ** 3)
+            pynvml.nvmlShutdown()
+            return vram_gb
+        except Exception as e:
+            logger.debug(f"pynvml unavailable, falling back to torch: {e}")
+            # Fallback to torch (only measures current process)
+            if torch.cuda.is_available():
+                return torch.cuda.memory_allocated() / (1024 ** 3)
+            return 0.0
+
     def clear_cache(self) -> dict:
         """
         Clear all cached models and SAEs and free GPU memory.
@@ -1364,10 +1390,8 @@ class SteeringService:
         """
         import gc
 
-        # Get VRAM usage before clearing
-        vram_before_gb = 0.0
-        if torch.cuda.is_available():
-            vram_before_gb = torch.cuda.memory_allocated() / (1024 ** 3)
+        # Get system-wide VRAM usage before clearing (using pynvml like System Monitor)
+        vram_before_gb = self._get_system_vram_usage_gb()
 
         # Log what we're clearing
         sae_count = len(self._loaded_saes)
@@ -1406,23 +1430,22 @@ class SteeringService:
             torch.cuda.synchronize()
             logger.info("CUDA cache cleared")
 
-        # Get VRAM usage after clearing
-        vram_after_gb = 0.0
-        if torch.cuda.is_available():
-            vram_after_gb = torch.cuda.memory_allocated() / (1024 ** 3)
+        # Get system-wide VRAM usage after clearing (using pynvml like System Monitor)
+        vram_after_gb = self._get_system_vram_usage_gb()
 
         logger.info("Steering cache cleared successfully")
 
-        # Minimum VRAM threshold (baseline usage from PyTorch/CUDA context)
-        MIN_VRAM_THRESHOLD_GB = 0.05  # ~50MB baseline
+        # was_already_clear is true if we had no models/SAEs to unload
+        # (System-wide VRAM may still be high from other processes)
+        was_already_clear = model_count == 0 and sae_count == 0
 
         return {
             "models_unloaded": model_count,
             "saes_unloaded": sae_count,
-            "vram_before_gb": round(vram_before_gb, 3),
-            "vram_after_gb": round(vram_after_gb, 3),
-            "vram_freed_gb": round(vram_before_gb - vram_after_gb, 3),
-            "was_already_clear": model_count == 0 and sae_count == 0 and vram_before_gb < MIN_VRAM_THRESHOLD_GB,
+            "vram_before_gb": round(vram_before_gb, 2),
+            "vram_after_gb": round(vram_after_gb, 2),
+            "vram_freed_gb": round(max(0, vram_before_gb - vram_after_gb), 2),
+            "was_already_clear": was_already_clear,
         }
 
 

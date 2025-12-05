@@ -1,0 +1,51 @@
+version: '3.8'
+
+# ==============================================================================
+# miStudio Production Overrides
+# ==============================================================================
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ==============================================================================
+
+services:
+  backend:
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      UVICORN_ARGS: ""  # Remove --reload in production
+    volumes:
+      - mistudio_data:/data
+      # Remove source mount in production
+    restart: always
+
+  celery-worker:
+    environment:
+      CELERY_CONCURRENCY: 2  # Increase concurrency in production
+    volumes:
+      - mistudio_data:/data
+      # Remove source mount in production
+    restart: always
+
+  celery-beat:
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production  # Build production assets
+    environment:
+      NODE_ENV: production
+    volumes: []  # No source mounts in production
+    restart: always
+
+  nginx:
+    restart: always
+
+  postgres:
+    restart: always
+
+  redis:
+    restart: always
+
+  ollama:
+    restart: always

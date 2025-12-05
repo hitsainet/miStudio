@@ -34,6 +34,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/system", tags=["system"])
 
 
+# Health check endpoint for container orchestration
+@router.get("/health")
+async def health_check():
+    """
+    Health check endpoint for container orchestration (Docker, Kubernetes).
+    Returns a simple status indicating the service is running.
+    """
+    return {"status": "healthy", "service": "miStudio API"}
+
+
 # Response models
 class GPUListResponse(BaseModel):
     """Response model for GPU list"""

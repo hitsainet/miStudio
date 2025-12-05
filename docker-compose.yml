@@ -1,0 +1,253 @@
+version: '3.8'
+
+# ==============================================================================
+# miStudio - Full Stack Docker Compose
+# ==============================================================================
+# Usage:
+#   Development:  docker-compose up -d
+#   Production:   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   Stop:         docker-compose down
+#   With logs:    docker-compose up
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # Infrastructure Services
+  # ============================================================================
+
+  postgres:
+    image: postgres:14-alpine
+    container_name: mistudio-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-mistudio}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mistudio-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mistudio-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mistudio-network
+
+  # ============================================================================
+  # Backend Services
+  # ============================================================================
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-backend
+    environment:
+      SERVICE_TYPE: api
+      RUN_MIGRATIONS: "true"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DATA_DIR: /data
+      HF_HOME: /data/huggingface_cache
+      HF_CACHE_DIR: /data/huggingface_cache
+      HF_TOKEN: ${HF_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      API_BASE_URL: http://mistudio.mcslab.io
+      ALLOWED_ORIGINS: http://mistudio.mcslab.io,http://localhost:3000,http://localhost
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+    ports:
+      - "8000:8000"
+    volumes:
+      - mistudio_data:/data
+      - ./backend/src:/app/src:ro  # Mount source for development (remove in prod)
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/system/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    networks:
+      - mistudio-network
+
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-celery-worker
+    environment:
+      SERVICE_TYPE: celery-worker
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_QUEUES: high_priority,datasets,processing,training,extraction,sae,low_priority
+      CELERY_CONCURRENCY: 1
+      CELERY_MAX_TASKS: 5
+      DATA_DIR: /data
+      HF_HOME: /data/huggingface_cache
+      HF_CACHE_DIR: /data/huggingface_cache
+      HF_TOKEN: ${HF_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - mistudio_data:/data
+      - ./backend/src:/app/src:ro  # Mount source for development (remove in prod)
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - mistudio-network
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mistudio-celery-beat
+    environment:
+      SERVICE_TYPE: celery-beat
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    depends_on:
+      - celery-worker
+    networks:
+      - mistudio-network
+
+  # ============================================================================
+  # Frontend Service
+  # ============================================================================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development  # Use 'production' for prod builds
+    container_name: mistudio-frontend
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: ""
+      VITE_WS_URL: ""
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src:ro  # Mount source for HMR (remove in prod)
+      - ./frontend/public:/app/public:ro
+    restart: unless-stopped
+    networks:
+      - mistudio-network
+
+  # ============================================================================
+  # Reverse Proxy
+  # ============================================================================
+
+  nginx:
+    image: nginx:alpine
+    container_name: mistudio-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.docker.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - mistudio-network
+
+  # ============================================================================
+  # AI/LLM Service
+  # ============================================================================
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mistudio-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_ORIGINS: http://mistudio.mcslab.io,http://localhost:3000
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - mistudio-network
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
+volumes:
+  postgres_data:
+    name: mistudio_postgres_data
+  redis_data:
+    name: mistudio_redis_data
+  mistudio_data:
+    name: mistudio_data
+  ollama_data:
+    name: mistudio_ollama_data
+
+# ==============================================================================
+# Networks
+# ==============================================================================
+networks:
+  mistudio-network:
+    name: mistudio-network
+    driver: bridge

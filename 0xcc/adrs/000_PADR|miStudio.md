@@ -1,7 +1,8 @@
 # Architecture Decision Record: MechInterp Studio (miStudio)
 
-**Version:** 1.0
+**Version:** 2.0 (MVP Complete)
 **Created:** 2025-10-05
+**Updated:** 2025-12-05
 **Status:** Active
 **Document Type:** Project-Level Architecture Decision Record
 
@@ -2353,31 +2354,185 @@ Closes #123
 
 ---
 
-**Document Control:**
+## Implementation Decision Log
 
-**Version:** 1.0
+This section documents key architectural decisions made during the MVP implementation phase (October - December 2025).
+
+### IDL-1: WebSocket-First Real-time Architecture
+
+**Date:** 2025-10-22
+**Context:** Needed consistent approach for real-time progress updates across all long-running operations.
+
+**Decision:** Implement WebSocket-first pattern with automatic HTTP polling fallback for all progress tracking.
+
+**Implementation:**
+- Channel pattern: `{entity_type}/{entity_id}` (e.g., `training/abc123`)
+- Celery tasks emit via internal HTTP endpoint: `POST /api/internal/ws/emit`
+- Frontend hooks detect WebSocket disconnection and enable polling
+- Reconnection automatically disables polling
+
+**Channels Implemented:**
+| Channel | Events | Purpose |
+|---------|--------|---------|
+| `training/{id}` | progress, completed, failed | SAE training |
+| `extraction/{id}` | progress, completed, failed | Feature extraction |
+| `model/{id}` | download_progress | Model downloads |
+| `dataset/{id}` | progress | Dataset operations |
+| `labeling/{id}` | progress, results | Auto-labeling |
+| `system/gpu/{id}` | metrics | GPU monitoring |
+| `system/cpu` | metrics | CPU monitoring |
+| `system/memory` | metrics | Memory monitoring |
+
+---
+
+### IDL-2: SAELens Community Standard Format
+
+**Date:** 2025-11-15
+**Context:** Need interoperability with SAELens ecosystem and Neuronpedia.
+
+**Decision:** Adopt SAELens Community Standard as the primary SAE storage format.
+
+**Format Specification:**
+```
+sae_directory/
+├── cfg.json              # Configuration (d_in, d_sae, dtype, etc.)
+└── sae_weights.safetensors  # Model weights
+```
+
+**cfg.json Fields:**
+- `d_in`: Input dimension (model hidden size)
+- `d_sae`: SAE latent dimension
+- `dtype`: Weight dtype (float32)
+- `model_name`: Base model identifier
+- `hook_name`: Activation hook point
+- `architecture`: SAE type (standard, jumprelu, etc.)
+
+**Rationale:** Enables direct compatibility with SAELens tools and Neuronpedia uploads.
+
+---
+
+### IDL-3: Multi-Architecture SAE Support
+
+**Date:** 2025-10-30
+**Context:** Research community uses different SAE architectures for different purposes.
+
+**Decision:** Support four SAE architectures in a unified training system.
+
+**Architectures:**
+| Type | Class | Key Feature |
+|------|-------|-------------|
+| Standard | `SparseAutoencoder` | L1 sparsity, general purpose |
+| JumpReLU | `JumpReLUSAE` | L0 penalty, Gemma Scope-style |
+| Skip | `SkipSAE` | Residual connections |
+| Transcoder | `TranscoderSAE` | Layer-to-layer mapping |
+
+**Implementation:** Single training pipeline with architecture-specific forward/loss methods.
+
+---
+
+### IDL-4: Dual Labeling System
+
+**Date:** 2025-11-20
+**Context:** Features need both human-readable descriptions and categorical organization.
+
+**Decision:** Implement two independent labeling systems per feature.
+
+**Labels:**
+1. **Semantic Label:** Free-text description (e.g., "expressions of love and affection")
+2. **Category Label:** Hierarchical taxonomy (e.g., "Emotion > Positive > Love")
+
+**Sources:**
+- Manual user input
+- GPT-4o auto-labeling via OpenAI API
+- Imported from Neuronpedia
+
+---
+
+### IDL-5: Celery Beat for System Monitoring
+
+**Date:** 2025-10-22
+**Context:** System metrics need periodic collection independent of user requests.
+
+**Decision:** Use Celery Beat scheduled task for system monitoring.
+
+**Configuration:**
+- Task: `collect_system_metrics`
+- Interval: Every 2 seconds
+- Output: WebSocket emission to system/* channels
+
+**Rationale:** Ensures consistent metric collection regardless of frontend state.
+
+---
+
+### IDL-6: Template Pattern for Reproducibility
+
+**Date:** 2025-10-21
+**Context:** Users need to save and reuse configurations for training, extraction, and prompts.
+
+**Decision:** Implement template pattern across all configurable operations.
+
+**Template Types:**
+| Type | Fields | Parent Feature |
+|------|--------|----------------|
+| Training Templates | All hyperparameters, architecture | SAE Training |
+| Extraction Templates | Filters, context window, thresholds | Feature Discovery |
+| Labeling Prompt Templates | System/user prompts, variables | Feature Discovery |
+| Prompt Templates | Prompt text, variables | Model Steering |
+
+**Common Features:** Favorites, usage tracking, import/export (JSON).
+
+---
+
+### IDL-7: Neuronpedia Export Package Format
+
+**Date:** 2025-12-01
+**Context:** Need standardized export format for sharing SAE findings.
+
+**Decision:** Create comprehensive export package compatible with Neuronpedia.
+
+**Package Structure:**
+```
+export.zip/
+├── metadata.json           # SAE configuration
+├── README.md               # Documentation
+├── features/               # Per-feature JSONs
+│   ├── 0.json
+│   └── ...
+├── explanations/
+│   └── explanations.json   # Feature labels
+└── saelens/
+    ├── cfg.json            # SAELens config
+    └── sae_weights.safetensors
+```
+
+**Feature JSON Contents:** Activation examples, logit lens data, histogram, top tokens.
+
+---
+
+## Document Control
+
+**Version:** 2.0
 **Created By:** AI Dev Tasks Framework (XCC)
 **Created Date:** 2025-10-05
-**Last Updated:** 2025-10-05
-**Status:** Active - Approved for Development
+**Last Updated:** 2025-12-05
+**Status:** Active - MVP Complete
 
 **Review and Approval:**
-- [ ] Technical Lead (Backend/ML) Review
-- [ ] Technical Lead (Frontend) Review
-- [ ] DevOps Lead Review
-- [ ] Development Team Acknowledgment
+- [x] Technical Lead (Backend/ML) Review
+- [x] Technical Lead (Frontend) Review
+- [x] DevOps Lead Review
+- [x] Development Team Acknowledgment
 
 **Related Documents:**
 - Project PRD: `0xcc/prds/000_PPRD|miStudio.md`
-- Mock UI Reference: `0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx`
-- Technical Specification: `0xcc/project-specs/core/miStudio_Specification.md`
-- CLAUDE.md: `CLAUDE.md` (update with Project Standards)
+- Developer Guide: `0xcc/docs/Developer_Guide.md`
+- CLAUDE.md: `CLAUDE.md`
 
-**Next Steps:**
-1. Update CLAUDE.md with Project Standards section (copy from Appendix)
-2. Begin Feature PRD creation starting with Dataset Management
-3. Set up development environment (Docker Compose)
-4. Initialize backend and frontend projects
+**Revision History:**
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | 2025-10-05 | Initial architecture decisions |
+| 2.0 | 2025-12-05 | Added Implementation Decision Log for MVP |
 
 ---
 

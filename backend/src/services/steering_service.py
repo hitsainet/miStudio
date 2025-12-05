@@ -1383,7 +1383,10 @@ class SteeringService:
 
     def clear_cache(self) -> dict:
         """
-        Clear all cached models and SAEs and free GPU memory.
+        Clear all cached models and SAEs and free GPU memory system-wide.
+
+        This aggressively clears ALL GPU memory, not just what this service loaded.
+        Includes clearing other services' caches and forcing full CUDA cleanup.
 
         Returns:
             Dict with clearing results including VRAM usage info.
@@ -1393,7 +1396,7 @@ class SteeringService:
         # Get system-wide VRAM usage before clearing (using pynvml like System Monitor)
         vram_before_gb = self._get_system_vram_usage_gb()
 
-        # Log what we're clearing
+        # Log what we're clearing from steering service
         sae_count = len(self._loaded_saes)
         model_count = len(self._loaded_models)
         logger.info(f"Clearing steering cache: {sae_count} SAEs, {model_count} models")
@@ -1421,32 +1424,76 @@ class SteeringService:
         self._loaded_models.clear()
         self._sentence_model = None
 
-        # Force garbage collection
-        gc.collect()
+        # Also clear any global labeling service that may have models loaded
+        other_services_cleared = self._clear_other_services()
 
-        # Clear CUDA cache if available
+        # Force aggressive garbage collection
+        gc.collect()
+        gc.collect()  # Run twice to catch cyclic references
+
+        # Clear CUDA cache aggressively
         if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            # Synchronize to ensure all operations are done
             torch.cuda.synchronize()
-            logger.info("CUDA cache cleared")
+            # Empty the cache
+            torch.cuda.empty_cache()
+            # Reset peak memory stats
+            torch.cuda.reset_peak_memory_stats()
+            # IPC collect if available (helps with multiprocess memory)
+            if hasattr(torch.cuda, 'ipc_collect'):
+                torch.cuda.ipc_collect()
+            logger.info("CUDA cache aggressively cleared")
 
         # Get system-wide VRAM usage after clearing (using pynvml like System Monitor)
         vram_after_gb = self._get_system_vram_usage_gb()
 
-        logger.info("Steering cache cleared successfully")
+        logger.info("All GPU memory cleared successfully")
 
-        # was_already_clear is true if we had no models/SAEs to unload
-        # (System-wide VRAM may still be high from other processes)
-        was_already_clear = model_count == 0 and sae_count == 0
+        # was_already_clear is true if we had no models/SAEs to unload AND no other services cleared
+        was_already_clear = model_count == 0 and sae_count == 0 and other_services_cleared == 0
 
         return {
             "models_unloaded": model_count,
             "saes_unloaded": sae_count,
+            "other_services_cleared": other_services_cleared,
             "vram_before_gb": round(vram_before_gb, 2),
             "vram_after_gb": round(vram_after_gb, 2),
             "vram_freed_gb": round(max(0, vram_before_gb - vram_after_gb), 2),
             "was_already_clear": was_already_clear,
         }
+
+    def _clear_other_services(self) -> int:
+        """
+        Clear models from other services that may have GPU memory allocated.
+
+        Returns:
+            Number of other services cleared
+        """
+        services_cleared = 0
+
+        # Try to find and clear any transformer models in memory
+        # This is aggressive but necessary to truly clear VRAM
+        import gc
+        for obj in gc.get_objects():
+            try:
+                if hasattr(obj, '__class__'):
+                    class_name = obj.__class__.__name__
+                    # Look for common model types
+                    if class_name in ['PreTrainedModel', 'LlamaForCausalLM', 'Gemma2ForCausalLM',
+                                       'GPT2LMHeadModel', 'PhiForCausalLM', 'MistralForCausalLM',
+                                       'Qwen2ForCausalLM', 'SparseAutoencoder', 'JumpReLUSAE']:
+                        if hasattr(obj, 'cpu'):
+                            try:
+                                obj.cpu()
+                                services_cleared += 1
+                                logger.info(f"Moved stray {class_name} to CPU")
+                            except Exception:
+                                pass
+            except (ReferenceError, TypeError):
+                # Object was garbage collected or can't be inspected
+                pass
+
+        return services_cleared
 
 
 # Global service instance

@@ -110,6 +110,17 @@ celery_app.conf.update(
         "sae.upload": {
             "queue": "sae",
         },
+
+        # Neuronpedia export operations: GPU bound, low concurrency
+        "src.workers.neuronpedia_tasks.*": {
+            "queue": "processing",
+        },
+        "neuronpedia.execute_export": {
+            "queue": "processing",
+        },
+        "neuronpedia.compute_dashboard_data": {
+            "queue": "processing",
+        },
     },
 
     # Task priority queues (higher priority = processed first)
@@ -186,6 +197,7 @@ celery_app.autodiscover_tasks(
         "src.workers.cleanup_stuck_extractions",
         "src.workers.cleanup_stuck_trainings",
         "src.workers.sae_tasks",
+        "src.workers.neuronpedia_tasks",
     ],
     force=True,
 )

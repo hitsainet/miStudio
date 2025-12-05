@@ -21,6 +21,8 @@ from .feature import Feature, LabelSource
 from .feature_activation import FeatureActivation
 from .feature_analysis_cache import FeatureAnalysisCache, AnalysisType
 from .external_sae import ExternalSAE, SAESource, SAEStatus, SAEFormat
+from .neuronpedia_export import NeuronpediaExportJob, ExportStatus
+from .feature_dashboard import FeatureDashboardData
 
 __all__ = [
     "Dataset",
@@ -54,4 +56,7 @@ __all__ = [
     "SAESource",
     "SAEStatus",
     "SAEFormat",
+    "NeuronpediaExportJob",
+    "ExportStatus",
+    "FeatureDashboardData",
 ]

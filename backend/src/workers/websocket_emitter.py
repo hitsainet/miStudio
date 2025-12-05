@@ -977,6 +977,57 @@ def emit_sae_extraction_progress(
     return emit_progress(channel, "sae:extraction", data)
 
 
+# ============================================================================
+# Neuronpedia Export Emission Functions
+# ============================================================================
+
+
+def emit_export_progress(
+    job_id: str,
+    progress: float,
+    stage: str,
+    status: str,
+    message: Optional[str] = None,
+    feature_count: Optional[int] = None,
+    output_path: Optional[str] = None,
+) -> bool:
+    """
+    Emit Neuronpedia export progress update.
+
+    Args:
+        job_id: Export job UUID
+        progress: Progress percentage (0-100)
+        stage: Current stage (initializing, computing_logit_lens, computing_histograms,
+               computing_top_tokens, generating_json, packaging, completed)
+        status: Job status (pending, computing, packaging, completed, failed, cancelled)
+        message: Optional status message
+        feature_count: Optional total feature count
+        output_path: Optional output archive path (when completed)
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        neuronpedia/{job_id}/export
+    """
+    channel = f"neuronpedia/{job_id}/export"
+    data = {
+        "job_id": job_id,
+        "progress": progress,
+        "stage": stage,
+        "status": status,
+    }
+
+    if message:
+        data["message"] = message
+    if feature_count is not None:
+        data["feature_count"] = feature_count
+    if output_path:
+        data["output_path"] = output_path
+
+    return emit_progress(channel, "export:progress", data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -1001,4 +1052,6 @@ __all__ = [
     "emit_sae_download_progress",
     "emit_sae_upload_progress",
     "emit_sae_extraction_progress",
+    # Neuronpedia export functions
+    "emit_export_progress",
 ]

@@ -122,6 +122,7 @@ export async function getComparisonStatus(
 export interface ClearCacheResponse {
   models_unloaded: number;
   saes_unloaded: number;
+  other_services_cleared: number;
   vram_before_gb: number;
   vram_after_gb: number;
   vram_freed_gb: number;

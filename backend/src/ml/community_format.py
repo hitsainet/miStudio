@@ -32,6 +32,11 @@ import torch
 import torch.nn as nn
 from safetensors.torch import save_file, load_file
 
+from ..utils.transformerlens_mapping import (
+    get_transformerlens_model_id,
+    get_transformerlens_hook_name,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +46,7 @@ class CommunityStandardConfig:
     Configuration for Community Standard compatible SAE.
 
     This matches the cfg.json format used by major SAE tools for HuggingFace uploads.
+    Includes fields required by Neuronpedia for feature dashboard compatibility.
     """
     # Required fields
     model_name: str
@@ -48,6 +54,9 @@ class CommunityStandardConfig:
     hook_point_layer: int
     d_in: int  # Input dimension (model hidden size)
     d_sae: int  # SAE dimension (number of features)
+
+    # Neuronpedia-compatible field (same as hook_point, for compatibility)
+    hook_name: Optional[str] = None  # Will be set from hook_point if not provided
 
     # Architecture
     architecture: str = "standard"  # standard, gated, jumprelu
@@ -58,6 +67,9 @@ class CommunityStandardConfig:
     hook_point_head_index: Optional[int] = None
     context_size: int = 128
     dataset_path: Optional[str] = None
+
+    # Neuronpedia-specific fields
+    prepend_bos: bool = True  # Whether BOS token was prepended during training
 
     # Training parameters (for provenance)
     l1_coefficient: Optional[float] = None
@@ -79,6 +91,11 @@ class CommunityStandardConfig:
 
     # Additional metadata
     extra_metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        """Ensure hook_name is set from hook_point if not provided."""
+        if self.hook_name is None:
+            self.hook_name = self.hook_point
 
     @property
     def expansion_factor(self) -> float:
@@ -145,11 +162,15 @@ class CommunityStandardConfig:
         elif hyperparams.get("top_k_sparsity") is not None:
             activation_fn = "topk"
 
-        # Generate hook point name
-        hook_point = f"blocks.{layer}.hook_resid_post"
+        # Generate TransformerLens-compatible hook point name
+        hook_point = get_transformerlens_hook_name(layer, "resid_post")
+
+        # Map model name to TransformerLens format for Neuronpedia compatibility
+        tl_model_name = get_transformerlens_model_id(model_name)
 
         # Build extra metadata
         extra_metadata = {
+            "hf_model_name": model_name,  # Original HuggingFace model name for reference
             "ghost_gradient_penalty": hyperparams.get("ghost_gradient_penalty"),
             "top_k_sparsity": hyperparams.get("top_k_sparsity"),
             "warmup_steps": hyperparams.get("warmup_steps"),
@@ -166,14 +187,16 @@ class CommunityStandardConfig:
             })
 
         return cls(
-            model_name=model_name,
+            model_name=tl_model_name,  # Use TransformerLens model ID for Neuronpedia compatibility
             hook_point=hook_point,
+            hook_name=hook_point,  # Explicitly set hook_name for Neuronpedia
             hook_point_layer=layer,
             d_in=hyperparams.get("hidden_dim", 768),
             d_sae=hyperparams.get("latent_dim", 12288),
             architecture=arch_type,
             activation_fn_str=activation_fn,
             normalize_activations=hyperparams.get("normalize_activations", "none"),
+            prepend_bos=True,  # miStudio typically prepends BOS
             l1_coefficient=hyperparams.get("l1_alpha") or hyperparams.get("sparsity_coeff"),
             lr=hyperparams.get("learning_rate"),
             total_training_tokens=hyperparams.get("total_steps", 0) * hyperparams.get("batch_size", 1),

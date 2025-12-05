@@ -21,6 +21,7 @@ import {
   HardDrive,
   Cloud,
   Layers,
+  FileJson,
 } from 'lucide-react';
 import { SAE, SAESource, SAEStatus } from '../../types/sae';
 import { COMPONENTS } from '../../config/brand';
@@ -30,6 +31,7 @@ interface SAECardProps {
   onSelect?: () => void;
   onUseSteering?: () => void;
   onUpload?: () => void;
+  onExport?: () => void;
   onDelete: (id: string) => void;
   onCancel?: (id: string) => void;
   isSelected?: boolean;
@@ -40,6 +42,7 @@ export function SAECard({
   onSelect,
   onUseSteering,
   onUpload,
+  onExport,
   onDelete,
   onCancel,
   isSelected = false,
@@ -160,6 +163,11 @@ export function SAECard({
     onUpload?.();
   };
 
+  const handleExport = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onExport?.();
+  };
+
   return (
     <div
       className={`${COMPONENTS.card.base} p-4 transition-colors ${
@@ -213,6 +221,16 @@ export function SAECard({
                   title="Upload to HuggingFace"
                 >
                   <Upload className="w-5 h-5" />
+                </button>
+              )}
+              {onExport && (
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
+                  title="Export to Neuronpedia"
+                >
+                  <FileJson className="w-5 h-5" />
                 </button>
               )}
             </>

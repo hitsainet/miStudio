@@ -16,9 +16,12 @@
 import { useEffect, useState } from 'react';
 import { useSAEsStore } from '../../stores/saesStore';
 import { useSteeringStore } from '../../stores/steeringStore';
+import { useNeuronpediaExportStore } from '../../stores/neuronpediaExportStore';
 import { SAE, SAESource, SAEStatus } from '../../types/sae';
 import { SAECard } from '../saes/SAECard';
 import { DownloadFromHF } from '../saes/DownloadFromHF';
+import { UploadToHF } from '../saes/UploadToHF';
+import { ExportToNeuronpedia } from '../saes/ExportToNeuronpedia';
 import { Search, Filter, Brain, Cloud, Layers, HardDrive } from 'lucide-react';
 import { COMPONENTS } from '../../config/brand';
 
@@ -43,6 +46,10 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
 
   const [searchInput, setSearchInput] = useState(filters.search);
   const [showFilters, setShowFilters] = useState(false);
+  const [uploadingSAE, setUploadingSAE] = useState<SAE | null>(null);
+  const [exportingSAE, setExportingSAE] = useState<SAE | null>(null);
+
+  const { openExportDialog } = useNeuronpediaExportStore();
 
   // Fetch SAEs on mount
   useEffect(() => {
@@ -78,6 +85,15 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
     } catch (error) {
       console.error('[SAEsPanel] Failed to delete SAE:', error);
     }
+  };
+
+  const handleUpload = (sae: SAE) => {
+    setUploadingSAE(sae);
+  };
+
+  const handleExport = (sae: SAE) => {
+    setExportingSAE(sae);
+    openExportDialog(sae.id);
   };
 
   const handleSourceFilter = (source: SAESource | null) => {
@@ -317,6 +333,8 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
                   key={sae.id}
                   sae={sae}
                   onUseSteering={() => handleUseSteering(sae)}
+                  onUpload={() => handleUpload(sae)}
+                  onExport={() => handleExport(sae)}
                   onDelete={handleDelete}
                 />
               ))}
@@ -348,6 +366,28 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
           </div>
         )}
       </div>
+
+      {/* Upload to HuggingFace Modal */}
+      {uploadingSAE && (
+        <UploadToHF
+          sae={uploadingSAE}
+          isOpen={!!uploadingSAE}
+          onClose={() => setUploadingSAE(null)}
+          onUploadComplete={() => {
+            // Optionally refresh list or show notification
+            fetchSAEs();
+          }}
+        />
+      )}
+
+      {/* Export to Neuronpedia Modal */}
+      {exportingSAE && (
+        <ExportToNeuronpedia
+          sae={exportingSAE}
+          isOpen={!!exportingSAE}
+          onClose={() => setExportingSAE(null)}
+        />
+      )}
     </div>
   );
 }

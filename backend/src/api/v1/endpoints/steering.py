@@ -285,14 +285,16 @@ async def generate_strength_sweep(
 @router.post("/cache/clear")
 async def clear_steering_cache():
     """
-    Clear all cached models and SAEs from the steering service.
+    Clear all cached models and SAEs from the steering service and free GPU memory.
 
-    Use this to free GPU memory when switching between models.
+    This aggressively clears ALL GPU memory from this process, not just steering models.
+    Use this to free GPU memory when switching between models or if memory is low.
 
     Returns:
         Dict with cache clearing results including:
         - models_unloaded: Number of models unloaded
         - saes_unloaded: Number of SAEs unloaded
+        - other_services_cleared: Number of stray models moved to CPU
         - vram_before_gb: VRAM usage before clearing (GB)
         - vram_after_gb: VRAM usage after clearing (GB)
         - vram_freed_gb: Amount of VRAM freed (GB)
@@ -302,16 +304,22 @@ async def clear_steering_cache():
     steering_service = get_steering_service()
     result = steering_service.clear_cache()
 
-    # Generate appropriate message
-    if result["was_already_clear"]:
-        result["message"] = f"No cached models/SAEs to clear ({result['vram_after_gb']:.1f} GB system VRAM in use)"
-    elif result["models_unloaded"] > 0 or result["saes_unloaded"] > 0:
-        result["message"] = (
-            f"Unloaded {result['models_unloaded']} model(s) and {result['saes_unloaded']} SAE(s), "
-            f"freed {result['vram_freed_gb']:.1f} GB VRAM"
-        )
+    # Generate appropriate message based on what was cleared
+    total_unloaded = result["models_unloaded"] + result["saes_unloaded"] + result.get("other_services_cleared", 0)
+    vram_freed = result["vram_freed_gb"]
+
+    if vram_freed >= 0.1:
+        # Significant VRAM was freed
+        result["message"] = f"Cleared {total_unloaded} item(s), freed {vram_freed:.1f} GB VRAM (now {result['vram_after_gb']:.1f} GB in use)"
+    elif total_unloaded > 0:
+        # Something was unloaded but VRAM didn't decrease much (fragmentation or other processes)
+        result["message"] = f"Cleared {total_unloaded} item(s). VRAM at {result['vram_after_gb']:.1f} GB (may be used by other processes)"
+    elif result["vram_after_gb"] < 1.0:
+        # Cache was empty and VRAM is low - good state
+        result["message"] = f"GPU memory already clear ({result['vram_after_gb']:.1f} GB in use)"
     else:
-        result["message"] = f"Cache cleared, VRAM now at {result['vram_after_gb']:.1f} GB"
+        # Cache was empty but VRAM is still high - other processes using it
+        result["message"] = f"No cached models to clear. {result['vram_after_gb']:.1f} GB VRAM in use by other processes"
 
     return result
 

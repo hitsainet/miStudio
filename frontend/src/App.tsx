@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Sun, Moon } from 'lucide-react';
+import logoSvg from './assets/logo.svg';
 import { DatasetsPanel } from './components/panels/DatasetsPanel';
 import { ModelsPanel } from './components/panels/ModelsPanel';
 import { TemplatesPanel } from './components/panels/TemplatesPanel';
@@ -66,7 +67,7 @@ function AppContent() {
           <div className="max-w-[80%] mx-auto px-6 py-4">
             <div className="flex items-center gap-3">
               <img
-                src="/src/assets/logo.svg"
+                src={logoSvg}
                 alt="MechInterp Studio"
                 className="w-8 h-8"
               />

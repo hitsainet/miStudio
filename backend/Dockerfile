@@ -46,7 +46,8 @@ COPY requirements.txt .
 
 # Install Python dependencies
 # Note: PyTorch with CUDA is included in requirements.txt
-RUN python3.11 -m pip install --upgrade pip setuptools wheel \
+# Explicitly upgrade pip, setuptools, and wheel to fix CVEs in base image
+RUN python3.11 -m pip install --upgrade pip "setuptools>=78.1.1" "wheel>=0.38.1" \
     && python3.11 -m pip install -r requirements.txt
 
 # Copy application code

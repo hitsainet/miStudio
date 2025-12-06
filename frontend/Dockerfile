@@ -53,6 +53,9 @@ RUN npm run build
 # ==============================================================================
 FROM nginx:alpine AS production
 
+# Update Alpine packages to fix CVEs (libpng vulnerabilities)
+RUN apk update && apk upgrade --no-cache libpng
+
 # Copy custom nginx config for SPA routing
 # Listen on both port 80 and 3000 for compatibility with docker nginx proxy
 RUN printf '%s\n' \

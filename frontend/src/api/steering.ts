@@ -122,11 +122,12 @@ export async function getComparisonStatus(
 export interface ClearCacheResponse {
   models_unloaded: number;
   saes_unloaded: number;
-  other_services_cleared: number;
+  stray_objects_found: number;
   vram_before_gb: number;
   vram_after_gb: number;
   vram_freed_gb: number;
   was_already_clear: boolean;
+  needs_restart: boolean;
   message: string;
 }
 
@@ -136,6 +137,16 @@ export interface ClearCacheResponse {
  */
 export async function clearSteeringCache(): Promise<ClearCacheResponse> {
   return fetchAPI<ClearCacheResponse>('/steering/cache/clear', {
+    method: 'POST',
+  });
+}
+
+/**
+ * Restart the backend service to clear orphaned GPU memory.
+ * Docker will automatically restart the container.
+ */
+export async function restartBackend(): Promise<{ message: string; status: string }> {
+  return fetchAPI<{ message: string; status: string }>('/system/restart', {
     method: 'POST',
   });
 }

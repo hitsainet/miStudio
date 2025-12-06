@@ -730,6 +730,216 @@ def load_gemma_scope_format(
     return mistudio_weights, config
 
 
+def is_huggingface_sae_format(path: Path) -> Tuple[bool, Optional[Path]]:
+    """
+    Check if a path contains HuggingFace SAELens format (safetensors with CS keys, no cfg.json).
+
+    This format is used by Gemma Scope SAEs hosted on HuggingFace. The weights are stored
+    in safetensors format with Community Standard key names (W_enc, W_dec, b_enc, b_dec)
+    but without a cfg.json config file.
+
+    Args:
+        path: Directory or file path to check
+
+    Returns:
+        Tuple of (is_hf_format, path_to_safetensors_file)
+    """
+    path = Path(path)
+
+    # Files to look for in order of preference
+    sae_filenames = ["sae.safetensors", "sae_weights.safetensors"]
+
+    def _check_safetensors(safetensors_path: Path) -> bool:
+        """Check if a safetensors file has Community Standard weight keys."""
+        if not safetensors_path.exists():
+            return False
+        try:
+            weights = load_file(str(safetensors_path), device="cpu")
+            # Check for Community Standard keys (W_enc and W_dec are required)
+            has_cs_keys = "W_enc" in weights and "W_dec" in weights
+            # Make sure it's not a miStudio format (no model.* prefix)
+            no_model_prefix = not any(k.startswith("model.") for k in weights.keys())
+            return has_cs_keys and no_model_prefix
+        except Exception:
+            return False
+
+    # Check direct file
+    if path.suffix == ".safetensors":
+        if _check_safetensors(path):
+            return True, path
+        return False, None
+
+    # Check directory for SAE files (without cfg.json - that's Community Standard)
+    if path.is_dir():
+        # If cfg.json exists, it's Community Standard format, not HF SAELens
+        if (path / "cfg.json").exists():
+            return False, None
+
+        # Check for direct SAE files
+        for filename in sae_filenames:
+            sae_file = path / filename
+            if _check_safetensors(sae_file):
+                return True, sae_file
+
+        # Check in layer subdirectories (e.g., layer_20/)
+        layer_dirs = sorted(path.glob("layer_*"))
+        for layer_dir in layer_dirs:
+            for filename in sae_filenames:
+                sae_file = layer_dir / filename
+                if _check_safetensors(sae_file):
+                    return True, sae_file
+
+        # Check in nested width/l0 subdirectories (Gemma Scope structure)
+        for subdir in path.rglob("*"):
+            if subdir.is_dir():
+                for filename in sae_filenames:
+                    sae_file = subdir / filename
+                    if _check_safetensors(sae_file):
+                        return True, sae_file
+
+    return False, None
+
+
+def load_huggingface_sae_format(
+    input_path: Path,
+    device: str = "cpu",
+) -> Tuple[Dict[str, torch.Tensor], CommunityStandardConfig]:
+    """
+    Load an SAE from HuggingFace SAELens format (safetensors with CS keys).
+
+    HuggingFace SAELens format is safetensors with Community Standard weight names:
+        W_enc: [d_in, d_sae] - encoder weights
+        W_dec: [d_sae, d_in] - decoder weights
+        b_enc: [d_sae] - encoder bias
+        b_dec: [d_in] - decoder bias
+        log_threshold or threshold: [d_sae] or scalar - JumpReLU thresholds (optional)
+
+    Converts to miStudio JumpReLU/Standard format:
+        W_enc: [d_sae, d_in] (transposed from CS)
+        W_dec: [d_in, d_sae] (transposed from CS)
+        b_enc: [d_sae]
+        b_dec: [d_in]
+        activation.log_threshold: [d_sae] (for JumpReLU)
+
+    Args:
+        input_path: Path to safetensors file
+        device: Device to load tensors onto
+
+    Returns:
+        Tuple of (miStudio state_dict, config)
+    """
+    input_path = Path(input_path)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"SAE file not found at {input_path}")
+
+    # Load weights
+    weights = load_file(str(input_path), device=device)
+
+    logger.info(f"Loaded HuggingFace SAE with keys: {list(weights.keys())}")
+
+    # Extract weights - Community Standard orientation
+    W_enc = weights["W_enc"]  # [d_in, d_sae]
+    W_dec = weights["W_dec"]  # [d_sae, d_in]
+    b_enc = weights.get("b_enc")  # [d_sae]
+    b_dec = weights.get("b_dec")  # [d_in]
+
+    # Get dimensions
+    d_in, d_sae = W_enc.shape
+
+    # Check for JumpReLU threshold
+    threshold = weights.get("threshold")
+    log_threshold = weights.get("log_threshold")
+    is_jumprelu = threshold is not None or log_threshold is not None
+
+    # Build miStudio state dict
+    mistudio_weights = {}
+
+    if is_jumprelu:
+        # JumpReLU format - miStudio expects [d_sae, d_in] for W_enc
+        mistudio_weights["W_enc"] = W_enc.t().contiguous()  # [d_sae, d_in]
+        mistudio_weights["W_dec"] = W_dec.t().contiguous()  # [d_in, d_sae]
+        if b_enc is not None:
+            mistudio_weights["b_enc"] = b_enc
+        if b_dec is not None:
+            mistudio_weights["b_dec"] = b_dec
+
+        # Handle thresholds
+        if log_threshold is not None:
+            # Already log threshold
+            if log_threshold.dim() == 0:
+                # Scalar - expand to per-feature
+                mistudio_weights["activation.log_threshold"] = log_threshold.expand(d_sae)
+            else:
+                mistudio_weights["activation.log_threshold"] = log_threshold
+        elif threshold is not None:
+            # Convert threshold to log_threshold
+            threshold_clamped = torch.clamp(threshold, min=1e-10)
+            if threshold_clamped.dim() == 0:
+                # Scalar - expand to per-feature
+                mistudio_weights["activation.log_threshold"] = torch.log(threshold_clamped).expand(d_sae)
+            else:
+                mistudio_weights["activation.log_threshold"] = torch.log(threshold_clamped)
+    else:
+        # Standard format - miStudio expects nn.Linear convention [out_features, in_features]
+        mistudio_weights["encoder.weight"] = W_enc.t().contiguous()  # [d_sae, d_in]
+        if b_enc is not None:
+            mistudio_weights["encoder.bias"] = b_enc
+        mistudio_weights["decoder.weight"] = W_dec.t().contiguous()  # [d_in, d_sae]
+        if b_dec is not None:
+            mistudio_weights["decoder_bias"] = b_dec
+
+    # Try to extract metadata from path
+    path_str = str(input_path)
+    import re
+
+    # Extract layer from path
+    layer = None
+    layer_match = re.search(r"layer[_/](\d+)", path_str, re.IGNORECASE)
+    if layer_match:
+        layer = int(layer_match.group(1))
+
+    # Extract L0 sparsity from path
+    l0_sparsity = None
+    l0_match = re.search(r"average_l0[_/](\d+)", path_str, re.IGNORECASE)
+    if l0_match:
+        l0_sparsity = int(l0_match.group(1))
+
+    # Detect model from d_in
+    model_name = "unknown"
+    if d_in == 2304:
+        model_name = "google/gemma-2-2b"
+    elif d_in == 3584:
+        model_name = "google/gemma-2-9b"
+    elif d_in == 4608:
+        model_name = "google/gemma-2-27b"
+    elif d_in == 2048:
+        model_name = "google/gemma-2-2b"  # Instruction-tuned variant
+
+    # Create config
+    config = CommunityStandardConfig(
+        model_name=model_name,
+        hook_point=f"blocks.{layer or 0}.hook_resid_post",
+        hook_point_layer=layer or 0,
+        d_in=d_in,
+        d_sae=d_sae,
+        architecture="jumprelu" if is_jumprelu else "standard",
+        activation_fn_str="jumprelu" if is_jumprelu else "relu",
+        normalize_activations="none",
+        extra_metadata={
+            "source_format": "huggingface_saelens",
+            "l0_sparsity": l0_sparsity,
+        },
+    )
+
+    logger.info(
+        f"Loaded HuggingFace SAELens SAE: d_in={d_in}, d_sae={d_sae}, "
+        f"layer={layer}, is_jumprelu={is_jumprelu}"
+    )
+
+    return mistudio_weights, config
+
+
 def is_mistudio_format(path: Path) -> bool:
     """
     Check if a path contains miStudio format checkpoint.
@@ -858,8 +1068,9 @@ def load_sae_auto_detect(
     Supports:
     1. Community Standard format (cfg.json + sae_weights.safetensors)
     2. Gemma Scope format (params.npz - JumpReLU SAEs from Google)
-    3. miStudio checkpoint format (checkpoint.safetensors with model.* keys)
-    4. Multi-layer SAE structure (layer_*/checkpoint.safetensors)
+    3. HuggingFace SAELens format (sae.safetensors with CS keys, no cfg.json)
+    4. miStudio checkpoint format (checkpoint.safetensors with model.* keys)
+    5. Multi-layer SAE structure (layer_*/checkpoint.safetensors or layer_*/sae.safetensors)
 
     Args:
         path: Path to SAE directory or checkpoint file
@@ -870,18 +1081,31 @@ def load_sae_auto_detect(
     """
     path = Path(path)
 
-    # Check for Community Standard format first
+    logger.info(f"Auto-detecting SAE format at {path}")
+
+    # Check for Community Standard format first (has cfg.json)
     if is_community_format(path):
+        logger.info(f"Detected Community Standard format at {path}")
         state_dict, config, _ = load_sae_community_format(path, device)
         return state_dict, config, "community_standard"
 
     # Check for Gemma Scope format (params.npz)
     if is_gemma_scope_format(path):
+        logger.info(f"Detected Gemma Scope format at {path}")
         state_dict, config = load_gemma_scope_format(path, device)
         return state_dict, config, "gemma_scope"
 
+    # Check for HuggingFace SAELens format (safetensors with CS keys, no cfg.json)
+    # This handles nested directory structures like layer_20/sae.safetensors
+    is_hf_format, sae_file_path = is_huggingface_sae_format(path)
+    if is_hf_format and sae_file_path is not None:
+        logger.info(f"Detected HuggingFace SAELens format at {sae_file_path}")
+        state_dict, config = load_huggingface_sae_format(sae_file_path, device)
+        return state_dict, config, "huggingface_saelens"
+
     # Check for miStudio format (including layer subdirectories)
     if is_mistudio_format(path):
+        logger.info(f"Detected miStudio format at {path}")
         checkpoint_path = find_mistudio_checkpoint(path)
         if checkpoint_path is None:
             raise ValueError(f"Could not find checkpoint file in {path}")
@@ -900,6 +1124,7 @@ def load_sae_auto_detect(
         f"Unrecognized SAE format at {path}. "
         f"Expected either Community Standard format (cfg.json + sae_weights.safetensors), "
         f"Gemma Scope format (params.npz), "
+        f"HuggingFace SAELens format (sae.safetensors with W_enc/W_dec keys), "
         f"or miStudio format (checkpoint.safetensors with model.* keys)"
     )
 

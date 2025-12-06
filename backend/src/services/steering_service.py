@@ -1424,76 +1424,76 @@ class SteeringService:
         self._loaded_models.clear()
         self._sentence_model = None
 
-        # Also clear any global labeling service that may have models loaded
-        other_services_cleared = self._clear_other_services()
+        # Count stray GPU objects (for reporting)
+        stray_count = self._count_gpu_objects()
 
         # Force aggressive garbage collection
-        gc.collect()
-        gc.collect()  # Run twice to catch cyclic references
+        for _ in range(5):
+            gc.collect()
 
-        # Clear CUDA cache aggressively
+        # Clear CUDA cache
         if torch.cuda.is_available():
-            # Synchronize to ensure all operations are done
             torch.cuda.synchronize()
-            # Empty the cache
             torch.cuda.empty_cache()
-            # Reset peak memory stats
             torch.cuda.reset_peak_memory_stats()
-            # IPC collect if available (helps with multiprocess memory)
             if hasattr(torch.cuda, 'ipc_collect'):
                 torch.cuda.ipc_collect()
-            logger.info("CUDA cache aggressively cleared")
 
-        # Get system-wide VRAM usage after clearing (using pynvml like System Monitor)
+        # Get system-wide VRAM usage after clearing
         vram_after_gb = self._get_system_vram_usage_gb()
+        vram_freed = max(0, vram_before_gb - vram_after_gb)
 
-        logger.info("All GPU memory cleared successfully")
+        logger.info(f"Cache clear: freed {vram_freed:.2f} GB, {vram_after_gb:.2f} GB remaining")
 
-        # was_already_clear is true if we had no models/SAEs to unload AND no other services cleared
-        was_already_clear = model_count == 0 and sae_count == 0 and other_services_cleared == 0
+        was_already_clear = model_count == 0 and sae_count == 0 and stray_count == 0
 
         return {
             "models_unloaded": model_count,
             "saes_unloaded": sae_count,
-            "other_services_cleared": other_services_cleared,
+            "stray_objects_found": stray_count,
             "vram_before_gb": round(vram_before_gb, 2),
             "vram_after_gb": round(vram_after_gb, 2),
-            "vram_freed_gb": round(max(0, vram_before_gb - vram_after_gb), 2),
+            "vram_freed_gb": round(vram_freed, 2),
             "was_already_clear": was_already_clear,
+            "needs_restart": vram_after_gb > 1.0 and vram_freed < 0.5,
         }
 
-    def _clear_other_services(self) -> int:
+    def _count_gpu_objects(self) -> int:
         """
-        Clear models from other services that may have GPU memory allocated.
+        Count GPU objects that might be holding VRAM (for diagnostic purposes).
 
         Returns:
-            Number of other services cleared
+            Number of GPU objects found
         """
-        services_cleared = 0
-
-        # Try to find and clear any transformer models in memory
-        # This is aggressive but necessary to truly clear VRAM
         import gc
+
+        count = 0
+
+        model_classes = {
+            'PreTrainedModel', 'LlamaForCausalLM', 'Gemma2ForCausalLM',
+            'GPT2LMHeadModel', 'PhiForCausalLM', 'MistralForCausalLM',
+            'Qwen2ForCausalLM', 'SparseAutoencoder', 'JumpReLUSAE',
+            'GemmaForCausalLM', 'Gemma2Model', 'AutoModelForCausalLM',
+        }
+
         for obj in gc.get_objects():
             try:
-                if hasattr(obj, '__class__'):
-                    class_name = obj.__class__.__name__
-                    # Look for common model types
-                    if class_name in ['PreTrainedModel', 'LlamaForCausalLM', 'Gemma2ForCausalLM',
-                                       'GPT2LMHeadModel', 'PhiForCausalLM', 'MistralForCausalLM',
-                                       'Qwen2ForCausalLM', 'SparseAutoencoder', 'JumpReLUSAE']:
-                        if hasattr(obj, 'cpu'):
-                            try:
-                                obj.cpu()
-                                services_cleared += 1
-                                logger.info(f"Moved stray {class_name} to CPU")
-                            except Exception:
-                                pass
-            except (ReferenceError, TypeError):
-                # Object was garbage collected or can't be inspected
+                if not hasattr(obj, '__class__'):
+                    continue
+
+                class_name = obj.__class__.__name__
+
+                if class_name in model_classes:
+                    logger.info(f"Found stray model: {class_name}")
+                    count += 1
+                elif class_name == 'Tensor' and hasattr(obj, 'device'):
+                    if obj.device.type == 'cuda':
+                        count += 1
+
+            except (ReferenceError, TypeError, RuntimeError, OSError, AttributeError):
                 pass
 
-        return services_cleared
+        return count
 
 
 # Global service instance

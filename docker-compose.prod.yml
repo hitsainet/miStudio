@@ -13,7 +13,7 @@ services:
       DEBUG: "false"
       UVICORN_ARGS: ""  # Remove --reload in production
     volumes:
-      - mistudio_data:/data
+      - ./backend/data:/data  # Mount host data directory for SAEs, models, etc.
       # Remove source mount in production
     restart: always
 
@@ -21,7 +21,7 @@ services:
     environment:
       CELERY_CONCURRENCY: 2  # Increase concurrency in production
     volumes:
-      - mistudio_data:/data
+      - ./backend/data:/data  # Mount host data directory for SAEs, models, etc.
       # Remove source mount in production
     restart: always
 
@@ -35,6 +35,7 @@ services:
       target: production  # Build production assets
     environment:
       NODE_ENV: production
+    ports: []  # No external port - nginx handles all traffic
     volumes: []  # No source mounts in production
     restart: always
 

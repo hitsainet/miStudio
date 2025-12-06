@@ -15,9 +15,11 @@ Created: 2025-10-16
 """
 
 import logging
+import os
+import signal
 from typing import Dict, List, Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from src.services.gpu_monitor_service import get_gpu_monitor_service
@@ -42,6 +44,29 @@ async def health_check():
     Returns a simple status indicating the service is running.
     """
     return {"status": "healthy", "service": "miStudio API"}
+
+
+def _delayed_exit():
+    """Exit the process after a short delay to allow response to be sent."""
+    import time
+    time.sleep(0.5)
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+@router.post("/restart")
+async def restart_backend(background_tasks: BackgroundTasks):
+    """
+    Restart the backend service to clear orphaned GPU memory.
+
+    This triggers a graceful shutdown. Docker will automatically restart
+    the container due to the restart policy.
+
+    Returns:
+        Dict with restart status message
+    """
+    logger.warning("Backend restart requested via API")
+    background_tasks.add_task(_delayed_exit)
+    return {"message": "Backend restarting...", "status": "restarting"}
 
 
 # Response models

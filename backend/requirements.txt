@@ -45,7 +45,7 @@ h11==0.16.0
 hf-xet==1.1.10
 httpcore==1.0.9
 httptools==0.6.4
-httpx==0.25.2
+httpx>=0.27.0
 huggingface-hub==0.35.3
 idna==3.10
 iniconfig==2.1.0
@@ -63,7 +63,6 @@ kombu==5.5.4
 Mako==1.3.10
 MarkupSafe==3.0.3
 matplotlib-inline==0.1.7
--e git+https://github.com/Onegaishimas/miStudio.git@6dfefc2dc8b32d67469e8a976c2e98fe915d6fe4#egg=mistudio_backend&subdirectory=backend
 more-itertools==10.8.0
 mpmath==1.3.0
 msgpack==1.1.1
@@ -91,7 +90,6 @@ packaging==25.0
 pandas==2.3.3
 parso==0.8.5
 pathspec==0.12.1
-pbs-installer==2025.10.7
 pexpect==4.9.0
 pkginfo==1.12.1.2
 platformdirs==4.4.0

@@ -1,9 +1,0 @@
-{
-  "tokenizer_name": "gpt2",
-  "text": "Hello, world!",
-  "max_length": 512,
-  "padding": "max_length",
-  "truncation": "longest_first",
-  "add_special_tokens": true,
-  "return_attention_mask": true
-}

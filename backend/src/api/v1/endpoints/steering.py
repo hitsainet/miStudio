@@ -304,22 +304,19 @@ async def clear_steering_cache():
     steering_service = get_steering_service()
     result = steering_service.clear_cache()
 
-    # Generate appropriate message based on what was cleared
-    total_unloaded = result["models_unloaded"] + result["saes_unloaded"] + result.get("other_services_cleared", 0)
+    # Generate appropriate message
+    total_unloaded = result["models_unloaded"] + result["saes_unloaded"]
     vram_freed = result["vram_freed_gb"]
+    vram_after = result["vram_after_gb"]
 
     if vram_freed >= 0.1:
-        # Significant VRAM was freed
-        result["message"] = f"Cleared {total_unloaded} item(s), freed {vram_freed:.1f} GB VRAM (now {result['vram_after_gb']:.1f} GB in use)"
-    elif total_unloaded > 0:
-        # Something was unloaded but VRAM didn't decrease much (fragmentation or other processes)
-        result["message"] = f"Cleared {total_unloaded} item(s). VRAM at {result['vram_after_gb']:.1f} GB (may be used by other processes)"
-    elif result["vram_after_gb"] < 1.0:
-        # Cache was empty and VRAM is low - good state
-        result["message"] = f"GPU memory already clear ({result['vram_after_gb']:.1f} GB in use)"
+        result["message"] = f"Freed {vram_freed:.1f} GB VRAM (now {vram_after:.1f} GB in use)"
+    elif vram_after < 1.0:
+        result["message"] = f"GPU memory clear ({vram_after:.1f} GB baseline)"
+    elif result.get("needs_restart"):
+        result["message"] = f"Orphaned GPU memory detected ({vram_after:.1f} GB). Restart backend to fully clear."
     else:
-        # Cache was empty but VRAM is still high - other processes using it
-        result["message"] = f"No cached models to clear. {result['vram_after_gb']:.1f} GB VRAM in use by other processes"
+        result["message"] = f"Cache cleared. {vram_after:.1f} GB still in use."
 
     return result
 

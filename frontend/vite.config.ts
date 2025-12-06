@@ -35,7 +35,8 @@ export default defineConfig({
         manualChunks: (id) => {
           // Vendor chunks - split large dependencies
           if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom')) {
+            // React and zustand must be in the same chunk to avoid useState undefined error
+            if (id.includes('react') || id.includes('react-dom') || id.includes('zustand') || id.includes('use-sync-external-store')) {
               return 'vendor-react';
             }
             if (id.includes('recharts')) {
@@ -44,7 +45,7 @@ export default defineConfig({
             if (id.includes('lucide-react')) {
               return 'vendor-icons';
             }
-            if (id.includes('zustand') || id.includes('axios')) {
+            if (id.includes('axios')) {
               return 'vendor-state';
             }
             if (id.includes('socket.io-client')) {

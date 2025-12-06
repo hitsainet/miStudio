@@ -76,15 +76,15 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8000
       API_BASE_URL: http://mistudio.mcslab.io
-      ALLOWED_ORIGINS: http://mistudio.mcslab.io,http://localhost:3000,http://localhost
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-true}
     ports:
       - "8000:8000"
     volumes:
-      - mistudio_data:/data
+      - ./backend/data:/data  # Mount host data directory for SAEs, models, etc.
       - ./backend/src:/app/src:ro  # Mount source for development (remove in prod)
     restart: unless-stopped
     depends_on:
@@ -113,6 +113,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: mistudio-celery-worker
+    healthcheck:
+      disable: true  # Celery workers don't have HTTP endpoints
     environment:
       SERVICE_TYPE: celery-worker
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
@@ -128,9 +130,12 @@ services:
       HF_CACHE_DIR: /data/huggingface_cache
       HF_TOKEN: ${HF_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
+      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
-      - mistudio_data:/data
+      - ./backend/data:/data  # Mount host data directory for SAEs, models, etc.
       - ./backend/src:/app/src:ro  # Mount source for development (remove in prod)
     restart: unless-stopped
     depends_on:
@@ -153,12 +158,18 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: mistudio-celery-beat
+    healthcheck:
+      disable: true  # Celery beat doesn't have HTTP endpoints
     environment:
       SERVICE_TYPE: celery-beat
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-mistudio}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
+      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     restart: unless-stopped
     depends_on:

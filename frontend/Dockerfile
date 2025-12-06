@@ -54,34 +54,33 @@ RUN npm run build
 FROM nginx:alpine AS production
 
 # Copy custom nginx config for SPA routing
-RUN echo 'server { \n\
-    listen 80; \n\
-    server_name localhost; \n\
-    root /usr/share/nginx/html; \n\
-    index index.html; \n\
-    \n\
-    # Gzip compression \n\
-    gzip on; \n\
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript; \n\
-    \n\
-    # Cache static assets \n\
-    location /assets/ { \n\
-        expires 1y; \n\
-        add_header Cache-Control "public, immutable"; \n\
-    } \n\
-    \n\
-    # SPA fallback - serve index.html for all routes \n\
-    location / { \n\
-        try_files $uri $uri/ /index.html; \n\
-    } \n\
-    \n\
-    # Health check endpoint \n\
-    location /health { \n\
-        access_log off; \n\
-        return 200 "healthy\\n"; \n\
-        add_header Content-Type text/plain; \n\
-    } \n\
-}' > /etc/nginx/conf.d/default.conf
+# Listen on both port 80 and 3000 for compatibility with docker nginx proxy
+RUN printf '%s\n' \
+    'server {' \
+    '    listen 80;' \
+    '    listen 3000;' \
+    '    server_name localhost;' \
+    '    root /usr/share/nginx/html;' \
+    '    index index.html;' \
+    '' \
+    '    gzip on;' \
+    '    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;' \
+    '' \
+    '    location /assets/ {' \
+    '        expires 1y;' \
+    '        add_header Cache-Control "public, immutable";' \
+    '    }' \
+    '' \
+    '    location / {' \
+    '        try_files $uri $uri/ /index.html;' \
+    '    }' \
+    '' \
+    '    location /health {' \
+    '        access_log off;' \
+    '        return 200 "healthy\n";' \
+    '        add_header Content-Type text/plain;' \
+    '    }' \
+    '}' > /etc/nginx/conf.d/default.conf
 
 # Copy built assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html

@@ -245,6 +245,36 @@ class Settings(BaseSettings):
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
 
+    def resolve_data_path(self, path: str | Path) -> Path:
+        """
+        Resolve a data path to an absolute path using data_dir.
+
+        Handles paths stored in the database that may be:
+        - Absolute paths (returned as-is)
+        - Relative paths starting with "data/" (prefix stripped and joined with data_dir)
+        - Other relative paths (joined with data_dir directly)
+
+        This is essential for containerized environments where DATA_DIR
+        may differ from the path prefix stored in the database.
+
+        Args:
+            path: Path string or Path object to resolve
+
+        Returns:
+            Absolute Path object
+        """
+        path_obj = Path(path) if isinstance(path, str) else path
+
+        if path_obj.is_absolute():
+            return path_obj
+
+        # Handle paths stored with "data/" prefix (legacy format)
+        path_str = str(path_obj)
+        if path_str.startswith("data/"):
+            path_str = path_str[5:]  # Remove "data/" prefix
+
+        return self.data_dir / path_str
+
 
 # Global settings instance
 settings = Settings()

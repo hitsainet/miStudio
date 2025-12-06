@@ -693,16 +693,8 @@ def extract_activations(
             if not tokenization.tokenized_path:
                 raise ActivationExtractionError(f"Dataset {dataset_id} tokenization has no path")
 
-            # Get tokenized path - convert relative to absolute if needed
-            if Path(tokenization.tokenized_path).is_absolute():
-                dataset_path = tokenization.tokenized_path
-            else:
-                # If relative, it should be relative to the data directory
-                # Paths are stored as "data/datasets/..." so strip "data/" prefix if present
-                relative_path = tokenization.tokenized_path
-                if relative_path.startswith("data/"):
-                    relative_path = relative_path[5:]  # Remove "data/" prefix
-                dataset_path = str(settings.data_dir / relative_path)
+            # Get tokenized path - resolve to absolute using settings helper
+            dataset_path = str(settings.resolve_data_path(tokenization.tokenized_path))
 
         if not Path(dataset_path).exists():
             raise ActivationExtractionError(f"Dataset path not found: {dataset_path}")

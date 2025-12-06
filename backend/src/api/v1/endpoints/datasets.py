@@ -749,16 +749,16 @@ async def get_dataset_samples(
         dataset_path = None
         is_tokenized = False
 
-        if dataset.raw_path and Path(dataset.raw_path).exists():
-            dataset_path = dataset.raw_path
-            is_tokenized = False
-        else:
-            # Try HuggingFace cache format path (repo_id slash becomes triple underscore)
-            # Example: vietgpt_openwebtext_en → vietgpt___openwebtext_en
-            if dataset.raw_path:
-                raw_path_obj = Path(dataset.raw_path)
-                hf_cache_name = raw_path_obj.name.replace('_', '___', 1)
-                hf_cache_path = raw_path_obj.parent / hf_cache_name
+        if dataset.raw_path:
+            resolved_raw_path = settings.resolve_data_path(dataset.raw_path)
+            if resolved_raw_path.exists():
+                dataset_path = str(resolved_raw_path)
+                is_tokenized = False
+            else:
+                # Try HuggingFace cache format path (repo_id slash becomes triple underscore)
+                # Example: vietgpt_openwebtext_en → vietgpt___openwebtext_en
+                hf_cache_name = resolved_raw_path.name.replace('_', '___', 1)
+                hf_cache_path = resolved_raw_path.parent / hf_cache_name
 
                 if hf_cache_path.exists():
                     dataset_path = str(hf_cache_path)
@@ -769,9 +769,11 @@ async def get_dataset_samples(
             # Fallback to tokenized dataset if raw was cleaned up
             # Use the first tokenization's path (most common case is one tokenization per dataset)
             tokenization = dataset.tokenizations[0]
-            if tokenization.tokenized_path and Path(tokenization.tokenized_path).exists():
-                dataset_path = tokenization.tokenized_path
-                is_tokenized = True
+            if tokenization.tokenized_path:
+                resolved_tokenized_path = settings.resolve_data_path(tokenization.tokenized_path)
+                if resolved_tokenized_path.exists():
+                    dataset_path = str(resolved_tokenized_path)
+                    is_tokenized = True
 
         # Try to load dataset from local path first
         hf_dataset = None
@@ -1214,7 +1216,7 @@ async def delete_dataset_tokenization(
     await db.commit()
 
     # Queue background file cleanup if there are files to delete
-    if tokenized_path and Path(tokenized_path).exists():
+    if tokenized_path and settings.resolve_data_path(tokenized_path).exists():
         from ....workers.dataset_tasks import delete_dataset_files
         logger.info(f"Queuing file cleanup for tokenization {tokenization.id} (path={tokenized_path})")
         delete_dataset_files.delay(
@@ -1304,7 +1306,7 @@ async def cancel_dataset_tokenization(
 
     # Clean up partial tokenization files if they exist
     if tokenization.tokenized_path:
-        tokenized_path = Path(tokenization.tokenized_path)
+        tokenized_path = settings.resolve_data_path(tokenization.tokenized_path)
         if tokenized_path.exists():
             from ....workers.dataset_tasks import delete_dataset_files
             logger.info(f"Queuing cleanup of partial tokenization files: {tokenized_path}")

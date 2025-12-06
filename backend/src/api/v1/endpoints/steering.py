@@ -128,7 +128,7 @@ async def generate_steering_comparison(
     if not sae.local_path:
         raise HTTPException(400, "SAE has no local path")
 
-    sae_path = Path(sae.local_path)
+    sae_path = settings.resolve_data_path(sae.local_path)
     if not sae_path.exists():
         raise HTTPException(400, f"SAE path does not exist: {sae.local_path}")
 
@@ -224,7 +224,7 @@ async def generate_strength_sweep(
     if not sae.local_path:
         raise HTTPException(400, "SAE has no local path")
 
-    sae_path = Path(sae.local_path)
+    sae_path = settings.resolve_data_path(sae.local_path)
     if not sae_path.exists():
         raise HTTPException(400, f"SAE path does not exist: {sae.local_path}")
 

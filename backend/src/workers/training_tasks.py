@@ -443,7 +443,7 @@ def train_sae_task(
                 if extraction.status != "completed":
                     raise ValueError(f"Extraction {training.extraction_id} is not completed (status: {extraction.status})")
 
-            extraction_path = Path(extraction.output_path)
+            extraction_path = settings.resolve_data_path(extraction.output_path)
             logger.info(f"Loading activations from: {extraction_path}")
 
             # Load metadata
@@ -526,11 +526,12 @@ def train_sae_task(
             logger.info(f"Loading base model: {model_record.repo_id}")
             # Use local_files_only=True when model is already downloaded to avoid
             # HuggingFace API calls that require authentication for gated models
-            model_is_downloaded = model_record.file_path and Path(model_record.file_path).exists()
+            resolved_model_path = settings.resolve_data_path(model_record.file_path) if model_record.file_path else None
+            model_is_downloaded = resolved_model_path and resolved_model_path.exists()
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
-                cache_dir=Path(model_record.file_path) if model_record.file_path else None,
+                cache_dir=resolved_model_path,
                 device_map=device,
                 local_files_only=model_is_downloaded,
             )

@@ -154,7 +154,7 @@ async def download_export(
     if not job.output_path:
         raise HTTPException(500, "Export completed but no output file found")
 
-    output_path = Path(job.output_path)
+    output_path = settings.resolve_data_path(job.output_path)
     if not output_path.exists():
         raise HTTPException(404, "Export file not found")
 
@@ -200,7 +200,7 @@ async def delete_export(
 
     # Delete archive file if exists
     if job.output_path:
-        output_path = Path(job.output_path)
+        output_path = settings.resolve_data_path(job.output_path)
         if output_path.exists():
             output_path.unlink()
 

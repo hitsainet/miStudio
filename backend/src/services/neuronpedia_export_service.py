@@ -550,7 +550,7 @@ class NeuronpediaExportService:
         saelens_dir.mkdir(exist_ok=True)
 
         # Copy SAE weights
-        sae_path = Path(sae.local_path)
+        sae_path = settings.resolve_data_path(sae.local_path)
         weights_src = sae_path / "sae_weights.safetensors"
         if weights_src.exists():
             shutil.copy(weights_src, saelens_dir / "sae_weights.safetensors")

@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from ..models.dataset import Dataset, DatasetStatus
 from ..schemas.dataset import DatasetCreate, DatasetUpdate
+from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -355,7 +356,7 @@ class DatasetService:
             for tokenization in db_dataset.tokenizations:
                 # Delete tokenized files from disk if they exist
                 if tokenization.tokenized_path:
-                    tokenized_path = Path(tokenization.tokenized_path)
+                    tokenized_path = settings.resolve_data_path(tokenization.tokenized_path)
                     if tokenized_path.exists():
                         try:
                             if tokenized_path.is_dir():

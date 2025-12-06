@@ -1129,11 +1129,12 @@ class ExtractionService:
             # Load base model for activation extraction
             # Use local_files_only=True when model is already downloaded to avoid
             # HuggingFace API calls that require authentication for gated models
-            model_is_downloaded = model_record.file_path and Path(model_record.file_path).exists()
+            resolved_model_path = settings.resolve_data_path(model_record.file_path) if model_record.file_path else None
+            model_is_downloaded = resolved_model_path and resolved_model_path.exists()
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
-                cache_dir=Path(model_record.file_path) if model_record.file_path else None,
+                cache_dir=resolved_model_path,
                 device_map=device,
                 local_files_only=model_is_downloaded,
             )
@@ -1811,9 +1812,10 @@ class ExtractionService:
                 raise ValueError("dataset_id is required for external SAE extraction")
 
             # Load SAE using auto-detect (supports community, gemma_scope, mistudio formats)
-            logger.info(f"Loading SAE from {external_sae.local_path}")
+            resolved_sae_path = settings.resolve_data_path(external_sae.local_path)
+            logger.info(f"Loading SAE from {resolved_sae_path}")
             sae_state_dict, sae_config, format_type = load_sae_auto_detect(
-                Path(external_sae.local_path),
+                resolved_sae_path,
                 device=device
             )
             logger.info(f"SAE format detected: {format_type}")
@@ -1901,11 +1903,12 @@ class ExtractionService:
 
             # Load base model
             logger.info(f"Loading base model: {model_record.repo_id}")
-            model_is_downloaded = model_record.file_path and Path(model_record.file_path).exists()
+            resolved_model_path = settings.resolve_data_path(model_record.file_path) if model_record.file_path else None
+            model_is_downloaded = resolved_model_path and resolved_model_path.exists()
             base_model, tokenizer, model_config, metadata = load_model_from_hf(
                 repo_id=model_record.repo_id,
                 quant_format=QuantizationFormat(model_record.quantization),
-                cache_dir=Path(model_record.file_path) if model_record.file_path else None,
+                cache_dir=resolved_model_path,
                 device_map=device,
                 local_files_only=model_is_downloaded,
             )

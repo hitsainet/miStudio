@@ -345,7 +345,7 @@ class SAEManagerService:
         Returns:
             Created ExternalSAE
         """
-        source_path = Path(request.file_path)
+        source_path = settings.resolve_data_path(request.file_path)
 
         if not source_path.exists():
             raise ValueError(f"File not found: {request.file_path}")
@@ -510,7 +510,7 @@ class SAEManagerService:
 
         # Delete local files if requested
         if delete_files and sae.local_path:
-            local_path = Path(sae.local_path)
+            local_path = settings.resolve_data_path(sae.local_path)
             if local_path.exists():
                 try:
                     if local_path.is_dir():

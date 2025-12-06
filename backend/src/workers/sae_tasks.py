@@ -291,7 +291,7 @@ def upload_sae_task(
             if not sae.local_path:
                 raise ValueError(f"SAE has no local path: {sae_id}")
 
-            local_path = Path(sae.local_path)
+            local_path = settings.resolve_data_path(sae.local_path)
             model_name = sae.model_name
             layer = sae.layer
 

@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any
 
 from src.core.celery_app import celery_app
+from src.core.config import settings
 from src.services.extraction_service import ExtractionService
 from src.workers.base_task import DatabaseTask
 
@@ -177,7 +178,7 @@ def extract_features_from_sae_task(
                 db.commit()
                 raise ValueError(f"External SAE {sae_id} has no local path")
 
-            sae_path = Path(external_sae.local_path)
+            sae_path = settings.resolve_data_path(external_sae.local_path)
             if not sae_path.exists():
                 extraction_job.status = ExtractionStatus.FAILED.value
                 extraction_job.error_message = f"SAE local path does not exist: {external_sae.local_path}"

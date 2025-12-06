@@ -145,8 +145,8 @@ def download_dataset_task(
             },
         )
 
-        # Prepare download directory (use relative path for development)
-        data_dir = Path("./data/datasets")
+        # Prepare download directory using settings
+        data_dir = settings.datasets_dir
         data_dir.mkdir(parents=True, exist_ok=True)
         raw_path = data_dir / repo_id.replace("/", "_")
 
@@ -491,7 +491,7 @@ def tokenize_dataset_task(
                 # Task-level deduplication: Check if already successfully tokenized
                 if (tokenization_obj.status == TokenizationStatus.READY and
                     tokenization_obj.tokenized_path and
-                    Path(tokenization_obj.tokenized_path).exists()):
+                    settings.resolve_data_path(tokenization_obj.tokenized_path).exists()):
                     print(f"[DEDUP] Tokenization {tokenization_id} already complete, skipping duplicate task")
                     return {
                         'tokenization_id': tokenization_id,
@@ -549,7 +549,7 @@ def tokenize_dataset_task(
                 raise ValueError(f"Dataset {dataset_id} not found")
             if not dataset_obj.raw_path:
                 raise ValueError(f"Dataset {dataset_id} has no raw_path")
-            raw_path = dataset_obj.raw_path
+            raw_path = str(settings.resolve_data_path(dataset_obj.raw_path))
             # Load filter configuration from tokenization object (per-job config)
             tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
             if tokenization_obj:
@@ -1204,7 +1204,7 @@ def cancel_dataset_download(self, dataset_id: str, task_id: Optional[str] = None
             # Clean up partial download files ONLY if dataset was downloading
             # If dataset was processing (tokenizing), do NOT delete raw files - they're needed!
             if dataset.status == DatasetStatus.DOWNLOADING and dataset.raw_path:
-                raw_path = Path(dataset.raw_path)
+                raw_path = settings.resolve_data_path(dataset.raw_path)
                 if raw_path.exists():
                     try:
                         shutil.rmtree(raw_path)
@@ -1216,7 +1216,7 @@ def cancel_dataset_download(self, dataset_id: str, task_id: Optional[str] = None
             if dataset.tokenizations:
                 for tokenization in dataset.tokenizations:
                     if tokenization.tokenized_path:
-                        tokenized_path = Path(tokenization.tokenized_path)
+                        tokenized_path = settings.resolve_data_path(tokenization.tokenized_path)
                         if tokenized_path.exists():
                             try:
                                 shutil.rmtree(tokenized_path)

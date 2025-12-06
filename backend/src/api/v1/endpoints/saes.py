@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from ....core.config import settings
 from ....core.database import get_db
 from ....models.dataset import Dataset
 from ....models.external_sae import SAESource, SAEStatus
@@ -252,8 +253,7 @@ async def upload_sae_to_hf(
         raise HTTPException(400, "SAE has no local files to upload")
 
     try:
-        from pathlib import Path
-        local_path = Path(sae.local_path)
+        local_path = settings.resolve_data_path(sae.local_path)
 
         if not local_path.exists():
             raise HTTPException(400, f"SAE files not found at: {sae.local_path}")

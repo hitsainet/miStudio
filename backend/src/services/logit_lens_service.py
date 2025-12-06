@@ -107,7 +107,7 @@ class LogitLensService:
         if not sae.local_path:
             raise ValueError("SAE has no local path")
 
-        sae_path = Path(sae.local_path)
+        sae_path = settings.resolve_data_path(sae.local_path)
         if not sae_path.exists():
             raise ValueError(f"SAE path does not exist: {sae.local_path}")
 
@@ -120,13 +120,13 @@ class LogitLensService:
             if model_record:
                 # Check if local paths exist and have model files
                 if model_record.quantized_path:
-                    qpath = Path(model_record.quantized_path)
+                    qpath = settings.resolve_data_path(model_record.quantized_path)
                     if qpath.exists() and (qpath / "config.json").exists():
-                        model_path = model_record.quantized_path
+                        model_path = str(qpath)
                 if not model_path and model_record.file_path:
-                    fpath = Path(model_record.file_path)
+                    fpath = settings.resolve_data_path(model_record.file_path)
                     if fpath.exists() and (fpath / "config.json").exists():
-                        model_path = model_record.file_path
+                        model_path = str(fpath)
                     # Also check for HuggingFace cache directory structure
                     elif fpath.exists():
                         for child in fpath.iterdir():

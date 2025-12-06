@@ -697,9 +697,12 @@ def extract_activations(
             if Path(tokenization.tokenized_path).is_absolute():
                 dataset_path = tokenization.tokenized_path
             else:
-                # If relative, it's relative to project root (parent of backend/)
-                backend_dir = Path(__file__).resolve().parent.parent.parent
-                dataset_path = str(backend_dir / tokenization.tokenized_path)
+                # If relative, it should be relative to the data directory
+                # Paths are stored as "data/datasets/..." so strip "data/" prefix if present
+                relative_path = tokenization.tokenized_path
+                if relative_path.startswith("data/"):
+                    relative_path = relative_path[5:]  # Remove "data/" prefix
+                dataset_path = str(settings.data_dir / relative_path)
 
         if not Path(dataset_path).exists():
             raise ActivationExtractionError(f"Dataset path not found: {dataset_path}")

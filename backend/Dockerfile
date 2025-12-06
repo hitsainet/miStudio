@@ -34,11 +34,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Create non-root user for security
-RUN groupadd -r mistudio && useradd -r -g mistudio mistudio
+# Create non-root user for security (used by entrypoint to drop privileges)
+RUN groupadd -r mistudio && useradd -r -g mistudio -s /bin/bash mistudio
 
-# Create data directories
+# Create initial data directories (will be properly initialized by entrypoint)
+# These may be overwritten by volume mounts, which is why entrypoint re-creates them
 RUN mkdir -p /data/huggingface_cache /data/models /data/datasets /data/saes \
+    /data/activations /data/checkpoints /data/exports /data/trainings /data/tmp \
     && chown -R mistudio:mistudio /data
 
 # Copy requirements first for better layer caching
@@ -53,49 +55,13 @@ RUN python3.11 -m pip install --upgrade pip "setuptools>=78.1.1" "wheel>=0.38.1"
 # Copy application code
 COPY --chown=mistudio:mistudio . .
 
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Fix file permissions (Docker preserves host file modes which may be restrictive)
 RUN chmod -R u+r,g+r /app && \
     find /app -type d -exec chmod u+x,g+x {} \;
-
-# Create entrypoint script
-RUN echo '#!/bin/bash\n\
-set -e\n\
-\n\
-# Run database migrations\n\
-if [ "$RUN_MIGRATIONS" = "true" ]; then\n\
-    echo "Running database migrations..."\n\
-    alembic upgrade head\n\
-fi\n\
-\n\
-# Determine which service to run\n\
-case "$SERVICE_TYPE" in\n\
-    "api")\n\
-        echo "Starting FastAPI server..."\n\
-        exec uvicorn src.main:app --host 0.0.0.0 --port ${API_PORT:-8000} ${UVICORN_ARGS:-}\n\
-        ;;\n\
-    "celery-worker")\n\
-        echo "Starting Celery worker..."\n\
-        exec celery -A src.core.celery_app worker \\\n\
-            -Q ${CELERY_QUEUES:-high_priority,datasets,processing,training,extraction,sae,low_priority} \\\n\
-            -c ${CELERY_CONCURRENCY:-1} \\\n\
-            --loglevel=${LOG_LEVEL:-info} \\\n\
-            --hostname=worker@%h \\\n\
-            --max-tasks-per-child=${CELERY_MAX_TASKS:-5}\n\
-        ;;\n\
-    "celery-beat")\n\
-        echo "Starting Celery beat scheduler..."\n\
-        exec celery -A src.core.celery_app beat --loglevel=${LOG_LEVEL:-info} --schedule=/tmp/celerybeat-schedule\n\
-        ;;\n\
-    *)\n\
-        echo "Unknown SERVICE_TYPE: $SERVICE_TYPE"\n\
-        echo "Valid options: api, celery-worker, celery-beat"\n\
-        exit 1\n\
-        ;;\n\
-esac\n\
-' > /entrypoint.sh && chmod +x /entrypoint.sh
-
-# Switch to non-root user
-USER mistudio
 
 # Expose API port
 EXPOSE 8000
@@ -112,4 +78,5 @@ ENV SERVICE_TYPE=api \
     HF_HOME=/data/huggingface_cache \
     HF_CACHE_DIR=/data/huggingface_cache
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Note: Container starts as root, entrypoint drops to mistudio user after initializing data dirs
+ENTRYPOINT ["/docker-entrypoint.sh"]

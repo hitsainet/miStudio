@@ -42,6 +42,7 @@ import type { Model } from '../../types/model';
 import type { Dataset } from '../../types/dataset';
 import { COMPONENTS } from '../../config/brand';
 import { formatL0Absolute } from '../../utils/formatters';
+import { fetchTrainingMetrics } from '../../api/trainings';
 
 interface TrainingCardProps {
   training: Training;
@@ -92,6 +93,10 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     l0_sparsity: [],
     timestamps: [],
   });
+
+  // Track whether we've loaded historical metrics
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
+  const [hasLoadedHistoricalMetrics, setHasLoadedHistoricalMetrics] = useState(false);
 
   // Calculate current metrics
   const hasMetrics = training.progress > 10;
@@ -271,10 +276,56 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     };
   }, [training.id]);
 
-  // Update metrics history when training metrics change
+  // Fetch historical metrics when Live Metrics panel is opened
+  useEffect(() => {
+    const loadHistoricalMetrics = async () => {
+      // Only fetch if:
+      // 1. showMetrics is true (panel is open)
+      // 2. We haven't already loaded historical metrics
+      // 3. Training is running or has some progress
+      if (!showMetrics || hasLoadedHistoricalMetrics || training.progress === 0) {
+        return;
+      }
+
+      setIsLoadingMetrics(true);
+      try {
+        // Fetch last 20 metrics from the backend
+        const metrics = await fetchTrainingMetrics(training.id, { limit: 20 });
+
+        if (metrics.length > 0) {
+          // Sort by step to ensure correct order
+          const sortedMetrics = metrics.sort((a, b) => a.step - b.step);
+
+          setMetricsHistory({
+            loss: sortedMetrics.map((m) => m.loss),
+            l0_sparsity: sortedMetrics.map((m) => m.l0_sparsity ?? 0),
+            timestamps: sortedMetrics.map((m) => m.created_at),
+          });
+        }
+
+        setHasLoadedHistoricalMetrics(true);
+      } catch (error) {
+        console.error('[TrainingCard] Failed to fetch historical metrics:', error);
+        // Still mark as loaded to prevent retry loops
+        setHasLoadedHistoricalMetrics(true);
+      } finally {
+        setIsLoadingMetrics(false);
+      }
+    };
+
+    loadHistoricalMetrics();
+  }, [showMetrics, hasLoadedHistoricalMetrics, training.id, training.progress]);
+
+  // Update metrics history when training metrics change (WebSocket updates)
   useEffect(() => {
     if (training.current_loss !== undefined && training.current_loss !== null) {
       setMetricsHistory((prev) => {
+        // Check if this is a duplicate (same loss value as last entry)
+        // This prevents duplicate entries from rapid WebSocket updates
+        if (prev.loss.length > 0 && prev.loss[prev.loss.length - 1] === training.current_loss) {
+          return prev;
+        }
+
         const newLoss = [...prev.loss, training.current_loss!];
         const newL0 = [...prev.l0_sparsity, training.current_l0_sparsity ?? 0];
         const newTimestamps = [...prev.timestamps, new Date().toISOString()];
@@ -724,6 +775,14 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           {/* Live Metrics Section */}
           {showMetrics && training.status === TrainingStatus.RUNNING && (
             <div className="border-t border-slate-700 pt-3 mt-3 space-y-3">
+              {/* Loading State */}
+              {isLoadingMetrics && (
+                <div className="flex items-center justify-center py-4 text-slate-400">
+                  <Loader className="w-5 h-5 animate-spin mr-2" />
+                  <span className="text-sm">Loading metrics history...</span>
+                </div>
+              )}
+
               {/* Loss Curve */}
               <div className="bg-slate-800/30 rounded-lg p-3">
                 <h5 className="text-sm font-medium text-slate-300 mb-3">Loss Curve</h5>
@@ -750,7 +809,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                     })()
                   ) : (
                     <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-                      No data yet
+                      {isLoadingMetrics ? 'Loading...' : 'No data yet'}
                     </div>
                   )}
                 </div>
@@ -781,7 +840,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                     })()
                   ) : (
                     <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-                      No data yet
+                      {isLoadingMetrics ? 'Loading...' : 'No data yet'}
                     </div>
                   )}
                 </div>
@@ -791,7 +850,9 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-slate-400">Training Logs</span>
-                  <span className="text-emerald-400 text-xs">Live</span>
+                  <span className="text-emerald-400 text-xs">
+                    {hasLoadedHistoricalMetrics ? 'Live' : 'Loading...'}
+                  </span>
                 </div>
                 <div className="h-32 overflow-y-auto space-y-1">
                   {metricsHistory.loss.length > 0 ? (
@@ -806,7 +867,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                       return (
                         <div key={i} className="text-slate-300">
                           <span className="text-slate-500">[{time}]</span>{' '}
-                          Step {training.current_step - (metricsHistory.loss.length - idx - 1) * 10}:
                           loss={loss.toFixed(4)},
                           L0={sparsity.toFixed(4)},
                           dead={Math.floor(deadNeurons)}/{training.hyperparameters?.latent_dim || 'N/A'},
@@ -816,7 +876,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                     }).filter(Boolean)
                   ) : (
                     <div className="text-slate-500 text-center py-4">
-                      Waiting for training metrics...
+                      {isLoadingMetrics ? 'Loading metrics history...' : 'Waiting for training metrics...'}
                     </div>
                   )}
                 </div>

@@ -107,6 +107,88 @@ export const TrainingPanel: React.FC = () => {
     );
   }, [config.hidden_dim, config.latent_dim, config.batch_size, config.training_layers]);
 
+  // Generate default template name and description based on current config
+  const generateTemplateDefaults = useMemo(() => {
+    const model = models.find(m => m.id === config.model_id);
+    const dataset = datasets.find(d => d.id === config.dataset_id);
+
+    // Extract short model name (e.g., "microsoft/Phi-4-mini-instruct" -> "Phi-4-mini")
+    const modelName = model?.name || 'Model';
+    const modelShort = modelName
+      .replace(/^.*\//, '') // Remove org prefix
+      .split('-')
+      .slice(0, 3)
+      .join('-')
+      .replace(/-instruct$/, '') // Remove common suffixes
+      .replace(/-chat$/, '');
+
+    // Extract short dataset name
+    const datasetName = dataset?.name || 'Dataset';
+    const datasetShort = datasetName
+      .replace(/^.*\//, '') // Remove org prefix
+      .replace(/_/g, '-')
+      .slice(0, 20); // Truncate long names
+
+    // Architecture short name
+    const archMap: Record<string, string> = {
+      'standard': 'Std',
+      'skip': 'Skip',
+      'transcoder': 'Trans',
+      'jumprelu': 'JumpReLU',
+    };
+    const archShort = archMap[config.architecture_type] || config.architecture_type;
+
+    // Layers formatting
+    const layers = config.training_layers || [0];
+    const layersStr = layers.length === 1
+      ? `L${layers[0]}`
+      : layers.length <= 3
+        ? `L${layers.join('-')}`
+        : `L${layers[0]}-${layers[layers.length - 1]}`;
+
+    const name = `${modelShort}_${datasetShort}_${archShort}_${layersStr}`;
+
+    // Detailed description
+    const multiplier = Math.round(config.latent_dim / config.hidden_dim);
+    const stepsK = config.total_steps >= 1000
+      ? `${Math.round(config.total_steps / 1000)}k`
+      : String(config.total_steps);
+    const layerList = layers.join(', ');
+
+    const descParts = [
+      `Hidden: ${config.hidden_dim} → Latent: ${config.latent_dim} (${multiplier}x)`,
+      `L1: ${config.l1_alpha}`,
+      `LR: ${config.learning_rate}`,
+      `Batch: ${config.batch_size}`,
+      `Steps: ${stepsK}`,
+      `Layers: ${layerList}`,
+    ];
+
+    // Add JumpReLU-specific parameters if applicable
+    if (config.architecture_type === SAEArchitectureType.JUMPRELU) {
+      const sparsityCoeff = (config as any).sparsity_coeff ?? 0.0006;
+      const initialThreshold = (config as any).initial_threshold ?? 0.001;
+      const bandwidth = (config as any).bandwidth ?? 0.001;
+      descParts.push(`SparsityCoeff: ${sparsityCoeff}`);
+      descParts.push(`Thresh: ${initialThreshold}`);
+      descParts.push(`BW: ${bandwidth}`);
+    }
+
+    // Add target L0 if set
+    if (config.target_l0) {
+      descParts.push(`L0: ${config.target_l0}`);
+    }
+
+    // Add top-k if set
+    if ((config as any).top_k_sparsity) {
+      descParts.push(`TopK: ${(config as any).top_k_sparsity}%`);
+    }
+
+    const description = descParts.join(' | ');
+
+    return { name, description };
+  }, [config, models, datasets]);
+
   // Fetch data on mount
   useEffect(() => {
     fetchModels();
@@ -1347,7 +1429,13 @@ export const TrainingPanel: React.FC = () => {
           {/* Action Buttons */}
           <div className="mt-6 pt-4 border-t border-slate-700 flex gap-3">
             <button
-              onClick={() => setShowSaveTemplateModal(true)}
+              onClick={() => {
+                // Pre-populate template name and description from current config
+                const defaults = generateTemplateDefaults;
+                setTemplateName(defaults.name);
+                setTemplateDescription(defaults.description);
+                setShowSaveTemplateModal(true);
+              }}
               disabled={!config.model_id || !config.dataset_id}
               className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-slate-100 disabled:text-slate-500 rounded-md transition-colors"
               title="Save current configuration as a template"

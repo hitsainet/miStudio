@@ -42,18 +42,26 @@ fi
 
 # Determine if production mode
 COMPOSE_FILES="-f docker-compose.yml"
+USE_HUB_IMAGES=false
 if [ "$1" = "prod" ] || [ "$1" = "production" ]; then
-    echo "Mode: PRODUCTION"
-    COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
+    echo "Mode: PRODUCTION (using Docker Hub images)"
+    COMPOSE_FILES="-f docker-compose.hub.yml"
+    USE_HUB_IMAGES=true
 else
-    echo "Mode: DEVELOPMENT"
+    echo "Mode: DEVELOPMENT (building locally)"
 fi
 echo ""
 
-# Build and start services
-echo "Step 2: Building Docker images..."
-docker-compose $COMPOSE_FILES build --parallel
-echo -e "${GREEN}✓${NC} Images built"
+# Build or pull images based on mode
+if [ "$USE_HUB_IMAGES" = true ]; then
+    echo "Step 2: Pulling Docker Hub images..."
+    docker-compose $COMPOSE_FILES pull
+    echo -e "${GREEN}✓${NC} Images pulled from Docker Hub"
+else
+    echo "Step 2: Building Docker images..."
+    docker-compose $COMPOSE_FILES build --parallel
+    echo -e "${GREEN}✓${NC} Images built"
+fi
 echo ""
 
 echo "Step 3: Starting services..."

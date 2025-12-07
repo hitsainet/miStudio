@@ -21,8 +21,8 @@ class ExtractionConfigRequest(BaseModel):
     evaluation_samples: int = Field(
         default=10000,
         ge=1000,
-        le=100000,
-        description="Number of dataset samples to evaluate (1,000-100,000)"
+        le=1000000,
+        description="Number of dataset samples to evaluate (1,000-1,000,000)"
     )
     top_k_examples: int = Field(
         default=100,

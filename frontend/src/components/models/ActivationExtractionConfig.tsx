@@ -40,7 +40,7 @@ export function ActivationExtractionConfig({
   const [hookTypes, setHookTypes] = useState<('residual' | 'mlp' | 'attention')[]>(['residual']);
   const [batchSize, setBatchSize] = useState(32);
   const [microBatchSize, setMicroBatchSize] = useState<number | ''>(8); // GPU micro-batch size for memory efficiency
-  const [maxSamples, setMaxSamples] = useState(1000);
+  const [maxSamples, setMaxSamples] = useState(100000);
   const [topKExamples, setTopKExamples] = useState(10);
   const [extracting, setExtracting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -154,7 +154,7 @@ export function ActivationExtractionConfig({
       setHookTypes(['residual']);
       setBatchSize(32);
       setMicroBatchSize(8);
-      setMaxSamples(1000);
+      setMaxSamples(100000);
       setTopKExamples(10);
       return;
     }
@@ -528,6 +528,7 @@ export function ActivationExtractionConfig({
                 disabled={extracting}
                 className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               />
+              <p className="text-xs text-slate-500 mt-1">Max: 1,000,000</p>
             </div>
             <div>
               <label htmlFor="extraction-top-k" className="block text-sm font-medium text-slate-300 mb-2">

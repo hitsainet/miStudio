@@ -115,9 +115,11 @@ start_service() {
             ;;
         "celery-worker")
             log_info "Starting Celery worker..."
+            # --pool=solo is REQUIRED for CUDA/GPU tasks (fork breaks CUDA initialization)
             exec su -s /bin/bash mistudio -c "celery -A src.core.celery_app worker \
                 -Q ${CELERY_QUEUES:-high_priority,datasets,processing,training,extraction,sae,low_priority} \
                 -c ${CELERY_CONCURRENCY:-1} \
+                --pool=solo \
                 --loglevel=${LOG_LEVEL:-info} \
                 --hostname=worker@%h \
                 --max-tasks-per-child=${CELERY_MAX_TASKS:-5}"

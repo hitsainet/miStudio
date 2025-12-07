@@ -36,6 +36,20 @@ import type {
 } from '../types/features';
 
 /**
+ * Extract error message from API error response.
+ * Handles both Pydantic validation errors (array of objects) and regular errors (string).
+ */
+function extractErrorMessage(error: any, fallback: string): string {
+  const detail = error.response?.data?.detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join('; ');
+  } else if (typeof detail === 'string') {
+    return detail;
+  }
+  return error.message || fallback;
+}
+
+/**
  * Features store state.
  */
 interface FeaturesStoreState {
@@ -170,7 +184,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingExtraction: false,
       }));
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to start extraction';
+      const errorMessage = extractErrorMessage(error, 'Failed to start extraction');
       set({ extractionError: errorMessage, isLoadingExtraction: false });
       throw error;
     }
@@ -188,7 +202,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
       // Refresh status to get updated state
       await get().getExtractionStatus(trainingId);
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to cancel extraction';
+      const errorMessage = extractErrorMessage(error, 'Failed to cancel extraction');
       set({ extractionError: errorMessage, isLoadingExtraction: false });
       throw error;
     }
@@ -212,7 +226,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingExtraction: false,
       }));
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to delete extraction';
+      const errorMessage = extractErrorMessage(error, 'Failed to delete extraction');
       set({ extractionError: errorMessage, isLoadingExtraction: false });
       throw error;
     }
@@ -238,7 +252,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingExtraction: false,
       }));
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to get extraction status';
+      const errorMessage = extractErrorMessage(error, 'Failed to get extraction status');
       set({ extractionError: errorMessage, isLoadingExtraction: false });
     }
   },
@@ -270,7 +284,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingExtractions: false,
       });
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch extractions';
+      const errorMessage = extractErrorMessage(error, 'Failed to fetch extractions');
       set({ extractionsError: errorMessage, isLoadingExtractions: false });
     }
   },
@@ -311,7 +325,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingFeatures: false,
       }));
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch features';
+      const errorMessage = extractErrorMessage(error, 'Failed to fetch features');
       set({ featuresError: errorMessage, isLoadingFeatures: false });
       throw error;
     }
@@ -353,7 +367,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingFeatures: false,
       }));
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch extraction features';
+      const errorMessage = extractErrorMessage(error, 'Failed to fetch extraction features');
       set({ featuresError: errorMessage, isLoadingFeatures: false });
       throw error;
     }
@@ -373,7 +387,7 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         isLoadingFeatureDetail: false,
       });
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch feature detail';
+      const errorMessage = extractErrorMessage(error, 'Failed to fetch feature detail');
       set({ featureDetailError: errorMessage, isLoadingFeatureDetail: false });
       throw error;
     }

@@ -170,7 +170,16 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
 
       setShowSuccessMessage(true);
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to start extraction';
+      // Handle Pydantic validation errors (detail is array) vs regular errors (detail is string)
+      const detail = error.response?.data?.detail;
+      let errorMessage: string;
+      if (Array.isArray(detail) && detail.length > 0) {
+        errorMessage = detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join('; ');
+      } else if (typeof detail === 'string') {
+        errorMessage = detail;
+      } else {
+        errorMessage = error.message || 'Failed to start extraction';
+      }
       setLocalError(errorMessage);
     } finally {
       setIsSubmitting(false);
@@ -396,10 +405,11 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       value={evaluationSamples}
                       onChange={(e) => setEvaluationSamples(Number(e.target.value))}
                       min={1000}
-                      max={100000}
+                      max={1000000}
                       step={1000}
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                     />
+                    <p className="text-xs text-slate-500 mt-1">Max: 1,000,000</p>
                   </div>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Top-K Examples per Feature</label>

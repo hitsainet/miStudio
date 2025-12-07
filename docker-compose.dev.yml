@@ -67,3 +67,5 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+    external: true
+    name: ollama_data

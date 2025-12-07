@@ -13,8 +13,8 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
-    // Allow all hosts for development access from 192.168.224.0/24 network
-    allowedHosts: 'all',
+    // Allow all hosts for development access
+    allowedHosts: ['mistudio.mcslab.io', 'localhost', '.localhost'],
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

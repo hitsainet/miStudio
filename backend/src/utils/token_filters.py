@@ -204,8 +204,31 @@ def is_junk_token(
 
     # Special tokens
     if filter_special:
-        if token in ['<s>', '</s>', '<pad>', '<unk>', '\ufeff']:
+        # Common special tokens across tokenizers
+        special_tokens = {
+            # LLaMA/SentencePiece
+            '<s>', '</s>', '<pad>', '<unk>',
+            # GPT-2/OpenAI
+            '<|endoftext|>', '<|pad|>',
+            # LLaMA 3 / newer models
+            '<|begin_of_text|>', '<|end_of_text|>',
+            '<|eot_id|>', '<|start_header_id|>', '<|end_header_id|>',
+            '<|pad_id|>', '<|finetune_right_pad_id|>',
+            # Gemma
+            '<bos>', '<eos>', '<pad>',
+            # Unicode BOM
+            '\ufeff',
+        }
+        if token in special_tokens:
             return True
+        # Tokens that look like special tokens (angle bracket pattern)
+        if token.startswith('<|') and token.endswith('|>'):
+            return True
+        if token.startswith('<') and token.endswith('>') and len(token) > 2:
+            # Likely a special token like <mask>, <sep>, etc.
+            inner = token[1:-1]
+            if inner.isalpha() or inner.replace('_', '').isalpha():
+                return True
         # Only whitespace marker
         if token == '▁':
             return True

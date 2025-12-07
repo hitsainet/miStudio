@@ -253,7 +253,8 @@ volumes:
   mistudio_data:
     name: mistudio_data
   ollama_data:
-    name: mistudio_ollama_data
+    external: true
+    name: ollama_data
 
 # ==============================================================================
 # Networks

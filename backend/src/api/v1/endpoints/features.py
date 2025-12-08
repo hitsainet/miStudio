@@ -30,8 +30,16 @@ from src.schemas.feature import (
     FeatureActivationExample,
     LogitLensResponse,
     CorrelationsResponse,
-    AblationResponse
+    AblationResponse,
+    NLPAnalysisRequest,
+    NLPAnalysisStatusResponse,
+    NLPAnalysisResultResponse
 )
+from src.workers.nlp_analysis_tasks import (
+    analyze_features_nlp_task,
+    analyze_single_feature_nlp_task
+)
+from src.models.feature_analysis_cache import FeatureAnalysisCache, AnalysisType
 
 
 logger = logging.getLogger(__name__)
@@ -697,3 +705,180 @@ async def get_ablation(
         )
 
     return result
+
+
+# =============================================================================
+# NLP Analysis Endpoints
+# =============================================================================
+
+
+@router.post(
+    "/extractions/{extraction_id}/analyze-nlp",
+    response_model=NLPAnalysisStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger NLP analysis for extraction"
+)
+async def trigger_nlp_analysis(
+    extraction_id: str,
+    request: NLPAnalysisRequest = NLPAnalysisRequest(),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Trigger NLP analysis for all features in an extraction job.
+
+    This queues a background Celery task to compute NLP analysis (POS tagging,
+    NER, context patterns, semantic clusters) for each feature's activation
+    examples. Results are cached in the feature_analysis_cache table.
+
+    Progress can be monitored via WebSocket channel: `nlp_analysis/{extraction_id}`
+
+    Args:
+        extraction_id: ID of the extraction job
+        request: Optional configuration (feature_ids to analyze, batch_size)
+
+    Returns:
+        NLPAnalysisStatusResponse with task_id for tracking
+
+    Raises:
+        404: Extraction job not found
+    """
+    from src.models.extraction_job import ExtractionJob
+
+    # Verify extraction exists
+    result = await db.execute(
+        select(ExtractionJob).where(ExtractionJob.id == extraction_id)
+    )
+    extraction = result.scalar_one_or_none()
+
+    if not extraction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Extraction job {extraction_id} not found"
+        )
+
+    # Queue the Celery task
+    task = analyze_features_nlp_task.delay(
+        extraction_job_id=extraction_id,
+        feature_ids=request.feature_ids,
+        batch_size=request.batch_size
+    )
+
+    return NLPAnalysisStatusResponse(
+        task_id=task.id,
+        extraction_job_id=extraction_id,
+        status="queued",
+        message=f"NLP analysis queued for extraction {extraction_id}"
+    )
+
+
+@router.post(
+    "/features/{feature_id}/analyze-nlp",
+    response_model=NLPAnalysisStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger NLP analysis for single feature"
+)
+async def trigger_single_feature_nlp_analysis(
+    feature_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Trigger NLP analysis for a single feature.
+
+    Queues a background task to compute NLP analysis for one feature.
+    Useful for re-computing analysis or analyzing newly added features.
+
+    Args:
+        feature_id: ID of the feature
+
+    Returns:
+        NLPAnalysisStatusResponse with task_id for tracking
+
+    Raises:
+        404: Feature not found
+    """
+    # Verify feature exists
+    result = await db.execute(
+        select(Feature).where(Feature.id == feature_id)
+    )
+    feature = result.scalar_one_or_none()
+
+    if not feature:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Feature {feature_id} not found"
+        )
+
+    # Queue the Celery task
+    task = analyze_single_feature_nlp_task.delay(feature_id=feature_id)
+
+    return NLPAnalysisStatusResponse(
+        task_id=task.id,
+        extraction_job_id=feature.extraction_job_id,
+        status="queued",
+        message=f"NLP analysis queued for feature {feature_id}"
+    )
+
+
+@router.get(
+    "/features/{feature_id}/nlp-analysis",
+    response_model=Optional[NLPAnalysisResultResponse],
+    summary="Get cached NLP analysis"
+)
+async def get_nlp_analysis(
+    feature_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get cached NLP analysis for a feature.
+
+    Returns the pre-computed NLP analysis if available and not expired.
+    Analysis includes POS tagging, NER, context patterns, semantic clusters,
+    and a formatted summary suitable for LLM prompt inclusion.
+
+    Args:
+        feature_id: ID of the feature
+
+    Returns:
+        NLPAnalysisResultResponse if cached, null if not available
+
+    Raises:
+        404: Feature not found
+    """
+    from datetime import datetime, timezone
+
+    # Verify feature exists
+    result = await db.execute(
+        select(Feature).where(Feature.id == feature_id)
+    )
+    feature = result.scalar_one_or_none()
+
+    if not feature:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Feature {feature_id} not found"
+        )
+
+    # Check for cached analysis
+    result = await db.execute(
+        select(FeatureAnalysisCache).where(
+            FeatureAnalysisCache.feature_id == feature_id,
+            FeatureAnalysisCache.analysis_type == AnalysisType.NLP_ANALYSIS,
+            FeatureAnalysisCache.expires_at > datetime.now(timezone.utc)
+        )
+    )
+    cache_entry = result.scalar_one_or_none()
+
+    if not cache_entry:
+        return None
+
+    # Return the cached result
+    analysis_data = cache_entry.result
+    return NLPAnalysisResultResponse(
+        feature_id=feature_id,
+        prime_token_analysis=analysis_data.get("prime_token_analysis", {}),
+        context_patterns=analysis_data.get("context_patterns", {}),
+        activation_stats=analysis_data.get("activation_stats", {}),
+        semantic_clusters=analysis_data.get("semantic_clusters", []),
+        summary_for_prompt=analysis_data.get("summary_for_prompt", ""),
+        computed_at=cache_entry.computed_at
+    )

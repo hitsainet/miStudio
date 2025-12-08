@@ -198,6 +198,7 @@ celery_app.autodiscover_tasks(
         "src.workers.cleanup_stuck_trainings",
         "src.workers.sae_tasks",
         "src.workers.neuronpedia_tasks",
+        "src.workers.nlp_analysis_tasks",
     ],
     force=True,
 )

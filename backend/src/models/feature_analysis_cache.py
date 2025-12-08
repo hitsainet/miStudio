@@ -20,11 +20,12 @@ class AnalysisType(str, Enum):
     LOGIT_LENS = "logit_lens"  # Logit lens analysis: top predicted tokens
     CORRELATIONS = "correlations"  # Correlation with other features
     ABLATION = "ablation"  # Ablation impact on model performance
+    NLP_ANALYSIS = "nlp_analysis"  # Enhanced NLP analysis: POS, NER, patterns, clusters
 
 
 # Create the PostgreSQL ENUM type
 analysis_type_enum = PostgreSQLEnum(
-    'logit_lens', 'correlations', 'ablation',
+    'logit_lens', 'correlations', 'ablation', 'nlp_analysis',
     name='analysis_type_enum',
     create_type=False  # Type already exists from migration
 )

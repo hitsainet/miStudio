@@ -865,6 +865,19 @@ class ExtractionService:
                     event="extraction:completed",
                     data=event_data
                 )
+
+                # Queue NLP analysis task for completed extraction
+                try:
+                    from ..workers.nlp_analysis_tasks import analyze_features_nlp_task
+                    analyze_features_nlp_task.delay(
+                        extraction_job_id=extraction_id,
+                        feature_ids=None,  # Analyze all features
+                        batch_size=100
+                    )
+                    logger.info(f"Queued NLP analysis task for extraction {extraction_id}")
+                except Exception as nlp_err:
+                    logger.warning(f"Failed to queue NLP analysis for extraction {extraction_id}: {nlp_err}")
+
             elif status == ExtractionStatus.FAILED.value:
                 event_data["error_message"] = error_message
                 emit_progress(
@@ -1269,8 +1282,9 @@ class ExtractionService:
 
                                     # Decode tokens for display (if possible)
                                     try:
-                                        tokens = tokenizer.convert_ids_to_tokens(batch_input_ids[-1])
-                                        batch_texts.append(" ".join([t.replace("Ġ", " ") for t in tokens if t]))
+                                        # Use decode() for proper Unicode handling across all tokenizer types
+                                        decoded_text = tokenizer.decode(batch_input_ids[-1], skip_special_tokens=False)
+                                        batch_texts.append(decoded_text)
                                     except:
                                         batch_texts.append(f"[Tokens: {len(batch_input_ids[-1])}]")
 
@@ -1389,7 +1403,9 @@ class ExtractionService:
                             batch_sae_features.append(sae_features)
 
                             # Get token strings for this sample
-                            token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
+                            # Use decode() instead of convert_ids_to_tokens() to properly handle
+                            # byte-level BPE tokenizers (GPT-2, Phi) which return raw byte representations
+                            token_strings = [tokenizer.decode([tid]) for tid in batch_input_ids[batch_idx]]
                             batch_token_strings.append(token_strings)
 
                         # Stack into batch tensor (handle variable sequence lengths with padding if needed)
@@ -1973,8 +1989,9 @@ class ExtractionService:
                                 else:
                                     batch_input_ids.append(ids.tolist() if hasattr(ids, 'tolist') else list(ids))
                                 try:
-                                    tokens = tokenizer.convert_ids_to_tokens(batch_input_ids[-1])
-                                    batch_texts.append(" ".join([t.replace("Ġ", " ") for t in tokens if t]))
+                                    # Use decode() for proper Unicode handling across all tokenizer types
+                                    decoded_text = tokenizer.decode(batch_input_ids[-1], skip_special_tokens=False)
+                                    batch_texts.append(decoded_text)
                                 except:
                                     batch_texts.append(f"[Tokens: {len(batch_input_ids[-1])}]")
 
@@ -2021,7 +2038,9 @@ class ExtractionService:
                             ).detach()
                             batch_sae_features.append(sae_features)
 
-                            token_strings = tokenizer.convert_ids_to_tokens(batch_input_ids[batch_idx])
+                            # Use decode() instead of convert_ids_to_tokens() to properly handle
+                            # byte-level BPE tokenizers (GPT-2, Phi) which return raw byte representations
+                            token_strings = [tokenizer.decode([tid]) for tid in batch_input_ids[batch_idx]]
                             batch_token_strings.append(token_strings)
 
                         if batch_sae_features:

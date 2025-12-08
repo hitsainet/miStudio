@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional
 import logging
 import asyncio
 from src.core.config import settings
+from src.services.nlp_analysis_service import NLPAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -914,7 +915,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         user_prompt_template: str,
         feature_id: str,
         logit_effects: Optional[Dict[str, Any]] = None,
-        negative_examples: Optional[List[Dict[str, Any]]] = None
+        negative_examples: Optional[List[Dict[str, Any]]] = None,
+        analysis_summary: Optional[str] = None
     ) -> str:
         """
         Build user prompt from template by replacing {examples_block} placeholder.
@@ -922,7 +924,7 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         This method orchestrates the full prompt building workflow:
         1. Formats examples using _format_examples_block
         2. Replaces {examples_block} placeholder in template
-        3. Replaces other optional placeholders (feature_id, logit tokens)
+        3. Replaces other optional placeholders (feature_id, logit tokens, analysis)
 
         Args:
             examples: List of activation example dicts
@@ -931,6 +933,7 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             feature_id: Feature identifier for context
             logit_effects: Optional logit effects data for Anthropic template
             negative_examples: Optional list of low-activation examples for contrastive learning
+            analysis_summary: Optional NLP analysis summary to include
 
         Returns:
             Fully formatted user prompt ready for API call
@@ -946,6 +949,21 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
 
         # Start with the template
         prompt = user_prompt_template
+
+        # Insert NLP analysis summary before examples_block if available
+        # This provides statistical context about ALL examples, not just the displayed ones
+        if analysis_summary:
+            analysis_section = f"""## STATISTICAL ANALYSIS OF ALL EXAMPLES:
+
+{analysis_summary}
+
+"""
+            # If template has {analysis_block} placeholder, use it
+            if '{analysis_block}' in prompt:
+                prompt = prompt.replace('{analysis_block}', analysis_section)
+            # Otherwise, prepend to examples_block
+            else:
+                examples_block = analysis_section + examples_block
 
         # Replace examples_block placeholder
         if '{examples_block}' in prompt:
@@ -966,6 +984,10 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
                 suppressed = logit_effects.get('top_suppressed', [])
                 suppressed_str = ', '.join(suppressed) if suppressed else '(none)'
                 prompt = prompt.replace('{top_suppressed_tokens}', suppressed_str)
+
+        # Clean up unused placeholders
+        if '{analysis_block}' in prompt:
+            prompt = prompt.replace('{analysis_block}', '')
 
         return prompt
 
@@ -1243,13 +1265,18 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
         system_message: str,
         feature_id: str,
         neuron_index: Optional[int] = None,
-        logit_effects: Optional[Dict[str, Any]] = None
+        logit_effects: Optional[Dict[str, Any]] = None,
+        all_examples: Optional[List[Dict[str, Any]]] = None,
+        nlp_analysis: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
         """
         Generate semantic label for a feature using context-based examples.
 
         This is the new context-based labeling method that uses full activation examples
         with prefix/prime/suffix tokens instead of aggregated token statistics.
+
+        Enhanced with NLP analysis that provides statistical patterns from ALL examples
+        (not just the top K displayed) to give the LLM better context for labeling.
 
         Args:
             examples: List of top-K activation example dicts with keys:
@@ -1262,6 +1289,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             system_message: System message for the LLM
             feature_id: Feature identifier for context
             logit_effects: Optional dict with 'top_promoted' and 'top_suppressed' token lists
+            all_examples: Optional full list of all examples (for NLP analysis)
+            nlp_analysis: Optional pre-computed NLP analysis results
 
         Returns:
             Dict with {"category": "...", "specific": "...", "description": "..."}
@@ -1272,6 +1301,19 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
             logger.warning(f"Empty examples for feature {feature_id}, using fallback label")
             return {"category": "empty_features", "specific": fallback_label, "description": ""}
 
+        # Compute NLP analysis if not provided and we have all examples
+        analysis_summary = None
+        if nlp_analysis:
+            analysis_summary = nlp_analysis.get("summary_for_prompt", "")
+        elif all_examples and len(all_examples) > len(examples):
+            try:
+                nlp_service = NLPAnalysisService()
+                analysis_result = nlp_service.analyze_feature(all_examples, feature_id or "unknown")
+                analysis_summary = analysis_result.get("summary_for_prompt", "")
+                logger.debug(f"Computed NLP analysis for feature {feature_id} with {len(all_examples)} examples")
+            except Exception as e:
+                logger.warning(f"Failed to compute NLP analysis for feature {feature_id}: {e}")
+
         try:
             # Build user prompt using the new _build_user_prompt method
             user_prompt = self._build_user_prompt(
@@ -1279,7 +1321,8 @@ Both labels must be lowercase_with_underscores (1-3 words max each).
                 template_config=template_config,
                 user_prompt_template=user_prompt_template,
                 feature_id=feature_id,
-                logit_effects=logit_effects
+                logit_effects=logit_effects,
+                analysis_summary=analysis_summary
             )
 
             # Prepare request payload

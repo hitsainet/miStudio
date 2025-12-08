@@ -227,3 +227,42 @@ class AblationResponse(BaseModel):
     baseline_perplexity: float
     ablated_perplexity: float
     computed_at: datetime
+
+
+class NLPAnalysisRequest(BaseModel):
+    """Request schema for triggering NLP analysis."""
+    model_config = ConfigDict(from_attributes=True)
+
+    feature_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Specific feature IDs to analyze. If not provided, analyzes all features."
+    )
+    batch_size: int = Field(
+        default=100,
+        ge=10,
+        le=500,
+        description="Number of features to process in each batch"
+    )
+
+
+class NLPAnalysisStatusResponse(BaseModel):
+    """Response schema for NLP analysis task status."""
+    model_config = ConfigDict(from_attributes=True)
+
+    task_id: str = Field(description="Celery task ID for tracking progress")
+    extraction_job_id: str = Field(description="ID of the extraction job being analyzed")
+    status: str = Field(description="Task status: queued, processing, completed, failed")
+    message: str = Field(description="Human-readable status message")
+
+
+class NLPAnalysisResultResponse(BaseModel):
+    """Response schema for completed NLP analysis."""
+    model_config = ConfigDict(from_attributes=True)
+
+    feature_id: str
+    prime_token_analysis: Dict[str, Any] = Field(description="POS tags, NER entities, frequency stats")
+    context_patterns: Dict[str, Any] = Field(description="N-grams and pattern analysis")
+    activation_stats: Dict[str, Any] = Field(description="Activation value statistics")
+    semantic_clusters: List[Dict[str, Any]] = Field(description="Clustered example groups")
+    summary_for_prompt: str = Field(description="Formatted summary for LLM prompt inclusion")
+    computed_at: datetime

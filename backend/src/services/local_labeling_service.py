@@ -4,6 +4,9 @@ Local model-based feature labeling service.
 This service uses a local instruction-tuned LLM (Phi-3-mini) to generate
 semantic labels for SAE features based on their activation patterns.
 Provides zero-cost, privacy-preserving alternative to API-based labeling.
+
+Enhanced with NLP analysis that provides statistical summaries of all 100
+activation examples to help the LLM make better labeling decisions.
 """
 
 import torch
@@ -11,6 +14,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List, Dict, Any, Optional
 import logging
 from pathlib import Path
+
+from src.services.nlp_analysis_service import NLPAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -133,13 +138,18 @@ class LocalLabelingService:
         self,
         examples: List[Dict[str, Any]],
         neuron_index: Optional[int] = None,
-        feature_id: Optional[str] = None
+        feature_id: Optional[str] = None,
+        all_examples: Optional[List[Dict[str, Any]]] = None,
+        nlp_analysis: Optional[Dict[str, Any]] = None
     ) -> Dict[str, str]:
         """
         Generate semantic label for a feature based on context examples.
 
         This is the new context-based labeling method that uses full activation examples
         with prefix/prime/suffix tokens instead of aggregated token statistics.
+
+        Enhanced with NLP analysis that provides statistical patterns from ALL examples
+        (not just the top 10 displayed) to give the LLM better context for labeling.
 
         Args:
             examples: List of top-K activation example dicts with keys:
@@ -149,6 +159,8 @@ class LocalLabelingService:
                 - max_activation: float - Peak activation value
             neuron_index: Optional neuron index for fallback naming
             feature_id: Optional feature ID for fallback naming
+            all_examples: Optional full list of all examples (for NLP analysis)
+            nlp_analysis: Optional pre-computed NLP analysis results
 
         Returns:
             Dict with {"category": "...", "specific": "...", "description": "..."}
@@ -159,8 +171,21 @@ class LocalLabelingService:
             logger.warning("Empty examples, using fallback label")
             return {"category": "empty_features", "specific": fallback_label, "description": ""}
 
-        # Build prompt with context examples
-        prompt = self._build_prompt_from_examples(examples, feature_id=feature_id)
+        # Compute NLP analysis if not provided and we have all examples
+        analysis_summary = None
+        if nlp_analysis:
+            analysis_summary = nlp_analysis.get("summary_for_prompt", "")
+        elif all_examples and len(all_examples) > len(examples):
+            try:
+                nlp_service = NLPAnalysisService()
+                analysis_result = nlp_service.analyze_feature(all_examples, feature_id or "unknown")
+                analysis_summary = analysis_result.get("summary_for_prompt", "")
+                logger.info(f"Computed NLP analysis for feature {feature_id} with {len(all_examples)} examples")
+            except Exception as e:
+                logger.warning(f"Failed to compute NLP analysis: {e}")
+
+        # Build prompt with context examples and analysis
+        prompt = self._build_prompt_from_examples(examples, feature_id=feature_id, analysis_summary=analysis_summary)
 
         # Ensure model is loaded
         if not self.is_loaded:
@@ -254,7 +279,8 @@ Rules:
     def _build_prompt_from_examples(
         self,
         examples: List[Dict[str, Any]],
-        feature_id: Optional[str] = None
+        feature_id: Optional[str] = None,
+        analysis_summary: Optional[str] = None
     ) -> str:
         """
         Build user prompt from context-based activation examples.
@@ -262,16 +288,27 @@ Rules:
         Args:
             examples: List of activation example dicts with prefix/prime/suffix tokens
             feature_id: Optional feature ID for context
+            analysis_summary: Optional NLP analysis summary to include
 
         Returns:
             Formatted prompt string with examples
         """
         feature_label = feature_id or "this feature"
 
-        prompt = f"""Analyze sparse autoencoder feature {feature_label}.
-You are given some of the highest-activating examples for this feature. In each example, the main activating token(s) are wrapped in << >>.
+        # Start with analysis summary if available
+        analysis_section = ""
+        if analysis_summary:
+            analysis_section = f"""
+## STATISTICAL ANALYSIS OF ALL EXAMPLES:
 
-Use ALL of the examples, including their surrounding context, to infer the smallest semantic concept that explains why these tokens activate the same feature.
+{analysis_summary}
+
+"""
+
+        prompt = f"""Analyze sparse autoencoder feature {feature_label}.
+{analysis_section}You are given some of the highest-activating examples for this feature. In each example, the main activating token(s) are wrapped in << >>.
+
+Use the statistical analysis above (if provided) along with ALL of the examples, including their surrounding context, to infer the smallest semantic concept that explains why these tokens activate the same feature.
 
 Each example is formatted as:
   Example N (activation: A_N): [prefix tokens] <<prime tokens>> [suffix tokens]
@@ -396,7 +433,9 @@ Return ONLY this exact JSON object:
         features_examples: List[List[Dict[str, Any]]],
         neuron_indices: Optional[List[int]] = None,
         feature_ids: Optional[List[str]] = None,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        all_features_examples: Optional[List[List[Dict[str, Any]]]] = None,
+        nlp_analyses: Optional[List[Optional[Dict[str, Any]]]] = None
     ) -> List[Dict[str, str]]:
         """
         Generate labels for multiple features efficiently using context examples.
@@ -404,10 +443,12 @@ Return ONLY this exact JSON object:
         Loads model once and processes all features before unloading.
 
         Args:
-            features_examples: List of example lists, one per feature
+            features_examples: List of example lists (top 10), one per feature
             neuron_indices: Optional list of neuron indices for fallback naming
             feature_ids: Optional list of feature IDs for fallback naming
             progress_callback: Optional callback(current, total) for progress updates
+            all_features_examples: Optional full example lists (all 100) for NLP analysis
+            nlp_analyses: Optional pre-computed NLP analyses, one per feature
 
         Returns:
             List of label dicts ({"category": "...", "specific": "...", "description": "..."})
@@ -423,10 +464,15 @@ Return ONLY this exact JSON object:
             for i, examples in enumerate(features_examples):
                 neuron_index = neuron_indices[i] if neuron_indices else None
                 feature_id = feature_ids[i] if feature_ids else None
+                all_examples = all_features_examples[i] if all_features_examples else None
+                nlp_analysis = nlp_analyses[i] if nlp_analyses else None
+
                 label = self.generate_label(
                     examples=examples,
                     neuron_index=neuron_index,
-                    feature_id=feature_id
+                    feature_id=feature_id,
+                    all_examples=all_examples,
+                    nlp_analysis=nlp_analysis
                 )
                 labels.append(label)
 

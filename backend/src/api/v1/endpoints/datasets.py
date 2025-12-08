@@ -987,9 +987,10 @@ async def tokenize_preview(
             return_attention_mask=request.return_attention_mask,
         )
 
-        # Get token IDs and convert to tokens
+        # Get token IDs and convert to tokens using decode() for proper Unicode handling
+        # across all tokenizer types (byte-level BPE like GPT-2/Phi and SentencePiece like Gemma/LLaMA)
         input_ids = encoded["input_ids"]
-        tokens_list = tokenizer.convert_ids_to_tokens(input_ids)
+        tokens_list = [tokenizer.decode([tid]) for tid in input_ids]
 
         # Identify special tokens
         special_token_ids = set()

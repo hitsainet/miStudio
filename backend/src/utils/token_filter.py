@@ -236,8 +236,9 @@ class TokenFilter:
         if not token_ids or len(token_ids) == 0:
             return True  # Empty sequence is junk
 
-        # Convert token IDs to tokens
-        tokens = [tokenizer.convert_ids_to_tokens(tid) if isinstance(tid, int) else tid
+        # Convert token IDs to tokens using decode() for proper Unicode handling
+        # across all tokenizer types (byte-level BPE like GPT-2/Phi and SentencePiece like Gemma/LLaMA)
+        tokens = [tokenizer.decode([tid]) if isinstance(tid, int) else tid
                   for tid in token_ids]
 
         # Count junk tokens

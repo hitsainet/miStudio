@@ -680,14 +680,17 @@ class LabelingService:
                     override_msg = f" (job override)" if job_max_examples is not None else ""
                     logger.info(f"Using template: {template.name} (type: {template.template_type}, K={max_examples}{override_msg})")
 
-            # Retrieve top-K activation examples using efficient SQL batching
-            # Process features in batches of 1000 to avoid memory issues and track progress
+            # Retrieve activation examples using efficient SQL batching
+            # For NLP analysis, we need ALL examples (up to 100)
+            # For display in LLM prompt, we only show top max_examples (default 10)
             BATCH_SIZE = 1000
-            features_examples = []
+            NLP_ANALYSIS_EXAMPLES = 100  # Retrieve all examples for comprehensive NLP analysis
+            features_examples = []  # Top max_examples for LLM display
+            all_features_examples = []  # All examples for NLP analysis
             neuron_indices = []
 
             # Phase 1: Examples Retrieval with progress tracking
-            logger.info(f"Starting examples retrieval phase for {total_features} features (K={max_examples}) in batches of {BATCH_SIZE}")
+            logger.info(f"Starting examples retrieval phase for {total_features} features (display K={max_examples}, NLP K={NLP_ANALYSIS_EXAMPLES}) in batches of {BATCH_SIZE}")
 
             for batch_start in range(0, total_features, BATCH_SIZE):
                 batch_end = min(batch_start + BATCH_SIZE, total_features)
@@ -699,18 +702,21 @@ class LabelingService:
                 # Get feature IDs for this batch
                 batch_feature_ids = [f.id for f in batch_features]
 
-                # Use SQL to retrieve top-K examples for entire batch
+                # Retrieve ALL examples (up to 100) for NLP analysis
                 # Use sync version since Celery worker uses sync session
-                examples_map = self._retrieve_top_examples_batch_sync(
+                all_examples_map = self._retrieve_top_examples_batch_sync(
                     session=self.db,
                     feature_ids=batch_feature_ids,
-                    max_examples=max_examples
+                    max_examples=NLP_ANALYSIS_EXAMPLES
                 )
 
                 # Build ordered lists for labeling (maintain feature order)
                 for feature in batch_features:
-                    examples = examples_map.get(feature.id, [])
-                    features_examples.append(examples)
+                    all_examples = all_examples_map.get(feature.id, [])
+                    # Store all examples for NLP analysis
+                    all_features_examples.append(all_examples)
+                    # Store only top max_examples for LLM display
+                    features_examples.append(all_examples[:max_examples])
                     neuron_indices.append(feature.neuron_index)
 
                 # Update progress in database
@@ -804,15 +810,18 @@ class LabelingService:
                             batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
                             batch_features = features[batch_start:batch_end]
                             batch_examples = features_examples[batch_start:batch_end]
+                            batch_all_examples = all_features_examples[batch_start:batch_end]
 
                             # Generate labels for this batch (model already loaded)
                             # LOCAL service uses synchronous generation, not async
+                            # Pass all examples for NLP analysis to improve labeling
                             batch_labels = []
-                            for feature, examples in zip(batch_features, batch_examples):
+                            for feature, examples, all_examples in zip(batch_features, batch_examples, batch_all_examples):
                                 label = labeling_service.generate_label(
                                     examples=examples,
                                     neuron_index=feature.neuron_index,
-                                    feature_id=feature.id
+                                    feature_id=feature.id,
+                                    all_examples=all_examples  # Pass full 100 examples for NLP analysis
                                 )
                                 batch_labels.append(label)
 
@@ -946,11 +955,13 @@ class LabelingService:
                         batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
                         batch_features = features[batch_start:batch_end]
                         batch_examples = features_examples[batch_start:batch_end]
+                        batch_all_examples = all_features_examples[batch_start:batch_end]
 
                         # Generate labels for this batch using context-based examples
                         # Create concurrent tasks for all features in batch
+                        # Pass all examples for NLP analysis to improve labeling
                         label_tasks = []
-                        for feature, examples in zip(batch_features, batch_examples):
+                        for feature, examples, all_ex in zip(batch_features, batch_examples, batch_all_examples):
                             task = labeling_service.generate_label_from_examples(
                                 examples=examples,
                                 template_config=template_config,
@@ -958,7 +969,8 @@ class LabelingService:
                                 system_message=system_message,
                                 feature_id=feature.id,
                                 neuron_index=feature.neuron_index,
-                                logit_effects=None  # TODO: Implement in Sprint 4
+                                logit_effects=None,  # TODO: Implement in Sprint 4
+                                all_examples=all_ex  # Pass full 100 examples for NLP analysis
                             )
                             label_tasks.append(task)
 
@@ -1096,11 +1108,13 @@ class LabelingService:
                         batch_end = min(batch_start + LABEL_BATCH_SIZE, total_features)
                         batch_features = features[batch_start:batch_end]
                         batch_examples = features_examples[batch_start:batch_end]
+                        batch_all_examples = all_features_examples[batch_start:batch_end]
 
                         # Generate labels for this batch using context-based examples
                         # Create concurrent tasks for all features in batch
+                        # Pass all examples for NLP analysis to improve labeling
                         label_tasks = []
-                        for feature, examples in zip(batch_features, batch_examples):
+                        for feature, examples, all_ex in zip(batch_features, batch_examples, batch_all_examples):
                             task = labeling_service.generate_label_from_examples(
                                 examples=examples,
                                 template_config=template_config,
@@ -1108,7 +1122,8 @@ class LabelingService:
                                 system_message=system_message,
                                 feature_id=feature.id,
                                 neuron_index=feature.neuron_index,
-                                logit_effects=None  # TODO: Implement in Sprint 4
+                                logit_effects=None,  # TODO: Implement in Sprint 4
+                                all_examples=all_ex  # Pass full 100 examples for NLP analysis
                             )
                             label_tasks.append(task)
 

@@ -151,7 +151,8 @@ async def generate_steering_comparison(
     model_path = None
     model = await ModelService.get_model(db, model_id)
     if model and model.file_path:
-        model_path = model.file_path
+        # Resolve Docker-style /data/ paths for native mode
+        model_path = str(settings.resolve_data_path(model.file_path))
         # Use model name or repo_id as the identifier for HF loading
         model_id = model.repo_id or model.name
 
@@ -245,7 +246,8 @@ async def generate_strength_sweep(
     model_path = None
     model = await ModelService.get_model(db, model_id)
     if model and model.file_path:
-        model_path = model.file_path
+        # Resolve Docker-style /data/ paths for native mode
+        model_path = str(settings.resolve_data_path(model.file_path))
         # Use model name or repo_id as the identifier for HF loading
         model_id = model.repo_id or model.name
 

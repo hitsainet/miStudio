@@ -252,6 +252,9 @@ class TokenizationService:
             Exception: If tokenizer cannot be loaded
         """
         try:
+            print(f"[TOKENIZER DEBUG] Loading tokenizer: {tokenizer_name}")
+            print(f"[TOKENIZER DEBUG] cache_dir: {cache_dir}")
+            print(f"[TOKENIZER DEBUG] local_files_only: {cache_dir is not None}")
             tokenizer = AutoTokenizer.from_pretrained(
                 tokenizer_name,
                 use_fast=use_fast,

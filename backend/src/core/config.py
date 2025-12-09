@@ -250,7 +250,8 @@ class Settings(BaseSettings):
         Resolve a data path to an absolute path using data_dir.
 
         Handles paths stored in the database that may be:
-        - Absolute paths (returned as-is)
+        - Already correct absolute paths (returned as-is if they exist)
+        - Docker-style paths starting with "/data/" (converted to use data_dir)
         - Relative paths starting with "data/" (prefix stripped and joined with data_dir)
         - Other relative paths (joined with data_dir directly)
 
@@ -264,12 +265,23 @@ class Settings(BaseSettings):
             Absolute Path object
         """
         path_obj = Path(path) if isinstance(path, str) else path
+        path_str = str(path_obj)
 
+        # Handle Docker-style absolute paths like "/data/datasets/..."
+        # These are absolute in containers but need resolution in native mode
+        if path_str.startswith("/data/"):
+            # Strip the /data/ prefix and join with actual data_dir
+            relative_path = path_str[6:]  # Remove "/data/" prefix
+            return self.data_dir / relative_path
+
+        # If it's a real absolute path that exists, use it directly
         if path_obj.is_absolute():
-            return path_obj
+            if path_obj.exists():
+                return path_obj
+            # If absolute path doesn't exist, try resolving as relative
+            # (in case it was stored with wrong absolute prefix)
 
         # Handle paths stored with "data/" prefix (legacy format)
-        path_str = str(path_obj)
         if path_str.startswith("data/"):
             path_str = path_str[5:]  # Remove "data/" prefix
 

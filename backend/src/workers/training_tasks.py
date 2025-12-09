@@ -520,8 +520,10 @@ def train_sae_task(
                         f"is not ready (status: {tokenization.status}). Please wait for tokenization to complete."
                     )
 
-            logger.info(f"Loading dataset from {tokenization.tokenized_path}")
-            dataset = load_from_disk(tokenization.tokenized_path)
+            # Resolve relative path to absolute using data_dir setting
+            resolved_tokenized_path = str(settings.resolve_data_path(tokenization.tokenized_path))
+            logger.info(f"Loading dataset from {resolved_tokenized_path}")
+            dataset = load_from_disk(resolved_tokenized_path)
 
             logger.info(f"Loading base model: {model_record.repo_id}")
             # Use local_files_only=True when model is already downloaded to avoid

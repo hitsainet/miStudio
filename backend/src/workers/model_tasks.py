@@ -665,8 +665,8 @@ def extract_activations(
                     f"Model {model_id} is not ready (status: {model.status.value})"
                 )
 
-            # Get model file paths before closing session
-            model_file_path = model.file_path
+            # Get model file paths before closing session - resolve to absolute using settings helper
+            model_file_path = str(settings.resolve_data_path(model.file_path))
             model_architecture = model.architecture
             model_quantization = model.quantization
 
@@ -695,6 +695,10 @@ def extract_activations(
 
             # Get tokenized path - resolve to absolute using settings helper
             dataset_path = str(settings.resolve_data_path(tokenization.tokenized_path))
+
+        # Validate model path exists
+        if not Path(model_file_path).exists():
+            raise ActivationExtractionError(f"Model path not found: {model_file_path}")
 
         if not Path(dataset_path).exists():
             raise ActivationExtractionError(f"Dataset path not found: {dataset_path}")

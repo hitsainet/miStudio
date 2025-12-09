@@ -480,7 +480,8 @@ def tokenize_dataset_task(
 
             tokenizer_name = model_obj.repo_id
             # Get model's local cache directory for tokenizer files
-            model_cache_dir = model_obj.file_path
+            # Resolve relative path to absolute using settings.data_dir
+            model_cache_dir = str(settings.resolve_data_path(model_obj.file_path)) if model_obj.file_path else None
             print(f"Using tokenizer from model {model_id}: {tokenizer_name}")
             print(f"Model cache directory: {model_cache_dir}")
 

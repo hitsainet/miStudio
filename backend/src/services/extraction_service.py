@@ -1106,8 +1106,10 @@ class ExtractionService:
                     f"is not ready (status: {tokenization.status}). Please wait for tokenization to complete."
                 )
 
-            logger.info(f"Loading dataset from {tokenization.tokenized_path}")
-            dataset = load_from_disk(tokenization.tokenized_path)
+            # Resolve Docker-style /data/ paths for native mode
+            resolved_dataset_path = settings.resolve_data_path(tokenization.tokenized_path)
+            logger.info(f"Loading dataset from {resolved_dataset_path}")
+            dataset = load_from_disk(str(resolved_dataset_path))
 
             # Select sample range for evaluation (supports diverse sampling across dataset)
             dataset_size = len(dataset)
@@ -1905,8 +1907,10 @@ class ExtractionService:
                     f"Please tokenize the dataset first."
                 )
 
-            logger.info(f"Loading dataset from {tokenization.tokenized_path}")
-            dataset = load_from_disk(tokenization.tokenized_path)
+            # Resolve Docker-style /data/ paths for native mode
+            resolved_dataset_path = settings.resolve_data_path(tokenization.tokenized_path)
+            logger.info(f"Loading dataset from {resolved_dataset_path}")
+            dataset = load_from_disk(str(resolved_dataset_path))
 
             # Select sample range
             dataset_size = len(dataset)

@@ -1267,8 +1267,8 @@ def delete_dataset_files(dataset_id: str, raw_path: Optional[str] = None, tokeni
 
     Args:
         dataset_id: Dataset UUID
-        raw_path: Path to raw dataset files
-        tokenized_path: Path to tokenized dataset files
+        raw_path: Path to raw dataset files (may be Docker-style /data/ path)
+        tokenized_path: Path to tokenized dataset files (may be Docker-style /data/ path)
 
     Returns:
         dict with deletion status
@@ -1282,25 +1282,29 @@ def delete_dataset_files(dataset_id: str, raw_path: Optional[str] = None, tokeni
     errors = []
 
     try:
+        # Resolve Docker-style /data/ paths for native mode compatibility
+        resolved_raw_path = str(settings.resolve_data_path(raw_path)) if raw_path else None
+        resolved_tokenized_path = str(settings.resolve_data_path(tokenized_path)) if tokenized_path else None
+
         # Delete raw dataset files
-        if raw_path and os.path.exists(raw_path):
+        if resolved_raw_path and os.path.exists(resolved_raw_path):
             try:
-                shutil.rmtree(raw_path)
-                deleted_files.append(raw_path)
-                logger.info(f"Deleted raw dataset files: {raw_path}")
+                shutil.rmtree(resolved_raw_path)
+                deleted_files.append(resolved_raw_path)
+                logger.info(f"Deleted raw dataset files: {resolved_raw_path}")
             except Exception as e:
-                error_msg = f"Failed to delete raw dataset files {raw_path}: {str(e)}"
+                error_msg = f"Failed to delete raw dataset files {resolved_raw_path}: {str(e)}"
                 logger.error(error_msg)
                 errors.append(error_msg)
 
         # Delete tokenized dataset files
-        if tokenized_path and os.path.exists(tokenized_path):
+        if resolved_tokenized_path and os.path.exists(resolved_tokenized_path):
             try:
-                shutil.rmtree(tokenized_path)
-                deleted_files.append(tokenized_path)
-                logger.info(f"Deleted tokenized dataset files: {tokenized_path}")
+                shutil.rmtree(resolved_tokenized_path)
+                deleted_files.append(resolved_tokenized_path)
+                logger.info(f"Deleted tokenized dataset files: {resolved_tokenized_path}")
             except Exception as e:
-                error_msg = f"Failed to delete tokenized dataset files {tokenized_path}: {str(e)}"
+                error_msg = f"Failed to delete tokenized dataset files {resolved_tokenized_path}: {str(e)}"
                 logger.error(error_msg)
                 errors.append(error_msg)
 
@@ -1309,17 +1313,17 @@ def delete_dataset_files(dataset_id: str, raw_path: Optional[str] = None, tokeni
         from pathlib import Path
         import glob
 
-        if raw_path:
+        if resolved_raw_path:
             try:
-                data_dir = Path(raw_path).parent
-                dataset_name = Path(raw_path).name
+                data_dir = Path(resolved_raw_path).parent
+                dataset_name = Path(resolved_raw_path).name
 
                 # Pattern 1: HuggingFace cache format (triple underscore)
                 # e.g., "vietgpt_openwebtext_en" -> "vietgpt___openwebtext_en"
                 hf_cache_name = dataset_name.replace('_', '___', 1)  # Replace first underscore with triple
                 hf_cache_path = data_dir / hf_cache_name
 
-                if hf_cache_path.exists() and hf_cache_path != Path(raw_path):
+                if hf_cache_path.exists() and hf_cache_path != Path(resolved_raw_path):
                     try:
                         shutil.rmtree(hf_cache_path)
                         deleted_files.append(str(hf_cache_path))

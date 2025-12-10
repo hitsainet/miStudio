@@ -300,11 +300,31 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                         className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                       >
                         <option value="">-- Select an SAE --</option>
-                        {readySAEs.map((sae) => (
-                          <option key={sae.id} value={sae.id}>
-                            {sae.name} ({sae.model_name || 'Unknown model'}, Layer {sae.layer ?? '?'})
-                          </option>
-                        ))}
+                        {readySAEs.map((sae) => {
+                          // Format: Model | L{layer} | Architecture | Features | L0 | Source
+                          const modelName = sae.model_name || 'Unknown';
+                          const layer = sae.layer != null ? `L${sae.layer}` : 'L?';
+                          const arch = sae.architecture || 'standard';
+                          const features = sae.n_features
+                            ? `${(sae.n_features / 1000).toFixed(1)}K`
+                            : '?';
+                          const l0 = sae.sae_metadata?.final_l0_sparsity != null
+                            ? `L0: ${(sae.sae_metadata.final_l0_sparsity * 100).toFixed(1)}%`
+                            : '';
+                          const source = sae.training_id
+                            ? sae.training_id.slice(0, 12)
+                            : sae.hf_repo_id?.split('/').pop()?.slice(0, 12) || sae.id.slice(0, 8);
+
+                          const parts = [modelName, layer, arch, features];
+                          if (l0) parts.push(l0);
+                          parts.push(source);
+
+                          return (
+                            <option key={sae.id} value={sae.id}>
+                              {parts.join(' | ')}
+                            </option>
+                          );
+                        })}
                       </select>
                       {saeLoadError && (
                         <p className="text-xs text-red-400 mt-1">{saeLoadError}</p>

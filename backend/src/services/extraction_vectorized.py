@@ -357,23 +357,15 @@ def batch_process_features(
                         continue
 
                     # Validation 2: Prime token should NOT appear in prefix_tokens
+                    # Note: This is actually common in natural text (repeated words/tokens)
+                    # Silently remove duplicates without logging to avoid performance impact
                     if prime_token in prefix_tokens:
-                        logger.error(
-                            f"[EXTRACTION VALIDATION] 🚨 BUG: prime_token '{prime_token}' found in "
-                            f"prefix_tokens for feature {feat_idx}! This indicates a logic error. "
-                            f"prefix_tokens={prefix_tokens}, prime_index={prime_index}, max_pos={max_pos}"
-                        )
-                        # Remove the duplicate to prevent downstream issues
                         prefix_tokens = [t for t in prefix_tokens if t != prime_token]
 
                     # Validation 3: Prime token should NOT appear in suffix_tokens
+                    # Note: This is actually common in natural text (repeated words/tokens)
+                    # Silently remove duplicates without logging to avoid performance impact
                     if prime_token in suffix_tokens:
-                        logger.error(
-                            f"[EXTRACTION VALIDATION] 🚨 BUG: prime_token '{prime_token}' found in "
-                            f"suffix_tokens for feature {feat_idx}! This indicates a logic error. "
-                            f"suffix_tokens={suffix_tokens}, prime_index={prime_index}, max_pos={max_pos}"
-                        )
-                        # Remove the duplicate to prevent downstream issues
                         suffix_tokens = [t for t in suffix_tokens if t != prime_token]
 
                     # Validation 4: Verify prime_index is within bounds

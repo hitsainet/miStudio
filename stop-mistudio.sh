@@ -24,8 +24,9 @@ echo "Stopping Backend (FastAPI)..."
 pkill -f "uvicorn src.main:app" || echo -e "${YELLOW}⚠${NC}  No uvicorn process found"
 
 echo ""
-echo "Stopping Celery Worker..."
-pkill -f "celery.*src.core.celery_app" || echo -e "${YELLOW}⚠${NC}  No Celery worker found"
+echo "Stopping Celery services (worker + beat)..."
+cd "$PROJECT_ROOT/backend"
+./celery.sh stop
 
 echo ""
 echo "Stopping Docker services (keeping data)..."

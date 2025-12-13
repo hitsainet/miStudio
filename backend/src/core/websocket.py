@@ -173,12 +173,12 @@ class WebSocketManager:
         # Always emit to Socket.IO room - the room system handles delivery
         # If no one is subscribed to the room, the event is simply not delivered
         #
-        # IMPORTANT: We emit using the channel name as the event name so that
-        # the frontend can listen with socket.on(channel, callback).
-        # This allows the frontend to subscribe to specific channels without
-        # having to filter events by channel in a global handler.
+        # Use the actual event name for Socket.IO emission - this allows
+        # the frontend to listen for specific event types (e.g., 'system:metrics')
+        # across multiple channels. The room mechanism ensures only subscribers
+        # receive the event.
         await sio.emit(
-            channel,  # Use channel name as event name for easy subscription
+            event,  # Use actual event name (e.g., 'system:metrics', 'progress', etc.)
             data,
             room=channel,
             namespace=namespace,

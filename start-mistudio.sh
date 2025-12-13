@@ -101,19 +101,9 @@ wait_for_service "Ollama" "curl -s http://localhost:11434/api/tags"
 echo -e "${GREEN}✓${NC} All Docker services are healthy"
 
 echo ""
-echo "Step 3: Starting Celery worker..."
-if pgrep -f "celery.*src.core.celery_app" > /dev/null; then
-    echo -e "${GREEN}✓${NC} Celery worker already running"
-else
-    cd "$PROJECT_ROOT/backend"
-    ./start-celery-worker.sh > /tmp/celery-worker.log 2>&1 &
-    sleep 3
-    if pgrep -f "celery.*src.core.celery_app" > /dev/null; then
-        echo -e "${GREEN}✓${NC} Celery worker started"
-    else
-        echo -e "${RED}✗${NC} Failed to start Celery worker (check /tmp/celery-worker.log)"
-    fi
-fi
+echo "Step 3: Starting Celery services (worker + beat)..."
+cd "$PROJECT_ROOT/backend"
+./celery.sh start
 
 echo ""
 echo "Step 4: Starting Backend (FastAPI)..."
@@ -151,7 +141,8 @@ check_service "PostgreSQL (Docker)" "docker exec mistudio-postgres pg_isready -U
 check_service "Redis (Docker)" "docker exec mistudio-redis redis-cli ping"
 check_service "Nginx (Docker)" "docker exec mistudio-nginx nginx -t"
 check_service "Ollama (Docker)" "curl -s http://localhost:11434/api/tags"
-check_service "Celery Worker" "pgrep -f 'celery.*src.core.celery_app'"
+check_service "Celery Worker" "test -f /tmp/mistudio-celery-worker.pid && kill -0 \$(cat /tmp/mistudio-celery-worker.pid 2>/dev/null) 2>/dev/null"
+check_service "Celery Beat" "test -f /tmp/mistudio-celery-beat.pid && kill -0 \$(cat /tmp/mistudio-celery-beat.pid 2>/dev/null) 2>/dev/null"
 check_service "Backend (FastAPI)" "curl -s http://localhost:8000/api/v1/datasets"
 check_service "Frontend (Vite)" "curl -s http://localhost:3000"
 
@@ -168,6 +159,7 @@ echo ""
 echo "Logs:"
 echo "  Backend: /tmp/backend.log"
 echo "  Frontend: /tmp/frontend.log"
-echo "  Celery: /tmp/celery-worker.log"
+echo "  Celery Worker: /tmp/celery-worker.log"
+echo "  Celery Beat: /tmp/celery-beat.log"
 echo "  Ollama: docker logs mistudio-ollama"
 echo ""

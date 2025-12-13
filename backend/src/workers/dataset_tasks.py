@@ -529,6 +529,7 @@ def tokenize_dataset_task(
             if dataset_obj:
                 dataset_obj.status = DatasetStatus.PROCESSING
                 dataset_obj.progress = 0.0
+                dataset_obj.error_message = None  # Clear any previous error on new attempt
 
             db.commit()
 
@@ -950,6 +951,7 @@ def tokenize_dataset_task(
                 if dataset_obj:
                     dataset_obj.status = DatasetStatus.READY
                     dataset_obj.progress = 100.0
+                    dataset_obj.error_message = None  # Clear error on successful completion
 
                 db.commit()
                 db.refresh(tokenization_obj)

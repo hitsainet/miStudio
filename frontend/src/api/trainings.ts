@@ -18,7 +18,7 @@ export interface TrainingMetric {
   dead_neurons?: number;
   learning_rate?: number;
   fvu?: number;
-  created_at: string;
+  timestamp: string;
 }
 
 /**

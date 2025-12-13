@@ -20,7 +20,10 @@ import { Zap, X, Brain, ChevronDown } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
+import { useModelsStore } from '../../stores/modelsStore';
+import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
 import type { Training } from '../../types/training';
+import type { ExtractionTemplate } from '../../types/extractionTemplate';
 import type { SAE } from '../../types/sae';
 import { startSAEExtraction, SAEExtractionConfig, getReadySAEs } from '../../api/saes';
 
@@ -51,6 +54,8 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
 
   const { datasets, fetchDatasets } = useDatasetsStore();
   const { trainings, fetchTrainings } = useTrainingsStore();
+  const { models, fetchModels } = useModelsStore();
+  const { templates: extractionTemplates, fetchTemplates: fetchExtractionTemplates } = useExtractionTemplatesStore();
 
   // Local state for SAEs (fetched directly from API to avoid affecting global store)
   const [saes, setSaes] = useState<SAE[]>([]);
@@ -106,11 +111,13 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
           setSaeLoadError('Failed to load SAEs. Please try again.');
         });
 
-      // Fetch datasets and trainings from stores
+      // Fetch datasets, trainings, models, and extraction templates from stores
       fetchDatasets();
       fetchTrainings();
+      fetchModels();
+      fetchExtractionTemplates();
     }
-  }, [isOpen, fetchDatasets, fetchTrainings]);
+  }, [isOpen, fetchDatasets, fetchTrainings, fetchModels, fetchExtractionTemplates]);
 
   // Filter completed trainings
   const completedTrainings = trainings.filter(t => t.status === 'completed');
@@ -129,6 +136,58 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const getDatasetName = (datasetId: string) => {
     const dataset = datasets.find(d => d.id === datasetId);
     return dataset?.name || datasetId;
+  };
+
+  const getModelName = (modelId: string) => {
+    const model = models.find(m => m.id === modelId);
+    return model?.name || modelId;
+  };
+
+  /**
+   * Apply extraction template settings to form.
+   */
+  const applyTemplate = (template: ExtractionTemplate) => {
+    setEvaluationSamples(template.max_samples || 10000);
+    setTopKExamples(template.top_k_examples || 100);
+    if (template.context_prefix_tokens !== undefined) {
+      setContextPrefixTokens(template.context_prefix_tokens);
+    }
+    if (template.context_suffix_tokens !== undefined) {
+      setContextSuffixTokens(template.context_suffix_tokens);
+    }
+    // Apply filter settings if available in template metadata
+    if (template.extraction_filter_enabled !== undefined) {
+      const filterMode = template.extraction_filter_mode || 'standard';
+      if (filterMode === 'minimal') {
+        setFilterSpecial(true);
+        setFilterSingleChar(false);
+        setFilterPunctuation(false);
+        setFilterNumbers(false);
+        setFilterFragments(false);
+        setFilterStopWords(false);
+      } else if (filterMode === 'conservative') {
+        setFilterSpecial(true);
+        setFilterSingleChar(true);
+        setFilterPunctuation(false);
+        setFilterNumbers(false);
+        setFilterFragments(false);
+        setFilterStopWords(false);
+      } else if (filterMode === 'standard') {
+        setFilterSpecial(true);
+        setFilterSingleChar(true);
+        setFilterPunctuation(true);
+        setFilterNumbers(true);
+        setFilterFragments(true);
+        setFilterStopWords(false);
+      } else if (filterMode === 'aggressive') {
+        setFilterSpecial(true);
+        setFilterSingleChar(true);
+        setFilterPunctuation(true);
+        setFilterNumbers(true);
+        setFilterFragments(true);
+        setFilterStopWords(true);
+      }
+    }
   };
 
   /**
@@ -302,7 +361,8 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                         <option value="">-- Select an SAE --</option>
                         {readySAEs.map((sae) => {
                           // Format: Model | L{layer} | Architecture | Features | L0 | Source
-                          const modelName = sae.model_name || 'Unknown';
+                          // Look up model name from store if not set on SAE
+                          const modelName = sae.model_name || (sae.model_id ? getModelName(sae.model_id) : 'Unknown');
                           const layer = sae.layer != null ? `L${sae.layer}` : 'L?';
                           const arch = sae.architecture || 'standard';
                           const features = sae.n_features
@@ -363,7 +423,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       <div className="p-3 bg-slate-800/30 border border-slate-700 rounded text-sm">
                         <div className="grid grid-cols-2 gap-2 text-slate-400">
                           <span>Model:</span>
-                          <span className="text-slate-200">{selectedSAE.model_name || 'Unknown'}</span>
+                          <span className="text-slate-200">{selectedSAE.model_name || (selectedSAE.model_id ? getModelName(selectedSAE.model_id) : 'Unknown')}</span>
                           <span>Layer:</span>
                           <span className="text-slate-200">{selectedSAE.layer ?? 'Unknown'}</span>
                           <span>Features:</span>
@@ -384,11 +444,23 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       >
                         <option value="">-- Select a training --</option>
                         {completedTrainings.map((training) => {
-                          const datasetName = getDatasetName(training.dataset_id);
-                          const modelId = training.model_id?.slice(0, 8) || 'Unknown';
+                          // Format: Model | L{layer} | Architecture | Features | L0 | training_id
+                          const modelName = getModelName(training.model_id);
+                          const hp = training.hyperparameters || {};
+                          const layer = hp.training_layers?.[0] != null ? `L${hp.training_layers[0]}` : 'L?';
+                          const arch = hp.architecture_type || 'standard';
+                          const features = hp.latent_dim
+                            ? hp.latent_dim >= 1000 ? `${(hp.latent_dim / 1000).toFixed(1)}K` : hp.latent_dim
+                            : '?';
+                          const l0 = hp.target_l0 != null
+                            ? `L0: ${(hp.target_l0 * 100).toFixed(1)}%`
+                            : '';
+                          const parts = [modelName, layer, arch, features];
+                          if (l0) parts.push(l0);
+                          parts.push(training.id.slice(0, 12));
                           return (
                             <option key={training.id} value={training.id}>
-                              {`${training.id.slice(0, 8)} - ${modelId} / ${datasetName}`}
+                              {parts.join(' | ')}
                             </option>
                           );
                         })}
@@ -405,7 +477,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       <div className="p-3 bg-slate-800/30 border border-slate-700 rounded text-sm">
                         <div className="grid grid-cols-2 gap-2 text-slate-400">
                           <span>Model:</span>
-                          <span className="text-slate-200">{selectedTraining.model_id}</span>
+                          <span className="text-slate-200">{getModelName(selectedTraining.model_id)}</span>
                           <span>Dataset:</span>
                           <span className="text-slate-200">{getDatasetName(selectedTraining.dataset_id)}</span>
                           <span>Latent Dim:</span>
@@ -413,6 +485,33 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Extraction Template Selector */}
+                {extractionTemplates.length > 0 && (
+                  <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                    <label className="block text-xs text-slate-400 mb-2">Load Settings from Template</label>
+                    <select
+                      onChange={(e) => {
+                        const template = extractionTemplates.find(t => t.id === e.target.value);
+                        if (template) {
+                          applyTemplate(template);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                      defaultValue=""
+                    >
+                      <option value="">-- Select a template to apply --</option>
+                      {extractionTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name} {template.is_favorite ? '★' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Applying a template will update the configuration fields below
+                    </p>
                   </div>
                 )}
 
@@ -508,7 +607,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                             value={contextPrefixTokens}
                             onChange={(e) => setContextPrefixTokens(Number(e.target.value))}
                             min={0}
-                            max={20}
+                            max={50}
                             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                           />
                         </div>
@@ -519,7 +618,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                             value={contextSuffixTokens}
                             onChange={(e) => setContextSuffixTokens(Number(e.target.value))}
                             min={0}
-                            max={20}
+                            max={50}
                             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                           />
                         </div>

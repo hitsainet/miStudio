@@ -677,7 +677,10 @@ class TrainingService:
         if end_step is not None:
             query = query.where(TrainingMetric.step <= end_step)
 
-        query = query.order_by(TrainingMetric.step).limit(limit)
+        # Order by step DESC to get the latest metrics, then reverse to show in chronological order
+        query = query.order_by(TrainingMetric.step.desc()).limit(limit)
 
         result = await db.execute(query)
-        return list(result.scalars().all())
+        metrics = list(result.scalars().all())
+        # Reverse to return in ascending step order (oldest first within the window)
+        return metrics[::-1]

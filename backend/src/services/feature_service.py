@@ -503,6 +503,29 @@ class FeatureService:
             active_samples=active_samples
         )
 
+    async def get_feature_by_index(
+        self,
+        training_id: str,
+        feature_idx: int
+    ) -> Optional[str]:
+        """
+        Look up feature ID by training_id and feature index (neuron_index).
+
+        Args:
+            training_id: ID of the training
+            feature_idx: Feature index (neuron_index) in the SAE
+
+        Returns:
+            Feature ID string if found, None otherwise
+        """
+        feature_query = select(Feature.id).where(
+            Feature.training_id == training_id,
+            Feature.neuron_index == feature_idx
+        )
+        result = await self.db.execute(feature_query)
+        feature_id = result.scalar_one_or_none()
+        return feature_id
+
     async def update_feature(
         self,
         feature_id: str,

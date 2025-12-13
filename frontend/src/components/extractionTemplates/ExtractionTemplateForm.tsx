@@ -193,13 +193,13 @@ export function ExtractionTemplateForm({
       return;
     }
 
-    if (contextPrefixTokens < 1 || contextPrefixTokens > 20) {
-      setError('Context prefix tokens must be between 1 and 20');
+    if (contextPrefixTokens < 0 || contextPrefixTokens > 50) {
+      setError('Context prefix tokens must be between 0 and 50');
       return;
     }
 
-    if (contextSuffixTokens < 1 || contextSuffixTokens > 20) {
-      setError('Context suffix tokens must be between 1 and 20');
+    if (contextSuffixTokens < 0 || contextSuffixTokens > 50) {
+      setError('Context suffix tokens must be between 0 and 50');
       return;
     }
 
@@ -471,8 +471,8 @@ export function ExtractionTemplateForm({
                   type="number"
                   value={contextPrefixTokens}
                   onChange={(e) => handleContextPrefixChange(parseInt(e.target.value, 10))}
-                  min="1"
-                  max="20"
+                  min="0"
+                  max="50"
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   disabled={isSubmitting}
                   required
@@ -488,8 +488,8 @@ export function ExtractionTemplateForm({
                   type="number"
                   value={contextSuffixTokens}
                   onChange={(e) => handleContextSuffixChange(parseInt(e.target.value, 10))}
-                  min="1"
-                  max="20"
+                  min="0"
+                  max="50"
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   disabled={isSubmitting}
                   required

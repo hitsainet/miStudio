@@ -417,6 +417,36 @@ async def get_feature_detail(
     return feature_detail
 
 
+@router.get(
+    "/trainings/{training_id}/features/by-index/{feature_idx}",
+    response_model=dict,
+    summary="Lookup feature ID by index"
+)
+async def get_feature_id_by_index(
+    training_id: str,
+    feature_idx: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Look up feature ID by training_id and feature index (neuron_index).
+
+    This endpoint is used when a feature was added by manual index input
+    and we need to fetch its database feature_id for viewing details.
+
+    Args:
+        training_id: ID of the training
+        feature_idx: Feature index (neuron_index) in the SAE
+
+    Returns:
+        {"feature_id": "..."} if found, {"feature_id": null} if not found
+    """
+    feature_service = FeatureService(db)
+
+    feature_id = await feature_service.get_feature_by_index(training_id, feature_idx)
+
+    return {"feature_id": feature_id}
+
+
 @router.patch(
     "/features/{feature_id}",
     response_model=FeatureResponse,

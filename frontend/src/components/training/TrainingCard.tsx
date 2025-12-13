@@ -296,10 +296,19 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           // Sort by step to ensure correct order
           const sortedMetrics = metrics.sort((a, b) => a.step - b.step);
 
+          // Deduplicate by timestamp (in case DB has duplicates)
+          const seen = new Set<string>();
+          const dedupedMetrics = sortedMetrics.filter((m) => {
+            const key = m.timestamp;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
           setMetricsHistory({
-            loss: sortedMetrics.map((m) => m.loss),
-            l0_sparsity: sortedMetrics.map((m) => m.l0_sparsity ?? 0),
-            timestamps: sortedMetrics.map((m) => m.created_at),
+            loss: dedupedMetrics.map((m) => m.loss),
+            l0_sparsity: dedupedMetrics.map((m) => m.l0_sparsity ?? 0),
+            timestamps: dedupedMetrics.map((m) => m.timestamp),
           });
         }
 
@@ -320,15 +329,25 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   useEffect(() => {
     if (training.current_loss !== undefined && training.current_loss !== null) {
       setMetricsHistory((prev) => {
-        // Check if this is a duplicate (same loss value as last entry)
-        // This prevents duplicate entries from rapid WebSocket updates
-        if (prev.loss.length > 0 && prev.loss[prev.loss.length - 1] === training.current_loss) {
-          return prev;
+        // Create timestamp for this update (truncate to seconds for dedup)
+        const now = new Date();
+        now.setMilliseconds(0);
+        const newTimestamp = now.toISOString();
+
+        // Check if we already have an entry with a similar timestamp (within same second)
+        const lastTimestamp = prev.timestamps[prev.timestamps.length - 1];
+        if (lastTimestamp) {
+          const lastTime = new Date(lastTimestamp).getTime();
+          const newTime = now.getTime();
+          // Skip if within 1 second of last entry
+          if (Math.abs(newTime - lastTime) < 1000) {
+            return prev;
+          }
         }
 
         const newLoss = [...prev.loss, training.current_loss!];
         const newL0 = [...prev.l0_sparsity, training.current_l0_sparsity ?? 0];
-        const newTimestamps = [...prev.timestamps, new Date().toISOString()];
+        const newTimestamps = [...prev.timestamps, newTimestamp];
 
         // Keep only last 20 points
         return {
@@ -873,7 +892,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                           lr={learningRate.toExponential(2)}
                         </div>
                       );
-                    }).filter(Boolean)
+                    }).filter(Boolean).reverse()
                   ) : (
                     <div className="text-slate-500 text-center py-4">
                       {isLoadingMetrics ? 'Loading metrics history...' : 'Waiting for training metrics...'}

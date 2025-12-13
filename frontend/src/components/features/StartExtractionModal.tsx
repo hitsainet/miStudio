@@ -289,7 +289,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                             value={contextPrefixTokens}
                             onChange={(e) => setContextPrefixTokens(Number(e.target.value))}
                             min={0}
-                            max={20}
+                            max={50}
                             step={1}
                             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                           />
@@ -304,7 +304,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                             value={contextSuffixTokens}
                             onChange={(e) => setContextSuffixTokens(Number(e.target.value))}
                             min={0}
-                            max={20}
+                            max={50}
                             step={1}
                             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                           />

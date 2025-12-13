@@ -46,6 +46,12 @@ The startup script automatically starts all required services in the correct ord
 - Handles model downloads, tokenization, training jobs
 - Log: `/tmp/celery-worker.log`
 
+### 2b. Celery Beat
+- Periodic task scheduler
+- Triggers system monitoring every 2 seconds
+- Triggers cleanup tasks every 10 minutes
+- Log: `/tmp/celery-beat.log`
+
 ### 3. Backend (FastAPI)
 - Python API server on port 8000
 - Serves REST API at `/api/`
@@ -98,9 +104,14 @@ lsof -i :3000
 curl http://localhost:3000
 ```
 
-**Celery:**
+**Celery Worker:**
 ```bash
-pgrep -f "celery.*src.core.celery_app"
+pgrep -f "celery.*worker.*src.core.celery_app"
+```
+
+**Celery Beat:**
+```bash
+pgrep -f "celery.*beat.*src.core.celery_app"
 ```
 
 **Nginx:**
@@ -124,8 +135,11 @@ tail -f /tmp/backend.log
 # Frontend logs
 tail -f /tmp/frontend.log
 
-# Celery logs
+# Celery Worker logs
 tail -f /tmp/celery-worker.log
+
+# Celery Beat logs
+tail -f /tmp/celery-beat.log
 
 # Docker service logs
 docker logs -f mistudio-postgres
@@ -352,8 +366,8 @@ alembic upgrade head
                     ↓                ↓                ↓
             ┌─────────────┐  ┌──────────┐  ┌──────────────┐
             │ PostgreSQL  │  │  Redis   │  │ Celery Worker│
-            │ (Docker)    │  │ (Docker) │  │ (Background) │
-            │ Port 5432   │  │ Port 6379│  │              │
+            │ (Docker)    │  │ (Docker) │  │ + Beat       │
+            │ Port 5432   │  │ Port 6379│  │ (Background) │
             └─────────────┘  └──────────┘  └──────────────┘
 ```
 

@@ -62,6 +62,8 @@ export function TrainingTemplatesPanel() {
     try {
       await createTemplate(data as TrainingTemplateCreate);
       showNotification('success', 'Template created successfully');
+      setShowEditModal(false);
+      setEditingTemplate(null);
       setActiveTab('all');
       fetchFavorites(); // Refresh favorites if new template is favorite
     } catch (err) {
@@ -335,7 +337,7 @@ export function TrainingTemplatesPanel() {
               <div className="p-6">
                 <TrainingTemplateForm
                   template={editingTemplate}
-                  onSubmit={handleUpdate}
+                  onSubmit={editingTemplate.id ? handleUpdate : handleCreate}
                   onCancel={() => {
                     setShowEditModal(false);
                     setEditingTemplate(null);

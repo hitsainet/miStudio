@@ -11,6 +11,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import axios from 'axios';
 import { Brain, Plus, Trash2, ChevronUp, Search, Eye, Copy } from 'lucide-react';
 import { useSteeringStore } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
@@ -115,7 +116,7 @@ export function FeatureSelector() {
   };
 
   // Handle view feature details from context menu
-  const handleViewFeatureDetails = () => {
+  const handleViewFeatureDetails = async () => {
     if (contextMenu.featureIdx === null || !selectedSAE?.training_id) {
       console.log('[FeatureSelector] Cannot view details - no featureIdx or training_id', {
         featureIdx: contextMenu.featureIdx,
@@ -155,6 +156,25 @@ export function FeatureSelector() {
         });
         return;
       }
+    }
+
+    // API fallback: Look up feature_id by training_id + feature_idx
+    // This handles manual index entry where feature_id wasn't available at add time
+    try {
+      console.log('[FeatureSelector] Looking up feature_id via API for feature_idx:', featureIdx);
+      const response = await axios.get(`/api/v1/trainings/${trainingId}/features/by-index/${featureIdx}`);
+      const { feature_id } = response.data;
+
+      if (feature_id) {
+        console.log('[FeatureSelector] Found feature_id via API:', feature_id);
+        setSelectedFeatureForModal({
+          featureId: feature_id,
+          trainingId: trainingId,
+        });
+        return;
+      }
+    } catch (error) {
+      console.log('[FeatureSelector] API lookup failed:', error);
     }
 
     // Final fallback: feature wasn't extracted, show helpful message

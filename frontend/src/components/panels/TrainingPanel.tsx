@@ -423,6 +423,12 @@ export const TrainingPanel: React.FC = () => {
     setDeletingTrainingId(firstTrainingId);
 
     setIsDeleting(true);
+
+    // IMPORTANT: Wait for React to re-render and WebSocket to subscribe
+    // This prevents a race condition where the Celery task completes before
+    // the frontend is listening for deletion progress events
+    await new Promise(resolve => setTimeout(resolve, 150));
+
     try {
       // Delete all selected trainings in parallel
       await Promise.all(

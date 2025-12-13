@@ -58,7 +58,18 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       console.log('[WebSocket] Connected with ID:', socket.id);
       setIsConnected(true);
 
-      // Process pending event handlers first
+      // IMPORTANT: Re-attach existing handlers FIRST (for reconnections)
+      // This must happen before processing pending handlers to avoid double-registration
+      const existingHandlers = new Map(eventHandlersRef.current);
+      existingHandlers.forEach((handlers, event) => {
+        handlers.forEach(handler => {
+          socket.on(event, handler);
+          console.log('[WebSocket] Re-attached handler for event:', event);
+        });
+      });
+
+      // Process pending event handlers (queued while disconnected)
+      // These are NOT in eventHandlersRef yet, so no double-registration
       if (pendingHandlersRef.current.length > 0) {
         console.log('[WebSocket] Processing', pendingHandlersRef.current.length, 'pending event handlers');
         pendingHandlersRef.current.forEach(({ event, handler }) => {
@@ -72,33 +83,27 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
         pendingHandlersRef.current = [];
       }
 
-      // Process pending subscriptions
+      // Resubscribe to all active channels (for reconnections)
+      // Do this before processing pending subscriptions
+      const existingSubscriptions = Array.from(subscriptionsRef.current);
+      if (existingSubscriptions.length > 0) {
+        console.log('[WebSocket] Resubscribing to', existingSubscriptions.length, 'channels');
+        existingSubscriptions.forEach(channel => {
+          socket.emit('subscribe', { channel });
+          console.log('[WebSocket] Resubscribed to channel:', channel);
+        });
+      }
+
+      // Process pending subscriptions (queued while disconnected)
       if (pendingSubscriptionsRef.current.size > 0) {
         console.log('[WebSocket] Processing', pendingSubscriptionsRef.current.size, 'pending subscriptions');
         pendingSubscriptionsRef.current.forEach(channel => {
           subscriptionsRef.current.add(channel);
           socket.emit('subscribe', { channel });
-          console.log('[WebSocket] Subscribing to pending channel:', channel);
+          console.log('[WebSocket] Subscribed to pending channel:', channel);
         });
         pendingSubscriptionsRef.current.clear();
       }
-
-      // Resubscribe to all active channels (for reconnections)
-      const subscriptions = Array.from(subscriptionsRef.current);
-      if (subscriptions.length > 0) {
-        console.log('[WebSocket] Resubscribing to', subscriptions.length, 'channels');
-        subscriptions.forEach(channel => {
-          console.log('[WebSocket] Resubscribing to channel:', channel);
-          socket.emit('subscribe', { channel });
-        });
-      }
-
-      // Re-attach all event handlers (for reconnections)
-      eventHandlersRef.current.forEach((handlers, event) => {
-        handlers.forEach(handler => {
-          socket.on(event, handler);
-        });
-      });
     });
 
     socket.on('disconnect', (reason) => {
@@ -185,10 +190,9 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   // Remove event listener
   const off = useCallback((event: string, handler?: (...args: any[]) => void) => {
     const socket = socketRef.current;
-    if (!socket) return;
 
     if (handler) {
-      // Remove specific handler
+      // Remove specific handler from tracking (always, even if socket is null)
       const handlers = eventHandlersRef.current.get(event);
       if (handlers) {
         handlers.delete(handler);
@@ -196,14 +200,26 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
           eventHandlersRef.current.delete(event);
         }
       }
-      socket.off(event, handler);
+      // Also remove from pending handlers if it was queued
+      pendingHandlersRef.current = pendingHandlersRef.current.filter(
+        (h) => !(h.event === event && h.handler === handler)
+      );
+      // Remove from socket if connected
+      if (socket) {
+        socket.off(event, handler);
+      }
     } else {
       // Remove all handlers for this event
       eventHandlersRef.current.delete(event);
-      socket.off(event);
+      pendingHandlersRef.current = pendingHandlersRef.current.filter(
+        (h) => h.event !== event
+      );
+      if (socket) {
+        socket.off(event);
+      }
     }
 
-    console.log('[WebSocket] Removing listener for event:', event);
+    console.log('[WebSocket] Removed listener for event:', event);
   }, []);
 
   const value: WebSocketContextValue = {

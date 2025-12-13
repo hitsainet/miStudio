@@ -116,6 +116,8 @@ export interface HyperparametersConfig {
   dead_neuron_threshold?: number;
   /** Resample dead neurons during training */
   resample_dead_neurons?: boolean;
+  /** Resample dead neurons every N steps */
+  resample_interval?: number;
 }
 
 /**

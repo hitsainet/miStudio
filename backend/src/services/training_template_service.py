@@ -175,16 +175,9 @@ class TrainingTemplateService:
         if not db_template:
             return None
 
-        # Apply updates
+        # Apply updates - model_dump already converts nested Pydantic models to dicts
+        # and enums to their string values
         update_data = updates.model_dump(exclude_unset=True)
-
-        # Convert hyperparameters if present
-        if "hyperparameters" in update_data and update_data["hyperparameters"] is not None:
-            update_data["hyperparameters"] = update_data["hyperparameters"].model_dump()
-
-        # Convert encoder_type enum to string
-        if "encoder_type" in update_data and update_data["encoder_type"] is not None:
-            update_data["encoder_type"] = update_data["encoder_type"].value
 
         for field, value in update_data.items():
             setattr(db_template, field, value)

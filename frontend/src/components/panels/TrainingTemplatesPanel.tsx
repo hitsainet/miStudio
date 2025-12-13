@@ -194,15 +194,14 @@ export function TrainingTemplatesPanel() {
   const currentTemplates = activeTab === 'favorites' ? favorites : templates;
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <div className="max-w-[80%] mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-slate-100 mb-2">Training Templates</h1>
-          <p className="text-slate-400">
-            Manage SAE training templates with preset hyperparameters
-          </p>
-        </div>
+    <>
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold text-slate-100 mb-2">Training Templates</h1>
+        <p className="text-slate-400">
+          Manage SAE training templates with preset hyperparameters
+        </p>
+      </div>
 
         {/* Notification */}
         {notification && (
@@ -330,24 +329,23 @@ export function TrainingTemplatesPanel() {
           />
         )}
 
-        {/* Edit Modal */}
-        {showEditModal && editingTemplate && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <TrainingTemplateForm
-                  template={editingTemplate}
-                  onSubmit={editingTemplate.id ? handleUpdate : handleCreate}
-                  onCancel={() => {
-                    setShowEditModal(false);
-                    setEditingTemplate(null);
-                  }}
-                />
-              </div>
+      {/* Edit Modal */}
+      {showEditModal && editingTemplate && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <TrainingTemplateForm
+                template={editingTemplate}
+                onSubmit={editingTemplate.id ? handleUpdate : handleCreate}
+                onCancel={() => {
+                  setShowEditModal(false);
+                  setEditingTemplate(null);
+                }}
+              />
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }

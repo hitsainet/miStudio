@@ -41,7 +41,7 @@ export function TrainingTemplateForm({
   // Form state - Hyperparameters
   const [hiddenDim, setHiddenDim] = useState(template?.hyperparameters.hidden_dim || 768);
   const [latentDim, setLatentDim] = useState(template?.hyperparameters.latent_dim || 16384);
-  const [l1Alpha, setL1Alpha] = useState(template?.hyperparameters.l1_alpha || 0.01);
+  const [l1Alpha, setL1Alpha] = useState(template?.hyperparameters.l1_alpha ?? 0.01);
   const [targetL0, setTargetL0] = useState<string>(
     template?.hyperparameters.target_l0?.toString() || ''
   );
@@ -63,6 +63,20 @@ export function TrainingTemplateForm({
   const [resampleDeadNeurons, setResampleDeadNeurons] = useState(
     template?.hyperparameters.resample_dead_neurons ?? true
   );
+  const [resampleInterval, setResampleInterval] = useState(
+    template?.hyperparameters.resample_interval || 5000
+  );
+
+  // JumpReLU-specific parameters
+  const [sparsityCoeff, setSparsityCoeff] = useState<string>(
+    template?.hyperparameters.sparsity_coeff?.toString() || ''
+  );
+  const [initialThreshold, setInitialThreshold] = useState<string>(
+    template?.hyperparameters.initial_threshold?.toString() || '0.001'
+  );
+  const [bandwidth, setBandwidth] = useState<string>(
+    template?.hyperparameters.bandwidth?.toString() || '0.001'
+  );
 
   const [isFavorite, setIsFavorite] = useState(template?.is_favorite || false);
   const [metadataJson, setMetadataJson] = useState(
@@ -83,7 +97,7 @@ export function TrainingTemplateForm({
       setEncoderType((template.encoder_type as SAEArchitectureType) || SAEArchitectureType.STANDARD);
       setHiddenDim(template.hyperparameters.hidden_dim);
       setLatentDim(template.hyperparameters.latent_dim);
-      setL1Alpha(template.hyperparameters.l1_alpha);
+      setL1Alpha(template.hyperparameters.l1_alpha ?? 0);
       setTargetL0(template.hyperparameters.target_l0?.toString() || '');
       setLearningRate(template.hyperparameters.learning_rate);
       setBatchSize(template.hyperparameters.batch_size);
@@ -95,6 +109,11 @@ export function TrainingTemplateForm({
       setLogInterval(template.hyperparameters.log_interval || 100);
       setDeadNeuronThreshold(template.hyperparameters.dead_neuron_threshold || 1000);
       setResampleDeadNeurons(template.hyperparameters.resample_dead_neurons ?? true);
+      setResampleInterval(template.hyperparameters.resample_interval || 5000);
+      // JumpReLU-specific
+      setSparsityCoeff(template.hyperparameters.sparsity_coeff?.toString() || '');
+      setInitialThreshold(template.hyperparameters.initial_threshold?.toString() || '0.001');
+      setBandwidth(template.hyperparameters.bandwidth?.toString() || '0.001');
       setIsFavorite(template.is_favorite);
       setMetadataJson(
         template.extra_metadata ? JSON.stringify(template.extra_metadata, null, 2) : '{}'
@@ -131,14 +150,19 @@ export function TrainingTemplateForm({
       return;
     }
 
-    if (l1Alpha <= 0) {
-      setError('L1 alpha must be greater than 0');
+    // L1 Alpha can be 0 for JumpReLU (uses sparsity_coeff instead)
+    if (l1Alpha < 0) {
+      setError('L1 alpha cannot be negative');
       return;
     }
 
-    if (targetL0 && (parseFloat(targetL0) <= 0 || parseFloat(targetL0) > 1)) {
-      setError('Target L0 must be between 0 and 1');
-      return;
+    // Target L0 is optional; if provided, must be between 0 and 1 (inclusive)
+    if (targetL0 && targetL0.trim() !== '') {
+      const targetL0Val = parseFloat(targetL0);
+      if (isNaN(targetL0Val) || targetL0Val < 0 || targetL0Val > 1) {
+        setError('Target L0 must be between 0 and 1');
+        return;
+      }
     }
 
     if (learningRate <= 0) {
@@ -187,6 +211,11 @@ export function TrainingTemplateForm({
           log_interval: logInterval,
           dead_neuron_threshold: deadNeuronThreshold,
           resample_dead_neurons: resampleDeadNeurons,
+          resample_interval: resampleInterval,
+          // JumpReLU-specific parameters
+          sparsity_coeff: sparsityCoeff ? parseFloat(sparsityCoeff) : undefined,
+          initial_threshold: initialThreshold ? parseFloat(initialThreshold) : undefined,
+          bandwidth: bandwidth ? parseFloat(bandwidth) : undefined,
         },
         is_favorite: isFavorite,
         extra_metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
@@ -215,6 +244,10 @@ export function TrainingTemplateForm({
         setLogInterval(100);
         setDeadNeuronThreshold(1000);
         setResampleDeadNeurons(true);
+        setResampleInterval(5000);
+        setSparsityCoeff('');
+        setInitialThreshold('0.001');
+        setBandwidth('0.001');
         setIsFavorite(false);
         setMetadataJson('{}');
       }
@@ -410,20 +443,19 @@ export function TrainingTemplateForm({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="l1-alpha" className="block text-sm font-medium text-slate-300 mb-2">
-                L1 Alpha <span className="text-red-400">*</span>
+                L1 Alpha
               </label>
               <input
                 id="l1-alpha"
                 type="number"
                 value={l1Alpha}
-                onChange={(e) => setL1Alpha(parseFloat(e.target.value))}
+                onChange={(e) => setL1Alpha(parseFloat(e.target.value) || 0)}
                 step="0.0001"
-                min="0.0001"
+                min="0"
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 disabled={isSubmitting}
-                required
               />
-              <p className="text-xs text-slate-500 mt-1">Sparsity penalty coefficient</p>
+              <p className="text-xs text-slate-500 mt-1">Sparsity penalty (0 for JumpReLU)</p>
             </div>
 
             <div>
@@ -455,9 +487,9 @@ export function TrainingTemplateForm({
                 id="learning-rate"
                 type="number"
                 value={learningRate}
-                onChange={(e) => setLearningRate(parseFloat(e.target.value))}
-                step="0.0001"
-                min="0.0001"
+                onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0)}
+                step="any"
+                min="0"
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 disabled={isSubmitting}
                 required
@@ -472,9 +504,10 @@ export function TrainingTemplateForm({
                 id="batch-size"
                 type="number"
                 value={batchSize}
-                onChange={(e) => setBatchSize(parseInt(e.target.value, 10))}
+                onChange={(e) => setBatchSize(parseInt(e.target.value, 10) || 1)}
                 min="1"
-                step={32}
+                max="16384"
+                step="any"
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 disabled={isSubmitting}
                 required
@@ -598,7 +631,7 @@ export function TrainingTemplateForm({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label htmlFor="dead-neuron-threshold" className="block text-sm font-medium text-slate-300 mb-2">
                     Dead Neuron Threshold
@@ -612,7 +645,23 @@ export function TrainingTemplateForm({
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                     disabled={isSubmitting}
                   />
-                  <p className="text-xs text-slate-500 mt-1">Steps before neuron considered dead</p>
+                  <p className="text-xs text-slate-500 mt-1">Steps before dead</p>
+                </div>
+
+                <div>
+                  <label htmlFor="resample-interval" className="block text-sm font-medium text-slate-300 mb-2">
+                    Resample Interval
+                  </label>
+                  <input
+                    id="resample-interval"
+                    type="number"
+                    value={resampleInterval}
+                    onChange={(e) => setResampleInterval(parseInt(e.target.value, 10))}
+                    min="1"
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    disabled={isSubmitting}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Resample every N steps</p>
                 </div>
 
                 <div className="flex items-end">
@@ -628,6 +677,68 @@ export function TrainingTemplateForm({
                   </label>
                 </div>
               </div>
+
+              {/* JumpReLU-specific parameters - only show when JumpReLU is selected */}
+              {encoderType === SAEArchitectureType.JUMPRELU && (
+                <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                  <h4 className="text-sm font-medium text-emerald-400">JumpReLU Parameters</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label htmlFor="sparsity-coeff" className="block text-sm font-medium text-slate-300 mb-2">
+                        Sparsity Coeff
+                      </label>
+                      <input
+                        id="sparsity-coeff"
+                        type="number"
+                        value={sparsityCoeff}
+                        onChange={(e) => setSparsityCoeff(e.target.value)}
+                        step="0.0001"
+                        min="0"
+                        placeholder="0.0006"
+                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        disabled={isSubmitting}
+                      />
+                      <p className="text-xs text-slate-500 mt-1">L0 sparsity coefficient</p>
+                    </div>
+
+                    <div>
+                      <label htmlFor="initial-threshold" className="block text-sm font-medium text-slate-300 mb-2">
+                        Initial Threshold
+                      </label>
+                      <input
+                        id="initial-threshold"
+                        type="number"
+                        value={initialThreshold}
+                        onChange={(e) => setInitialThreshold(e.target.value)}
+                        step="0.001"
+                        min="0"
+                        placeholder="0.001"
+                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        disabled={isSubmitting}
+                      />
+                      <p className="text-xs text-slate-500 mt-1">JumpReLU threshold init</p>
+                    </div>
+
+                    <div>
+                      <label htmlFor="bandwidth" className="block text-sm font-medium text-slate-300 mb-2">
+                        Bandwidth
+                      </label>
+                      <input
+                        id="bandwidth"
+                        type="number"
+                        value={bandwidth}
+                        onChange={(e) => setBandwidth(e.target.value)}
+                        step="0.0001"
+                        min="0"
+                        placeholder="0.001"
+                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        disabled={isSubmitting}
+                      />
+                      <p className="text-xs text-slate-500 mt-1">KDE bandwidth (epsilon)</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Extra Metadata */}
               <div>

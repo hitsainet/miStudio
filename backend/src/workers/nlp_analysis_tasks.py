@@ -34,9 +34,11 @@ def emit_nlp_analysis_progress(
         event: Event type ('progress', 'completed', 'failed')
         data: Progress data to emit
     """
+    # Frontend expects events prefixed with 'nlp_analysis:'
+    prefixed_event = f"nlp_analysis:{event}"
     emit_progress(
         channel=f"nlp_analysis/{extraction_job_id}",
-        event=event,
+        event=prefixed_event,
         data=data
     )
 
@@ -61,7 +63,8 @@ def analyze_features_nlp_task(
     1. Retrieves all features for an extraction job (or specific feature_ids)
     2. For each feature, retrieves all activation examples
     3. Computes NLP analysis (POS, NER, patterns, clusters)
-    4. Caches results in FeatureAnalysisCache
+    4. Stores results directly on Feature.nlp_analysis column (persistent)
+    5. Also caches in FeatureAnalysisCache for compatibility
 
     Args:
         extraction_job_id: ID of the extraction job to analyze
@@ -82,6 +85,13 @@ def analyze_features_nlp_task(
 
             if not extraction_job:
                 raise ValueError(f"Extraction job {extraction_job_id} not found")
+
+            # Update extraction job status to processing
+            extraction_job.nlp_status = "processing"
+            extraction_job.nlp_progress = 0.0
+            extraction_job.nlp_processed_count = 0
+            extraction_job.nlp_error_message = None
+            db.commit()
 
             # Get features to analyze
             if feature_ids:
@@ -130,14 +140,8 @@ def analyze_features_nlp_task(
 
                 for feature in batch_features:
                     try:
-                        # Check if analysis already cached and not expired
-                        existing_cache = db.query(FeatureAnalysisCache).filter(
-                            FeatureAnalysisCache.feature_id == feature.id,
-                            FeatureAnalysisCache.analysis_type == AnalysisType.NLP_ANALYSIS,
-                            FeatureAnalysisCache.expires_at > datetime.now(timezone.utc)
-                        ).first()
-
-                        if existing_cache:
+                        # Check if feature already has NLP analysis
+                        if feature.nlp_analysis is not None and feature.nlp_processed_at is not None:
                             cached_count += 1
                             analyzed_count += 1
                             continue
@@ -165,14 +169,17 @@ def analyze_features_nlp_task(
                         # Compute NLP analysis
                         analysis_result = nlp_service.analyze_feature(examples, feature.id)
 
-                        # Delete any existing cache entry
+                        now = datetime.now(timezone.utc)
+
+                        # Store directly on Feature model (persistent storage)
+                        feature.nlp_analysis = analysis_result
+                        feature.nlp_processed_at = now
+
+                        # Also cache for backward compatibility
                         db.query(FeatureAnalysisCache).filter(
                             FeatureAnalysisCache.feature_id == feature.id,
                             FeatureAnalysisCache.analysis_type == AnalysisType.NLP_ANALYSIS
                         ).delete()
-
-                        # Cache the result
-                        now = datetime.now(timezone.utc)
                         cache_entry = FeatureAnalysisCache(
                             feature_id=feature.id,
                             analysis_type=AnalysisType.NLP_ANALYSIS,
@@ -184,6 +191,11 @@ def analyze_features_nlp_task(
                         db.commit()
 
                         analyzed_count += 1
+
+                        # Update extraction job progress
+                        extraction_job.nlp_processed_count = analyzed_count
+                        extraction_job.nlp_progress = analyzed_count / total_features
+                        db.commit()
 
                     except Exception as e:
                         logger.warning(f"Failed to analyze feature {feature.id}: {e}")
@@ -209,6 +221,12 @@ def analyze_features_nlp_task(
                 )
 
                 logger.info(f"NLP Analysis batch complete: {analyzed_count}/{total_features} features")
+
+            # Update extraction job status to completed
+            extraction_job.nlp_status = "completed"
+            extraction_job.nlp_progress = 1.0
+            extraction_job.nlp_processed_count = analyzed_count
+            db.commit()
 
             # Emit completion
             emit_nlp_analysis_progress(
@@ -242,6 +260,14 @@ def analyze_features_nlp_task(
                 f"NLP analysis task failed for extraction {extraction_job_id}: {e}",
                 exc_info=True
             )
+
+            # Update extraction job status to failed
+            try:
+                extraction_job.nlp_status = "failed"
+                extraction_job.nlp_error_message = str(e)[:500]  # Truncate to 500 chars
+                db.commit()
+            except Exception:
+                db.rollback()
 
             # Emit failure
             emit_nlp_analysis_progress(
@@ -309,14 +335,18 @@ def analyze_single_feature_nlp_task(
             nlp_service = NLPAnalysisService()
             analysis_result = nlp_service.analyze_feature(examples, feature_id)
 
-            # Delete any existing cache entry
+            now = datetime.now(timezone.utc)
+
+            # Store directly on Feature model (persistent storage)
+            feature.nlp_analysis = analysis_result
+            feature.nlp_processed_at = now
+
+            # Also cache for backward compatibility
             db.query(FeatureAnalysisCache).filter(
                 FeatureAnalysisCache.feature_id == feature_id,
                 FeatureAnalysisCache.analysis_type == AnalysisType.NLP_ANALYSIS
             ).delete()
 
-            # Cache the result
-            now = datetime.now(timezone.utc)
             cache_expiry = timedelta(days=7)
             cache_entry = FeatureAnalysisCache(
                 feature_id=feature_id,

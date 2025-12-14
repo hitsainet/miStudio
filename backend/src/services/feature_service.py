@@ -500,7 +500,9 @@ class FeatureService:
             notes=feature.notes,
             created_at=feature.created_at,
             updated_at=feature.updated_at,
-            active_samples=active_samples
+            active_samples=active_samples,
+            nlp_analysis=feature.nlp_analysis,
+            nlp_processed_at=feature.nlp_processed_at
         )
 
     async def get_feature_by_index(

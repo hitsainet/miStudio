@@ -119,6 +119,11 @@ class Settings(BaseSettings):
         default=2, ge=1, le=30, description="System metrics collection interval in seconds (via WebSocket)"
     )
 
+    # Extraction Progress Configuration
+    extraction_progress_interval_seconds: int = Field(
+        default=5, ge=1, le=60, description="Extraction progress WebSocket emission interval in seconds"
+    )
+
     # Token and Feature Filtering Configuration
     # Stage 1: Tokenization-time filtering (conservative, permanent)
     tokenization_filter_enabled: bool = Field(

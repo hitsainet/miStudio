@@ -6,13 +6,15 @@
  * Supports starting extraction from both trainings and external SAEs.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Zap, Filter, Plus } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { ExtractionJobCard } from '../features/ExtractionJobCard';
 import { StartExtractionModal } from '../extraction/StartExtractionModal';
 import { cancelSAEExtraction } from '../../api/saes';
+import { useExtractionWebSocket } from '../../hooks/useExtractionWebSocket';
+import { useNlpWebSocket } from '../../hooks/useNlpWebSocket';
 import { COMPONENTS } from '../../config/brand';
 
 export const ExtractionsPanel: React.FC = () => {
@@ -30,6 +32,26 @@ export const ExtractionsPanel: React.FC = () => {
 
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [showStartModal, setShowStartModal] = useState(false);
+
+  // Get IDs of active extractions (queued or extracting) for WebSocket subscriptions
+  const activeExtractionIds = useMemo(() => {
+    return allExtractions
+      .filter(e => e.status === 'queued' || e.status === 'extracting')
+      .map(e => e.id);
+  }, [allExtractions]);
+
+  // Subscribe to WebSocket updates for active extractions
+  useExtractionWebSocket(activeExtractionIds);
+
+  // Get IDs of extractions with NLP processing for WebSocket subscriptions
+  const nlpProcessingExtractionIds = useMemo(() => {
+    return allExtractions
+      .filter(e => e.nlp_status === 'processing')
+      .map(e => e.id);
+  }, [allExtractions]);
+
+  // Subscribe to WebSocket updates for NLP processing
+  useNlpWebSocket(nlpProcessingExtractionIds);
 
   // Load trainings and extractions on mount
   useEffect(() => {

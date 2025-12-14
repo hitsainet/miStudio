@@ -13,9 +13,10 @@
  * eliminating redundancy and providing a consistent user experience.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown, RefreshCw, List, Layers } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown, RefreshCw, List, Layers, Activity, Copy, Check, Brain } from 'lucide-react';
 import type { ExtractionStatusResponse, FeatureSearchRequest } from '../../types/features';
+import { triggerNlpAnalysis } from '../../api/models';
 import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
@@ -55,6 +56,30 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
   // Sort scope: 'page' = sort only current page, 'all' = sort entire dataset (Note: 'all' not yet implemented - requires backend support)
   const [sortScope, setSortScope] = useState<'page' | 'all'>('page');
+
+  // Live metrics state (similar to TrainingCard)
+  const [showMetrics, setShowMetrics] = useState(false);
+  const [logsCopied, setLogsCopied] = useState(false);
+
+  // NLP processing state
+  const [isNlpProcessing, setIsNlpProcessing] = useState(false);
+  const [nlpError, setNlpError] = useState<string | null>(null);
+
+  // Metrics history for live logs (keep last 20 entries)
+  interface MetricsEntry {
+    timestamp: string;
+    batch: number;
+    totalBatches: number;
+    samplesProcessed: number;
+    totalSamples: number;
+    samplesPerSecond: number;
+    etaSeconds: number;
+    featuresInHeap: number;
+    heapExamplesCount: number;
+    progress: number;
+  }
+  const [metricsHistory, setMetricsHistory] = useState<MetricsEntry[]>([]);
+  const lastBatchRef = useRef<number>(-1);
 
   // Get features store methods and state
   const {
@@ -235,6 +260,159 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       });
     }
   }, [extraction.training_id, training, fetchTraining]);
+
+  // Update metrics history when extraction receives WebSocket updates
+  useEffect(() => {
+    // Only update if we have detailed metrics from WebSocket
+    if (
+      isActive &&
+      extraction.current_batch !== undefined &&
+      extraction.current_batch !== lastBatchRef.current
+    ) {
+      const newEntry: MetricsEntry = {
+        timestamp: new Date().toISOString(),
+        batch: extraction.current_batch || 0,
+        totalBatches: extraction.total_batches || 0,
+        samplesProcessed: extraction.samples_processed || 0,
+        totalSamples: extraction.total_samples || 0,
+        samplesPerSecond: extraction.samples_per_second || 0,
+        etaSeconds: extraction.eta_seconds || 0,
+        featuresInHeap: extraction.features_in_heap || 0,
+        heapExamplesCount: extraction.heap_examples_count || 0,
+        progress: (extraction.progress || 0) * 100,
+      };
+
+      lastBatchRef.current = extraction.current_batch || 0;
+
+      setMetricsHistory((prev) => {
+        const updated = [...prev, newEntry];
+        // Keep only last 20 entries
+        return updated.slice(-20);
+      });
+    }
+  }, [
+    isActive,
+    extraction.current_batch,
+    extraction.samples_processed,
+    extraction.samples_per_second,
+  ]);
+
+  /**
+   * Format ETA seconds to human-readable string.
+   */
+  const formatEta = (seconds: number): string => {
+    if (seconds <= 0) return '—';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    } else {
+      return `${secs}s`;
+    }
+  };
+
+  /**
+   * Handle copy extraction logs to clipboard.
+   */
+  const handleCopyLogs = async () => {
+    if (metricsHistory.length === 0) return;
+
+    const logLines = metricsHistory.map((entry) => {
+      const time = new Date(entry.timestamp).toLocaleTimeString();
+      return `[${time}] batch=${entry.batch}/${entry.totalBatches}, samples=${entry.samplesProcessed.toLocaleString()}/${entry.totalSamples.toLocaleString()}, speed=${entry.samplesPerSecond.toFixed(1)}/sec, ETA=${formatEta(entry.etaSeconds)}, examples=${entry.heapExamplesCount.toLocaleString()}, progress=${entry.progress.toFixed(1)}%`;
+    });
+
+    const logText = logLines.join('\n');
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(logText);
+      } else {
+        // Fallback for HTTP
+        const textarea = document.createElement('textarea');
+        textarea.value = logText;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setLogsCopied(true);
+      setTimeout(() => setLogsCopied(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy logs:', error);
+    }
+  };
+
+  /**
+   * Handle triggering NLP analysis for this extraction.
+   */
+  const handleProcessNlp = async () => {
+    if (isNlpProcessing || extraction.nlp_status === 'processing') return;
+
+    setIsNlpProcessing(true);
+    setNlpError(null);
+
+    try {
+      await triggerNlpAnalysis(extraction.id);
+      // The WebSocket will update nlp_status on the extraction
+    } catch (error: any) {
+      console.error('Failed to trigger NLP analysis:', error);
+      setNlpError(error.message || 'Failed to start NLP analysis');
+    } finally {
+      setIsNlpProcessing(false);
+    }
+  };
+
+  /**
+   * Get NLP status badge based on current status.
+   */
+  const getNlpStatusBadge = () => {
+    const status = extraction.nlp_status;
+    const baseClasses = 'px-2 py-0.5 rounded-full text-xs font-medium';
+
+    switch (status) {
+      case 'completed':
+        return (
+          <span className={`${baseClasses} bg-cyan-900/30 text-cyan-400 flex items-center gap-1`} title="NLP analysis completed">
+            <Brain className="w-3 h-3" />
+            NLP
+          </span>
+        );
+      case 'processing':
+        return (
+          <span className={`${baseClasses} bg-cyan-900/30 text-cyan-400 flex items-center gap-1`} title="NLP analysis in progress">
+            <Brain className="w-3 h-3" />
+            <Loader className="w-3 h-3 animate-spin" />
+            {extraction.nlp_progress !== null && extraction.nlp_progress !== undefined
+              ? `${(extraction.nlp_progress * 100).toFixed(0)}%`
+              : 'Processing'}
+          </span>
+        );
+      case 'failed':
+        return (
+          <span className={`${baseClasses} bg-red-900/30 text-red-400 flex items-center gap-1`} title={extraction.nlp_error_message || 'NLP analysis failed'}>
+            <Brain className="w-3 h-3" />
+            <XCircle className="w-3 h-3" />
+          </span>
+        );
+      case 'pending':
+        return (
+          <span className={`${baseClasses} bg-slate-800/50 text-slate-400 flex items-center gap-1`} title="NLP analysis pending">
+            <Brain className="w-3 h-3" />
+            Pending
+          </span>
+        );
+      default:
+        return null; // No badge if no NLP status
+    }
+  };
 
   /**
    * Handle search input change with debouncing.
@@ -462,6 +640,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 <span className="px-2 py-0.5 text-xs font-medium bg-purple-900/30 text-purple-400 rounded">SAE</span>
               )}
               {getStatusBadge()}
+              {isCompleted && getNlpStatusBadge()}
               {/* Expand/Collapse button for completed extractions */}
               {isCompleted && (
                 <button
@@ -504,6 +683,42 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               <XCircle className="w-5 h-5" />
             </button>
           )}
+          {/* Process NLP button - only show for completed extractions that haven't been processed yet */}
+          {isCompleted && extraction.nlp_status !== 'completed' && extraction.nlp_status !== 'processing' && (
+            <button
+              type="button"
+              onClick={handleProcessNlp}
+              disabled={isNlpProcessing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                isNlpProcessing
+                  ? 'bg-cyan-900/30 text-cyan-400 cursor-not-allowed'
+                  : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+              }`}
+              title="Run NLP analysis on feature activation examples"
+            >
+              {isNlpProcessing ? (
+                <>
+                  <Loader className="w-4 h-4 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Brain className="w-4 h-4" />
+                  Process NLP
+                </>
+              )}
+            </button>
+          )}
+          {/* Show processing status if NLP is running */}
+          {isCompleted && extraction.nlp_status === 'processing' && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-cyan-900/30 text-cyan-400">
+              <Brain className="w-4 h-4" />
+              <Loader className="w-4 h-4 animate-spin" />
+              NLP {extraction.nlp_progress !== null && extraction.nlp_progress !== undefined
+                ? `${(extraction.nlp_progress * 100).toFixed(0)}%`
+                : '...'}
+            </div>
+          )}
           {isCompleted && (
             <StartLabelingButton
               extractionId={extraction.id}
@@ -534,12 +749,16 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
       {/* Progress Bar for Active Extractions */}
       {isActive && extraction.progress !== null && extraction.progress !== undefined && (
-        <div className="mb-4">
+        <div className="mb-4 space-y-3">
           <div className="flex items-center justify-between text-sm mb-2">
             <span className="text-slate-600 dark:text-slate-400">
-              {extraction.features_extracted !== null && extraction.total_features !== null
-                ? `${extraction.features_extracted.toLocaleString()} / ${extraction.total_features.toLocaleString()} features`
-                : 'Processing...'}
+              {extraction.status_message
+                ? extraction.status_message
+                : extraction.samples_processed != null && extraction.total_samples != null
+                  ? `${extraction.samples_processed.toLocaleString()} / ${extraction.total_samples.toLocaleString()} samples`
+                  : extraction.features_in_heap != null
+                    ? `${extraction.features_in_heap.toLocaleString()} active features found`
+                    : 'Processing...'}
             </span>
             <span className="text-emerald-400 font-medium">
               {progress.toFixed(1)}%
@@ -547,10 +766,283 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           </div>
           <div className={COMPONENTS.progress.container}>
             <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
+              className={`h-full transition-all duration-300 ${
+                extraction.status_message
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-400 animate-pulse'
+                  : 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+              }`}
               style={{ width: `${progress}%` }}
             />
           </div>
+
+          {/* Live Metrics Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setShowMetrics(!showMetrics)}
+            className={`flex items-center justify-center gap-2 w-full rounded-lg ${COMPONENTS.button.secondary}`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>{showMetrics ? 'Hide' : 'Show'} Live Metrics</span>
+          </button>
+
+          {/* Live Metrics Section */}
+          {showMetrics && (
+            <div className="border-t border-slate-700 pt-3 mt-3">
+              {/* Metrics Summary Grid */}
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {/* Batch Progress */}
+                <div className="bg-slate-800/50 rounded-lg p-2">
+                  <div className="text-xs text-slate-400 mb-1">Batch</div>
+                  <div className="text-lg font-semibold text-slate-200">
+                    {extraction.current_batch !== undefined
+                      ? `${extraction.current_batch}/${extraction.total_batches || '?'}`
+                      : '—'}
+                  </div>
+                </div>
+
+                {/* Samples Processed */}
+                <div className="bg-slate-800/50 rounded-lg p-2">
+                  <div className="text-xs text-slate-400 mb-1">Samples</div>
+                  <div className="text-lg font-semibold text-emerald-400">
+                    {extraction.samples_processed !== undefined
+                      ? extraction.samples_processed.toLocaleString()
+                      : '—'}
+                  </div>
+                  {extraction.total_samples && (
+                    <div className="text-xs text-slate-500">
+                      of {extraction.total_samples.toLocaleString()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Speed */}
+                <div className="bg-slate-800/50 rounded-lg p-2">
+                  <div className="text-xs text-slate-400 mb-1">Speed</div>
+                  <div className="text-lg font-semibold text-blue-400">
+                    {extraction.samples_per_second !== undefined
+                      ? `${extraction.samples_per_second.toFixed(1)}/s`
+                      : '—'}
+                  </div>
+                </div>
+
+                {/* ETA */}
+                <div className="bg-slate-800/50 rounded-lg p-2">
+                  <div className="text-xs text-slate-400 mb-1">ETA</div>
+                  <div className="text-lg font-semibold text-purple-400">
+                    {extraction.eta_seconds !== undefined
+                      ? formatEta(extraction.eta_seconds)
+                      : '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Two Column Layout: Logs left, Metrics right */}
+              <div className="flex gap-3">
+                {/* Extraction Logs - Left Column (60%) */}
+                <div className="w-3/5 bg-slate-950 rounded-lg p-3 font-mono text-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-slate-400">Extraction Logs</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyLogs}
+                        disabled={metricsHistory.length === 0}
+                        className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title={logsCopied ? 'Copied!' : 'Copy logs to clipboard'}
+                      >
+                        {logsCopied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <span className="text-emerald-400 text-xs">Live</span>
+                    </div>
+                  </div>
+                  <div className="h-[268px] overflow-y-auto space-y-1">
+                    {metricsHistory.length > 0 ? (
+                      [...metricsHistory].reverse().map((entry, i) => {
+                        const time = new Date(entry.timestamp).toLocaleTimeString();
+                        return (
+                          <div key={`${entry.batch}-${i}`} className="text-slate-300">
+                            <span className="text-slate-500">[{time}]</span>{' '}
+                            batch={entry.batch ?? 0}/{entry.totalBatches ?? '?'},
+                            samples={(entry.samplesProcessed ?? 0).toLocaleString()},
+                            speed={(entry.samplesPerSecond ?? 0).toFixed(1)}/s,
+                            ETA={formatEta(entry.etaSeconds ?? 0)},
+                            examples={(entry.heapExamplesCount ?? 0).toLocaleString()}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-slate-500 text-center py-4">
+                        Waiting for extraction metrics...
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Metrics Charts - Right Column (40%) */}
+                <div className="w-2/5 flex flex-col gap-2">
+                  {/* Speed Chart */}
+                  <div className="bg-slate-800/30 rounded-lg p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-400">Speed (samples/s)</span>
+                      <span className="text-xs text-blue-400 font-mono">
+                        {metricsHistory.length > 0
+                          ? `${metricsHistory[metricsHistory.length - 1].samplesPerSecond.toFixed(1)}/s`
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="h-16">
+                      {metricsHistory.length > 1 ? (
+                        <svg viewBox="0 0 100 40" className="w-full h-full" preserveAspectRatio="none">
+                          <line x1="0" y1="10" x2="100" y2="10" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="20" x2="100" y2="20" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="30" x2="100" y2="30" stroke="#334155" strokeWidth="0.5" />
+                          {(() => {
+                            const data = metricsHistory.map(e => e.samplesPerSecond);
+                            const maxVal = Math.max(...data, 1);
+                            const minVal = Math.min(...data, 0);
+                            const range = maxVal - minVal || 1;
+                            const points = data.map((val, i) => {
+                              const x = (i / (data.length - 1)) * 100;
+                              const y = 40 - ((val - minVal) / range) * 36 - 2;
+                              return `${x},${y}`;
+                            }).join(' ');
+                            return (
+                              <>
+                                <polyline fill="none" stroke="#3b82f6" strokeWidth="1.5" points={points} />
+                                <circle
+                                  cx={(data.length - 1) / (data.length - 1) * 100}
+                                  cy={40 - ((data[data.length - 1] - minVal) / range) * 36 - 2}
+                                  r="2"
+                                  fill="#3b82f6"
+                                />
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                          Waiting...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Examples Collected Chart */}
+                  <div className="bg-slate-800/30 rounded-lg p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-400">Examples Collected</span>
+                      <span className="text-xs text-emerald-400 font-mono">
+                        {metricsHistory.length > 0
+                          ? metricsHistory[metricsHistory.length - 1].heapExamplesCount.toLocaleString()
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="h-16">
+                      {metricsHistory.length > 1 ? (
+                        <svg viewBox="0 0 100 40" className="w-full h-full" preserveAspectRatio="none">
+                          <line x1="0" y1="10" x2="100" y2="10" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="20" x2="100" y2="20" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="30" x2="100" y2="30" stroke="#334155" strokeWidth="0.5" />
+                          {(() => {
+                            const data = metricsHistory.map(e => e.heapExamplesCount);
+                            const maxVal = Math.max(...data, 1);
+                            const minVal = Math.min(...data, 0);
+                            const range = maxVal - minVal || 1;
+                            const points = data.map((val, i) => {
+                              const x = (i / (data.length - 1)) * 100;
+                              const y = 40 - ((val - minVal) / range) * 36 - 2;
+                              return `${x},${y}`;
+                            }).join(' ');
+                            return (
+                              <>
+                                <polyline fill="none" stroke="#10b981" strokeWidth="1.5" points={points} />
+                                <circle
+                                  cx={(data.length - 1) / (data.length - 1) * 100}
+                                  cy={40 - ((data[data.length - 1] - minVal) / range) * 36 - 2}
+                                  r="2"
+                                  fill="#10b981"
+                                />
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                          Waiting...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Collection Rate Chart (examples/sec) */}
+                  <div className="bg-slate-800/30 rounded-lg p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-400">Collection Rate</span>
+                      <span className="text-xs text-purple-400 font-mono">
+                        {(() => {
+                          if (metricsHistory.length < 2) return '—';
+                          const last = metricsHistory[metricsHistory.length - 1];
+                          const prev = metricsHistory[metricsHistory.length - 2];
+                          const timeDelta = (new Date(last.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
+                          const examplesDelta = last.heapExamplesCount - prev.heapExamplesCount;
+                          const rate = timeDelta > 0 ? examplesDelta / timeDelta : 0;
+                          return `${rate.toFixed(0)}/s`;
+                        })()}
+                      </span>
+                    </div>
+                    <div className="h-16">
+                      {metricsHistory.length > 2 ? (
+                        <svg viewBox="0 0 100 40" className="w-full h-full" preserveAspectRatio="none">
+                          <line x1="0" y1="10" x2="100" y2="10" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="20" x2="100" y2="20" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="30" x2="100" y2="30" stroke="#334155" strokeWidth="0.5" />
+                          {(() => {
+                            // Calculate collection rates between consecutive entries
+                            const rates: number[] = [];
+                            for (let i = 1; i < metricsHistory.length; i++) {
+                              const curr = metricsHistory[i];
+                              const prev = metricsHistory[i - 1];
+                              const timeDelta = (new Date(curr.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
+                              const examplesDelta = curr.heapExamplesCount - prev.heapExamplesCount;
+                              rates.push(timeDelta > 0 ? examplesDelta / timeDelta : 0);
+                            }
+                            if (rates.length === 0) return null;
+                            const maxVal = Math.max(...rates, 1);
+                            const minVal = Math.min(...rates, 0);
+                            const range = maxVal - minVal || 1;
+                            const points = rates.map((val, i) => {
+                              const x = (i / (rates.length - 1 || 1)) * 100;
+                              const y = 40 - ((val - minVal) / range) * 36 - 2;
+                              return `${x},${y}`;
+                            }).join(' ');
+                            return (
+                              <>
+                                <polyline fill="none" stroke="#a855f7" strokeWidth="1.5" points={points} />
+                                <circle
+                                  cx={100}
+                                  cy={40 - ((rates[rates.length - 1] - minVal) / range) * 36 - 2}
+                                  r="2"
+                                  fill="#a855f7"
+                                />
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                          Waiting...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -602,6 +1094,28 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           )}
         </div>
       )}
+
+      {/* NLP Analysis Error Message */}
+      {(extraction.nlp_status === 'failed' && extraction.nlp_error_message) || nlpError ? (
+        <div className="mt-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg text-cyan-400 text-sm">
+          <div className="flex items-start gap-2">
+            <Brain className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-medium mb-1">NLP Analysis Failed</div>
+              <div className="text-cyan-300">{extraction.nlp_error_message || nlpError}</div>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setNlpError(null);
+              handleProcessNlp();
+            }}
+            className={`mt-3 w-full text-sm ${COMPONENTS.button.secondary}`}
+          >
+            Retry NLP Analysis
+          </button>
+        </div>
+      ) : null}
 
       {/* Expandable Features List (only for completed extractions) */}
       {isExpanded && isCompleted && (

@@ -46,6 +46,38 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
 
+    # ==========================================
+    # BROKER CONNECTION RELIABILITY SETTINGS
+    # ==========================================
+    # These settings ensure Celery automatically recovers from
+    # Redis disconnections without manual intervention
+
+    # Retry connecting to broker on startup (waits for Redis)
+    broker_connection_retry_on_startup=True,
+
+    # Keep retrying broker connection indefinitely
+    broker_connection_retry=True,
+    broker_connection_max_retries=None,  # Infinite retries
+
+    # Connection pool settings for stability
+    broker_pool_limit=10,  # Limit connection pool size
+    broker_heartbeat=30,   # Send heartbeat every 30 seconds
+    broker_heartbeat_checkrate=2.0,  # Check heartbeat twice per interval
+
+    # Transport options for Redis reliability
+    broker_transport_options={
+        "visibility_timeout": 43200,  # 12 hours - match task_time_limit
+        "socket_timeout": 30,
+        "socket_connect_timeout": 30,
+        "retry_on_timeout": True,
+        "health_check_interval": 30,  # Check connection health every 30s
+    },
+
+    # Result backend connection settings
+    redis_socket_timeout=30,
+    redis_socket_connect_timeout=30,
+    redis_retry_on_timeout=True,
+
     # Task routing - Multi-queue architecture for optimal resource allocation
     # NOTE: Priority values removed since task_queue_max_priority is disabled
     task_routes={
@@ -79,6 +111,10 @@ celery_app.conf.update(
 
         # Labeling operations: LLM bound, medium priority
         "src.workers.labeling_tasks.*": {
+            "queue": "processing",
+        },
+        # Explicit route for label_features task (uses custom task name)
+        "label_features": {
             "queue": "processing",
         },
 
@@ -150,14 +186,18 @@ celery_app.conf.update(
 
     # Beat scheduler settings (for periodic tasks)
     beat_schedule={
-        # System metrics monitoring - runs every N seconds (configurable via SYSTEM_MONITOR_INTERVAL_SECONDS)
-        "monitor-system-metrics": {
-            "task": "workers.monitor_system_metrics",
-            "schedule": settings.system_monitor_interval_seconds,  # Run every 2 seconds (default)
-            "options": {
-                "queue": "low_priority",
-            },
-        },
+        # NOTE: System metrics monitoring has been moved to asyncio background task
+        # in src/services/background_monitor.py to avoid blocking by long-running Celery tasks.
+        # The Celery Beat task is disabled but kept here for reference.
+        #
+        # "monitor-system-metrics": {
+        #     "task": "workers.monitor_system_metrics",
+        #     "schedule": settings.system_monitor_interval_seconds,  # Run every 2 seconds (default)
+        #     "options": {
+        #         "queue": "low_priority",
+        #     },
+        # },
+
         # Cleanup stuck extraction jobs - runs every 10 minutes
         "cleanup-stuck-extractions": {
             "task": "cleanup_stuck_extractions",

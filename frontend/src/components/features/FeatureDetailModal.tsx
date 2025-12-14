@@ -9,13 +9,14 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Save, Star, Info, Activity, GitBranch, Zap, Hash, Copy, Check, ChevronDown } from 'lucide-react';
+import { X, Save, Star, Info, Activity, GitBranch, Zap, Hash, Copy, Check, ChevronDown, Brain } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { ExampleRow } from './ExampleRow';
 import { LogitLensView } from './LogitLensView';
 import { FeatureCorrelations } from './FeatureCorrelations';
 import { AblationAnalysis } from './AblationAnalysis';
 import { FeatureTokenAnalysis } from './FeatureTokenAnalysis';
+import { NLPAnalysisView } from './NLPAnalysisView';
 import { formatActivation } from '../../utils/formatters';
 import { formatExamplesForClipboard, copyToClipboard, ExportFormat } from '../../utils/featureExampleFormatter';
 
@@ -25,7 +26,7 @@ interface FeatureDetailModalProps {
   onClose: () => void;
 }
 
-type TabType = 'examples' | 'logit-lens' | 'token-analysis' | 'correlations' | 'ablation';
+type TabType = 'examples' | 'logit-lens' | 'token-analysis' | 'nlp-analysis' | 'correlations' | 'ablation';
 
 export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
   featureId,
@@ -343,6 +344,17 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
               <span>Token Analysis</span>
             </button>
             <button
+              onClick={() => setActiveTab('nlp-analysis')}
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
+                activeTab === 'nlp-analysis'
+                  ? 'border-cyan-500 text-cyan-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <Brain className="w-4 h-4" />
+              <span>NLP Analysis</span>
+            </button>
+            <button
               onClick={() => setActiveTab('correlations')}
               className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
                 activeTab === 'correlations'
@@ -499,6 +511,17 @@ export const FeatureDetailModal: React.FC<FeatureDetailModalProps> = ({
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-white mb-4">Token Analysis</h3>
               <FeatureTokenAnalysis featureId={featureId} />
+            </div>
+          )}
+
+          {activeTab === 'nlp-analysis' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white mb-4">NLP Analysis</h3>
+              <NLPAnalysisView
+                nlpAnalysis={selectedFeature?.nlp_analysis || null}
+                nlpProcessedAt={selectedFeature?.nlp_processed_at || null}
+                featureId={featureId}
+              />
             </div>
           )}
 

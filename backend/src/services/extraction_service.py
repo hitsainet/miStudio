@@ -30,7 +30,7 @@ from src.models.dataset import Dataset
 from src.models.dataset_tokenization import DatasetTokenization, TokenizationStatus
 from src.models.external_sae import ExternalSAE, SAEStatus
 from src.core.database import get_db
-from src.workers.websocket_emitter import emit_training_progress
+from src.workers.websocket_emitter import emit_training_progress, emit_extraction_job_progress
 from src.core.config import settings
 from src.services.resource_config import ResourceConfig
 from src.utils.auto_labeling import auto_label_feature
@@ -643,7 +643,12 @@ class ExtractionService:
                 "filter_stop_words": extraction_job.filter_stop_words,
                 # Context window configuration
                 "context_prefix_tokens": extraction_job.context_prefix_tokens,
-                "context_suffix_tokens": extraction_job.context_suffix_tokens
+                "context_suffix_tokens": extraction_job.context_suffix_tokens,
+                # NLP Processing status
+                "nlp_status": extraction_job.nlp_status,
+                "nlp_progress": extraction_job.nlp_progress,
+                "nlp_processed_count": extraction_job.nlp_processed_count,
+                "nlp_error_message": extraction_job.nlp_error_message
             })
 
         return extractions_list, total
@@ -1260,9 +1265,59 @@ class ExtractionService:
                 text_column = (dataset_record.extra_metadata or {}).get("text_column", "text")
 
                 # Process samples in batches
+                import time
+                extraction_start_time = time.time()
+                last_emit_time = extraction_start_time
+                emit_interval = settings.extraction_progress_interval_seconds
+                batch_count = 0
+                total_batches = (len(dataset) + batch_size - 1) // batch_size
+
                 with torch.no_grad():
                     for batch_start in range(0, len(dataset), batch_size):
                         batch_end = min(batch_start + batch_size, len(dataset))
+                        batch_count += 1
+                        current_time = time.time()
+
+                        # Emit progress via WebSocket based on time interval for real-time UI updates
+                        should_emit = (current_time - last_emit_time >= emit_interval) or batch_count == 1
+                        if should_emit:
+                            elapsed = time.time() - extraction_start_time
+                            samples_done = batch_end
+                            samples_per_sec = samples_done / elapsed if elapsed > 0 else 0
+                            eta_sec = (len(dataset) - samples_done) / samples_per_sec if samples_per_sec > 0 else 0
+                            progress = samples_done / len(dataset)
+
+                            # Get heap statistics
+                            features_in_heap = len(incremental_heap.heaps)
+                            heap_examples_count = incremental_heap.examples_processed
+
+                            # Log to console
+                            logger.info(
+                                f"[Extraction] Batch {batch_count}/{total_batches} | "
+                                f"Samples: {samples_done}/{len(dataset)} ({100*progress:.1f}%) | "
+                                f"Speed: {samples_per_sec:.1f} samples/sec | "
+                                f"ETA: {eta_sec/60:.1f} min | "
+                                f"Features: {features_in_heap}"
+                            )
+
+                            # Emit WebSocket progress for real-time UI updates
+                            emit_extraction_job_progress(
+                                extraction_id=extraction_job.id,
+                                training_id=training_id,
+                                current_batch=batch_count,
+                                total_batches=total_batches,
+                                samples_processed=samples_done,
+                                total_samples=len(dataset),
+                                progress=progress,
+                                samples_per_second=samples_per_sec,
+                                eta_seconds=eta_sec,
+                                status="extracting",
+                                features_in_heap=features_in_heap,
+                                heap_examples_count=heap_examples_count,
+                            )
+                            # Update last emit time for time-based emission
+                            last_emit_time = current_time
+
                         batch = dataset[batch_start:batch_end]
 
                         # Extract input_ids from batch
@@ -1465,9 +1520,9 @@ class ExtractionService:
                             if torch.cuda.is_available():
                                 torch.cuda.empty_cache()
 
-                        # Task 4.15-4.16: Update progress every 5%
+                        # Task 4.15-4.16: Update progress every 1% (changed from 5% for better visibility)
                         progress = batch_end / len(dataset)
-                        if int(progress * 20) > int((batch_start / len(dataset)) * 20):  # Every 5%
+                        if int(progress * 100) > int((batch_start / len(dataset)) * 100):  # Every 1%
                             self.update_extraction_status_sync(
                                 extraction_job.id,
                                 ExtractionStatus.EXTRACTING.value,
@@ -1510,6 +1565,19 @@ class ExtractionService:
 
             logger.info(f"Activation extraction complete. Building final top-k heaps...")
 
+            # Emit "finalizing" status to indicate we're done with samples but saving features
+            emit_extraction_job_progress(
+                extraction_id=extraction_job.id,
+                training_id=training_id,
+                progress=1.0,
+                status="finalizing",
+                message="Building final feature heaps...",
+                samples_processed=len(dataset) if dataset else 0,
+                total_samples=len(dataset) if dataset else 0,
+                features_in_heap=len(incremental_heap.heaps),
+                heap_examples_count=incremental_heap.examples_processed,
+            )
+
             # Get final heaps (already maintained incrementally during processing)
             # The incremental approach avoids memory explosion while maintaining vectorization speedup
             final_heaps = incremental_heap.get_heaps()
@@ -1527,6 +1595,19 @@ class ExtractionService:
                     heap_counter += 1
 
             logger.info(f"Final heaps built successfully. Processing {len(final_heaps)} features...")
+
+            # Emit status update for saving phase
+            emit_extraction_job_progress(
+                extraction_id=extraction_job.id,
+                training_id=training_id,
+                progress=1.0,
+                status="finalizing",
+                message=f"Saving {len(final_heaps)} features to database...",
+                samples_processed=len(dataset) if dataset else 0,
+                total_samples=len(dataset) if dataset else 0,
+                features_in_heap=len(final_heaps),
+                heap_examples_count=incremental_heap.examples_processed,
+            )
 
             # Task 4.9: Calculate activation_frequency per feature
             activation_frequencies = feature_activation_counts / len(dataset)
@@ -1626,13 +1707,27 @@ class ExtractionService:
                 # Commit in batches to reduce memory and improve performance
                 if features_processed % db_commit_batch == 0:
                     self.db.commit()
-                    logger.info(f"Committed batch: {features_processed}/{latent_dim} features")
+                    logger.info(f"Committed batch: {features_processed}/{len(final_heaps)} features")
 
                     # Update features_extracted counter in real-time
                     self.update_extraction_status_sync(
                         extraction_job.id,
                         ExtractionStatus.EXTRACTING.value,
                         features_extracted=features_processed
+                    )
+
+                    # Emit WebSocket progress during database save phase
+                    emit_extraction_job_progress(
+                        extraction_id=extraction_job.id,
+                        training_id=training_id,
+                        progress=1.0,  # Samples at 100%, now in save phase
+                        status="finalizing",
+                        message=f"Saving features: {features_processed:,}/{len(final_heaps):,}",
+                        samples_processed=len(dataset) if dataset else 0,
+                        total_samples=len(dataset) if dataset else 0,
+                        features_in_heap=len(final_heaps),
+                        features_extracted=features_processed,
+                        total_features=len(final_heaps),
                     )
 
             # Final commit for remaining features
@@ -1696,15 +1791,15 @@ class ExtractionService:
                 statistics=statistics
             )
 
-            # Emit WebSocket completion event
-            emit_training_progress(
+            # Emit WebSocket completion event to extraction channel
+            emit_extraction_job_progress(
+                extraction_id=extraction_job.id,
                 training_id=training_id,
-                event="extraction:completed",
-                data={
-                    "extraction_id": extraction_job.id,
-                    "training_id": training_id,
-                    "statistics": statistics
-                }
+                progress=1.0,
+                status="completed",
+                features_in_heap=features_processed,
+                samples_processed=len(dataset) if dataset else 0,
+                total_samples=len(dataset) if dataset else 0,
             )
 
             return statistics
@@ -1738,15 +1833,12 @@ class ExtractionService:
                 error_message=str(e)
             )
 
-            # Emit WebSocket failure event
-            emit_training_progress(
+            # Emit WebSocket failure event to extraction channel
+            emit_extraction_job_progress(
+                extraction_id=extraction_job.id,
                 training_id=training_id,
-                event="extraction:failed",
-                data={
-                    "extraction_id": extraction_job.id,
-                    "training_id": training_id,
-                    "error": str(e)
-                }
+                status="failed",
+                message=str(e),
             )
 
             raise

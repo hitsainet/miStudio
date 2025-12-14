@@ -123,6 +123,16 @@ class FeatureResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # NLP Analysis (pre-computed, stored in database)
+    nlp_analysis: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Pre-computed NLP analysis results (token analysis, POS, n-grams, clusters)"
+    )
+    nlp_processed_at: Optional[datetime] = Field(
+        default=None,
+        description="When NLP analysis was computed"
+    )
+
     # Optional: include one example for preview in list view
     example_context: Optional[FeatureActivationExample] = None
 
@@ -175,6 +185,16 @@ class FeatureDetailResponse(BaseModel):
     notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    # NLP Analysis (pre-computed, stored in database)
+    nlp_analysis: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Pre-computed NLP analysis results (token analysis, POS, n-grams, clusters)"
+    )
+    nlp_processed_at: Optional[datetime] = Field(
+        default=None,
+        description="When NLP analysis was computed"
+    )
 
     # Computed fields
     active_samples: int = Field(

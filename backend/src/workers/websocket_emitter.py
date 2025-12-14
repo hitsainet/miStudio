@@ -1028,6 +1028,97 @@ def emit_export_progress(
     return emit_progress(channel, "export:progress", data)
 
 
+def emit_extraction_job_progress(
+    extraction_id: str,
+    training_id: Optional[str] = None,
+    sae_id: Optional[str] = None,
+    current_batch: int = 0,
+    total_batches: int = 0,
+    samples_processed: int = 0,
+    total_samples: int = 0,
+    progress: float = 0.0,
+    samples_per_second: float = 0.0,
+    eta_seconds: float = 0.0,
+    status: str = "extracting",
+    message: Optional[str] = None,
+    features_in_heap: int = 0,
+    heap_examples_count: int = 0,
+    features_extracted: Optional[int] = None,
+    total_features: Optional[int] = None,
+) -> bool:
+    """
+    Emit detailed extraction job progress update (similar to training progress).
+
+    This provides comprehensive progress metrics for extraction jobs, allowing
+    the frontend to display live metrics similar to training "Show Metrics" modal.
+
+    Args:
+        extraction_id: Extraction job ID
+        training_id: Training ID (for training-based extraction)
+        sae_id: External SAE ID (for SAE-based extraction)
+        current_batch: Current batch number
+        total_batches: Total number of batches
+        samples_processed: Number of samples processed so far
+        total_samples: Total samples to process
+        progress: Progress percentage (0.0 - 1.0)
+        samples_per_second: Processing speed (samples/sec)
+        eta_seconds: Estimated time remaining in seconds
+        status: Current status (extracting, processing, completed, failed)
+        message: Optional status message
+        features_in_heap: Number of features with activations in heap
+        heap_examples_count: Total examples stored in heap
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        extraction/{extraction_id}
+
+    Examples:
+        >>> emit_extraction_job_progress(
+        ...     extraction_id="extr_20250128_120000_train_abc",
+        ...     training_id="train_abc123",
+        ...     current_batch=125,
+        ...     total_batches=2500,
+        ...     samples_processed=1000,
+        ...     total_samples=20000,
+        ...     progress=0.05,
+        ...     samples_per_second=8.5,
+        ...     eta_seconds=2235.0,
+        ...     features_in_heap=15234,
+        ...     heap_examples_count=76170
+        ... )
+        True
+    """
+    channel = f"extraction/{extraction_id}"
+    data = {
+        "extraction_id": extraction_id,
+        "current_batch": current_batch,
+        "total_batches": total_batches,
+        "samples_processed": samples_processed,
+        "total_samples": total_samples,
+        "progress": progress,
+        "samples_per_second": samples_per_second,
+        "eta_seconds": eta_seconds,
+        "status": status,
+        "features_in_heap": features_in_heap,
+        "heap_examples_count": heap_examples_count,
+    }
+
+    if training_id:
+        data["training_id"] = training_id
+    if sae_id:
+        data["sae_id"] = sae_id
+    if message:
+        data["message"] = message
+    if features_extracted is not None:
+        data["features_extracted"] = features_extracted
+    if total_features is not None:
+        data["total_features"] = total_features
+
+    return emit_progress(channel, "extraction:progress", data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -1035,6 +1126,7 @@ __all__ = [
     "emit_model_progress",
     "emit_extraction_progress",
     "emit_extraction_failed",
+    "emit_extraction_job_progress",
     "emit_training_progress",
     "emit_checkpoint_created",
     "emit_deletion_progress",

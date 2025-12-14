@@ -4,15 +4,45 @@ MechInterp Studio (miStudio) - FastAPI Application
 Main application entry point for the backend API.
 """
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from .api.v1.router import api_router
 from .core.config import settings
 from .core.websocket import socket_app, sio, WebSocketManager
 from .ml.transformers_compat import patch_transformers_compatibility
+from .services.background_monitor import get_background_monitor
+
+logger = logging.getLogger(__name__)
 
 # Apply transformers compatibility patches for newer models (Phi-4, etc.)
 patch_transformers_compatibility()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager.
+
+    Starts background tasks on startup and stops them on shutdown.
+    """
+    # Startup
+    logger.info("Starting miStudio backend...")
+
+    # Start background system monitor (runs independently of Celery)
+    background_monitor = get_background_monitor()
+    await background_monitor.start()
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down miStudio backend...")
+
+    # Stop background monitor
+    await background_monitor.stop()
+
 
 app = FastAPI(
     title="MechInterp Studio API",
@@ -20,7 +50,8 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 # Initialize WebSocket manager

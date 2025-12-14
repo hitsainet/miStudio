@@ -119,6 +119,24 @@ class ExtractionStatusResponse(BaseModel):
     context_prefix_tokens: Optional[int] = 5
     context_suffix_tokens: Optional[int] = 3
 
+    # NLP Processing status (separate from feature extraction)
+    nlp_status: Optional[str] = Field(
+        default=None,
+        description="NLP processing status: null, pending, processing, completed, failed"
+    )
+    nlp_progress: Optional[float] = Field(
+        default=None,
+        description="NLP processing progress 0.0-1.0"
+    )
+    nlp_processed_count: Optional[int] = Field(
+        default=None,
+        description="Number of features with NLP analysis completed"
+    )
+    nlp_error_message: Optional[str] = Field(
+        default=None,
+        description="Error message if NLP processing failed"
+    )
+
 
 class ExtractionListResponse(BaseModel):
     """

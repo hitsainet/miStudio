@@ -86,6 +86,13 @@ class ExtractionJob(Base):
     total_features = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
 
+    # NLP Processing status (separate from feature extraction)
+    # NLP analysis is performed AFTER extraction completes
+    nlp_status = Column(String(50), nullable=True)  # null, "pending", "processing", "completed", "failed"
+    nlp_progress = Column(Float, nullable=True, default=0.0)  # 0.0-1.0
+    nlp_processed_count = Column(Integer, nullable=True, default=0)  # Features with NLP completed
+    nlp_error_message = Column(Text, nullable=True)
+
     # Output statistics
     statistics = Column(JSONB, nullable=True)
     # Contains: {total_features: int, avg_interpretability: float,

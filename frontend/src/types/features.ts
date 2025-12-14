@@ -39,6 +39,11 @@ export interface ExtractionConfigRequest {
 export type ExtractionSourceType = 'training' | 'external_sae';
 
 /**
+ * NLP processing status.
+ */
+export type NlpStatus = 'pending' | 'processing' | 'completed' | 'failed' | null;
+
+/**
  * Extraction job status response.
  * Supports both training-based and external SAE-based extractions.
  */
@@ -72,6 +77,21 @@ export interface ExtractionStatusResponse {
   // Context window configuration
   context_prefix_tokens?: number;
   context_suffix_tokens?: number;
+  // NLP Processing status (separate from feature extraction)
+  nlp_status?: NlpStatus;
+  nlp_progress?: number | null;
+  nlp_processed_count?: number | null;
+  nlp_error_message?: string | null;
+  // Real-time progress metrics (from WebSocket updates)
+  current_batch?: number;
+  total_batches?: number;
+  samples_processed?: number;
+  total_samples?: number;
+  samples_per_second?: number;
+  eta_seconds?: number;
+  features_in_heap?: number;
+  heap_examples_count?: number;
+  status_message?: string;  // Status message (e.g., "Saving features to database...")
 }
 
 /**
@@ -126,6 +146,9 @@ export interface Feature {
   created_at: string;
   updated_at: string;
   example_context: FeatureActivationExample | null;
+  // NLP Analysis (pre-computed, stored in database)
+  nlp_analysis: NLPAnalysis | null;
+  nlp_processed_at: string | null;
 }
 
 /**
@@ -165,6 +188,7 @@ export interface FeatureSearchRequest {
  */
 export interface FeatureDetail extends Feature {
   active_samples: number;
+  // NLP Analysis fields are inherited from Feature
 }
 
 /**
@@ -243,4 +267,135 @@ export interface TokenAnalysisSummary {
 export interface TokenAnalysisResponse {
   summary: TokenAnalysisSummary;
   tokens: TokenAnalysisToken[];
+}
+
+// ============================================
+// NLP Analysis Types (Pre-computed feature analysis)
+// ============================================
+
+/**
+ * Named entity from NLP analysis.
+ */
+export interface NLPNamedEntity {
+  text: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * N-gram pattern from context analysis.
+ */
+export interface NLPNgram {
+  tokens: string[];
+  count: number;
+}
+
+/**
+ * Syntactic pattern from context analysis.
+ */
+export interface NLPSyntacticPattern {
+  pattern: string;
+  count: number;
+}
+
+/**
+ * High-activation token from activation analysis.
+ */
+export interface NLPHighActivationToken {
+  token: string;
+  activation: number;
+}
+
+/**
+ * Semantic cluster from NLP analysis.
+ */
+export interface NLPSemanticCluster {
+  label: string;
+  example_indices: number[];
+  size: number;
+  representative_tokens: string[];
+  avg_activation: number;
+}
+
+/**
+ * Prime token analysis results.
+ */
+export interface NLPPrimeTokenAnalysis {
+  unique_count: number;
+  total_count: number;
+  unique_tokens: string[];
+  frequency_distribution: Record<string, number>;
+  lowercase_distribution: Record<string, number>;
+  pos_distribution: Record<string, number>;
+  ner_entities: NLPNamedEntity[];
+  token_types: Record<string, number>;
+  most_common_token: [string, number];
+  concentration_ratio: number;
+}
+
+/**
+ * Context pattern analysis results.
+ */
+export interface NLPContextPatterns {
+  prefix_bigrams: NLPNgram[];
+  prefix_trigrams: NLPNgram[];
+  suffix_bigrams: NLPNgram[];
+  suffix_trigrams: NLPNgram[];
+  immediately_before: Record<string, number>;
+  immediately_after: Record<string, number>;
+  syntactic_patterns: NLPSyntacticPattern[];
+}
+
+/**
+ * Activation statistics from NLP analysis.
+ */
+export interface NLPActivationStats {
+  mean: number;
+  std: number;
+  min: number;
+  max: number;
+  median: number;
+  skewness: number;
+  distribution_type: 'symmetric' | 'right-skewed' | 'left-skewed' | 'unknown';
+  high_activation_tokens: NLPHighActivationToken[];
+  activation_range_buckets: Record<string, number>;
+  coefficient_of_variation: number;
+}
+
+/**
+ * Complete NLP analysis result stored on Feature.
+ */
+export interface NLPAnalysis {
+  prime_token_analysis: NLPPrimeTokenAnalysis;
+  context_patterns: NLPContextPatterns;
+  activation_stats: NLPActivationStats;
+  semantic_clusters: NLPSemanticCluster[];
+  summary_for_prompt: string;
+  num_examples_analyzed: number;
+  computed_at: string;
+}
+
+/**
+ * NLP analysis task status response.
+ */
+export interface NLPAnalysisTaskStatus {
+  task_id: string;
+  extraction_job_id: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  message: string;
+}
+
+/**
+ * NLP analysis progress event (from WebSocket).
+ */
+export interface NLPAnalysisProgressEvent {
+  extraction_job_id: string;
+  progress: number;
+  features_analyzed: number;
+  total_features: number;
+  cached_count?: number;
+  error_count?: number;
+  status: 'analyzing' | 'completed' | 'failed';
+  message: string;
+  error?: string;
 }

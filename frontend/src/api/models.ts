@@ -277,3 +277,35 @@ export async function deleteExtractions(
 export async function getLocalModels(): Promise<{ models: string[] }> {
   return fetchAPI<{ models: string[] }>('/models/local-cache/list');
 }
+
+/**
+ * Trigger NLP analysis for an extraction job.
+ * This processes all features in the extraction to compute NLP analysis
+ * (POS tags, NER, n-grams, clusters) and stores results persistently.
+ *
+ * @param extractionId - The extraction job ID to analyze
+ * @param options - Optional configuration (featureIds to limit scope, batchSize)
+ * @returns Task status with task_id for progress tracking via WebSocket
+ */
+export async function triggerNlpAnalysis(
+  extractionId: string,
+  options?: {
+    feature_ids?: string[];
+    batch_size?: number;
+  }
+): Promise<{
+  task_id: string;
+  extraction_job_id: string;
+  status: string;
+  message: string;
+}> {
+  return fetchAPI<{
+    task_id: string;
+    extraction_job_id: string;
+    status: string;
+    message: string;
+  }>(`/extractions/${extractionId}/analyze-nlp`, {
+    method: 'POST',
+    body: JSON.stringify(options || {}),
+  });
+}

@@ -87,6 +87,11 @@ class Feature(Base):
     # This is purely for quick visual scanning in the UI - full examples are in FeatureActivation table
     example_tokens_summary = Column(JSONB, nullable=True)
 
+    # NLP Analysis (pre-computed and cached for labeling)
+    # Contains: token_analysis, pos_distribution, ngrams, semantic_clusters, linguistic_patterns
+    nlp_analysis = Column(JSONB, nullable=True)
+    nlp_processed_at = Column(DateTime(timezone=True), nullable=True)  # When NLP analysis was computed
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

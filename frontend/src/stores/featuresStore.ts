@@ -136,6 +136,9 @@ interface FeaturesStoreState {
   handleExtractionProgress: (trainingId: string, progress: number, featuresExtracted: number, totalFeatures: number) => void;
   handleExtractionCompleted: (trainingId: string) => void;
   handleExtractionFailed: (trainingId: string, error: string) => void;
+
+  // WebSocket update handlers for allExtractions list (by extraction ID)
+  updateExtractionById: (extractionId: string, updates: Partial<ExtractionStatusResponse>) => void;
 }
 
 /**
@@ -603,6 +606,42 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
           },
         },
       };
+    });
+  },
+
+  /**
+   * Update an extraction in the allExtractions list by extraction ID.
+   * Used by WebSocket handlers to update extraction progress in real-time.
+   */
+  updateExtractionById: (extractionId: string, updates: Partial<ExtractionStatusResponse>) => {
+    set((state) => {
+      const extractionIndex = state.allExtractions.findIndex(e => e.id === extractionId);
+      if (extractionIndex === -1) {
+        // Extraction not in list - might need to refresh
+        return state;
+      }
+
+      const updatedExtractions = [...state.allExtractions];
+      updatedExtractions[extractionIndex] = {
+        ...updatedExtractions[extractionIndex],
+        ...updates,
+      };
+
+      // Also update extractionStatus if we have a training_id
+      const extraction = updatedExtractions[extractionIndex];
+      const newState: any = { allExtractions: updatedExtractions };
+
+      if (extraction.training_id && state.extractionStatus[extraction.training_id]) {
+        newState.extractionStatus = {
+          ...state.extractionStatus,
+          [extraction.training_id]: {
+            ...state.extractionStatus[extraction.training_id],
+            ...updates,
+          },
+        };
+      }
+
+      return newState;
     });
   },
 }));

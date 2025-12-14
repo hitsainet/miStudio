@@ -284,7 +284,7 @@ export async function getLocalModels(): Promise<{ models: string[] }> {
  * (POS tags, NER, n-grams, clusters) and stores results persistently.
  *
  * @param extractionId - The extraction job ID to analyze
- * @param options - Optional configuration (featureIds to limit scope, batchSize)
+ * @param options - Optional configuration (featureIds to limit scope, batchSize, forceReprocess)
  * @returns Task status with task_id for progress tracking via WebSocket
  */
 export async function triggerNlpAnalysis(
@@ -292,6 +292,7 @@ export async function triggerNlpAnalysis(
   options?: {
     feature_ids?: string[];
     batch_size?: number;
+    force_reprocess?: boolean;
   }
 ): Promise<{
   task_id: string;
@@ -305,6 +306,57 @@ export async function triggerNlpAnalysis(
     status: string;
     message: string;
   }>(`/extractions/${extractionId}/analyze-nlp`, {
+    method: 'POST',
+    body: JSON.stringify(options || {}),
+  });
+}
+
+/**
+ * Cancel an in-progress NLP analysis job.
+ * Preserves progress already made - features that have been analyzed keep their results.
+ *
+ * @param extractionId - The extraction job ID
+ * @returns Control response with cancellation status
+ */
+export async function cancelNlpAnalysis(
+  extractionId: string
+): Promise<{
+  extraction_job_id: string;
+  action: string;
+  previous_status: string | null;
+  previous_progress: number | null;
+  features_affected: number | null;
+  message: string;
+}> {
+  return fetchAPI(`/extractions/${extractionId}/cancel-nlp`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Reset NLP analysis status for an extraction job.
+ * Allows resuming (skips already processed features) or restarting from scratch.
+ *
+ * @param extractionId - The extraction job ID
+ * @param options - Reset options:
+ *   - clear_feature_analysis: If true, clears NLP analysis from all features (restart from scratch)
+ *                             If false (default), preserves existing analysis (resume where left off)
+ * @returns Control response with reset status
+ */
+export async function resetNlpAnalysis(
+  extractionId: string,
+  options?: {
+    clear_feature_analysis?: boolean;
+  }
+): Promise<{
+  extraction_job_id: string;
+  action: string;
+  previous_status: string | null;
+  previous_progress: number | null;
+  features_affected: number | null;
+  message: string;
+}> {
+  return fetchAPI(`/extractions/${extractionId}/reset-nlp`, {
     method: 'POST',
     body: JSON.stringify(options || {}),
   });

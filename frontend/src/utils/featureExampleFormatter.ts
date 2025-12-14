@@ -3,48 +3,44 @@
  *
  * Formats feature activation examples for clipboard export in various formats.
  * Supports plain text, markdown, and JSON output formats.
+ *
+ * Uses shared tokenUtils.ts for BPE token handling and word reconstruction.
  */
 
 import { FeatureActivationExample } from '../types/features';
+import { cleanToken, reconstructWords } from './tokenUtils';
 
 export type ExportFormat = 'text' | 'markdown' | 'json';
 
 /**
- * Clean token by removing BPE markers from various tokenizers.
- * Same logic as TokenHighlight component.
- */
-const cleanToken = (token: string): string => {
-  let cleaned = token.replace(/^["']|["']$/g, '');
-  cleaned = cleaned
-    .replace(/^Ġ/g, '')
-    .replace(/^▁/g, '')
-    .replace(/^\u2581/g, '')
-    .replace(/^##/g, '')
-    .replace(/^_/g, '');
-  return cleaned;
-};
-
-/**
  * Get the display text for an example's tokens.
  * Handles both legacy (flat tokens) and enhanced (prefix/prime/suffix) formats.
+ * Uses word reconstruction to combine BPE subword tokens into complete words.
  */
 function getTokensDisplay(
   example: FeatureActivationExample,
   highlightPrime: boolean = true
 ): string {
-  // Enhanced format with context window
+  // Enhanced format with context window - use word reconstruction
   if (example.prefix_tokens && example.prime_token !== undefined && example.suffix_tokens) {
-    const prefix = example.prefix_tokens.map(cleanToken).join(' ');
-    const prime = cleanToken(example.prime_token);
-    const suffix = example.suffix_tokens.map(cleanToken).join(' ');
+    const { words, primeWordIndex } = reconstructWords(
+      example.prefix_tokens,
+      example.prime_token,
+      example.suffix_tokens
+    );
 
-    if (highlightPrime) {
-      return `${prefix} [${prime}] ${suffix}`.trim();
-    }
-    return `${prefix} ${prime} ${suffix}`.trim();
+    // Build the display with the prime word highlighted
+    const displayParts = words.map((word, idx) => {
+      if (highlightPrime && idx === primeWordIndex) {
+        return `[${word}]`;
+      }
+      return word;
+    });
+
+    return displayParts.join(' ').trim();
   }
 
-  // Legacy format - flat token list
+  // Legacy format - flat token list (no reconstruction, just clean tokens)
   if (example.tokens && example.tokens.length > 0) {
     // Find the max activation index to highlight
     if (highlightPrime && example.activations && example.activations.length > 0) {
@@ -80,18 +76,30 @@ function formatExampleAsText(
 
 /**
  * Format a single example as markdown (single line with pipe separators).
+ * Uses word reconstruction to combine BPE subword tokens into complete words.
  */
 function formatExampleAsMarkdown(
   example: FeatureActivationExample,
   index: number
 ): string {
-  // Format tokens with bold for prime token
+  // Format tokens with bold for prime token, using word reconstruction
   let tokensStr = '';
   if (example.prefix_tokens && example.prime_token !== undefined && example.suffix_tokens) {
-    const prefix = example.prefix_tokens.map(cleanToken).join(' ');
-    const prime = cleanToken(example.prime_token);
-    const suffix = example.suffix_tokens.map(cleanToken).join(' ');
-    tokensStr = `${prefix} **[${prime}]** ${suffix}`.trim();
+    const { words, primeWordIndex } = reconstructWords(
+      example.prefix_tokens,
+      example.prime_token,
+      example.suffix_tokens
+    );
+
+    // Build the display with the prime word highlighted in bold
+    const displayParts = words.map((word, idx) => {
+      if (idx === primeWordIndex) {
+        return `**[${word}]**`;
+      }
+      return word;
+    });
+
+    tokensStr = displayParts.join(' ').trim();
   } else if (example.tokens) {
     const maxIdx = example.activations?.indexOf(Math.max(...(example.activations || []))) ?? -1;
     tokensStr = example.tokens

@@ -263,6 +263,35 @@ class NLPAnalysisRequest(BaseModel):
         le=500,
         description="Number of features to process in each batch"
     )
+    force_reprocess: bool = Field(
+        default=False,
+        description="If true, reprocess all features even if they already have NLP analysis"
+    )
+
+
+class NLPResetRequest(BaseModel):
+    """Request schema for resetting NLP analysis."""
+    model_config = ConfigDict(from_attributes=True)
+
+    clear_feature_analysis: bool = Field(
+        default=False,
+        description="If true, also clear NLP analysis from individual features (start fresh)"
+    )
+
+
+class NLPControlResponse(BaseModel):
+    """Response schema for NLP control operations (cancel/reset)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    extraction_job_id: str = Field(description="ID of the extraction job")
+    action: str = Field(description="Action performed: cancelled, reset")
+    previous_status: Optional[str] = Field(description="Previous NLP status before action")
+    previous_progress: Optional[float] = Field(description="Previous progress (0-1) before action")
+    features_affected: Optional[int] = Field(
+        default=None,
+        description="Number of features affected (for reset with clear_feature_analysis)"
+    )
+    message: str = Field(description="Human-readable status message")
 
 
 class NLPAnalysisStatusResponse(BaseModel):

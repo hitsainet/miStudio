@@ -10,6 +10,7 @@
  */
 
 import React from 'react';
+import { cleanToken } from '../../utils/tokenUtils';
 
 interface TokenHighlightProps {
   tokens: string[];
@@ -17,28 +18,6 @@ interface TokenHighlightProps {
   maxActivation: number;
   className?: string;
 }
-
-/**
- * Clean token by removing BPE markers from GPT-2/BERT tokenizers.
- * - "Ġ" = GPT-2 space marker (indicates token starts a new word)
- * - "▁" (U+2581) = SentencePiece/T5 space marker
- * - "##" = BERT word-piece continuation marker
- * - "\u2581" = Escaped Unicode representation of SentencePiece marker
- */
-const cleanToken = (token: string): string => {
-  // First remove surrounding quotes if present
-  let cleaned = token.replace(/^["']|["']$/g, '');
-
-  // Then remove BPE markers
-  cleaned = cleaned
-    .replace(/^Ġ/g, '')  // GPT-2 space marker → remove
-    .replace(/^▁/g, '')  // SentencePiece space marker (U+2581) → remove
-    .replace(/^\u2581/g, '')  // Escaped SentencePiece marker → remove
-    .replace(/^##/g, '')  // BERT continuation marker → remove
-    .replace(/^_/g, '');  // Underscore fallback → remove
-
-  return cleaned;
-};
 
 /**
  * Calculate activation intensity (0-1) for a token.

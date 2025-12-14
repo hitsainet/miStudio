@@ -12,26 +12,13 @@ import { Copy, Check } from 'lucide-react';
 import { FeatureActivationExample } from '../../types/features';
 import { formatActivation } from '../../utils/formatters';
 import { formatSingleExampleForClipboard, copyToClipboard } from '../../utils/featureExampleFormatter';
+import { cleanToken, getPrimeWord } from '../../utils/tokenUtils';
 
 interface ExampleRowProps {
   example: FeatureActivationExample;
   index: number;
   maxActivation?: number; // Overall max activation for the feature (for intensity normalization)
 }
-
-/**
- * Clean token by removing BPE markers from various tokenizers.
- */
-const cleanToken = (token: string): string => {
-  let cleaned = token.replace(/^["']|["']$/g, '');
-  cleaned = cleaned
-    .replace(/^Ġ/g, '')
-    .replace(/^▁/g, '')
-    .replace(/^\u2581/g, '')
-    .replace(/^##/g, '')
-    .replace(/^_/g, '');
-  return cleaned;
-};
 
 /**
  * Calculate activation intensity (0-1) for a token.
@@ -59,26 +46,37 @@ export const ExampleRow: React.FC<ExampleRowProps> = ({
   // Determine the max activation to use for intensity calculation
   const effectiveMaxActivation = maxActivation ?? example.max_activation;
 
-  // Get prime token info
+  // Get prime token/word info
   const getPrimeTokenInfo = () => {
-    if (example.prime_token !== undefined) {
+    // Enhanced format: use word reconstruction to get the full word
+    if (example.prefix_tokens && example.prime_token !== undefined && example.suffix_tokens) {
+      const primeWord = getPrimeWord(
+        example.prefix_tokens,
+        example.prime_token,
+        example.suffix_tokens
+      );
       return {
-        token: cleanToken(example.prime_token),
-        primeIndex: example.prime_activation_index ?? (example.prefix_tokens?.length ?? 0),
+        token: primeWord,
+        rawToken: cleanToken(example.prime_token),
+        primeIndex: example.prime_activation_index ?? example.prefix_tokens.length,
+        isFragment: primeWord !== cleanToken(example.prime_token),
       };
     }
-    // Legacy format: find max activation index
+    // Legacy format: find max activation index (no reconstruction available)
     if (example.tokens && example.activations) {
       const maxIdx = example.activations.indexOf(Math.max(...example.activations));
+      const token = cleanToken(example.tokens[maxIdx] || '');
       return {
-        token: cleanToken(example.tokens[maxIdx] || ''),
+        token,
+        rawToken: token,
         primeIndex: maxIdx,
+        isFragment: false,
       };
     }
-    return { token: '', primeIndex: 0 };
+    return { token: '', rawToken: '', primeIndex: 0, isFragment: false };
   };
 
-  const { token: primeToken, primeIndex } = getPrimeTokenInfo();
+  const { token: primeWord, rawToken: rawPrimeToken, primeIndex, isFragment } = getPrimeTokenInfo();
 
   // Build all tokens array for rendering
   const getAllTokens = (): string[] => {
@@ -102,16 +100,24 @@ export const ExampleRow: React.FC<ExampleRowProps> = ({
 
   return (
     <div className="flex items-start gap-3 py-3 border-b border-slate-800 last:border-b-0 hover:bg-slate-800/30 transition-colors group">
-      {/* Left column: Prime token + activation (fixed width) */}
-      <div className="flex-shrink-0 w-20 flex flex-col items-center text-center">
-        {/* Prime token */}
+      {/* Left column: Prime word + activation (fixed width) */}
+      <div className="flex-shrink-0 w-24 flex flex-col items-center text-center">
+        {/* Prime word (reconstructed from BPE tokens) */}
         <div
           className="px-2 py-1 rounded text-sm font-mono font-semibold text-white truncate max-w-full"
           style={{ backgroundColor: 'rgba(16, 185, 129, 0.7)' }}
-          title={primeToken}
+          title={isFragment
+            ? `Word: "${primeWord}" (token: "${rawPrimeToken}")`
+            : primeWord}
         >
-          {primeToken || '·'}
+          {primeWord || '·'}
         </div>
+        {/* Fragment indicator - shows if prime token was part of a larger word */}
+        {isFragment && (
+          <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-full" title={`Token: "${rawPrimeToken}"`}>
+            ← {rawPrimeToken}
+          </div>
+        )}
         {/* Activation value */}
         <div className="text-xs text-emerald-400 font-mono mt-1">
           {formatActivation(example.max_activation)}

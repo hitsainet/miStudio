@@ -41,7 +41,7 @@ export type ExtractionSourceType = 'training' | 'external_sae';
 /**
  * NLP processing status.
  */
-export type NlpStatus = 'pending' | 'processing' | 'completed' | 'failed' | null;
+export type NlpStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled' | null;
 
 /**
  * Extraction job status response.

@@ -75,9 +75,18 @@ class NLPAnalysisService:
     - Context patterns (n-grams, common structures)
     - Semantic clusters (groupings of similar examples)
     - Activation statistics
+
+    Includes BPE subword reconstruction to analyze full words instead of fragments.
     """
 
-    # BPE markers to clean from tokens
+    # BPE markers that indicate the START of a new word
+    # These markers appear at the beginning of tokens that start new words
+    BPE_WORD_START_MARKERS = ('Ġ', '▁')  # GPT-2/Llama, SentencePiece
+
+    # BPE markers that indicate CONTINUATION of previous word
+    BPE_CONTINUATION_MARKERS = ('##',)  # BERT style
+
+    # All BPE markers for cleaning
     BPE_MARKERS = ('Ġ', '▁', '##', ' ')
 
     # Common stop words for filtering
@@ -105,6 +114,180 @@ class NLPAnalysisService:
             if cleaned.startswith(marker):
                 cleaned = cleaned[len(marker):]
         return cleaned.strip()
+
+    def _is_word_start(self, token: str) -> bool:
+        """
+        Determine if a token starts a new word based on BPE markers.
+
+        Token starts a new word if:
+        - It starts with Ġ (GPT-2/Llama) or ▁ (SentencePiece)
+        - It starts with a space
+        - It does NOT start with ## (BERT continuation marker)
+
+        Tokens without any marker are continuations of the previous word.
+        """
+        if not token:
+            return False
+
+        # Check for explicit continuation markers first (BERT style)
+        for marker in self.BPE_CONTINUATION_MARKERS:
+            if token.startswith(marker):
+                return False
+
+        # Check for word start markers
+        for marker in self.BPE_WORD_START_MARKERS:
+            if token.startswith(marker):
+                return True
+
+        # Space at start indicates new word
+        if token.startswith(' '):
+            return True
+
+        # No marker = continuation of previous word
+        return False
+
+    def _reconstruct_words(
+        self,
+        prefix_tokens: List[str],
+        prime_token: str,
+        suffix_tokens: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Reconstruct full words from BPE subword tokens.
+
+        This method combines subword tokens back into complete words based on
+        BPE marker conventions. It tracks which word contains the prime token
+        (the "prime word") for more accurate NLP analysis.
+
+        Examples:
+        - Input: ['Ġnormal', 'cy'] with prime='cy' → prime_word='normalcy'
+        - Input: ['ĠMoh', 'awk'] with prime='awk' → prime_word='Mohawk'
+        - Input: ['Ġlad', 'bro', 'kes'] with prime='lad' → prime_word='ladbrokes'
+        - Input: ['.', 'first', '_name'] with prime='.first' → prime_word='.first_name'
+
+        Args:
+            prefix_tokens: Tokens before the prime token
+            prime_token: The token with maximum activation
+            suffix_tokens: Tokens after the prime token
+
+        Returns:
+            Dict containing:
+                - words: List of reconstructed words
+                - prime_word: The complete word containing the prime token
+                - prime_word_index: Index of prime word in words list
+                - prime_is_fragment: Whether the prime token was a word fragment
+                - context_string: Full reconstructed context as string
+        """
+        # Combine all tokens with markers indicating position
+        all_tokens = []
+        prime_token_index = len(prefix_tokens)  # Index of prime token
+
+        for token in prefix_tokens:
+            all_tokens.append(token)
+        all_tokens.append(prime_token)
+        for token in suffix_tokens:
+            all_tokens.append(token)
+
+        # Reconstruct words
+        words = []
+        current_word_parts = []
+        prime_word_index = -1
+        prime_in_current_word = False
+
+        for i, token in enumerate(all_tokens):
+            # Check if this token starts a new word
+            starts_new_word = self._is_word_start(token)
+
+            # Handle special case: first token always starts a word
+            if i == 0:
+                starts_new_word = True
+
+            if starts_new_word and current_word_parts:
+                # Save the current word before starting new one
+                completed_word = ''.join(current_word_parts)
+                words.append(completed_word)
+
+                # Track if prime was in the word we just completed
+                if prime_in_current_word:
+                    prime_word_index = len(words) - 1
+                    prime_in_current_word = False
+
+                current_word_parts = []
+
+            # Clean the token and add to current word
+            cleaned = self._clean_token(token)
+            if cleaned:
+                current_word_parts.append(cleaned)
+
+            # Track if this is the prime token
+            if i == prime_token_index:
+                prime_in_current_word = True
+
+        # Don't forget the last word
+        if current_word_parts:
+            completed_word = ''.join(current_word_parts)
+            words.append(completed_word)
+            if prime_in_current_word:
+                prime_word_index = len(words) - 1
+
+        # Get the prime word
+        prime_word = words[prime_word_index] if 0 <= prime_word_index < len(words) else self._clean_token(prime_token)
+
+        # Determine if prime was a fragment
+        cleaned_prime = self._clean_token(prime_token)
+        prime_is_fragment = prime_word != cleaned_prime and len(prime_word) > len(cleaned_prime)
+
+        # Build context string with proper spacing
+        context_string = ' '.join(words)
+
+        return {
+            "words": words,
+            "prime_word": prime_word,
+            "prime_word_index": prime_word_index,
+            "prime_is_fragment": prime_is_fragment,
+            "context_string": context_string,
+            "original_prime_token": cleaned_prime
+        }
+
+    def _get_prime_words_from_examples(
+        self,
+        examples: List[Dict[str, Any]]
+    ) -> Tuple[List[str], List[Dict[str, Any]]]:
+        """
+        Extract reconstructed prime words from all examples.
+
+        Args:
+            examples: List of feature activation examples
+
+        Returns:
+            Tuple of (prime_words, reconstruction_details)
+            - prime_words: List of reconstructed prime words
+            - reconstruction_details: List of full reconstruction info per example
+        """
+        prime_words = []
+        reconstruction_details = []
+
+        for ex in examples:
+            prime = ex.get('prime_token', '')
+            prefix = ex.get('prefix_tokens', [])
+            suffix = ex.get('suffix_tokens', [])
+
+            if prime:
+                recon = self._reconstruct_words(prefix, prime, suffix)
+                prime_words.append(recon['prime_word'])
+                reconstruction_details.append(recon)
+            else:
+                prime_words.append('')
+                reconstruction_details.append({
+                    "words": [],
+                    "prime_word": '',
+                    "prime_word_index": -1,
+                    "prime_is_fragment": False,
+                    "context_string": '',
+                    "original_prime_token": ''
+                })
+
+        return prime_words, reconstruction_details
 
     def _join_context(self, prefix_tokens: List[str], prime: str, suffix_tokens: List[str]) -> str:
         """Join tokens into readable context string."""
@@ -142,6 +325,9 @@ class NLPAnalysisService:
         """
         Perform comprehensive NLP analysis on feature activation examples.
 
+        This method reconstructs full words from BPE subword tokens before analysis,
+        providing more accurate POS tagging and NER than analyzing fragments.
+
         Args:
             examples: List of activation examples with prefix_tokens, prime_token,
                      suffix_tokens, max_activation
@@ -157,7 +343,7 @@ class NLPAnalysisService:
             return self._empty_analysis()
 
         # Extract components from examples
-        prime_tokens = []
+        prime_tokens = []  # Original BPE tokens
         prefix_contexts = []
         suffix_contexts = []
         activations = []
@@ -176,11 +362,22 @@ class NLPAnalysisService:
                 activations.append(activation)
                 full_contexts.append(self._join_context(prefix, prime, suffix))
 
-        # Perform analyses
-        prime_analysis = self._analyze_prime_tokens(prime_tokens)
+        # Reconstruct words from BPE tokens to get full words instead of fragments
+        prime_words, reconstruction_details = self._get_prime_words_from_examples(examples)
+
+        # Filter to only examples that had valid primes
+        valid_prime_words = [w for w in prime_words if w]
+
+        # Count how many primes were fragments that got reconstructed
+        fragment_count = sum(1 for d in reconstruction_details if d.get('prime_is_fragment', False))
+        logger.info(f"Feature {feature_id}: {fragment_count}/{len(reconstruction_details)} prime tokens were word fragments")
+
+        # Perform analyses using RECONSTRUCTED prime words for NLP
+        # This gives better POS tagging and NER than analyzing fragments
+        prime_analysis = self._analyze_prime_tokens_with_words(prime_tokens, valid_prime_words, reconstruction_details)
         context_analysis = self._analyze_context_patterns(prefix_contexts, suffix_contexts, full_contexts)
         activation_analysis = self._analyze_activation_patterns(activations, prime_tokens)
-        semantic_clusters = self._cluster_examples(full_contexts, prime_tokens, activations)
+        semantic_clusters = self._cluster_examples(full_contexts, valid_prime_words, activations)
 
         # Generate summary for prompt
         summary = self._generate_analysis_summary(
@@ -194,6 +391,11 @@ class NLPAnalysisService:
             "semantic_clusters": semantic_clusters,
             "summary_for_prompt": summary,
             "num_examples_analyzed": len(examples),
+            "word_reconstruction_stats": {
+                "total_examples": len(reconstruction_details),
+                "fragment_count": fragment_count,
+                "fragment_percentage": (fragment_count / len(reconstruction_details) * 100) if reconstruction_details else 0
+            },
             "computed_at": datetime.now(timezone.utc).isoformat()
         }
 
@@ -280,6 +482,126 @@ class NLPAnalysisService:
             "token_types": token_types,
             "most_common_token": freq_counter.most_common(1)[0] if freq_counter else ("", 0),
             "concentration_ratio": freq_counter.most_common(1)[0][1] / len(cleaned_tokens) if freq_counter and cleaned_tokens else 0
+        }
+
+    def _analyze_prime_tokens_with_words(
+        self,
+        prime_tokens: List[str],
+        prime_words: List[str],
+        reconstruction_details: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Analyze prime tokens with word reconstruction for better NLP accuracy.
+
+        This method uses the reconstructed full words (instead of BPE fragments)
+        for POS tagging and NER, which gives significantly better results for
+        partial word tokens like 'cy' (from 'normalcy') or 'awk' (from 'Mohawk').
+
+        Args:
+            prime_tokens: List of original BPE prime tokens
+            prime_words: List of reconstructed full words containing the prime tokens
+            reconstruction_details: Full reconstruction info including fragment status
+
+        Returns:
+            Dict with token and word statistics, including both original and reconstructed analysis
+        """
+        # Clean original tokens for frequency analysis
+        cleaned_tokens = [self._clean_token(t) for t in prime_tokens]
+        cleaned_tokens = [t for t in cleaned_tokens if t]
+
+        # Frequency distribution of original tokens
+        token_freq_counter = Counter(cleaned_tokens)
+        unique_tokens = list(token_freq_counter.keys())
+
+        # Frequency distribution of reconstructed words
+        word_freq_counter = Counter(prime_words)
+        unique_words = list(word_freq_counter.keys())
+
+        # Lowercase distributions
+        token_lowercase_counter = Counter(t.lower() for t in cleaned_tokens)
+        word_lowercase_counter = Counter(w.lower() for w in prime_words if w)
+
+        # POS tagging and NER using RECONSTRUCTED WORDS for better accuracy
+        pos_distribution = Counter()
+        ner_entities = []
+
+        nlp = _get_spacy_nlp()
+        if nlp:
+            # Process reconstructed words for POS and NER
+            # This is the key improvement - analyzing "normalcy" instead of "cy"
+            for word in unique_words:
+                if word:
+                    doc = nlp(word)
+                    for tok in doc:
+                        pos_distribution[tok.pos_] += word_freq_counter[word]
+                    for ent in doc.ents:
+                        ner_entities.append({
+                            "text": ent.text,
+                            "label": ent.label_,
+                            "count": word_freq_counter.get(word, 1)
+                        })
+
+            # Also process words in sentence context for better NER
+            sample_words = prime_words[:50]  # Limit for performance
+            joined_text = ". ".join(w for w in sample_words if w)
+            if joined_text:
+                doc = nlp(joined_text[:10000])  # Limit text length
+                ner_counter = Counter()
+                for ent in doc.ents:
+                    if ent.text.lower() in [w.lower() for w in unique_words[:20] if w]:
+                        ner_counter[(ent.text, ent.label_)] += 1
+
+                # Deduplicate NER results
+                ner_entities = [
+                    {"text": text, "label": label, "count": count}
+                    for (text, label), count in ner_counter.most_common(10)
+                ]
+        else:
+            # Fallback: simple heuristics for POS using reconstructed words
+            for word in prime_words:
+                if not word:
+                    continue
+                elif word[0].isupper() and len(word) > 1:
+                    pos_distribution["PROPN"] += 1  # Proper noun
+                elif word.isdigit():
+                    pos_distribution["NUM"] += 1
+                elif word.lower() in self.STOP_WORDS:
+                    pos_distribution["STOP"] += 1
+                else:
+                    pos_distribution["WORD"] += 1
+
+        # Token type categorization using reconstructed words
+        token_types = self._categorize_tokens(unique_words)
+
+        # Count fragments for reporting
+        fragment_count = sum(1 for d in reconstruction_details if d.get('prime_is_fragment', False))
+
+        # Get most common word (not token)
+        most_common_word = word_freq_counter.most_common(1)[0] if word_freq_counter else ("", 0)
+
+        return {
+            # Original token statistics
+            "unique_count": len(unique_tokens),
+            "total_count": len(cleaned_tokens),
+            "unique_tokens": unique_tokens[:30],
+            "frequency_distribution": dict(token_freq_counter.most_common(20)),
+            "lowercase_distribution": dict(token_lowercase_counter.most_common(15)),
+            # Reconstructed word statistics (for better NLP)
+            "unique_words": unique_words[:30],
+            "word_frequency_distribution": dict(word_freq_counter.most_common(20)),
+            "word_lowercase_distribution": dict(word_lowercase_counter.most_common(15)),
+            # NLP analysis (based on reconstructed words)
+            "pos_distribution": dict(pos_distribution),
+            "ner_entities": ner_entities[:10],
+            "token_types": token_types,
+            # Summary statistics
+            "most_common_token": token_freq_counter.most_common(1)[0] if token_freq_counter else ("", 0),
+            "most_common_word": most_common_word,
+            "concentration_ratio": token_freq_counter.most_common(1)[0][1] / len(cleaned_tokens) if token_freq_counter and cleaned_tokens else 0,
+            # Word reconstruction metadata
+            "fragment_count": fragment_count,
+            "fragment_percentage": (fragment_count / len(reconstruction_details) * 100) if reconstruction_details else 0,
+            "reconstruction_enabled": True
         }
 
     def _categorize_tokens(self, tokens: List[str]) -> Dict[str, int]:
@@ -601,24 +923,47 @@ class NLPAnalysisService:
         """
         lines = []
 
-        # Prime token statistics
-        lines.append("**Prime Token Statistics:**")
+        # Check if word reconstruction was used
+        reconstruction_enabled = prime_analysis.get("reconstruction_enabled", False)
 
-        most_common = prime_analysis.get("most_common_token", ("", 0))
-        if most_common[0]:
-            lines.append(f"- Most common token: \"{most_common[0]}\" ({most_common[1]} occurrences)")
+        # Prime token/word statistics
+        if reconstruction_enabled:
+            lines.append("**Prime Word Statistics (reconstructed from BPE tokens):**")
 
-        freq_dist = prime_analysis.get("frequency_distribution", {})
-        if freq_dist:
-            top_tokens = list(freq_dist.items())[:5]
-            tokens_str = ", ".join([f'"{t}" ({c}x)' for t, c in top_tokens])
-            lines.append(f"- Top tokens: {tokens_str}")
+            # Show most common word first (reconstructed)
+            most_common_word = prime_analysis.get("most_common_word", ("", 0))
+            if most_common_word[0]:
+                lines.append(f"- Most common word: \"{most_common_word[0]}\" ({most_common_word[1]} occurrences)")
 
-        lines.append(f"- Unique tokens: {prime_analysis.get('unique_count', 0)} / {prime_analysis.get('total_count', 0)} total")
+            # Show word frequency distribution
+            word_freq_dist = prime_analysis.get("word_frequency_distribution", {})
+            if word_freq_dist:
+                top_words = list(word_freq_dist.items())[:5]
+                words_str = ", ".join([f'"{w}" ({c}x)' for w, c in top_words])
+                lines.append(f"- Top words: {words_str}")
+
+            # Fragment statistics
+            fragment_pct = prime_analysis.get("fragment_percentage", 0)
+            if fragment_pct > 0:
+                lines.append(f"- {fragment_pct:.0f}% of prime tokens were word fragments (reconstructed to full words)")
+        else:
+            lines.append("**Prime Token Statistics:**")
+
+            most_common = prime_analysis.get("most_common_token", ("", 0))
+            if most_common[0]:
+                lines.append(f"- Most common token: \"{most_common[0]}\" ({most_common[1]} occurrences)")
+
+            freq_dist = prime_analysis.get("frequency_distribution", {})
+            if freq_dist:
+                top_tokens = list(freq_dist.items())[:5]
+                tokens_str = ", ".join([f'"{t}" ({c}x)' for t, c in top_tokens])
+                lines.append(f"- Top tokens: {tokens_str}")
+
+        lines.append(f"- Unique: {prime_analysis.get('unique_count', 0)} / {prime_analysis.get('total_count', 0)} total")
 
         concentration = prime_analysis.get('concentration_ratio', 0)
         if concentration > 0.3:
-            lines.append(f"- High concentration: top token appears in {concentration*100:.0f}% of examples")
+            lines.append(f"- High concentration: top item appears in {concentration*100:.0f}% of examples")
 
         # POS distribution
         pos_dist = prime_analysis.get("pos_distribution", {})

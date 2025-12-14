@@ -33,7 +33,9 @@ from src.schemas.feature import (
     AblationResponse,
     NLPAnalysisRequest,
     NLPAnalysisStatusResponse,
-    NLPAnalysisResultResponse
+    NLPAnalysisResultResponse,
+    NLPResetRequest,
+    NLPControlResponse
 )
 from src.workers.nlp_analysis_tasks import (
     analyze_features_nlp_task,
@@ -790,14 +792,180 @@ async def trigger_nlp_analysis(
     task = analyze_features_nlp_task.delay(
         extraction_job_id=extraction_id,
         feature_ids=request.feature_ids,
-        batch_size=request.batch_size
+        batch_size=request.batch_size,
+        force_reprocess=request.force_reprocess
     )
 
+    mode = "restart from scratch" if request.force_reprocess else "resume/start"
     return NLPAnalysisStatusResponse(
         task_id=task.id,
         extraction_job_id=extraction_id,
         status="queued",
-        message=f"NLP analysis queued for extraction {extraction_id}"
+        message=f"NLP analysis queued ({mode}) for extraction {extraction_id}"
+    )
+
+
+@router.post(
+    "/extractions/{extraction_id}/cancel-nlp",
+    response_model=NLPControlResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel NLP analysis for extraction"
+)
+async def cancel_nlp_analysis(
+    extraction_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancel an in-progress NLP analysis job.
+
+    Sets the nlp_status to 'cancelled', preserving any progress already made.
+    Features that have already been analyzed will retain their NLP analysis.
+    The task will detect the cancellation on its next batch check and exit cleanly.
+
+    Args:
+        extraction_id: ID of the extraction job
+
+    Returns:
+        NLPControlResponse with cancellation status
+
+    Raises:
+        404: Extraction job not found
+        400: NLP analysis is not currently running
+    """
+    from src.models.extraction_job import ExtractionJob
+
+    # Get extraction job
+    result = await db.execute(
+        select(ExtractionJob).where(ExtractionJob.id == extraction_id)
+    )
+    extraction = result.scalar_one_or_none()
+
+    if not extraction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Extraction job {extraction_id} not found"
+        )
+
+    # Store previous status
+    previous_status = extraction.nlp_status
+    previous_progress = extraction.nlp_progress
+
+    # Only allow cancellation if currently processing
+    if previous_status != "processing":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot cancel NLP analysis: status is '{previous_status}', not 'processing'"
+        )
+
+    # Update status to cancelled
+    extraction.nlp_status = "cancelled"
+    extraction.nlp_error_message = "Cancelled by user"
+    await db.commit()
+
+    logger.info(f"NLP analysis cancelled for extraction {extraction_id} at {previous_progress:.1%} progress")
+
+    return NLPControlResponse(
+        extraction_job_id=extraction_id,
+        action="cancelled",
+        previous_status=previous_status,
+        previous_progress=previous_progress,
+        message=f"NLP analysis cancelled. Progress preserved at {previous_progress:.1%} ({extraction.nlp_processed_count} features processed)"
+    )
+
+
+@router.post(
+    "/extractions/{extraction_id}/reset-nlp",
+    response_model=NLPControlResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reset NLP analysis status for extraction"
+)
+async def reset_nlp_analysis(
+    extraction_id: str,
+    request: NLPResetRequest = NLPResetRequest(),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Reset the NLP analysis status for an extraction job.
+
+    This allows re-running NLP analysis from scratch or resuming from where it left off.
+
+    If clear_feature_analysis=False (default):
+        - Resets nlp_status to null (ready to restart)
+        - Preserves NLP analysis already computed on individual features
+        - Re-running analyze-nlp will RESUME (skip already processed features)
+
+    If clear_feature_analysis=True:
+        - Resets nlp_status to null
+        - Clears NLP analysis from all features (start from scratch)
+        - Re-running analyze-nlp will process ALL features
+
+    Args:
+        extraction_id: ID of the extraction job
+        request: Reset options (clear_feature_analysis flag)
+
+    Returns:
+        NLPControlResponse with reset status
+
+    Raises:
+        404: Extraction job not found
+        400: Cannot reset while NLP analysis is actively processing
+    """
+    from src.models.extraction_job import ExtractionJob
+
+    # Get extraction job
+    result = await db.execute(
+        select(ExtractionJob).where(ExtractionJob.id == extraction_id)
+    )
+    extraction = result.scalar_one_or_none()
+
+    if not extraction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Extraction job {extraction_id} not found"
+        )
+
+    # Store previous status
+    previous_status = extraction.nlp_status
+    previous_progress = extraction.nlp_progress
+
+    # Don't allow reset while actively processing (use cancel first)
+    if previous_status == "processing":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot reset while NLP analysis is processing. Use cancel-nlp first."
+        )
+
+    features_affected = 0
+
+    # Optionally clear feature-level NLP analysis
+    if request.clear_feature_analysis:
+        # Update all features for this extraction to clear NLP analysis
+        from sqlalchemy import update
+        stmt = (
+            update(Feature)
+            .where(Feature.extraction_job_id == extraction_id)
+            .values(nlp_analysis=None, nlp_processed_at=None)
+        )
+        result = await db.execute(stmt)
+        features_affected = result.rowcount
+
+    # Reset extraction job NLP status
+    extraction.nlp_status = None
+    extraction.nlp_progress = None
+    extraction.nlp_processed_count = None
+    extraction.nlp_error_message = None
+    await db.commit()
+
+    action_detail = "with feature analysis cleared" if request.clear_feature_analysis else "preserving feature analysis"
+    logger.info(f"NLP analysis reset for extraction {extraction_id} {action_detail}")
+
+    return NLPControlResponse(
+        extraction_job_id=extraction_id,
+        action="reset",
+        previous_status=previous_status,
+        previous_progress=previous_progress,
+        features_affected=features_affected if request.clear_feature_analysis else None,
+        message=f"NLP analysis status reset {action_detail}. Ready to restart."
     )
 
 

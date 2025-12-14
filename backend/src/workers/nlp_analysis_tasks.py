@@ -54,7 +54,8 @@ def analyze_features_nlp_task(
     self,
     extraction_job_id: str,
     feature_ids: Optional[List[str]] = None,
-    batch_size: int = 100
+    batch_size: int = 100,
+    force_reprocess: bool = False
 ) -> Dict[str, Any]:
     """
     Celery task for computing NLP analysis on feature activation examples.
@@ -65,11 +66,13 @@ def analyze_features_nlp_task(
     3. Computes NLP analysis (POS, NER, patterns, clusters)
     4. Stores results directly on Feature.nlp_analysis column (persistent)
     5. Also caches in FeatureAnalysisCache for compatibility
+    6. Checks for cancellation between batches and exits cleanly if cancelled
 
     Args:
         extraction_job_id: ID of the extraction job to analyze
         feature_ids: Optional list of specific feature IDs to analyze
         batch_size: Number of features to process in each batch
+        force_reprocess: If True, reprocess all features even if they already have analysis
 
     Returns:
         Dict with analysis statistics
@@ -135,13 +138,39 @@ def analyze_features_nlp_task(
 
             # Process features in batches
             for batch_start in range(0, total_features, batch_size):
+                # Check for cancellation at the start of each batch
+                db.refresh(extraction_job)
+                if extraction_job.nlp_status == "cancelled":
+                    logger.info(f"NLP analysis cancelled for extraction {extraction_job_id}")
+                    emit_nlp_analysis_progress(
+                        extraction_job_id=extraction_job_id,
+                        event="cancelled",
+                        data={
+                            "extraction_job_id": extraction_job_id,
+                            "progress": analyzed_count / total_features if total_features > 0 else 0,
+                            "features_analyzed": analyzed_count,
+                            "total_features": total_features,
+                            "cached_count": cached_count,
+                            "error_count": error_count,
+                            "status": "cancelled",
+                            "message": f"NLP analysis cancelled. Processed {analyzed_count}/{total_features} features."
+                        }
+                    )
+                    return {
+                        "status": "cancelled",
+                        "features_analyzed": analyzed_count,
+                        "cached_count": cached_count,
+                        "error_count": error_count,
+                        "total_features": total_features
+                    }
+
                 batch_end = min(batch_start + batch_size, total_features)
                 batch_features = features[batch_start:batch_end]
 
                 for feature in batch_features:
                     try:
-                        # Check if feature already has NLP analysis
-                        if feature.nlp_analysis is not None and feature.nlp_processed_at is not None:
+                        # Check if feature already has NLP analysis (skip unless force_reprocess)
+                        if not force_reprocess and feature.nlp_analysis is not None and feature.nlp_processed_at is not None:
                             cached_count += 1
                             analyzed_count += 1
                             continue

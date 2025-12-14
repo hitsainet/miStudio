@@ -14,9 +14,9 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown, RefreshCw, List, Layers, Activity, Copy, Check, Brain } from 'lucide-react';
+import { Zap, Loader, CheckCircle, XCircle, Trash2, Clock, ChevronDown, ChevronUp, Search, ArrowUpDown, Star, ArrowUp, ArrowDown, RefreshCw, List, Layers, Activity, Copy, Check, Brain, StopCircle, Play, RotateCcw } from 'lucide-react';
 import type { ExtractionStatusResponse, FeatureSearchRequest } from '../../types/features';
-import { triggerNlpAnalysis } from '../../api/models';
+import { triggerNlpAnalysis, cancelNlpAnalysis, resetNlpAnalysis } from '../../api/models';
 import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
@@ -63,6 +63,8 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
   // NLP processing state
   const [isNlpProcessing, setIsNlpProcessing] = useState(false);
+  const [isNlpCancelling, setIsNlpCancelling] = useState(false);
+  const [isNlpResetting, setIsNlpResetting] = useState(false);
   const [nlpError, setNlpError] = useState<string | null>(null);
 
   // Metrics history for live logs (keep last 20 entries)
@@ -371,6 +373,73 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   };
 
   /**
+   * Handle cancelling NLP analysis for this extraction.
+   * Preserves progress already made - features that have been analyzed keep their results.
+   */
+  const handleCancelNlp = async () => {
+    if (isNlpCancelling || extraction.nlp_status !== 'processing') return;
+
+    setIsNlpCancelling(true);
+    setNlpError(null);
+
+    try {
+      await cancelNlpAnalysis(extraction.id);
+      // The task will check for cancellation at the next batch boundary
+    } catch (error: any) {
+      console.error('Failed to cancel NLP analysis:', error);
+      setNlpError(error.message || 'Failed to cancel NLP analysis');
+    } finally {
+      setIsNlpCancelling(false);
+    }
+  };
+
+  /**
+   * Handle resuming NLP analysis for this extraction.
+   * Skips features that already have NLP analysis.
+   */
+  const handleResumeNlp = async () => {
+    if (isNlpProcessing) return;
+
+    setIsNlpProcessing(true);
+    setNlpError(null);
+
+    try {
+      // First reset status to allow restarting
+      await resetNlpAnalysis(extraction.id, { clear_feature_analysis: false });
+      // Then trigger analysis - it will skip already processed features
+      await triggerNlpAnalysis(extraction.id, { force_reprocess: false });
+    } catch (error: any) {
+      console.error('Failed to resume NLP analysis:', error);
+      setNlpError(error.message || 'Failed to resume NLP analysis');
+    } finally {
+      setIsNlpProcessing(false);
+    }
+  };
+
+  /**
+   * Handle restarting NLP analysis from scratch.
+   * Clears all existing NLP analysis from features and starts fresh.
+   */
+  const handleRestartNlp = async () => {
+    if (isNlpResetting) return;
+
+    setIsNlpResetting(true);
+    setNlpError(null);
+
+    try {
+      // Reset with clear_feature_analysis=true to clear all feature NLP data
+      await resetNlpAnalysis(extraction.id, { clear_feature_analysis: true });
+      // Then trigger fresh analysis
+      await triggerNlpAnalysis(extraction.id, { force_reprocess: true });
+    } catch (error: any) {
+      console.error('Failed to restart NLP analysis:', error);
+      setNlpError(error.message || 'Failed to restart NLP analysis');
+    } finally {
+      setIsNlpResetting(false);
+    }
+  };
+
+  /**
    * Get NLP status badge based on current status.
    */
   const getNlpStatusBadge = () => {
@@ -393,6 +462,16 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             {extraction.nlp_progress !== null && extraction.nlp_progress !== undefined
               ? `${(extraction.nlp_progress * 100).toFixed(0)}%`
               : 'Processing'}
+          </span>
+        );
+      case 'cancelled':
+        return (
+          <span className={`${baseClasses} bg-yellow-900/30 text-yellow-400 flex items-center gap-1`} title={`NLP analysis paused at ${extraction.nlp_progress !== null && extraction.nlp_progress !== undefined ? `${(extraction.nlp_progress * 100).toFixed(0)}%` : '?'}. Progress preserved.`}>
+            <Brain className="w-3 h-3" />
+            <StopCircle className="w-3 h-3" />
+            {extraction.nlp_progress !== null && extraction.nlp_progress !== undefined
+              ? `${(extraction.nlp_progress * 100).toFixed(0)}%`
+              : 'Paused'}
           </span>
         );
       case 'failed':
@@ -683,41 +762,147 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               <XCircle className="w-5 h-5" />
             </button>
           )}
-          {/* Process NLP button - only show for completed extractions that haven't been processed yet */}
-          {isCompleted && extraction.nlp_status !== 'completed' && extraction.nlp_status !== 'processing' && (
-            <button
-              type="button"
-              onClick={handleProcessNlp}
-              disabled={isNlpProcessing}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                isNlpProcessing
-                  ? 'bg-cyan-900/30 text-cyan-400 cursor-not-allowed'
-                  : 'bg-cyan-600 hover:bg-cyan-500 text-white'
-              }`}
-              title="Run NLP analysis on feature activation examples"
-            >
-              {isNlpProcessing ? (
-                <>
-                  <Loader className="w-4 h-4 animate-spin" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <Brain className="w-4 h-4" />
-                  Process NLP
-                </>
+          {/* NLP Controls - show different buttons based on NLP status */}
+          {isCompleted && (
+            <>
+              {/* Start button - only show when NLP hasn't started or is null */}
+              {(extraction.nlp_status === null || extraction.nlp_status === undefined || extraction.nlp_status === 'pending') && (
+                <button
+                  type="button"
+                  onClick={handleProcessNlp}
+                  disabled={isNlpProcessing}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    isNlpProcessing
+                      ? 'bg-cyan-900/30 text-cyan-400 cursor-not-allowed'
+                      : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+                  }`}
+                  title="Run NLP analysis on feature activation examples"
+                >
+                  {isNlpProcessing ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      Starting...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-4 h-4" />
+                      Process NLP
+                    </>
+                  )}
+                </button>
               )}
-            </button>
-          )}
-          {/* Show processing status if NLP is running */}
-          {isCompleted && extraction.nlp_status === 'processing' && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-cyan-900/30 text-cyan-400">
-              <Brain className="w-4 h-4" />
-              <Loader className="w-4 h-4 animate-spin" />
-              NLP {extraction.nlp_progress !== null && extraction.nlp_progress !== undefined
-                ? `${(extraction.nlp_progress * 100).toFixed(0)}%`
-                : '...'}
-            </div>
+
+              {/* Processing status with Cancel button */}
+              {extraction.nlp_status === 'processing' && (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-cyan-900/30 text-cyan-400">
+                    <Brain className="w-4 h-4" />
+                    <Loader className="w-4 h-4 animate-spin" />
+                    NLP {extraction.nlp_progress !== null && extraction.nlp_progress !== undefined
+                      ? `${(extraction.nlp_progress * 100).toFixed(0)}%`
+                      : '...'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCancelNlp}
+                    disabled={isNlpCancelling}
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      isNlpCancelling
+                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-yellow-600/20 border border-yellow-600 text-yellow-400 hover:bg-yellow-600/30'
+                    }`}
+                    title="Pause NLP analysis (progress will be preserved)"
+                  >
+                    {isNlpCancelling ? (
+                      <Loader className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <StopCircle className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Cancelled status - Resume and Restart buttons */}
+              {extraction.nlp_status === 'cancelled' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResumeNlp}
+                    disabled={isNlpProcessing}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      isNlpProcessing
+                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    }`}
+                    title="Resume NLP analysis from where it left off"
+                  >
+                    {isNlpProcessing ? (
+                      <>
+                        <Loader className="w-4 h-4 animate-spin" />
+                        Resuming...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        Resume
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('This will clear all existing NLP analysis and start from scratch. Continue?')) {
+                        handleRestartNlp();
+                      }
+                    }}
+                    disabled={isNlpResetting}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      isNlpResetting
+                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                    }`}
+                    title="Restart NLP analysis from scratch (clears existing progress)"
+                  >
+                    {isNlpResetting ? (
+                      <>
+                        <Loader className="w-4 h-4 animate-spin" />
+                        Restarting...
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-4 h-4" />
+                        Restart
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Completed - option to reprocess */}
+              {extraction.nlp_status === 'completed' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('This will clear all existing NLP analysis and reprocess from scratch. Continue?')) {
+                      handleRestartNlp();
+                    }
+                  }}
+                  disabled={isNlpResetting}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    isNlpResetting
+                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                      : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+                  }`}
+                  title="Reprocess NLP analysis from scratch"
+                >
+                  {isNlpResetting ? (
+                    <Loader className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                </button>
+              )}
+            </>
           )}
           {isCompleted && (
             <StartLabelingButton
@@ -1105,15 +1290,52 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               <div className="text-cyan-300">{extraction.nlp_error_message || nlpError}</div>
             </div>
           </div>
-          <button
-            onClick={() => {
-              setNlpError(null);
-              handleProcessNlp();
-            }}
-            className={`mt-3 w-full text-sm ${COMPONENTS.button.secondary}`}
-          >
-            Retry NLP Analysis
-          </button>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => {
+                setNlpError(null);
+                handleResumeNlp();
+              }}
+              disabled={isNlpProcessing}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${
+                isNlpProcessing
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+            >
+              {isNlpProcessing ? (
+                <>
+                  <Loader className="w-4 h-4 animate-spin" />
+                  Resuming...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  Resume from {extraction.nlp_progress !== null && extraction.nlp_progress !== undefined ? `${(extraction.nlp_progress * 100).toFixed(0)}%` : 'last point'}
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm('This will clear all existing NLP analysis and restart from scratch. Continue?')) {
+                  setNlpError(null);
+                  handleRestartNlp();
+                }
+              }}
+              disabled={isNlpResetting}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                isNlpResetting
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+              }`}
+            >
+              {isNlpResetting ? (
+                <Loader className="w-4 h-4 animate-spin" />
+              ) : (
+                <RotateCcw className="w-4 h-4" />
+              )}
+            </button>
+          </div>
         </div>
       ) : null}
 

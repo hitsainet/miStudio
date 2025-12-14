@@ -1,0 +1,29 @@
+# oLLM Server Dependencies
+
+# Build tools (must be first)
+packaging>=21.0
+setuptools>=65.0
+wheel>=0.40.0
+
+# Core framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# HuggingFace libraries for inference
+transformers>=4.36.0
+torch>=2.0.0
+accelerate>=0.25.0
+safetensors>=0.4.0
+bitsandbytes>=0.41.0  # For 8-bit/4-bit quantization
+
+# Tokenizers
+tokenizers>=0.15.0
+sentencepiece>=0.1.99
+
+# HTTP client
+httpx>=0.26.0
+
+# Async support
+anyio>=4.0.0

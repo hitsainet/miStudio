@@ -728,7 +728,7 @@ class LabelingService:
                 # Emit WebSocket progress update
                 emit_labeling_progress(
                     labeling_job_id=labeling_job.id,
-                    event="progress",
+                    event="labeling:progress",
                     data={
                         "labeling_job_id": labeling_job.id,
                         "extraction_job_id": labeling_job.extraction_job_id,
@@ -771,7 +771,7 @@ class LabelingService:
                 # Emit WebSocket progress
                 emit_labeling_progress(
                     labeling_job_id=labeling_job.id,
-                    event="progress",
+                    event="labeling:progress",
                     data={
                         "labeling_job_id": labeling_job.id,
                         "extraction_job_id": labeling_job.extraction_job_id,
@@ -1238,7 +1238,7 @@ class LabelingService:
                 # Emit completion event via WebSocket
                 emit_labeling_progress(
                     labeling_job_id=labeling_job.id,
-                    event="completed",
+                    event="labeling:completed",
                     data={
                         "labeling_job_id": labeling_job.id,
                         "extraction_job_id": labeling_job.extraction_job_id,
@@ -1268,7 +1268,7 @@ class LabelingService:
             # Emit failure event via WebSocket
             emit_labeling_progress(
                 labeling_job_id=labeling_job.id,
-                event="failed",
+                event="labeling:failed",
                 data={
                     "labeling_job_id": labeling_job.id,
                     "extraction_job_id": labeling_job.extraction_job_id,

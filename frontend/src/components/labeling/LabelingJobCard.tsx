@@ -25,9 +25,21 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
   onDelete,
 }) => {
   const [templateName, setTemplateName] = useState<string>('Default Template');
+  const [, setTick] = useState(0); // Force re-render for elapsed time updates
   const { templates, fetchTemplate } = useLabelingPromptTemplatesStore();
 
   const isActive = job.status === LabelingStatus.QUEUED || job.status === LabelingStatus.LABELING;
+
+  // Timer to update elapsed time every second while job is active
+  useEffect(() => {
+    if (!isActive) return;
+
+    const timer = setInterval(() => {
+      setTick(t => t + 1); // Force re-render to update elapsed time
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isActive]);
   const isCompleted = job.status === LabelingStatus.COMPLETED;
   const isFailed = job.status === LabelingStatus.FAILED;
   const isCancelled = job.status === LabelingStatus.CANCELLED;
@@ -74,6 +86,37 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
     if (duration.seconds) parts.push(`${duration.seconds}s`);
 
     return parts.length > 0 ? parts.join(' ') : '0s';
+  };
+
+  // Get estimated time remaining based on current rate
+  const getEstimatedTimeRemaining = (): string | null => {
+    // Need at least some progress to estimate
+    if (job.features_labeled <= 0 || totalFeatures <= 0) {
+      return null;
+    }
+
+    const start = new Date(job.created_at);
+    const now = new Date();
+    const elapsedSeconds = (now.getTime() - start.getTime()) / 1000;
+
+    // Need at least 30 seconds of data for a reasonable estimate
+    if (elapsedSeconds < 30) {
+      return null;
+    }
+
+    const rate = job.features_labeled / elapsedSeconds; // features per second
+    const remaining = totalFeatures - job.features_labeled;
+    const etaSeconds = remaining / rate;
+
+    // Convert to hours, minutes, seconds
+    const hours = Math.floor(etaSeconds / 3600);
+    const minutes = Math.floor((etaSeconds % 3600) / 60);
+
+    const parts = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
+
+    return parts.length > 0 ? `~${parts.join(' ')}` : '<1m';
   };
 
   // Status icon and color
@@ -172,6 +215,11 @@ export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
                 <span className="text-xs text-emerald-400 font-medium">
                   {progress.toFixed(1)}%
                 </span>
+                {getEstimatedTimeRemaining() && (
+                  <span className="text-xs text-amber-400 font-medium">
+                    ETA: {getEstimatedTimeRemaining()}
+                  </span>
+                )}
               </>
             )}
             {isCompleted && job.completed_at && (

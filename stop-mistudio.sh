@@ -32,9 +32,16 @@ echo ""
 echo "Stopping Docker services (keeping data)..."
 cd "$PROJECT_ROOT"
 
-# Stop Ollama separately (started with docker run)
+# Stop oLLM (started with docker run)
+if docker ps --format '{{.Names}}' | grep -q "^mistudio-ollm$"; then
+    docker stop mistudio-ollm > /dev/null
+    echo -e "${GREEN}✓${NC} oLLM stopped"
+fi
+
+# Stop legacy Ollama if running (started with docker run)
 if docker ps --format '{{.Names}}' | grep -q "^mistudio-ollama$"; then
     docker stop mistudio-ollama > /dev/null
+    echo -e "${GREEN}✓${NC} Ollama stopped"
 fi
 
 # Stop docker-compose services
@@ -45,5 +52,6 @@ echo -e "${GREEN}✓${NC} All services stopped"
 echo ""
 echo "To completely remove containers and volumes:"
 echo "  cd $PROJECT_ROOT && docker-compose -f docker-compose.dev.yml down -v"
-echo "  docker rm mistudio-ollama  # Remove Ollama container"
+echo "  docker rm mistudio-ollm   # Remove oLLM container"
+echo "  docker rm mistudio-ollama  # Remove Ollama container (if exists)"
 echo ""

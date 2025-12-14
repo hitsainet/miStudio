@@ -219,18 +219,28 @@ services:
       - mistudio-network
 
   # ============================================================================
-  # AI/LLM Service
+  # AI/LLM Service (oLLM - Memory-Efficient Inference)
   # ============================================================================
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: mistudio-ollama
+  ollm:
+    build:
+      context: ./backend/services/ollm_server
+      dockerfile: Dockerfile
+    container_name: mistudio-ollm
     ports:
       - "11434:11434"
     volumes:
-      - ollama_data:/root/.ollama
+      - ./backend/data:/data  # Shared data directory for models and cache
     environment:
-      OLLAMA_ORIGINS: http://mistudio.mcslab.io,http://localhost:3000
+      OLLM_HOST: 0.0.0.0
+      OLLM_PORT: 11434
+      OLLM_DEFAULT_MODEL: ${OLLM_DEFAULT_MODEL:-TinyLlama/TinyLlama-1.1B-Chat-v1.0}
+      OLLM_MODEL_CACHE_DIR: /data/ollm_models
+      OLLM_SSD_CACHE_DIR: /data/ollm_cache
+      OLLM_ENABLE_SSD_OFFLOAD: "true"
+      OLLM_MAX_CONTEXT_LENGTH: 8192
+      OLLM_LOG_LEVEL: INFO
+      HF_TOKEN: ${HF_TOKEN:-}
     restart: unless-stopped
     deploy:
       resources:
@@ -239,6 +249,12 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s  # Models take time to load
+      retries: 3
     networks:
       - mistudio-network
 
@@ -252,9 +268,7 @@ volumes:
     name: mistudio_redis_data
   mistudio_data:
     name: mistudio_data
-  ollama_data:
-    external: true
-    name: ollama_data
+  # Note: ollama_data volume removed - oLLM uses ./backend/data for model storage
 
 # ==============================================================================
 # Networks

@@ -43,8 +43,9 @@ def cleanup_stuck_trainings_task(self):
 
             stuck_trainings = db.query(Training).filter(
                 Training.status.in_([
-                    TrainingStatus.QUEUED.value,
-                    TrainingStatus.TRAINING.value
+                    TrainingStatus.PENDING.value,
+                    TrainingStatus.INITIALIZING.value,
+                    TrainingStatus.RUNNING.value
                 ]),
                 Training.updated_at < stuck_threshold
             ).all()

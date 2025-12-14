@@ -109,11 +109,46 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
         baseUrl = `${baseUrl}/v1`;
       }
 
-      // Query the /v1/models endpoint
-      const response = await fetch(`${baseUrl}/models`);
+      // Query the /v1/models endpoint with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
+      let response;
+      try {
+        response = await fetch(`${baseUrl}/models`, { signal: controller.signal });
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        // Provide helpful error messages for common issues
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Connection timed out. The oLLM server may be busy or starting up. Please try again.');
+        } else if (fetchError.message?.includes('Failed to fetch') || fetchError.message?.includes('NetworkError')) {
+          throw new Error('Cannot connect to oLLM server. Check if the server is running and the endpoint URL is correct.');
+        }
+        throw fetchError;
+      }
+      clearTimeout(timeoutId);
+
+      // Check for specific error responses
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Try to get error details from response
+        let errorDetail = response.statusText;
+        try {
+          const errorData = await response.json();
+          if (errorData.error?.message) {
+            errorDetail = errorData.error.message;
+          }
+          // Handle model_too_large error specially
+          if (errorData.error?.code === 'model_too_large') {
+            throw new Error(`Model too large: ${errorDetail}`);
+          }
+        } catch (jsonErr) {
+          // Ignore JSON parsing errors
+        }
+
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          throw new Error(`oLLM server is unavailable (HTTP ${response.status}). The server may be loading a model or experiencing issues. Please try again.`);
+        }
+        throw new Error(`HTTP ${response.status}: ${errorDetail}`);
       }
 
       const data = await response.json();
@@ -133,7 +168,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
       }
 
       if (models.length === 0) {
-        setCompatibleModelsError('No models found on this endpoint');
+        setCompatibleModelsError('No models found on this endpoint. The oLLM server may need to load a model first.');
       } else {
         setCompatibleModels(models);
         // Auto-select first model if current value is default or empty

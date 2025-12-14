@@ -821,7 +821,8 @@ class LabelingService:
                                     examples=examples,
                                     neuron_index=feature.neuron_index,
                                     feature_id=feature.id,
-                                    all_examples=all_examples  # Pass full 100 examples for NLP analysis
+                                    all_examples=all_examples,  # Pass full 100 examples for NLP analysis
+                                    nlp_analysis=feature.nlp_analysis  # Use pre-computed NLP if available
                                 )
                                 batch_labels.append(label)
 
@@ -970,7 +971,8 @@ class LabelingService:
                                 feature_id=feature.id,
                                 neuron_index=feature.neuron_index,
                                 logit_effects=None,  # TODO: Implement in Sprint 4
-                                all_examples=all_ex  # Pass full 100 examples for NLP analysis
+                                all_examples=all_ex,  # Pass full 100 examples for NLP analysis
+                                nlp_analysis=feature.nlp_analysis  # Use pre-computed NLP if available
                             )
                             label_tasks.append(task)
 
@@ -1123,7 +1125,8 @@ class LabelingService:
                                 feature_id=feature.id,
                                 neuron_index=feature.neuron_index,
                                 logit_effects=None,  # TODO: Implement in Sprint 4
-                                all_examples=all_ex  # Pass full 100 examples for NLP analysis
+                                all_examples=all_ex,  # Pass full 100 examples for NLP analysis
+                                nlp_analysis=feature.nlp_analysis  # Use pre-computed NLP if available
                             )
                             label_tasks.append(task)
 

@@ -33,6 +33,8 @@ export const useLabelingResultsWebSocket = (
     console.log('[useLabelingResultsWebSocket] Subscribing to results for job:', labelingJobId);
 
     const channel = `labeling/${labelingJobId}/results`;
+    // Backend emits 'result' event to the channel room
+    const eventName = 'result';
 
     const handleResult = (data: LabelingResult) => {
       console.log('[useLabelingResultsWebSocket] Received result:', data);
@@ -40,15 +42,15 @@ export const useLabelingResultsWebSocket = (
     };
 
     // Subscribe to the WebSocket channel (server-side subscription)
-    console.log('[useLabelingResultsWebSocket] Subscribing to channel:', channel);
+    console.log('[useLabelingResultsWebSocket] Subscribing to channel:', channel, 'listening for event:', eventName);
     ws.subscribe(channel);
 
-    // Add event listener for the channel
-    ws.on(channel, handleResult);
+    // Add event listener for the 'result' event (not the channel name)
+    ws.on(eventName, handleResult);
 
     return () => {
       console.log('[useLabelingResultsWebSocket] Unsubscribing from channel:', channel);
-      ws.off(channel, handleResult);
+      ws.off(eventName, handleResult);
       ws.unsubscribe(channel);
     };
   }, [labelingJobId, ws]);

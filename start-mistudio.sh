@@ -76,7 +76,7 @@ wait_for_service "PostgreSQL" "docker exec mistudio-postgres pg_isready -U postg
 wait_for_service "Redis" "docker exec mistudio-redis redis-cli ping"
 echo -e "${GREEN}✓${NC} PostgreSQL and Redis are healthy"
 
-# Start Ollama separately with GPU support (docker-compose has a bug with GPU config)
+# Start Ollama with GPU support
 echo ""
 echo "Starting Ollama with GPU support..."
 if docker ps -a --format '{{.Names}}' | grep -q "^mistudio-ollama$"; then
@@ -90,12 +90,16 @@ else
     docker run -d --name mistudio-ollama --gpus all \
         -p 11434:11434 \
         -v ollama_data:/root/.ollama \
-        -e OLLAMA_ORIGINS="http://mistudio.mcslab.io,http://localhost:3000" \
+        -e OLLAMA_ORIGINS="http://mistudio.mcslab.io,http://localhost:3000,http://localhost" \
         --network mistudio_default \
         --restart unless-stopped \
         ollama/ollama:latest > /dev/null
     echo -e "${GREEN}✓${NC} Ollama started with GPU support"
 fi
+
+# Ensure Ollama is on the dev networks for nginx to reach it
+docker network connect mistudio_default mistudio-ollama 2>/dev/null || true
+docker network connect mistudio_mistudio-dev mistudio-ollama 2>/dev/null || true
 
 wait_for_service "Ollama" "curl -s http://localhost:11434/api/tags"
 echo -e "${GREEN}✓${NC} All Docker services are healthy"

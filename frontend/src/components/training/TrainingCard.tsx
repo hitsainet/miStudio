@@ -33,6 +33,8 @@ import {
   X,
   Zap,
   Brain,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useSAEsStore } from '../../stores/saesStore';
@@ -84,18 +86,22 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
 
   // Metrics history for charts (keep last 20 points)
+  // Uses step numbers for deduplication (unique per training iteration)
   const [metricsHistory, setMetricsHistory] = useState<{
     loss: number[];
     l0_sparsity: number[];
     timestamps: string[];
+    steps: number[];  // Track step numbers for deduplication
   }>({
     loss: [],
     l0_sparsity: [],
     timestamps: [],
+    steps: [],
   });
 
   // Track whether we've loaded historical metrics
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
+  const [logsCopied, setLogsCopied] = useState(false);
   const [hasLoadedHistoricalMetrics, setHasLoadedHistoricalMetrics] = useState(false);
 
   // Calculate current metrics
@@ -296,12 +302,11 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           // Sort by step to ensure correct order
           const sortedMetrics = metrics.sort((a, b) => a.step - b.step);
 
-          // Deduplicate by timestamp (in case DB has duplicates)
-          const seen = new Set<string>();
+          // Deduplicate by step number (guaranteed unique per training iteration)
+          const seen = new Set<number>();
           const dedupedMetrics = sortedMetrics.filter((m) => {
-            const key = m.timestamp;
-            if (seen.has(key)) return false;
-            seen.add(key);
+            if (seen.has(m.step)) return false;
+            seen.add(m.step);
             return true;
           });
 
@@ -309,6 +314,7 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             loss: dedupedMetrics.map((m) => m.loss),
             l0_sparsity: dedupedMetrics.map((m) => m.l0_sparsity ?? 0),
             timestamps: dedupedMetrics.map((m) => m.timestamp),
+            steps: dedupedMetrics.map((m) => m.step),
           });
         }
 
@@ -326,34 +332,33 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   }, [showMetrics, hasLoadedHistoricalMetrics, training.id, training.progress]);
 
   // Update metrics history when training metrics change (WebSocket updates)
+  // Uses step number for deduplication - each step can only appear once
   useEffect(() => {
-    if (training.current_loss !== undefined && training.current_loss !== null) {
-      setMetricsHistory((prev) => {
-        // Create timestamp for this update (truncate to seconds for dedup)
-        const now = new Date();
-        now.setMilliseconds(0);
-        const newTimestamp = now.toISOString();
+    const currentStep = training.current_step;
+    const currentLossValue = training.current_loss;
 
-        // Check if we already have an entry with a similar timestamp (within same second)
-        const lastTimestamp = prev.timestamps[prev.timestamps.length - 1];
-        if (lastTimestamp) {
-          const lastTime = new Date(lastTimestamp).getTime();
-          const newTime = now.getTime();
-          // Skip if within 1 second of last entry
-          if (Math.abs(newTime - lastTime) < 1000) {
-            return prev;
-          }
+    // Only add if we have valid metrics and a step number
+    if (currentLossValue !== undefined && currentLossValue !== null && currentStep !== undefined) {
+      setMetricsHistory((prev) => {
+        // Deduplicate by step number - if this step already exists, skip
+        if (prev.steps.includes(currentStep)) {
+          return prev;
         }
 
-        const newLoss = [...prev.loss, training.current_loss!];
+        // Create timestamp for this update
+        const newTimestamp = new Date().toISOString();
+
+        const newLoss = [...prev.loss, currentLossValue];
         const newL0 = [...prev.l0_sparsity, training.current_l0_sparsity ?? 0];
         const newTimestamps = [...prev.timestamps, newTimestamp];
+        const newSteps = [...prev.steps, currentStep];
 
         // Keep only last 20 points
         return {
           loss: newLoss.slice(-20),
           l0_sparsity: newL0.slice(-20),
           timestamps: newTimestamps.slice(-20),
+          steps: newSteps.slice(-20),
         };
       });
     }
@@ -384,6 +389,50 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       setCheckpoints((prev) => prev.filter((c) => c.id !== checkpointId));
     } catch (error) {
       console.error('Failed to delete checkpoint:', error);
+    }
+  };
+
+  // Handle copy training logs to clipboard
+  const handleCopyLogs = async () => {
+    console.log('[TrainingCard] handleCopyLogs called, metricsHistory:', metricsHistory);
+    if (metricsHistory.loss.length === 0) {
+      console.log('[TrainingCard] No metrics to copy');
+      return;
+    }
+
+    // Format all log entries (not just last 10)
+    const logLines = metricsHistory.steps.map((step, idx) => {
+      const loss = metricsHistory.loss[idx];
+      const sparsity = metricsHistory.l0_sparsity[idx];
+      const time = new Date(metricsHistory.timestamps[idx]).toLocaleTimeString();
+      const latentDim = training.hyperparameters?.latent_dim || 'N/A';
+
+      return `[${time}] step=${step}, loss=${loss.toFixed(4)}, L0=${sparsity.toFixed(4)}, dead=${Math.floor(deadNeurons)}/${latentDim}, lr=${learningRate.toExponential(2)}`;
+    });
+
+    const logText = logLines.join('\n');
+
+    try {
+      // Try modern clipboard API first (requires HTTPS)
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(logText);
+      } else {
+        // Fallback for HTTP: use textarea + execCommand
+        const textarea = document.createElement('textarea');
+        textarea.value = logText;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setLogsCopied(true);
+      setTimeout(() => setLogsCopied(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy logs:', error);
     }
   };
 
@@ -791,9 +840,9 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
             </div>
           )}
 
-          {/* Live Metrics Section */}
+          {/* Live Metrics Section - Two column layout: Logs left, Charts right */}
           {showMetrics && training.status === TrainingStatus.RUNNING && (
-            <div className="border-t border-slate-700 pt-3 mt-3 space-y-3">
+            <div className="border-t border-slate-700 pt-3 mt-3">
               {/* Loading State */}
               {isLoadingMetrics && (
                 <div className="flex items-center justify-center py-4 text-slate-400">
@@ -802,102 +851,193 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 </div>
               )}
 
-              {/* Loss Curve */}
-              <div className="bg-slate-800/30 rounded-lg p-3">
-                <h5 className="text-sm font-medium text-slate-300 mb-3">Loss Curve</h5>
-                <div className="h-24 flex items-end gap-1">
-                  {metricsHistory.loss.length > 0 ? (
-                    (() => {
-                      const maxLoss = Math.max(...metricsHistory.loss);
-                      const minLoss = Math.min(...metricsHistory.loss);
-                      const range = maxLoss - minLoss || 1;
-
-                      // Pad with empty bars if less than 20 points
-                      const paddedLoss = [...Array(Math.max(0, 20 - metricsHistory.loss.length)).fill(0), ...metricsHistory.loss];
-
-                      return paddedLoss.map((loss, i) => {
-                        const height = loss === 0 ? 0 : Math.max(10, ((maxLoss - loss) / range) * 90 + 10);
-                        return (
-                          <div
-                            key={i}
-                            className="flex-1 bg-emerald-500 rounded-t transition-all"
-                            style={{ height: `${height}%` }}
-                          />
-                        );
-                      });
-                    })()
-                  ) : (
-                    <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-                      {isLoadingMetrics ? 'Loading...' : 'No data yet'}
+              {/* Two Column Layout */}
+              <div className="flex gap-3">
+                {/* Training Logs - Left Column (50%) */}
+                <div className="w-1/2 bg-slate-950 rounded-lg p-3 font-mono text-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-slate-400">Training Logs</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyLogs}
+                        disabled={metricsHistory.loss.length === 0}
+                        className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title={logsCopied ? 'Copied!' : 'Copy logs to clipboard'}
+                      >
+                        {logsCopied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <span className="text-emerald-400 text-xs">
+                        {hasLoadedHistoricalMetrics ? 'Live' : 'Loading...'}
+                      </span>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                  <div className="h-52 overflow-y-auto space-y-1">
+                    {metricsHistory.loss.length > 0 ? (
+                      metricsHistory.steps.slice(-15).map((step, i) => {
+                        const idx = metricsHistory.steps.length - 15 + i;
+                        if (idx < 0) return null;
 
-              {/* L0 Sparsity Chart */}
-              <div className="bg-slate-800/30 rounded-lg p-3">
-                <h5 className="text-sm font-medium text-slate-300 mb-3">L0 Sparsity</h5>
-                <div className="h-24 flex items-end gap-1">
-                  {metricsHistory.l0_sparsity.length > 0 ? (
-                    (() => {
-                      const maxSparsity = Math.max(...metricsHistory.l0_sparsity);
-                      const range = maxSparsity || 1;
+                        const loss = metricsHistory.loss[idx];
+                        const sparsity = metricsHistory.l0_sparsity[idx];
+                        const time = new Date(metricsHistory.timestamps[idx]).toLocaleTimeString();
 
-                      // Pad with empty bars if less than 20 points
-                      const paddedSparsity = [...Array(Math.max(0, 20 - metricsHistory.l0_sparsity.length)).fill(0), ...metricsHistory.l0_sparsity];
-
-                      return paddedSparsity.map((sparsity, i) => {
-                        const height = sparsity === 0 ? 0 : Math.max(10, (sparsity / range) * 90 + 10);
                         return (
-                          <div
-                            key={i}
-                            className="flex-1 bg-blue-500 rounded-t transition-all"
-                            style={{ height: `${height}%` }}
-                          />
+                          <div key={step} className="text-slate-300">
+                            <span className="text-slate-500">[{time}]</span>{' '}
+                            loss={loss.toFixed(4)},
+                            L0={sparsity.toFixed(4)},
+                            dead={Math.floor(deadNeurons)}/{training.hyperparameters?.latent_dim || 'N/A'},
+                            lr={learningRate.toExponential(2)},
+                            step={step.toLocaleString()}
+                          </div>
                         );
-                      });
-                    })()
-                  ) : (
-                    <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-                      {isLoadingMetrics ? 'Loading...' : 'No data yet'}
+                      }).filter(Boolean).reverse()
+                    ) : (
+                      <div className="text-slate-500 text-center py-4">
+                        {isLoadingMetrics ? 'Loading metrics history...' : 'Waiting for training metrics...'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stacked Line Charts - Right Column (50%) */}
+                <div className="w-1/2 flex flex-col gap-2">
+                  {/* Loss Chart */}
+                  <div className="bg-slate-800/30 rounded-lg p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-400">Loss</span>
+                      <span className="text-xs text-emerald-400 font-mono">
+                        {metricsHistory.loss.length > 0 ? metricsHistory.loss[metricsHistory.loss.length - 1].toFixed(2) : '—'}
+                      </span>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Training Logs */}
-              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-slate-400">Training Logs</span>
-                  <span className="text-emerald-400 text-xs">
-                    {hasLoadedHistoricalMetrics ? 'Live' : 'Loading...'}
-                  </span>
-                </div>
-                <div className="h-32 overflow-y-auto space-y-1">
-                  {metricsHistory.loss.length > 0 ? (
-                    metricsHistory.timestamps.slice(-10).map((timestamp, i) => {
-                      const idx = metricsHistory.timestamps.length - 10 + i;
-                      if (idx < 0) return null;
-
-                      const loss = metricsHistory.loss[idx];
-                      const sparsity = metricsHistory.l0_sparsity[idx];
-                      const time = new Date(timestamp).toLocaleTimeString();
-
-                      return (
-                        <div key={i} className="text-slate-300">
-                          <span className="text-slate-500">[{time}]</span>{' '}
-                          loss={loss.toFixed(4)},
-                          L0={sparsity.toFixed(4)},
-                          dead={Math.floor(deadNeurons)}/{training.hyperparameters?.latent_dim || 'N/A'},
-                          lr={learningRate.toExponential(2)}
+                    <div className="h-16">
+                      {metricsHistory.loss.length > 1 ? (
+                        <svg viewBox="0 0 100 40" className="w-full h-full" preserveAspectRatio="none">
+                          {/* Subtle grid lines */}
+                          <line x1="0" y1="10" x2="100" y2="10" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="20" x2="100" y2="20" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="30" x2="100" y2="30" stroke="#334155" strokeWidth="0.5" />
+                          {(() => {
+                            const data = metricsHistory.loss;
+                            const maxVal = Math.max(...data);
+                            const minVal = Math.min(...data);
+                            const range = maxVal - minVal || 1;
+                            const points = data.map((val, i) => {
+                              const x = (i / (data.length - 1)) * 100;
+                              const y = 40 - ((val - minVal) / range) * 36 - 2;
+                              return `${x},${y}`;
+                            }).join(' ');
+                            return (
+                              <>
+                                <polyline
+                                  fill="none"
+                                  stroke="#10b981"
+                                  strokeWidth="1.5"
+                                  points={points}
+                                />
+                                <circle
+                                  cx={(data.length - 1) / (data.length - 1) * 100}
+                                  cy={40 - ((data[data.length - 1] - minVal) / range) * 36 - 2}
+                                  r="2"
+                                  fill="#10b981"
+                                />
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                          Waiting...
                         </div>
-                      );
-                    }).filter(Boolean).reverse()
-                  ) : (
-                    <div className="text-slate-500 text-center py-4">
-                      {isLoadingMetrics ? 'Loading metrics history...' : 'Waiting for training metrics...'}
+                      )}
                     </div>
-                  )}
+                  </div>
+
+                  {/* L0 Sparsity Chart */}
+                  <div className="bg-slate-800/30 rounded-lg p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-400">L0 Sparsity</span>
+                      <span className="text-xs text-blue-400 font-mono">
+                        {metricsHistory.l0_sparsity.length > 0
+                          ? (metricsHistory.l0_sparsity[metricsHistory.l0_sparsity.length - 1] * 100).toFixed(1) + '%'
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="h-16">
+                      {metricsHistory.l0_sparsity.length > 1 ? (
+                        <svg viewBox="0 0 100 40" className="w-full h-full" preserveAspectRatio="none">
+                          {/* Subtle grid lines */}
+                          <line x1="0" y1="10" x2="100" y2="10" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="20" x2="100" y2="20" stroke="#334155" strokeWidth="0.5" />
+                          <line x1="0" y1="30" x2="100" y2="30" stroke="#334155" strokeWidth="0.5" />
+                          {(() => {
+                            const data = metricsHistory.l0_sparsity;
+                            const maxVal = Math.max(...data);
+                            const minVal = Math.min(...data);
+                            const range = maxVal - minVal || 1;
+                            const points = data.map((val, i) => {
+                              const x = (i / (data.length - 1)) * 100;
+                              const y = 40 - ((val - minVal) / range) * 36 - 2;
+                              return `${x},${y}`;
+                            }).join(' ');
+                            return (
+                              <>
+                                <polyline
+                                  fill="none"
+                                  stroke="#3b82f6"
+                                  strokeWidth="1.5"
+                                  points={points}
+                                />
+                                <circle
+                                  cx={(data.length - 1) / (data.length - 1) * 100}
+                                  cy={40 - ((data[data.length - 1] - minVal) / range) * 36 - 2}
+                                  r="2"
+                                  fill="#3b82f6"
+                                />
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                          Waiting...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dead Neurons Chart */}
+                  <div className="bg-slate-800/30 rounded-lg p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-400">Dead Neurons</span>
+                      <span className="text-xs text-red-400 font-mono">
+                        {Math.floor(deadNeurons).toLocaleString()}/{training.hyperparameters?.latent_dim?.toLocaleString() || '?'}
+                      </span>
+                    </div>
+                    <div className="h-10 flex items-center">
+                      {/* Dead neurons bar */}
+                      <div className="flex-1 h-3 bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-red-500 transition-all"
+                          style={{
+                            width: `${training.hyperparameters?.latent_dim
+                              ? Math.min(100, (deadNeurons / training.hyperparameters.latent_dim) * 100)
+                              : 0}%`
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs text-slate-500 ml-2 w-12 text-right">
+                        {training.hyperparameters?.latent_dim
+                          ? ((deadNeurons / training.hyperparameters.latent_dim) * 100).toFixed(1) + '%'
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

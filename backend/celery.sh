@@ -48,6 +48,82 @@ WATCHDOG_INTERVAL=30  # Check every 30 seconds
 WATCHDOG_LOG="/tmp/celery-watchdog.log"
 WATCHDOG_PID_FILE="/tmp/mistudio-celery-watchdog.pid"
 
+# Memory thresholds for proactive restart (percentage)
+SYSTEM_RAM_THRESHOLD=90      # Restart if system RAM usage exceeds 90%
+WORKER_RAM_THRESHOLD_MB=12000 # Restart if worker uses more than 12GB RAM
+GPU_MEMORY_THRESHOLD=90      # Restart if GPU memory exceeds 90%
+
+# Get system RAM usage percentage
+get_system_ram_usage() {
+    # Returns RAM usage as integer percentage (0-100)
+    free | awk '/Mem:/ {printf "%.0f", $3/$2 * 100}'
+}
+
+# Get worker process RAM usage in MB
+get_worker_ram_mb() {
+    local pid_file=$1
+    if [ -f "$pid_file" ]; then
+        local pid=$(cat "$pid_file" 2>/dev/null)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            # Get RSS (Resident Set Size) in KB, convert to MB
+            local rss_kb=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ')
+            if [ -n "$rss_kb" ]; then
+                echo $((rss_kb / 1024))
+                return 0
+            fi
+        fi
+    fi
+    echo "0"
+}
+
+# Get GPU memory usage percentage (returns 0 if no GPU or nvidia-smi unavailable)
+get_gpu_memory_usage() {
+    if command -v nvidia-smi &> /dev/null; then
+        # Get memory used percentage for GPU 0
+        nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | awk -F', ' '{
+            if ($2 > 0) printf "%.0f", $1/$2 * 100
+            else print "0"
+        }'
+    else
+        echo "0"
+    fi
+}
+
+# Check if worker needs restart due to memory pressure
+# Returns 0 and prints reason if pressure detected, otherwise returns 1
+check_memory_pressure() {
+    local pid_file=$1
+
+    # Check system RAM (with default to 0 if command fails)
+    local sys_ram
+    sys_ram=$(get_system_ram_usage 2>/dev/null) || sys_ram=0
+    sys_ram=${sys_ram:-0}
+    if [ "$sys_ram" -ge "$SYSTEM_RAM_THRESHOLD" ] 2>/dev/null; then
+        echo "System RAM at ${sys_ram}% (threshold: ${SYSTEM_RAM_THRESHOLD}%)"
+        return 0
+    fi
+
+    # Check worker RAM (with default to 0 if command fails)
+    local worker_ram
+    worker_ram=$(get_worker_ram_mb "$pid_file" 2>/dev/null) || worker_ram=0
+    worker_ram=${worker_ram:-0}
+    if [ "$worker_ram" -ge "$WORKER_RAM_THRESHOLD_MB" ] 2>/dev/null; then
+        echo "Worker RAM at ${worker_ram}MB (threshold: ${WORKER_RAM_THRESHOLD_MB}MB)"
+        return 0
+    fi
+
+    # Check GPU memory (with default to 0 if command fails)
+    local gpu_mem
+    gpu_mem=$(get_gpu_memory_usage 2>/dev/null) || gpu_mem=0
+    gpu_mem=${gpu_mem:-0}
+    if [ "$gpu_mem" -ge "$GPU_MEMORY_THRESHOLD" ] 2>/dev/null; then
+        echo "GPU memory at ${gpu_mem}% (threshold: ${GPU_MEMORY_THRESHOLD}%)"
+        return 0
+    fi
+
+    return 1  # No memory pressure
+}
+
 # Wait for Redis to be available
 wait_for_redis() {
     local max_attempts=${1:-30}
@@ -202,14 +278,30 @@ start_worker() {
     echo -n "Starting Celery worker..."
 
     # Start worker in background with PID file
-    # --pool=solo is REQUIRED for CUDA/GPU tasks
+    #
+    # IMPORTANT: --pool=solo is REQUIRED for CUDA/GPU tasks
+    # Without solo pool, Celery uses fork() which breaks CUDA initialization
+    # Error: "Cannot re-initialize CUDA in forked subprocess"
+    #
+    # This happens because CUDA maintains state in the parent process that
+    # cannot be safely inherited by forked child processes. The solo pool
+    # runs tasks in the main process, avoiding the fork altogether.
+    #
+    # Trade-off: With --pool=solo, concurrency (-c) is effectively 1 since
+    # all tasks run sequentially in the main process. For GPU tasks this is
+    # usually desired anyway to avoid GPU memory contention.
+    #
+    # --max-tasks-per-child=100: Restarts worker after 100 tasks to prevent
+    # memory leaks from accumulating. With solo pool, this triggers a full
+    # worker restart, which also cleans up GPU memory.
+    #
     nohup celery -A src.core.celery_app worker \
         -Q "$QUEUES" \
         -c 1 \
         --pool=solo \
         --loglevel=info \
         --hostname="worker@%h" \
-        --max-tasks-per-child=5 \
+        --max-tasks-per-child=100 \
         --pidfile="$WORKER_PID_FILE" \
         > "$WORKER_LOG" 2>&1 &
 
@@ -334,6 +426,38 @@ cmd_status() {
     fi
 
     echo ""
+    echo "Memory Status:"
+    echo "=============="
+    local sys_ram=$(get_system_ram_usage)
+    local worker_ram=$(get_worker_ram_mb "$WORKER_PID_FILE")
+    local gpu_mem=$(get_gpu_memory_usage)
+
+    # Color code based on thresholds
+    if [ "$sys_ram" -ge "$SYSTEM_RAM_THRESHOLD" ]; then
+        echo -e "System RAM:  ${RED}${sys_ram}%${NC} (threshold: ${SYSTEM_RAM_THRESHOLD}%)"
+    elif [ "$sys_ram" -ge $((SYSTEM_RAM_THRESHOLD - 10)) ]; then
+        echo -e "System RAM:  ${YELLOW}${sys_ram}%${NC} (threshold: ${SYSTEM_RAM_THRESHOLD}%)"
+    else
+        echo -e "System RAM:  ${GREEN}${sys_ram}%${NC} (threshold: ${SYSTEM_RAM_THRESHOLD}%)"
+    fi
+
+    if [ "$worker_ram" -ge "$WORKER_RAM_THRESHOLD_MB" ]; then
+        echo -e "Worker RAM:  ${RED}${worker_ram}MB${NC} (threshold: ${WORKER_RAM_THRESHOLD_MB}MB)"
+    elif [ "$worker_ram" -ge $((WORKER_RAM_THRESHOLD_MB - 2000)) ]; then
+        echo -e "Worker RAM:  ${YELLOW}${worker_ram}MB${NC} (threshold: ${WORKER_RAM_THRESHOLD_MB}MB)"
+    else
+        echo -e "Worker RAM:  ${GREEN}${worker_ram}MB${NC} (threshold: ${WORKER_RAM_THRESHOLD_MB}MB)"
+    fi
+
+    if [ "$gpu_mem" -ge "$GPU_MEMORY_THRESHOLD" ]; then
+        echo -e "GPU Memory:  ${RED}${gpu_mem}%${NC} (threshold: ${GPU_MEMORY_THRESHOLD}%)"
+    elif [ "$gpu_mem" -ge $((GPU_MEMORY_THRESHOLD - 10)) ]; then
+        echo -e "GPU Memory:  ${YELLOW}${gpu_mem}%${NC} (threshold: ${GPU_MEMORY_THRESHOLD}%)"
+    else
+        echo -e "GPU Memory:  ${GREEN}${gpu_mem}%${NC} (threshold: ${GPU_MEMORY_THRESHOLD}%)"
+    fi
+
+    echo ""
     echo "Logs:"
     echo "  Worker: $WORKER_LOG"
     echo "  Beat:   $BEAT_LOG"
@@ -352,13 +476,17 @@ cmd_watchdog() {
 
     # Start watchdog in background
     (
-        echo $$ > "$WATCHDOG_PID_FILE"
+        # Disable exit-on-error in watchdog - we handle errors ourselves
+        set +e
+
+        # Use BASHPID instead of $$ to get the actual subshell PID
+        echo $BASHPID > "$WATCHDOG_PID_FILE"
 
         log_msg() {
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$WATCHDOG_LOG"
         }
 
-        log_msg "Watchdog started (PID: $$)"
+        log_msg "Watchdog started (PID: $BASHPID)"
 
         while true; do
             # Check if Redis is available
@@ -369,7 +497,11 @@ cmd_watchdog() {
             fi
 
             # Check and restart worker if needed
-            if ! is_running "$WORKER_PID_FILE" || ! is_worker_healthy; then
+            worker_running=false
+            worker_healthy=false
+            is_running "$WORKER_PID_FILE" && worker_running=true
+            is_worker_healthy && worker_healthy=true
+            if [ "$worker_running" = "false" ] || [ "$worker_healthy" = "false" ]; then
                 log_msg "Worker down or unhealthy, restarting..."
 
                 # Stop if running but unhealthy
@@ -385,6 +517,37 @@ cmd_watchdog() {
                     log_msg "Worker restarted successfully"
                 else
                     log_msg "ERROR: Failed to restart worker"
+                fi
+            fi
+
+            # Check memory pressure and proactively restart if needed
+            if [ "$worker_running" = "true" ]; then
+                memory_reason=$(check_memory_pressure "$WORKER_PID_FILE" 2>/dev/null) || true
+                if [ -n "$memory_reason" ]; then
+                    log_msg "MEMORY PRESSURE: $memory_reason - initiating proactive restart..."
+
+                    # Log current memory stats before restart
+                    local sys_ram=$(get_system_ram_usage)
+                    local worker_ram=$(get_worker_ram_mb "$WORKER_PID_FILE")
+                    local gpu_mem=$(get_gpu_memory_usage)
+                    log_msg "Memory stats before restart: System RAM=${sys_ram}%, Worker=${worker_ram}MB, GPU=${gpu_mem}%"
+
+                    # Graceful restart
+                    stop_process "Worker" "$WORKER_PID_FILE" 15 >> "$WATCHDOG_LOG" 2>&1
+                    sleep 3
+                    start_worker >> "$WATCHDOG_LOG" 2>&1
+
+                    if is_running "$WORKER_PID_FILE"; then
+                        log_msg "Worker restarted due to memory pressure"
+                        # Log memory after restart
+                        sleep 5
+                        local new_sys_ram=$(get_system_ram_usage)
+                        local new_worker_ram=$(get_worker_ram_mb "$WORKER_PID_FILE")
+                        local new_gpu_mem=$(get_gpu_memory_usage)
+                        log_msg "Memory stats after restart: System RAM=${new_sys_ram}%, Worker=${new_worker_ram}MB, GPU=${new_gpu_mem}%"
+                    else
+                        log_msg "ERROR: Failed to restart worker after memory pressure"
+                    fi
                 fi
             fi
 

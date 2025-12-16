@@ -217,6 +217,16 @@ celery_app.conf.update(
     },
 
     # Worker settings
+    #
+    # IMPORTANT: Workers MUST use --pool=solo for CUDA/GPU tasks.
+    # This is set at runtime via command line (celery.sh, start-celery-worker.sh).
+    # Why: Celery's default prefork pool uses fork(), which breaks CUDA because
+    # CUDA maintains state in the parent process that cannot be forked safely.
+    # Error without solo: "Cannot re-initialize CUDA in forked subprocess"
+    #
+    # max_tasks_per_child: Restart worker after N tasks to prevent memory leaks.
+    # With --pool=solo, this triggers a full worker restart (cleans GPU memory).
+    #
     worker_max_tasks_per_child=100,  # Restart worker after 100 tasks (memory cleanup)
     worker_disable_rate_limits=False,
 

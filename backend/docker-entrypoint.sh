@@ -122,7 +122,7 @@ start_service() {
                 --pool=solo \
                 --loglevel=${LOG_LEVEL:-info} \
                 --hostname=worker@%h \
-                --max-tasks-per-child=${CELERY_MAX_TASKS:-5}"
+                --max-tasks-per-child=${CELERY_MAX_TASKS:-100}"
             ;;
         "celery-beat")
             log_info "Starting Celery beat scheduler..."

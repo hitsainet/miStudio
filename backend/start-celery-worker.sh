@@ -46,14 +46,15 @@ echo ""
 # Without solo pool, Celery uses fork which breaks CUDA initialization
 # Error: "Cannot re-initialize CUDA in forked subprocess"
 #
-# IMPORTANT: --max-tasks-per-child=5 ensures worker processes restart periodically
-# This is CRITICAL for GPU memory cleanup while allowing longer tasks to complete
-# Setting to 5 instead of 1 prevents worker restart during task execution (e.g., during
-# activation concatenation which happens at 90% progress)
+# IMPORTANT: --max-tasks-per-child=100 ensures worker processes restart periodically
+# This is CRITICAL for GPU memory cleanup while allowing longer tasks to complete.
+# Value of 100 matches celery_app.py configuration and allows many tasks before
+# recycling while still preventing memory leaks from accumulating indefinitely.
+# Note: With --pool=solo, this triggers a full worker restart after 100 tasks.
 celery -A src.core.celery_app worker \
     -Q "$QUEUES" \
     -c "$CONCURRENCY" \
     --pool=solo \
     --loglevel=info \
     --hostname="worker@%h" \
-    --max-tasks-per-child=5
+    --max-tasks-per-child=100

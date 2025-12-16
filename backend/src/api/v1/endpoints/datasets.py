@@ -854,11 +854,31 @@ async def get_dataset_samples(
                 # If tokenizer fails to load, we'll show raw token IDs
                 print(f"Warning: Failed to load tokenizer for decoding: {e}")
 
+        def sanitize_value(value):
+            """Recursively convert bytes and other non-JSON-serializable types to strings."""
+            if isinstance(value, bytes):
+                # Try to decode as utf-8, fallback to latin-1 which accepts any byte
+                try:
+                    return value.decode('utf-8')
+                except UnicodeDecodeError:
+                    return value.decode('latin-1')
+            elif isinstance(value, dict):
+                return {k: sanitize_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [sanitize_value(item) for item in value]
+            elif isinstance(value, tuple):
+                return tuple(sanitize_value(item) for item in value)
+            else:
+                return value
+
         for idx in range(start_idx, end_idx):
             sample = hf_dataset[idx]
             # Convert sample to dict if it's not already
             if not isinstance(sample, dict):
                 sample = {"data": str(sample)}
+
+            # Sanitize the sample to convert bytes and other non-serializable types
+            sample = sanitize_value(sample)
 
             # If this is a tokenized dataset, decode input_ids to text
             if is_tokenized and tokenizer and 'input_ids' in sample:

@@ -25,21 +25,18 @@ class TestDatasetCancellationTask:
     """Test suite for cancel_dataset_download task."""
 
     def test_cancel_dataset_with_both_paths(self):
-        """Test cancelling dataset with both raw and tokenized paths."""
+        """Test cancelling dataset with raw path (tokenized paths are in DatasetTokenization)."""
         dataset_id = uuid4()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             raw_path = Path(tmpdir) / "raw_data"
-            tokenized_path = Path(tmpdir) / "tokenized_data"
 
-            # Create directories with files
+            # Create directory with files
             raw_path.mkdir()
             (raw_path / "data.arrow").write_text("fake raw data")
 
-            tokenized_path.mkdir()
-            (tokenized_path / "tokenized.arrow").write_text("fake tokenized data")
-
             # Create dataset in database with DOWNLOADING status
+            # Note: tokenized_path is stored in DatasetTokenization, not Dataset
             with get_sync_db() as db:
                 dataset = Dataset(
                     id=dataset_id,
@@ -47,14 +44,12 @@ class TestDatasetCancellationTask:
                     source="HuggingFace",
                     status=DatasetStatus.DOWNLOADING,
                     raw_path=str(raw_path),
-                    tokenized_path=str(tokenized_path),
                 )
                 db.add(dataset)
                 db.commit()
 
             # Verify files exist
             assert raw_path.exists()
-            assert tokenized_path.exists()
 
             # Cancel the dataset
             result = cancel_dataset_download(dataset_id=str(dataset_id))
@@ -63,9 +58,8 @@ class TestDatasetCancellationTask:
             assert result["dataset_id"] == str(dataset_id)
             assert result["status"] == "cancelled"
 
-            # Verify files were deleted
+            # Verify raw files were deleted
             assert not raw_path.exists()
-            assert not tokenized_path.exists()
 
             # Verify database was updated
             with get_sync_db() as db:
@@ -82,7 +76,7 @@ class TestDatasetCancellationTask:
                     db.commit()
 
     def test_cancel_dataset_with_only_raw_path(self):
-        """Test cancelling dataset with only raw_path (no tokenized_path)."""
+        """Test cancelling dataset with only raw_path."""
         dataset_id = uuid4()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -98,7 +92,6 @@ class TestDatasetCancellationTask:
                     source="HuggingFace",
                     status=DatasetStatus.DOWNLOADING,
                     raw_path=str(raw_path),
-                    tokenized_path=None,
                 )
                 db.add(dataset)
                 db.commit()
@@ -123,18 +116,19 @@ class TestDatasetCancellationTask:
                     db.commit()
 
     def test_cancel_dataset_processing_status(self):
-        """Test cancelling dataset with PROCESSING status."""
+        """Test cancelling dataset with PROCESSING status.
+
+        Note: When cancelling a PROCESSING dataset (tokenization in progress),
+        raw files are intentionally NOT deleted because they're still needed
+        for potential retry. Only tokenization files are cleaned up.
+        """
         dataset_id = uuid4()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             raw_path = Path(tmpdir) / "raw_data"
-            tokenized_path = Path(tmpdir) / "tokenized_data"
 
             raw_path.mkdir()
             (raw_path / "data.arrow").write_text("fake raw data")
-
-            tokenized_path.mkdir()
-            (tokenized_path / "tokenized.arrow").write_text("fake tokenized data")
 
             # Create dataset with PROCESSING status
             with get_sync_db() as db:
@@ -144,7 +138,6 @@ class TestDatasetCancellationTask:
                     source="HuggingFace",
                     status=DatasetStatus.PROCESSING,
                     raw_path=str(raw_path),
-                    tokenized_path=str(tokenized_path),
                 )
                 db.add(dataset)
                 db.commit()
@@ -156,9 +149,15 @@ class TestDatasetCancellationTask:
             assert result["dataset_id"] == str(dataset_id)
             assert result["status"] == "cancelled"
 
-            # Verify files were deleted
-            assert not raw_path.exists()
-            assert not tokenized_path.exists()
+            # Verify raw files are PRESERVED (not deleted) for PROCESSING status
+            # This is intentional - raw files are needed for tokenization retry
+            assert raw_path.exists(), "Raw files should be preserved during PROCESSING cancellation"
+
+            # Verify database was updated
+            with get_sync_db() as db:
+                dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+                assert dataset.status == DatasetStatus.ERROR
+                assert dataset.error_message == "Cancelled by user"
 
             # Cleanup
             with get_sync_db() as db:
@@ -217,7 +216,6 @@ class TestDatasetCancellationTask:
                 source="HuggingFace",
                 status=DatasetStatus.DOWNLOADING,
                 raw_path="/nonexistent/path/to/raw",
-                tokenized_path="/nonexistent/path/to/tokenized",
             )
             db.add(dataset)
             db.commit()
@@ -254,7 +252,6 @@ class TestDatasetCancellationTask:
                 source="HuggingFace",
                 status=DatasetStatus.DOWNLOADING,
                 raw_path=None,
-                tokenized_path=None,
             )
             db.add(dataset)
             db.commit()
@@ -426,29 +423,28 @@ class TestDatasetCancellationIntegration:
 
     @pytest.mark.asyncio
     async def test_complete_cancellation_workflow(self):
-        """Test complete workflow: create dataset, cancel, verify cleanup."""
+        """Test complete workflow: create dataset, cancel, verify cleanup.
+
+        Tests cancellation of a DOWNLOADING dataset which should delete raw files.
+        """
         dataset_id = uuid4()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             raw_path = Path(tmpdir) / "raw_data"
-            tokenized_path = Path(tmpdir) / "tokenized_data"
 
             # Create files
             raw_path.mkdir()
             (raw_path / "data.arrow").write_text("fake raw data")
 
-            tokenized_path.mkdir()
-            (tokenized_path / "tokenized.arrow").write_text("fake tokenized data")
-
-            # Create dataset in database
+            # Create dataset in database with DOWNLOADING status
+            # (DOWNLOADING status will delete raw files on cancel)
             async with AsyncSessionLocal() as db:
                 dataset = Dataset(
                     id=dataset_id,
                     name=f"test_e2e_cancel_{uuid4().hex[:8]}",
                     source="HuggingFace",
-                    status=DatasetStatus.PROCESSING,
+                    status=DatasetStatus.DOWNLOADING,
                     raw_path=str(raw_path),
-                    tokenized_path=str(tokenized_path),
                     progress=50.0,
                 )
                 db.add(dataset)
@@ -456,7 +452,6 @@ class TestDatasetCancellationIntegration:
 
             # Verify files exist
             assert raw_path.exists()
-            assert tokenized_path.exists()
 
             # Cancel via task (simulating API call)
             result = cancel_dataset_download(dataset_id=str(dataset_id))
@@ -464,9 +459,8 @@ class TestDatasetCancellationIntegration:
             # Verify result
             assert result["status"] == "cancelled"
 
-            # Verify files were deleted
+            # Verify raw files were deleted (only happens for DOWNLOADING status)
             assert not raw_path.exists()
-            assert not tokenized_path.exists()
 
             # Verify database state
             async with AsyncSessionLocal() as db:

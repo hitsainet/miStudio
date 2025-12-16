@@ -470,7 +470,7 @@ class TestExtractionProgressEmissionFlow:
         for call_args in mock_client.__enter__.return_value.post.call_args_list:
             payload = call_args[1]["json"]
             assert payload["channel"] == f"models/{model_id}/extraction"
-            assert payload["event"] == "progress"
+            assert payload["event"] == "extraction:progress"  # Namespaced event
             assert payload["data"]["type"] == "extraction_progress"
             assert payload["data"]["extraction_id"] == extraction_id
 
@@ -527,7 +527,7 @@ class TestExtractionProgressEmissionFlow:
         call_args = mock_client.__enter__.return_value.post.call_args
         payload = call_args[1]["json"]
         assert payload["channel"] == f"models/{model_id}/extraction"
-        assert payload["event"] == "failed"
+        assert payload["event"] == "extraction:failed"  # Namespaced event
         assert payload["data"]["type"] == "extraction_failed"
         assert payload["data"]["error_type"] == "OOM"
         assert payload["data"]["suggested_retry_params"] == {"batch_size": 4}

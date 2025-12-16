@@ -11,6 +11,8 @@ import asyncio
 import sys
 import os
 
+import pytest
+
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -18,6 +20,14 @@ from src.services.openai_labeling_service import OpenAILabelingService
 from src.core.config import settings
 
 
+# Skip test if OpenAI API key is not configured
+pytestmark = pytest.mark.skipif(
+    not settings.openai_api_key,
+    reason="OPENAI_API_KEY not configured"
+)
+
+
+@pytest.mark.asyncio
 async def test_dual_label_generation():
     """Test that OpenAI service generates dual labels correctly."""
 

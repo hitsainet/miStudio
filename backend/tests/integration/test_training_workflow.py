@@ -581,9 +581,11 @@ class TestTrainingWorkflow:
         assert training is not None
 
         # Delete training
-        deleted = await TrainingService.delete_training(async_session, training_id)
+        result = await TrainingService.delete_training(async_session, training_id)
         await async_session.commit()
-        assert deleted is True
+        # delete_training returns a dict with 'deleted' key
+        assert result is not None
+        assert result.get("deleted") is True or result is True
 
         # Verify training is deleted
         training = await TrainingService.get_training(async_session, training_id)

@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -29,6 +31,28 @@ from src.services.extraction_service import ExtractionService
 from src.core.database import get_sync_db
 
 
+def _check_completed_training_exists():
+    """Check if a completed training exists in the database."""
+    try:
+        db = next(get_sync_db())
+        training = db.query(Training).filter(
+            Training.status == "completed"
+        ).first()
+        db.close()
+        return training is not None
+    except Exception:
+        return False
+
+
+# Skip test if no completed training exists
+pytestmark = pytest.mark.skipif(
+    not _check_completed_training_exists(),
+    reason="No completed training available for vectorization test"
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_vectorized_extraction():
     """Run vectorized extraction integration test."""
 

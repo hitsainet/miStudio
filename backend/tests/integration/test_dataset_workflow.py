@@ -99,10 +99,10 @@ class TestDatasetWorkflow:
             }
         }
 
+        # Note: tokenized_path is stored in DatasetTokenization, not Dataset
         tokenize_complete_update = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_tiny_dataset_tokenized",
             metadata=tokenization_metadata,
         )
         dataset = await DatasetService.update_dataset(
@@ -114,7 +114,6 @@ class TestDatasetWorkflow:
         # Step 5: Verify final state
         assert dataset.status == DatasetStatus.READY
         assert dataset.progress == 100.0
-        assert dataset.tokenized_path is not None
         assert dataset.extra_metadata is not None
         assert "tokenization" in dataset.extra_metadata
         assert dataset.extra_metadata["tokenization"]["tokenizer_name"] == "gpt2"
@@ -338,10 +337,10 @@ class TestDatasetWorkflow:
             }
         }
 
+        # Note: tokenized_path is stored in DatasetTokenization, not Dataset
         tokenize_update = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_dataset_tokenized",
             metadata=tokenization_metadata,
         )
         dataset = await DatasetService.update_dataset(
@@ -407,10 +406,10 @@ class TestDatasetWorkflow:
             }
         }
 
+        # Note: tokenized_path is stored in DatasetTokenization, not Dataset
         tokenize_update = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_padding_dataset_tokenized",
             metadata=tokenization_metadata_max_length,
         )
         dataset = await DatasetService.update_dataset(
@@ -445,7 +444,6 @@ class TestDatasetWorkflow:
         retokenize_update = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_padding_dataset_tokenized_v2",
             metadata=tokenization_metadata_no_pad,
         )
         dataset = await DatasetService.update_dataset(
@@ -510,10 +508,10 @@ class TestDatasetWorkflow:
             }
         }
 
+        # Note: tokenized_path is stored in DatasetTokenization, not Dataset
         tokenize_update = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_truncation_dataset_tokenized",
             metadata=tokenization_metadata_longest_first,
         )
         dataset = await DatasetService.update_dataset(
@@ -549,7 +547,6 @@ class TestDatasetWorkflow:
         retokenize_update = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_truncation_dataset_tokenized_v2",
             metadata=tokenization_metadata_only_first,
         )
         dataset = await DatasetService.update_dataset(
@@ -581,7 +578,6 @@ class TestDatasetWorkflow:
         retokenize_update2 = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_truncation_dataset_tokenized_v3",
             metadata=tokenization_metadata_no_truncate,
         )
         dataset = await DatasetService.update_dataset(
@@ -659,10 +655,10 @@ class TestDatasetWorkflow:
             }
         }
 
+        # Note: tokenized_path is stored in DatasetTokenization, not Dataset
         tokenize_update = DatasetUpdate(
             status=DatasetStatus.READY.value,
             progress=100.0,
-            tokenized_path="./data/datasets/test_metrics_dataset_tokenized",
             metadata=tokenization_metadata,
         )
         dataset = await DatasetService.update_dataset(

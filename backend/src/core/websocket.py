@@ -24,12 +24,13 @@ sio = socketio.AsyncServer(
 )
 
 # ASGI app for mounting in FastAPI
-# NOTE: Starlette Mount strips the mount prefix before passing to the mounted app.
-# Since we mount at "/ws", requests to "/ws/socket.io" arrive at socket_app
-# with path "/socket.io", so socketio_path should be "socket.io".
+# NOTE: When mounted at "/ws" in FastAPI, Starlette's Mount strips the prefix.
+# Using socketio_path="" (empty string) allows the ASGIApp to handle all paths
+# under /ws/*, which is necessary because the frontend connects with path
+# "/ws/socket.io". With empty string, any path under the mount point works.
 socket_app = socketio.ASGIApp(
     sio,
-    socketio_path="socket.io",
+    socketio_path="",
 )
 
 

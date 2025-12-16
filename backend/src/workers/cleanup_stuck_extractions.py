@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from src.core.celery_app import celery_app
 from src.workers.base_task import DatabaseTask
 from src.models.extraction_job import ExtractionJob, ExtractionStatus
-from src.workers.websocket_emitter import emit_training_progress
+from src.workers.websocket_emitter import emit_extraction_job_progress
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +81,12 @@ def cleanup_stuck_extractions_task(self):
 
                     # Emit WebSocket event to notify frontend
                     try:
-                        emit_training_progress(
+                        emit_extraction_job_progress(
+                            extraction_id=extraction.id,
                             training_id=extraction.training_id,
-                            event="extraction:failed",
-                            data={
-                                "extraction_id": extraction.id,
-                                "training_id": extraction.training_id,
-                                "error": extraction.error_message
-                            }
+                            sae_id=extraction.sae_id,
+                            status="failed",
+                            message=extraction.error_message,
                         )
                     except Exception as e:
                         logger.warning(f"Failed to emit WebSocket event for {extraction.id}: {e}")

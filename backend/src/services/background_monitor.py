@@ -178,7 +178,7 @@ class BackgroundMonitor:
 
         try:
             response = await self._http_client.post(
-                "http://localhost:8000/api/internal/ws/emit",
+                settings.websocket_emit_url,
                 json={
                     "channel": channel,
                     "event": event,

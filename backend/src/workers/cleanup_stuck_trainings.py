@@ -94,7 +94,7 @@ def cleanup_stuck_trainings_task(self):
                     try:
                         emit_training_progress(
                             training_id=training.id,
-                            event="failed",
+                            event="training:failed",
                             data={
                                 "training_id": training.id,
                                 "status": "failed",

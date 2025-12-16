@@ -26,7 +26,7 @@ from src.core.config import settings
 from src.models.training import Training
 from src.models.feature import Feature
 from src.services.extraction_service import ExtractionService
-from src.db.database import get_sync_db
+from src.core.database import get_sync_db
 
 
 async def test_vectorized_extraction():

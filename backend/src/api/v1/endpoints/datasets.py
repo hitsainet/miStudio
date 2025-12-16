@@ -792,11 +792,11 @@ async def get_dataset_samples(
             try:
                 # Extract split from metadata (safely handle dict or SQLAlchemy type)
                 split_name = None
-                if dataset.metadata:
-                    if isinstance(dataset.metadata, dict):
-                        split_name = dataset.metadata.get('split')
-                    elif hasattr(dataset.metadata, 'get'):
-                        split_name = dataset.metadata.get('split')
+                if dataset.extra_metadata:
+                    if isinstance(dataset.extra_metadata, dict):
+                        split_name = dataset.extra_metadata.get('split')
+                    elif hasattr(dataset.extra_metadata, 'get'):
+                        split_name = dataset.extra_metadata.get('split')
 
                 # Load from HuggingFace (will use cached files if available)
                 hf_dataset = hf_load_dataset(
@@ -843,7 +843,7 @@ async def get_dataset_samples(
             try:
                 from transformers import AutoTokenizer
                 # Get tokenizer name from metadata (handle both dict and SQLAlchemy types)
-                metadata_dict = dataset.metadata if isinstance(dataset.metadata, dict) else {}
+                metadata_dict = dataset.extra_metadata if isinstance(dataset.extra_metadata, dict) else {}
                 tokenization_meta = metadata_dict.get('tokenization', {}) if metadata_dict else {}
                 tokenizer_name = tokenization_meta.get('tokenizer_name') if tokenization_meta else None
 

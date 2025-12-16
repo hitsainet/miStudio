@@ -20,8 +20,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.orm import Session
 
-# Import test fixtures from conftest
-pytest_plugins = ["tests.conftest"]
+# Fixtures are automatically loaded from tests/conftest.py
 
 
 @pytest.mark.integration

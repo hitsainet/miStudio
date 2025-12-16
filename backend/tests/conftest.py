@@ -19,8 +19,7 @@ from src.core.database import Base
 from src.main import app
 
 
-# Configure pytest-asyncio
-pytest_plugins = ('pytest_asyncio',)
+# pytest-asyncio is auto-configured via pyproject.toml asyncio_mode="auto"
 
 
 @pytest.fixture(scope="session")

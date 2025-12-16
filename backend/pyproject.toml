@@ -9,55 +9,56 @@ packages = [{include = "src"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 # Web Framework
-fastapi = "^0.104.0"
+fastapi = "^0.104.0"  # Staying on 0.104.x until starlette/uvicorn updated together (Phase 3)
 uvicorn = {extras = ["standard"], version = "^0.24.0"}
-python-socketio = "^5.10.0"
-python-multipart = "^0.0.6"
+python-socketio = "^5.15.0"
+python-multipart = "^0.0.18"
 
 # Database
 sqlalchemy = "^2.0.0"
-asyncpg = "^0.29.0"
-alembic = "^1.12.0"
-psycopg2-binary = "^2.9.9"
+asyncpg = "^0.31.0"
+alembic = "^1.17.0"
+psycopg2-binary = "^2.9.0"
 
 # Caching & Queue
-redis = "^5.0.0"
-celery = "^5.3.0"
+redis = "^5.0.0"  # Staying on 5.x until Phase 3 (redis 7.x is major upgrade)
+celery = "^5.6.0"
 
 # ML & AI
-torch = "^2.1.0"
+torch = "^2.9.0"
 transformers = "~4.50.0"  # Pinned to 4.50.x for Phi-4 support (requires SlidingWindowCache and LossKwargs)
-datasets = "^2.14.0"
+datasets = "^2.14.0"  # Staying on 2.x until Phase 3 (datasets 4.x is major upgrade)
 tokenizers = "~0.21.0"  # Pinned to match transformers 4.50.0
-bitsandbytes = "^0.48.0"
-accelerate = "^0.26.0"  # Updated for Phi-4 support (device_map with low_cpu_mem_usage)
+bitsandbytes = "^0.49.0"
+accelerate = "^1.12.0"
 
 # Utils
-pydantic = "^2.5.0"
-pydantic-settings = "^2.1.0"
-python-dotenv = "^1.0.0"
-httpx = "^0.25.0"
-aiofiles = "^23.2.0"
-python-json-logger = "^2.0.7"
-tenacity = "^8.2.3"
+pydantic = "^2.12.0"
+pydantic-settings = "^2.12.0"
+python-dotenv = "^1.2.0"
+httpx = "^0.27.0"
+aiofiles = "^23.2.0"  # Staying on 23.x until Phase 3 (aiofiles 25.x is major upgrade)
+python-json-logger = "^2.0.7"  # Staying on 2.x until Phase 3 (4.x is major upgrade)
+tenacity = "^8.5.0"
 
 [tool.poetry.group.dev.dependencies]
-# Testing
+# Testing (staying on pytest 7.x until Phase 3 - pytest 9.x is major upgrade)
 pytest = "^7.4.0"
 pytest-asyncio = "^0.21.0"
 pytest-cov = "^4.1.0"
-pytest-mock = "^3.12.0"
-httpx = "^0.25.0"
+pytest-mock = "^3.15.0"
+httpx = "^0.27.0"
 
 # Code Quality
-black = "^23.11.0"
-ruff = "^0.1.6"
-mypy = "^1.7.0"
+black = "^23.12.0"
+ruff = "^0.1.15"  # Staying on 0.1.x until Phase 3 (0.14.x has breaking changes)
+mypy = "^1.19.0"
 types-redis = "^4.6.0"
 types-aiofiles = "^23.2.0"
+coverage = "^7.13.0"
 
 # Development
-ipython = "^8.18.0"
+ipython = "^8.37.0"
 ipdb = "^0.13.13"
 
 [tool.black]

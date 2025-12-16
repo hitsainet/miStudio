@@ -2,12 +2,15 @@ yes
 # Project: MechInterp Studio (miStudio)
 
 ## Current Status
-- **Phase:** Architecture Improvements - Progress Monitoring & WebSocket Migration
-- **Last Session:** 2025-10-22 - Completed System Monitoring WebSocket Migration (HP-1)
-- **Current Task:** HP-2: Expand Test Coverage - Phase 1 (60% target coverage)
-- **Active Work:** Supplemental architecture improvements from multi-agent review
-- **Completed:** HP-1 System Monitoring WebSocket Migration (10/10 sub-tasks) ✅
-- **Test Status:** Backend and frontend code changes deployed, services restarted
+- **Phase:** Maintenance & Bug Fixes
+- **Last Session:** 2025-12-16 - Integration Test Fixes & Dataset Samples Endpoint Fix
+- **Current Task:** General maintenance and bug fixes
+- **Active Work:** Test suite maintenance and API stability improvements
+- **Completed:**
+  - HP-1 System Monitoring WebSocket Migration (10/10 sub-tasks) ✅
+  - Integration test fixes (15 tests fixed) ✅
+  - Dataset samples endpoint bytes handling fix ✅
+- **Test Status:** 887 passed, 3 skipped (conditional on external dependencies)
 - **Services Status:** Backend (port 8000) ✅, Frontend (port 3000) ✅, PostgreSQL ✅, Redis ✅, Celery Worker ✅, Celery Beat ✅, Nginx ✅
 
 ## PRIMARY UI/UX REFERENCE
@@ -604,6 +607,40 @@ The application uses a consistent WebSocket-first approach for all real-time upd
 - **Duration:** ~5 hours
 - **Key Achievement:** Achieved architectural consistency by migrating system monitoring from polling to WebSocket-first pattern, matching the approach used for all job progress tracking
 
+### Session 6: 2025-12-16 - Integration Test Fixes & Dataset Samples Bug Fix
+- **Accomplished:**
+  - **Integration Test Suite Fixes (15 tests fixed):**
+    - Fixed `test_websocket_emission_integration.py` - Updated event name assertions to use namespaced events (`extraction:progress`, `extraction:failed`)
+    - Fixed `test_dataset_cancellation.py` - Removed invalid `tokenized_path` attribute (moved to DatasetTokenization model), corrected PROCESSING status behavior (raw files preserved for retry)
+    - Fixed `test_dataset_workflow.py` - Removed all `tokenized_path` references from DatasetUpdate calls
+    - Fixed `test_dual_labels.py` - Added `pytestmark` to skip when OPENAI_API_KEY not configured
+    - Fixed `test_training_workflow.py` - Fixed `delete_training` return type handling (returns dict, not boolean)
+    - Fixed `test_vectorization_manual.py` - Added `pytestmark` to skip when no completed training exists
+  - **Dataset Samples Endpoint Bug Fix:**
+    - Fixed 500 Internal Server Error when fetching dataset samples
+    - Root cause: HuggingFace datasets (e.g., The Pile) contain `bytes` objects in fields like `repetitions`
+    - Added `sanitize_value()` function to recursively convert bytes to strings
+    - Handles nested dicts, lists, and tuples
+    - Uses UTF-8 decoding with Latin-1 fallback for any byte sequence
+- **Key Technical Insights:**
+  - Dataset model vs DatasetTokenization model: `tokenized_path` is stored in DatasetTokenization, not Dataset
+  - WebSocket event naming: Events are namespaced (e.g., `extraction:progress` not just `progress`)
+  - `cancel_dataset_download`: DOWNLOADING status deletes raw files, PROCESSING status preserves them for retry
+  - `delete_training` service returns `{"deleted": True, ...}` dict, not boolean
+- **Files Modified:**
+  - `backend/tests/integration/test_websocket_emission_integration.py` - Event name assertions
+  - `backend/tests/integration/test_dataset_cancellation.py` - Model attributes and behavior fixes
+  - `backend/tests/integration/test_dataset_workflow.py` - Removed tokenized_path
+  - `backend/tests/integration/test_dual_labels.py` - Added skip marker
+  - `backend/tests/integration/test_training_workflow.py` - Return type handling
+  - `backend/tests/integration/test_vectorization_manual.py` - Added skip marker
+  - `backend/src/api/v1/endpoints/datasets.py` - Added sanitize_value() for bytes handling
+- **Commits:**
+  - `2980033` - test: fix 15 failing tests across integration test suite
+  - `3ef63fa` - fix(api): handle bytes data in dataset samples endpoint
+- **Duration:** ~2 hours
+- **Key Achievement:** Restored test suite health with 887 passing tests, fixed critical API bug affecting dataset sample viewing
+
 *[Add new sessions as they occur]*
 
 ## Research Integration
@@ -665,7 +702,7 @@ project-root/
 ---
 
 **Framework Version:** 1.1
-**Last Updated:** 2025-10-05
+**Last Updated:** 2025-12-16
 **Project Started:** 2025-10-05
 **Project:** MechInterp Studio (miStudio)
 **Structure:** 0xcc framework with MCP research integration

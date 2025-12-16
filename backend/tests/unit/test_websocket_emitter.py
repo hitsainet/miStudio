@@ -162,9 +162,10 @@ class TestEmitDatasetProgress:
 
         # Assert
         assert result is True
+        # Event names are prefixed with entity type (e.g., 'dataset:progress')
         mock_emit.assert_called_once_with(
             f"datasets/{dataset_id}/progress",
-            event,
+            f"dataset:{event}",
             data
         )
 
@@ -215,9 +216,10 @@ class TestEmitModelProgress:
 
         # Assert
         assert result is True
+        # Event names are prefixed with entity type (e.g., 'model:progress')
         mock_emit.assert_called_once_with(
             f"models/{model_id}/progress",
-            event,
+            f"model:{event}",
             data
         )
 
@@ -275,9 +277,10 @@ class TestEmitExtractionProgress:
 
         # Assert
         assert result is True
+        # Event names are prefixed with entity type (e.g., 'extraction:progress')
         mock_emit.assert_called_once_with(
             f"models/{model_id}/extraction",
-            "progress",
+            "extraction:progress",
             {
                 "type": "extraction_progress",
                 "model_id": model_id,

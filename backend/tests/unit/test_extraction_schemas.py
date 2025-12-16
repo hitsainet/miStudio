@@ -47,14 +47,14 @@ class TestExtractionConfigRequest:
         assert "greater_than_equal" in str(exc_info.value)
 
     def test_evaluation_samples_maximum_boundary(self):
-        """Test evaluation_samples maximum constraint (100000)."""
+        """Test evaluation_samples maximum constraint (1000000)."""
         # Valid: exactly at maximum
-        config = ExtractionConfigRequest(evaluation_samples=100000)
-        assert config.evaluation_samples == 100000
+        config = ExtractionConfigRequest(evaluation_samples=1000000)
+        assert config.evaluation_samples == 1000000
 
         # Invalid: above maximum
         with pytest.raises(ValidationError) as exc_info:
-            ExtractionConfigRequest(evaluation_samples=100001)
+            ExtractionConfigRequest(evaluation_samples=1000001)
 
         assert "less_than_equal" in str(exc_info.value)
 

@@ -174,7 +174,11 @@ class TestSparseAutoencoderLossCalculation:
             "Reconstruction loss does not match MSE"
 
     def test_l1_penalty_calculation(self):
-        """Test that L1 penalty is mean absolute value of latent activations."""
+        """Test that L1 penalty is per-sample L1 norm averaged over batch.
+
+        This follows Anthropic's "Towards Monosemanticity" formulation:
+        sum L1 norm per sample, then average across batch.
+        """
         hidden_dim = 512
         latent_dim = 4096
         batch_size = 16
@@ -188,12 +192,12 @@ class TestSparseAutoencoderLossCalculation:
         x = torch.randn(batch_size, hidden_dim)
         _, z, losses = model(x, return_loss=True)
 
-        # Manually compute L1 penalty
-        expected_l1 = z.abs().mean()
+        # Manually compute L1 penalty: per-sample L1 norm, averaged over batch
+        expected_l1 = z.abs().sum(dim=-1).mean()
 
         # Compare with model's L1 penalty
         assert torch.allclose(losses['l1_penalty'], expected_l1, atol=1e-6), \
-            "L1 penalty does not match mean absolute activation"
+            "L1 penalty does not match per-sample L1 norm averaged over batch"
 
     def test_l0_sparsity_calculation(self):
         """Test that L0 sparsity is fraction of active (non-zero) features."""

@@ -14,18 +14,22 @@ from src.services.openai_labeling_service import OpenAILabelingService
 
 @pytest.fixture
 def sample_examples():
-    """Create sample activation examples."""
+    """Create sample activation examples with BPE-style tokens.
+
+    Uses GPT-2 style BPE tokens where 'Ġ' prefix indicates start of a new word.
+    This matches how transformer tokenizers actually encode text.
+    """
     return [
         {
-            "prefix_tokens": ["The", "cat"],
-            "prime_token": "jumped",
-            "suffix_tokens": ["over", "fence"],
+            "prefix_tokens": ["The", "Ġcat"],
+            "prime_token": "Ġjumped",
+            "suffix_tokens": ["Ġover", "Ġfence"],
             "max_activation": 9.2,
         },
         {
             "prefix_tokens": ["She"],
-            "prime_token": "jumped",
-            "suffix_tokens": ["high"],
+            "prime_token": "Ġjumped",
+            "suffix_tokens": ["Ġhigh"],
             "max_activation": 8.5,
         },
     ]

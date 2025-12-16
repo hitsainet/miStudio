@@ -235,8 +235,23 @@ class TestGenerateLabel:
                 local_service, "_build_prompt_from_examples", return_value="test prompt"
             ):
                 mock_tokenizer.apply_chat_template.return_value = "formatted prompt"
-                mock_tokenizer.return_value = {"input_ids": Mock()}
-                mock_model.generate.return_value = [Mock()]
+                # Mock tokenizer call to return BatchEncoding-like object
+                # Needs: .to() method, dict-like keys() for **unpacking, ['input_ids'].shape
+                from unittest.mock import MagicMock
+                mock_input_ids = MagicMock()
+                mock_input_ids.shape = [1, 10]
+                mock_inputs = {
+                    "input_ids": mock_input_ids,
+                    "attention_mask": MagicMock()
+                }
+                # Wrap in MagicMock that supports .to() and returns dict
+                mock_batch_encoding = MagicMock()
+                mock_batch_encoding.to.return_value = mock_inputs
+                mock_batch_encoding.keys.return_value = mock_inputs.keys()
+                mock_batch_encoding.__getitem__ = lambda self, key: mock_inputs[key]
+                mock_tokenizer.return_value = mock_batch_encoding
+
+                mock_model.generate.return_value = [MagicMock()]
                 mock_tokenizer.decode.return_value = '{"specific": "test", "category": "semantic", "description": "Test description"}'
 
                 with patch.object(

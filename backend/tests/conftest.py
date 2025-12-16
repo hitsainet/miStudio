@@ -43,6 +43,8 @@ async def async_engine():
     Uses NullPool to prevent connection pooling issues during tests.
     Each test gets a fresh engine instance.
     """
+    from sqlalchemy import text
+
     # Use test database URL if available, otherwise use main database
     database_url = str(settings.database_url)
     if "postgresql" in database_url and "test" not in database_url:
@@ -55,15 +57,36 @@ async def async_engine():
         poolclass=NullPool,  # Disable connection pooling for tests
     )
 
-    # Create all tables
+    # Create PostgreSQL enum types before creating tables
+    # These are required by models that use create_type=False
+    enum_definitions = [
+        ("export_status", ["pending", "computing", "packaging", "completed", "failed", "cancelled"]),
+        ("label_source_enum", ["auto", "user", "llm", "local_llm", "openai"]),
+        ("analysis_type_enum", ["logit_lens", "correlations", "ablation", "nlp_analysis"]),
+        ("extraction_status_enum", ["queued", "loading", "extracting", "saving", "completed", "failed", "cancelled"]),
+    ]
+
     async with engine.begin() as conn:
+        # Create enum types (IF NOT EXISTS to handle reruns)
+        for enum_name, values in enum_definitions:
+            values_str = ", ".join(f"'{v}'" for v in values)
+            await conn.execute(text(
+                f"DO $$ BEGIN "
+                f"CREATE TYPE {enum_name} AS ENUM ({values_str}); "
+                f"EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+            ))
+
+        # Create all tables
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine
 
-    # Drop all tables after test
+    # Drop all tables and enum types after test
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        # Drop enum types
+        for enum_name, _ in enum_definitions:
+            await conn.execute(text(f"DROP TYPE IF EXISTS {enum_name} CASCADE;"))
 
     await engine.dispose()
 

@@ -442,9 +442,11 @@ class TestTrainingTaskMemoryEstimation:
             batch_size=8192,
         )
 
-        # Should not fit in 6GB
+        # Should require significant memory (>6GB at least)
         assert result['total_gb'] > 6.0
-        assert result['fits_in_6gb'] is False
+        # fits_in_6gb now checks against actual available GPU memory, not fixed 6GB
+        # Verify the fit assessment is consistent with the comparison
+        assert result['fits_in_6gb'] == (result['total_gb'] <= result['available_gpu_gb'])
 
     def test_memory_estimation_small_config(self):
         """Test memory estimation with small configuration."""

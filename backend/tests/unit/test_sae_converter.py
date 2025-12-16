@@ -198,7 +198,8 @@ class TestSAEConverterService:
             # Verify config
             with open(Path(output_dir) / "cfg.json") as f:
                 config = json.load(f)
-            assert config["model_name"] == "gpt2"
+            # Service normalizes model names (gpt2 -> gpt2-small)
+            assert config["model_name"] == "gpt2-small"
             assert config["hook_point_layer"] == 6
             assert config["d_in"] == d_in
             assert config["d_sae"] == d_sae

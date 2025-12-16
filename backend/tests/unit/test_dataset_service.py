@@ -380,16 +380,17 @@ class TestDatasetServiceUpdate:
         )
         dataset = await DatasetService.create_dataset(async_session, dataset_create)
 
-        # Update
+        # Update - num_samples and size_bytes are valid Dataset fields
+        # (num_tokens is now in DatasetTokenization model)
         updates = DatasetUpdate(
             num_samples=1000,
-            num_tokens=500000
+            size_bytes=500000
         )
         updated = await DatasetService.update_dataset(async_session, dataset.id, updates)
 
         assert updated is not None
         assert updated.num_samples == 1000
-        assert updated.num_tokens == 500000
+        assert updated.size_bytes == 500000
         assert updated.name == "Original"  # Unchanged
 
     async def test_update_dataset_status(self, async_session):
@@ -401,33 +402,47 @@ class TestDatasetServiceUpdate:
         )
         dataset = await DatasetService.create_dataset(async_session, dataset_create)
 
-        # Update status
-        updates = DatasetUpdate(status="READY")
+        # Update status (lowercase as per schema validation)
+        updates = DatasetUpdate(status="ready")
         updated = await DatasetService.update_dataset(async_session, dataset.id, updates)
 
         assert updated.status == DatasetStatus.READY
 
     async def test_update_dataset_metadata_merge(self, async_session):
-        """Test metadata deep merge on update."""
-        # Create with initial metadata
+        """Test metadata deep merge on update.
+
+        Note: DatasetUpdate.metadata uses Union[DatasetMetadata, Dict[str, Any]].
+        The test uses section-based metadata structure that matches the schema.
+        """
+        # Create with initial download metadata
         dataset_create = DatasetCreate(
             name="Test",
             source="HuggingFace",
             hf_repo_id="test/dataset",
-            metadata={"field1": "value1", "field2": "value2"}
+            metadata={
+                "download": {
+                    "repo_id": "test/dataset",
+                    "split": "train"
+                }
+            }
         )
         dataset = await DatasetService.create_dataset(async_session, dataset_create)
 
-        # Update metadata (should merge, not replace)
+        # Update with tokenization metadata (should merge with download, not replace)
         updates = DatasetUpdate(
-            metadata={"field2": "updated", "field3": "new"}
+            metadata={
+                "tokenization": {
+                    "tokenizer_name": "gpt2",
+                    "max_length": 512
+                }
+            }
         )
         updated = await DatasetService.update_dataset(async_session, dataset.id, updates)
 
-        # Check merged result
-        assert updated.extra_metadata["field1"] == "value1"  # Preserved
-        assert updated.extra_metadata["field2"] == "updated"  # Updated
-        assert updated.extra_metadata["field3"] == "new"  # Added
+        # Check merged result - both sections should exist
+        assert "download" in updated.extra_metadata  # Preserved from create
+        assert "tokenization" in updated.extra_metadata  # Added from update
+        assert updated.extra_metadata["tokenization"]["tokenizer_name"] == "gpt2"
 
     async def test_update_dataset_metadata_none_skipped(self, async_session):
         """Test that None metadata doesn't overwrite existing."""
@@ -435,7 +450,12 @@ class TestDatasetServiceUpdate:
             name="Test",
             source="HuggingFace",
             hf_repo_id="test/dataset",
-            metadata={"field1": "value1"}
+            metadata={
+                "download": {
+                    "repo_id": "test/dataset",
+                    "split": "train"
+                }
+            }
         )
         dataset = await DatasetService.create_dataset(async_session, dataset_create)
 
@@ -443,8 +463,9 @@ class TestDatasetServiceUpdate:
         updates = DatasetUpdate(metadata=None)
         updated = await DatasetService.update_dataset(async_session, dataset.id, updates)
 
-        # Metadata should be unchanged
-        assert updated.extra_metadata == {"field1": "value1"}
+        # Metadata should be unchanged - download section preserved
+        assert "download" in updated.extra_metadata
+        assert updated.extra_metadata["download"]["repo_id"] == "test/dataset"
 
     async def test_update_dataset_not_found(self, async_session):
         """Test updating non-existent dataset returns None."""
@@ -553,12 +574,12 @@ class TestDatasetServiceDelete:
 
     async def test_delete_dataset_success(self, async_session):
         """Test deleting a dataset."""
+        # Note: tokenized_path is now on DatasetTokenization, not Dataset
         dataset_create = DatasetCreate(
             name="Test",
             source="HuggingFace",
             hf_repo_id="test/dataset",
-            raw_path="/data/raw",
-            tokenized_path="/data/tokenized"
+            raw_path="/data/raw"
         )
         dataset = await DatasetService.create_dataset(async_session, dataset_create)
 
@@ -569,7 +590,7 @@ class TestDatasetServiceDelete:
         assert result["deleted"] is True
         assert result["dataset_id"] == str(dataset.id)
         assert result["raw_path"] == "/data/raw"
-        assert result["tokenized_path"] == "/data/tokenized"
+        assert result["tokenized_paths"] == []  # No tokenizations for this dataset
 
         # Verify deletion
         fetched = await DatasetService.get_dataset(async_session, dataset.id)
@@ -588,7 +609,7 @@ class TestDatasetServiceDelete:
         result = await DatasetService.delete_dataset(async_session, dataset.id)
 
         assert result["raw_path"] is None
-        assert result["tokenized_path"] is None
+        assert result["tokenized_paths"] == []  # Returns list, not single path
 
     async def test_delete_dataset_not_found(self, async_session):
         """Test deleting non-existent dataset returns None."""

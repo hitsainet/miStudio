@@ -528,19 +528,23 @@ class TestTrainingServiceDelete:
             training = await TrainingService.create_training(async_session, training_data)
 
         # Delete training
-        deleted = await TrainingService.delete_training(async_session, training.id)
+        result = await TrainingService.delete_training(async_session, training.id)
 
-        assert deleted is True
+        # delete_training now returns a dict with deletion info
+        assert result is not None
+        assert result["deleted"] is True
+        assert result["training_id"] == training.id
 
         # Verify training deleted
         fetched = await TrainingService.get_training(async_session, training.id)
         assert fetched is None
 
     async def test_delete_training_not_found(self, async_session, test_model, test_dataset):
-        """Test deleting non-existent training returns False."""
-        deleted = await TrainingService.delete_training(async_session, "train_nonexistent")
+        """Test deleting non-existent training returns None."""
+        result = await TrainingService.delete_training(async_session, "train_nonexistent")
 
-        assert deleted is False
+        # Returns None for non-existent training
+        assert result is None
 
 
 @pytest.mark.asyncio

@@ -652,7 +652,9 @@ class TestLoadTokenizer:
             tokenizer = TokenizationService.load_tokenizer("bert-base-uncased")
 
             assert tokenizer.pad_token == "[PAD]"
-            mock_from_pretrained.assert_called_once_with("bert-base-uncased", use_fast=True)
+            mock_from_pretrained.assert_called_once_with(
+                "bert-base-uncased", use_fast=True, cache_dir=None, local_files_only=False
+            )
 
     def test_load_tokenizer_adds_pad_token_from_eos(self):
         """Test loading tokenizer adds pad_token from eos_token."""
@@ -688,7 +690,9 @@ class TestLoadTokenizer:
 
             TokenizationService.load_tokenizer("bert-base-uncased", use_fast=False)
 
-            mock_from_pretrained.assert_called_once_with("bert-base-uncased", use_fast=False)
+            mock_from_pretrained.assert_called_once_with(
+                "bert-base-uncased", use_fast=False, cache_dir=None, local_files_only=False
+            )
 
     def test_load_tokenizer_raises_exception_on_error(self):
         """Test loading tokenizer raises exception on error."""
@@ -914,7 +918,9 @@ class TestTokenizationMapper:
 
             # Verify tokenizer was loaded
             assert tokenizer is not None
-            mock_from_pretrained.assert_called_once_with("gpt2")
+            mock_from_pretrained.assert_called_once_with(
+                "gpt2", cache_dir=None, local_files_only=False
+            )
 
             # Subsequent calls don't reload
             tokenizer2 = mapper._get_tokenizer()

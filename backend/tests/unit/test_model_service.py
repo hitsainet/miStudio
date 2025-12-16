@@ -58,7 +58,7 @@ class TestModelServiceInitiateDownload:
         """Test that model name is correctly extracted from repo_id."""
         download_request = ModelDownloadRequest(
             repo_id="organization/model-name-v2",
-            quantization=QuantizationFormat.INT8
+            quantization=QuantizationFormat.Q8  # Q8 is 8-bit quantization
         )
 
         model = await ModelService.initiate_model_download(async_session, download_request)
@@ -70,8 +70,8 @@ class TestModelServiceInitiateDownload:
         quantizations = [
             QuantizationFormat.FP32,
             QuantizationFormat.FP16,
-            QuantizationFormat.INT8,
-            QuantizationFormat.INT4
+            QuantizationFormat.Q8,  # 8-bit quantization
+            QuantizationFormat.Q4   # 4-bit quantization
         ]
 
         for quant in quantizations:
@@ -193,7 +193,8 @@ class TestModelServiceList:
     async def test_list_models_filter_by_quantization(self, async_session):
         """Test filtering models by quantization format."""
         # Create models with different quantizations
-        for quant in [QuantizationFormat.FP16, QuantizationFormat.INT8, QuantizationFormat.FP16]:
+        # Note: QuantizationFormat only has FP32 and FP16 (no INT8/INT4)
+        for quant in [QuantizationFormat.FP16, QuantizationFormat.FP32, QuantizationFormat.FP16]:
             download_request = ModelDownloadRequest(
                 repo_id=f"test/{quant.value}",
                 quantization=quant
@@ -587,7 +588,7 @@ class TestModelServiceArchitectureInfo:
         assert info["name"] == "model"
         assert info["architecture"] == "llama"
         assert info["params_count"] == 7000000000
-        assert info["quantization"] == "fp16"
+        assert info["quantization"] == "FP16"  # Enum value is uppercase
         assert info["architecture_config"] == {"num_layers": 32, "hidden_size": 4096}
         assert info["memory_required_bytes"] == 14000000000
         assert info["disk_size_bytes"] == 13000000000

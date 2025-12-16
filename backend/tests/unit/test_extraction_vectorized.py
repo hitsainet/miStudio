@@ -10,26 +10,26 @@ import pytest
 import torch
 
 from src.services.extraction_vectorized import (
-    DeferredTopKHeap,
+    IncrementalTopKHeap,
     batch_process_features,
     calculate_optimal_vectorization_batch,
     get_vectorization_config,
 )
 
 
-class TestDeferredTopKHeap:
-    """Test DeferredTopKHeap class for deferred heap construction."""
+class TestIncrementalTopKHeap:
+    """Test IncrementalTopKHeap class for incremental heap construction."""
 
     def test_initialization(self):
         """Test heap initialization."""
-        heap = DeferredTopKHeap(num_features=100, top_k=10)
+        heap = IncrementalTopKHeap(num_features=100, top_k=10)
         assert heap.num_features == 100
         assert heap.top_k == 10
-        assert len(heap.examples) == 0
+        assert len(heap.heaps) == 0  # No heaps initially
 
     def test_add_batch(self):
         """Test adding batch of examples."""
-        heap = DeferredTopKHeap(num_features=10, top_k=5)
+        heap = IncrementalTopKHeap(num_features=10, top_k=5)
 
         # Add batch of examples
         feature_indices = np.array([0, 1, 2, 0, 1])
@@ -44,12 +44,14 @@ class TestDeferredTopKHeap:
 
         heap.add_batch(feature_indices, max_activations, examples)
 
-        # Verify examples were added
-        assert len(heap.examples) == 5
+        # Verify heaps were created for 3 unique features (0, 1, 2)
+        assert len(heap.heaps) == 3
+        # Verify examples were processed
+        assert heap.examples_processed == 5
 
-    def test_build_heaps_basic(self):
-        """Test building heaps from deferred data."""
-        heap = DeferredTopKHeap(num_features=3, top_k=2)
+    def test_get_heaps_basic(self):
+        """Test getting heaps from incremental data."""
+        heap = IncrementalTopKHeap(num_features=3, top_k=2)
 
         # Add examples for features 0 and 1
         feature_indices = np.array([0, 0, 1, 1, 0])
@@ -61,8 +63,8 @@ class TestDeferredTopKHeap:
 
         heap.add_batch(feature_indices, max_activations, examples)
 
-        # Build heaps
-        final_heaps = heap.build_heaps()
+        # Get final heaps
+        final_heaps = heap.get_heaps()
 
         # Verify structure
         assert len(final_heaps) == 3  # All features should be present
@@ -80,9 +82,9 @@ class TestDeferredTopKHeap:
         # Feature 2: should have 0 examples (never activated)
         assert len(final_heaps[2]) == 0
 
-    def test_build_heaps_respects_top_k(self):
+    def test_get_heaps_respects_top_k(self):
         """Test that only top-k examples are kept per feature."""
-        heap = DeferredTopKHeap(num_features=1, top_k=3)
+        heap = IncrementalTopKHeap(num_features=1, top_k=3)
 
         # Add 5 examples for feature 0
         feature_indices = np.array([0, 0, 0, 0, 0])
@@ -94,17 +96,17 @@ class TestDeferredTopKHeap:
 
         heap.add_batch(feature_indices, max_activations, examples)
 
-        # Build heaps
-        final_heaps = heap.build_heaps()
+        # Get final heaps
+        final_heaps = heap.get_heaps()
 
         # Verify only top-3 are kept
         assert len(final_heaps[0]) == 3
         activations = [act for act, _ in final_heaps[0]]
         assert activations == [5.0, 4.0, 3.0]  # Top-3 in descending order
 
-    def test_build_heaps_filters_zero_activations(self):
+    def test_get_heaps_filters_zero_activations(self):
         """Test that zero activations are not stored."""
-        heap = DeferredTopKHeap(num_features=2, top_k=5)
+        heap = IncrementalTopKHeap(num_features=2, top_k=5)
 
         # Add examples with some zero activations
         feature_indices = np.array([0, 0, 1, 1])
@@ -116,8 +118,8 @@ class TestDeferredTopKHeap:
 
         heap.add_batch(feature_indices, max_activations, examples)
 
-        # Build heaps
-        final_heaps = heap.build_heaps()
+        # Get final heaps
+        final_heaps = heap.get_heaps()
 
         # Only non-zero activations should be stored
         assert len(final_heaps[0]) == 1  # Only 1.0
@@ -131,18 +133,19 @@ class TestBatchProcessFeatures:
     def sample_batch(self):
         """Create sample batch for testing."""
         # Batch of 2 samples, seq_len=4, 3 features
+        # Note: Token filtering is applied - single chars ("a") will be filtered
         batch_sae_features = torch.tensor([
             # Sample 0: feature 0 activates at pos 1, feature 2 at pos 2
             [
                 [0.0, 0.0, 0.0],  # pos 0
-                [2.0, 0.0, 0.0],  # pos 1: feature 0 max
-                [0.0, 0.0, 3.0],  # pos 2: feature 2 max
+                [2.0, 0.0, 0.0],  # pos 1: feature 0 max at "cat"
+                [0.0, 0.0, 3.0],  # pos 2: feature 2 max at "sat"
                 [1.0, 0.0, 1.0],  # pos 3
             ],
-            # Sample 1: feature 1 activates at pos 0
+            # Sample 1: feature 1 activates at pos 1 (not pos 0 to avoid filtered "a")
             [
-                [0.0, 4.0, 0.0],  # pos 0: feature 1 max
-                [0.0, 1.0, 0.0],  # pos 1
+                [0.0, 1.0, 0.0],  # pos 0: "the" - not max
+                [0.0, 4.0, 0.0],  # pos 1: feature 1 max at "dog"
                 [0.0, 0.0, 0.0],  # pos 2
                 [0.0, 0.0, 0.0],  # pos 3
             ],
@@ -150,7 +153,7 @@ class TestBatchProcessFeatures:
 
         token_strings_batch = [
             ["the", "cat", "sat", "down"],
-            ["a", "dog", "ran", "fast"],
+            ["the", "dog", "ran", "fast"],  # Changed "a" to "the" to avoid filtering
         ]
 
         sample_indices = [0, 1]
@@ -200,7 +203,7 @@ class TestBatchProcessFeatures:
                 assert examples[i]["max_activation"] == pytest.approx(3.0)
                 break
 
-        # Check feature 1 from sample 1 (max activation 4.0 at position 0 "a")
+        # Check feature 1 from sample 1 (max activation 4.0 at position 1 "dog")
         for i, feat_idx in enumerate(feature_indices_list):
             if feat_idx == 1:
                 assert max_activations_list[i] == pytest.approx(4.0)

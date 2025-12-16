@@ -120,12 +120,12 @@ class TestTrainingHyperparametersValidation:
         assert error['loc'] == ('l1_alpha',)
 
     def test_l1_alpha_must_be_above_minimum(self):
-        """Test that l1_alpha must be > 0.00001 (minimum effective sparsity penalty)."""
+        """Test that l1_alpha must be > 0.0000001 (minimum for new L1 penalty formulation)."""
         with pytest.raises(ValidationError) as exc_info:
             TrainingHyperparameters(
                 hidden_dim=768,
                 latent_dim=16384,
-                l1_alpha=0.000001,  # Too low - will produce dense features
+                l1_alpha=0.00000001,  # Too low - below minimum of 0.0000001
                 learning_rate=0.0003,
                 batch_size=4096,
                 total_steps=100000,
@@ -133,28 +133,28 @@ class TestTrainingHyperparametersValidation:
 
         error = exc_info.value.errors()[0]
         assert error['loc'] == ('l1_alpha',)
-        assert 'greater than 0.00001' in error['msg']
+        assert 'greater than' in error['msg']
 
     def test_l1_alpha_minimum_boundary(self):
-        """Test that l1_alpha slightly above minimum (0.000011) is valid."""
+        """Test that l1_alpha slightly above minimum (0.0000002) is valid."""
         hp = TrainingHyperparameters(
             hidden_dim=768,
             latent_dim=16384,
-            l1_alpha=0.000011,  # Just above minimum (gt 0.00001)
+            l1_alpha=0.0000002,  # Just above minimum (gt 0.0000001)
             learning_rate=0.0003,
             batch_size=4096,
             total_steps=100000,
         )
 
-        assert hp.l1_alpha == 0.000011
+        assert hp.l1_alpha == 0.0000002
 
     def test_l1_alpha_cannot_exceed_maximum(self):
-        """Test that l1_alpha must be <= 0.1 (maximum before killing all features)."""
+        """Test that l1_alpha must be <= 100.0 (new maximum for SAELens compatibility)."""
         with pytest.raises(ValidationError) as exc_info:
             TrainingHyperparameters(
                 hidden_dim=768,
                 latent_dim=16384,
-                l1_alpha=0.15,  # Too high - will kill features
+                l1_alpha=100.1,  # Too high - above maximum of 100.0
                 learning_rate=0.0003,
                 batch_size=4096,
                 total_steps=100000,
@@ -162,20 +162,20 @@ class TestTrainingHyperparametersValidation:
 
         error = exc_info.value.errors()[0]
         assert error['loc'] == ('l1_alpha',)
-        assert 'less than or equal to 0.1' in error['msg']
+        assert 'less than or equal to' in error['msg']
 
     def test_l1_alpha_maximum_boundary(self):
-        """Test that l1_alpha = 0.1 (maximum) is valid."""
+        """Test that l1_alpha = 100.0 (maximum) is valid."""
         hp = TrainingHyperparameters(
             hidden_dim=768,
             latent_dim=16384,
-            l1_alpha=0.1,  # Maximum valid value
+            l1_alpha=100.0,  # Maximum valid value
             learning_rate=0.0003,
             batch_size=4096,
             total_steps=100000,
         )
 
-        assert hp.l1_alpha == 0.1
+        assert hp.l1_alpha == 100.0
 
     def test_learning_rate_must_be_positive(self):
         """Test that learning_rate must be > 0."""

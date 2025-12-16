@@ -13,24 +13,31 @@ from src.services.labeling_context_formatter import LabelingContextFormatter
 
 @pytest.fixture
 def sample_examples():
-    """Create sample activation examples for testing."""
+    """Create sample activation examples for testing.
+
+    Uses GPT-2 style BPE tokens where 'Ġ' prefix indicates start of a new word.
+    This matches how transformer tokenizers actually encode text.
+    """
     return [
         {
-            "prefix_tokens": ["The", "dog", "was"],
-            "prime_token": "running",
-            "suffix_tokens": ["in", "the", "park"],
+            # "The dog was running in the park"
+            "prefix_tokens": ["The", "Ġdog", "Ġwas"],
+            "prime_token": "Ġrunning",
+            "suffix_tokens": ["Ġin", "Ġthe", "Ġpark"],
             "max_activation": 8.5,
         },
         {
-            "prefix_tokens": ["She", "started"],
-            "prime_token": "running",
-            "suffix_tokens": ["every", "morning"],
+            # "She started running every morning"
+            "prefix_tokens": ["She", "Ġstarted"],
+            "prime_token": "Ġrunning",
+            "suffix_tokens": ["Ġevery", "Ġmorning"],
             "max_activation": 7.2,
         },
         {
+            # "Keep running the server 24/7"
             "prefix_tokens": ["Keep"],
-            "prime_token": "running",
-            "suffix_tokens": ["the", "server", "24/7"],
+            "prime_token": "Ġrunning",
+            "suffix_tokens": ["Ġthe", "Ġserver", "Ġ24", "/", "7"],
             "max_activation": 6.8,
         },
     ]
@@ -170,9 +177,9 @@ class TestFormatMiStudioInternal:
         """Test that very long contexts are handled properly."""
         long_examples = [
             {
-                "prefix_tokens": ["word"] * 100,  # Very long prefix
-                "prime_token": "test",
-                "suffix_tokens": ["word"] * 100,  # Very long suffix
+                "prefix_tokens": ["Ġword"] * 100,  # Very long prefix with BPE markers
+                "prime_token": "Ġtest",
+                "suffix_tokens": ["Ġword"] * 100,  # Very long suffix with BPE markers
                 "max_activation": 5.0,
             }
         ]
@@ -349,9 +356,9 @@ class TestFormatEdgeCases:
         """Test formatting with zero activation value."""
         examples = [
             {
-                "prefix_tokens": ["no"],
-                "prime_token": "activation",
-                "suffix_tokens": ["here"],
+                "prefix_tokens": ["Ġno"],
+                "prime_token": "Ġactivation",
+                "suffix_tokens": ["Ġhere"],
                 "max_activation": 0.0,
             }
         ]

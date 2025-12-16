@@ -41,7 +41,7 @@ class TestFeatureSearchRequest:
         """Test valid custom search parameters."""
         request = FeatureSearchRequest(
             search="question words",
-            sort_by="interpretability",
+            sort_by="max_activation",
             sort_order="asc",
             is_favorite=True,
             limit=100,
@@ -49,7 +49,7 @@ class TestFeatureSearchRequest:
         )
 
         assert request.search == "question words"
-        assert request.sort_by == "interpretability"
+        assert request.sort_by == "max_activation"
         assert request.sort_order == "asc"
         assert request.is_favorite is True
         assert request.limit == 100
@@ -107,7 +107,7 @@ class TestFeatureSearchRequest:
 
     def test_sort_by_valid_values(self):
         """Test valid sort_by field values."""
-        for sort_field in ["activation_freq", "interpretability", "feature_id"]:
+        for sort_field in ["activation_freq", "max_activation", "feature_id", "name", "category"]:
             request = FeatureSearchRequest(sort_by=sort_field)
             assert request.sort_by == sort_field
 

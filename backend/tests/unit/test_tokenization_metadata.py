@@ -65,7 +65,6 @@ async def test_tokenization_metadata_persistence(async_session: AsyncSession):
 
     updates = DatasetUpdate(
         status=DatasetStatus.READY.value,
-        tokenized_path="/data/test_dataset_tokenized",
         metadata=tokenization_metadata,
     )
 
@@ -77,7 +76,6 @@ async def test_tokenization_metadata_persistence(async_session: AsyncSession):
 
     assert retrieved is not None
     assert retrieved.id == dataset_id
-    assert retrieved.tokenized_path == "/data/test_dataset_tokenized"
 
     # Verify tokenization metadata exists and is correct
     assert retrieved.extra_metadata is not None
@@ -177,7 +175,6 @@ async def test_metadata_merge_preserves_existing(async_session: AsyncSession):
 
     updates = DatasetUpdate(
         status=DatasetStatus.READY.value,
-        tokenized_path="/data/test_merge_tokenized",
         metadata=tokenization_metadata,
     )
 
@@ -260,7 +257,6 @@ async def test_metadata_overwrite_within_section(async_session: AsyncSession):
         hf_repo_id="test/overwrite",
         status=DatasetStatus.READY,
         raw_path="/data/test_overwrite",
-        tokenized_path="/data/test_overwrite_v1",
         num_samples=3000,
         extra_metadata={
             "download": {
@@ -289,7 +285,6 @@ async def test_metadata_overwrite_within_section(async_session: AsyncSession):
     }
 
     updates = DatasetUpdate(
-        tokenized_path="/data/test_overwrite_v2",
         metadata=new_tokenization,
     )
 
@@ -298,8 +293,6 @@ async def test_metadata_overwrite_within_section(async_session: AsyncSession):
 
     # Verify tokenization metadata was replaced
     retrieved = await DatasetService.get_dataset(async_session, dataset_id)
-
-    assert retrieved.tokenized_path == "/data/test_overwrite_v2"
     assert "download" in retrieved.extra_metadata, "Download metadata should be preserved"
     assert "tokenization" in retrieved.extra_metadata
 

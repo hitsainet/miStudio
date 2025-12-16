@@ -12,35 +12,46 @@ from src.services.training_validator import TrainingValidator
 
 
 class TestCalculateRecommendedL1Alpha:
-    """Test l1_alpha recommendation formula."""
+    """Test l1_alpha recommendation formula.
+
+    New formula calibrated for SAELens with activation normalization:
+    l1_alpha = 5.0 / sqrt(latent_dim / 8192)
+
+    This produces much larger values than the old formula because the .mean()
+    L1 penalty normalizes by feature count.
+    """
 
     def test_formula_8k_latent_dim(self):
         """Test recommended l1_alpha for 8192 latent dimensions."""
         recommended = TrainingValidator.calculate_recommended_l1_alpha(8192)
-        expected = 10.0 / math.sqrt(8192)  # ≈ 0.11048
+        # New formula: 5.0 / sqrt(8192/8192) = 5.0 / sqrt(1) = 5.0
+        expected = 5.0 / math.sqrt(8192 / 8192)  # = 5.0
         assert abs(recommended - expected) < 0.00001
-        assert abs(recommended - 0.11048) < 0.001
+        assert abs(recommended - 5.0) < 0.001
 
     def test_formula_16k_latent_dim(self):
         """Test recommended l1_alpha for 16384 latent dimensions."""
         recommended = TrainingValidator.calculate_recommended_l1_alpha(16384)
-        expected = 10.0 / math.sqrt(16384)  # ≈ 0.07813
+        # New formula: 5.0 / sqrt(16384/8192) = 5.0 / sqrt(2) ≈ 3.5355
+        expected = 5.0 / math.sqrt(16384 / 8192)  # ≈ 3.5355
         assert abs(recommended - expected) < 0.00001
-        assert abs(recommended - 0.07813) < 0.001
+        assert abs(recommended - 3.5355) < 0.001
 
     def test_formula_32k_latent_dim(self):
         """Test recommended l1_alpha for 32768 latent dimensions."""
         recommended = TrainingValidator.calculate_recommended_l1_alpha(32768)
-        expected = 10.0 / math.sqrt(32768)  # ≈ 0.05524
+        # New formula: 5.0 / sqrt(32768/8192) = 5.0 / sqrt(4) = 2.5
+        expected = 5.0 / math.sqrt(32768 / 8192)  # = 2.5
         assert abs(recommended - expected) < 0.00001
-        assert abs(recommended - 0.05524) < 0.001
+        assert abs(recommended - 2.5) < 0.001
 
     def test_formula_4k_latent_dim(self):
         """Test recommended l1_alpha for 4096 latent dimensions."""
         recommended = TrainingValidator.calculate_recommended_l1_alpha(4096)
-        expected = 10.0 / math.sqrt(4096)  # ≈ 0.15625
+        # New formula: 5.0 / sqrt(4096/8192) = 5.0 / sqrt(0.5) ≈ 7.0711
+        expected = 5.0 / math.sqrt(4096 / 8192)  # ≈ 7.0711
         assert abs(recommended - expected) < 0.00001
-        assert abs(recommended - 0.15625) < 0.001
+        assert abs(recommended - 7.0711) < 0.001
 
     def test_smaller_latent_dim_higher_penalty(self):
         """Test that smaller latent dims require higher l1_alpha."""
@@ -119,30 +130,34 @@ class TestValidateSparsityConfig:
         assert any('low' in w for w in warnings)
 
     def test_l1_alpha_very_high_warning(self):
-        """Test that very high l1_alpha produces warning."""
+        """Test that high l1_alpha (>3x recommended) produces warning about dead neurons."""
         recommended = TrainingValidator.calculate_recommended_l1_alpha(16384)
         hyperparameters = {
-            'l1_alpha': recommended * 15,  # 15x recommended - will kill features
+            'l1_alpha': recommended * 4,  # 4x recommended - triggers >3x warning
             'latent_dim': 16384,
             'target_l0': 0.05,
         }
 
         warnings, errors = TrainingValidator.validate_sparsity_config(hyperparameters)
 
+        # Should produce warning, not error (>5x triggers error)
+        assert len(errors) == 0
         assert len(warnings) > 0
-        assert any('very high' in w and 'dead neurons' in w for w in warnings)
+        assert any('high' in w and 'dead neurons' in w for w in warnings)
 
     def test_l1_alpha_moderately_high_warning(self):
-        """Test that moderately high l1_alpha produces warning."""
+        """Test that moderately high l1_alpha (>2x recommended) produces warning."""
         recommended = TrainingValidator.calculate_recommended_l1_alpha(16384)
         hyperparameters = {
-            'l1_alpha': recommended * 6,  # 6x recommended
+            'l1_alpha': recommended * 2.5,  # 2.5x recommended - triggers >2x warning
             'latent_dim': 16384,
             'target_l0': 0.05,
         }
 
         warnings, errors = TrainingValidator.validate_sparsity_config(hyperparameters)
 
+        # Should produce warning about potential dead neurons
+        assert len(errors) == 0
         assert len(warnings) > 0
         assert any('high' in w for w in warnings)
 

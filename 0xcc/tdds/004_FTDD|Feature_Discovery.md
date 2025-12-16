@@ -1,8 +1,8 @@
 # Technical Design Document: Feature Discovery
 
 **Document ID:** 004_FTDD|Feature_Discovery
-**Version:** 1.0
-**Last Updated:** 2025-12-05
+**Version:** 1.1
+**Last Updated:** 2025-12-16
 **Status:** Implemented
 **Related PRD:** [004_FPRD|Feature_Discovery](../prds/004_FPRD|Feature_Discovery.md)
 
@@ -405,9 +405,144 @@ interface TokenHighlightProps {
 
 ---
 
-## 9. Templates
+## 9. NLP Analysis (Added Dec 2025)
 
-### 9.1 Extraction Templates
+### 9.1 Overview
+NLP analysis provides deeper linguistic insights into what patterns each feature captures by analyzing top-activating tokens.
+
+### 9.2 NLP Analysis Service
+```python
+class NLPAnalysisService:
+    def __init__(self):
+        import spacy
+        self.nlp = spacy.load("en_core_web_sm")
+
+    def analyze_tokens(self, tokens: List[str]) -> NLPAnalysis:
+        """
+        Perform linguistic analysis on feature's top-activating tokens.
+        """
+        # POS tagging
+        pos_distribution = self._compute_pos_distribution(tokens)
+
+        # Lemmatization for grouping
+        lemmas = self._extract_lemmas(tokens)
+
+        # Named entity recognition
+        entities = self._extract_entities(tokens)
+
+        # Semantic grouping
+        groups = self._compute_semantic_groups(lemmas)
+
+        return NLPAnalysis(
+            pos_distribution=pos_distribution,
+            lemmas=lemmas,
+            entities=entities,
+            semantic_groups=groups
+        )
+
+    def _compute_pos_distribution(self, tokens: List[str]) -> Dict[str, int]:
+        """Count POS tags across tokens."""
+        pos_counts = defaultdict(int)
+        for token in tokens:
+            doc = self.nlp(token)
+            for tok in doc:
+                pos_counts[tok.pos_] += 1
+        return dict(pos_counts)
+
+    def _extract_entities(self, tokens: List[str]) -> List[Entity]:
+        """Extract named entities from token contexts."""
+        # Join tokens for context-aware NER
+        text = " ".join(tokens)
+        doc = self.nlp(text)
+        return [Entity(text=ent.text, label=ent.label_) for ent in doc.ents]
+```
+
+### 9.3 BPE Token Reconstruction
+```python
+def reconstruct_bpe_tokens(tokens: List[str]) -> List[str]:
+    """
+    Merge adjacent BPE tokens for human-readable text.
+
+    Example:
+      Input:  ['Ġhello', 'Ġworld', '!']
+      Output: ['hello', 'world', '!']
+    """
+    reconstructed = []
+    for token in tokens:
+        # Handle leading space marker (GPT-2/BERT style)
+        if token.startswith('Ġ'):
+            reconstructed.append(token[1:])  # Remove Ġ
+        elif token.startswith('##'):
+            # BERT continuation token
+            if reconstructed:
+                reconstructed[-1] += token[2:]
+            else:
+                reconstructed.append(token[2:])
+        elif token.startswith('▁'):
+            # SentencePiece style
+            reconstructed.append(token[1:])
+        else:
+            # Check if continuation of previous token
+            if reconstructed and not token[0].isupper():
+                reconstructed[-1] += token
+            else:
+                reconstructed.append(token)
+    return reconstructed
+```
+
+---
+
+## 10. Local LLM Integration (Added Dec 2025)
+
+### 10.1 Ollama Support
+Alternative to OpenAI for fully offline auto-labeling.
+
+```python
+class OllamaLabelingService:
+    def __init__(self, model: str = "llama2", base_url: str = "http://localhost:11434"):
+        self.model = model
+        self.base_url = base_url
+
+    async def label_feature(
+        self,
+        feature_examples: List[ActivationExample],
+        prompt_template: LabelingPromptTemplate
+    ) -> FeatureLabel:
+        """Label a feature using local Ollama model."""
+
+        formatted = self._format_examples(feature_examples)
+        prompt = f"{prompt_template.system_prompt}\n\n{prompt_template.user_prompt.format(examples=formatted)}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=120.0
+            )
+
+        result = response.json()
+        return self._parse_label_response(result["response"])
+```
+
+### 10.2 Configuration
+```python
+class LabelingConfig(BaseModel):
+    provider: Literal["openai", "ollama"] = "openai"
+    model: str = "gpt-4o"  # or "llama2", "mistral"
+    ollama_url: str = "http://localhost:11434"
+    batch_size: int = 10
+    max_retries: int = 3
+```
+
+---
+
+## 11. Templates
+
+### 11.1 Extraction Templates
 ```json
 {
   "name": "Standard Extraction",

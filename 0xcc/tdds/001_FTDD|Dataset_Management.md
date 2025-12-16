@@ -1,8 +1,8 @@
 # Technical Design Document: Dataset Management
 
 **Document ID:** 001_FTDD|Dataset_Management
-**Version:** 1.0
-**Last Updated:** 2025-12-05
+**Version:** 1.1
+**Last Updated:** 2025-12-16
 **Status:** Implemented
 **Related PRD:** [001_FPRD|Dataset_Management](../prds/001_FPRD|Dataset_Management.md)
 
@@ -191,6 +191,34 @@ class DatasetService:
     async def get_samples(self, tokenization_id: UUID, page: int, limit: int) -> List[Sample]:
         """Retrieve sample data with pagination."""
 ```
+
+### 4.3 Data Sanitization (Added Dec 2025)
+
+HuggingFace datasets may contain binary data (bytes) that cannot be JSON serialized.
+The samples endpoint implements a sanitization layer to handle this:
+
+```python
+def sanitize_value(value):
+    """
+    Recursively convert bytes and other non-JSON-serializable types to strings.
+    Uses UTF-8 decoding with Latin-1 fallback (Latin-1 accepts any byte sequence).
+    """
+    if isinstance(value, bytes):
+        try:
+            return value.decode('utf-8')
+        except UnicodeDecodeError:
+            return value.decode('latin-1')  # Always succeeds
+    elif isinstance(value, dict):
+        return {k: sanitize_value(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [sanitize_value(item) for item in value]
+    elif isinstance(value, tuple):
+        return tuple(sanitize_value(item) for item in value)
+    else:
+        return value
+```
+
+**Use Case:** The Pile dataset includes `bytes` objects in the `repetitions` field which caused 500 errors before this fix.
 
 ### 4.2 TokenizationService
 

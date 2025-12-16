@@ -1,8 +1,8 @@
 # Project PRD: MechInterp Studio (miStudio)
 
 **Document ID:** 000_PPRD|miStudio
-**Version:** 2.0 (MVP Complete)
-**Last Updated:** 2025-12-05
+**Version:** 2.1 (Post-MVP Enhancements)
+**Last Updated:** 2025-12-16
 **Status:** Active
 
 ---
@@ -11,11 +11,11 @@
 
 MechInterp Studio (miStudio) is an open-source platform for Sparse Autoencoder (SAE) research that provides an end-to-end workflow for training SAEs, discovering interpretable features, and applying feature-based steering to transformer models. The MVP delivers 8 fully implemented features with a 9th (Multi-GPU Scalability) planned for post-MVP enhancement.
 
-### Project Metrics (as of MVP)
-- **Total Commits:** 444+
-- **Database Migrations:** 53
-- **Backend Services:** 30+
-- **Frontend Components:** 80+
+### Project Metrics (as of December 2025)
+- **Total Commits:** 485+
+- **Database Migrations:** 52
+- **Backend Services:** 35+
+- **Frontend Components:** 85+
 - **Development Period:** October - December 2025
 
 ---
@@ -177,6 +177,19 @@ dead_neuron_threshold, resample_steps
 - Token filtering during extraction
 - Feature search by label, category, statistics
 - Example export to JSON
+- NLP analysis of top-activating tokens
+- BPE token reconstruction for human-readable text
+
+**NLP Analysis (Added Dec 2025):**
+- Automatic linguistic analysis of top-activating tokens
+- POS tagging, lemmatization, semantic grouping
+- Named entity recognition for pattern detection
+- Integration with spaCy for linguistic processing
+
+**BPE Reconstruction:**
+- Merge adjacent BPE tokens for readability
+- Display both raw tokens and reconstructed text
+- Context-aware token grouping
 
 **Dual Labeling System:**
 1. **Semantic Labels:** Human-readable descriptions (e.g., "love and affection")
@@ -184,6 +197,7 @@ dead_neuron_threshold, resample_steps
 
 **Auto-Labeling:**
 - GPT-4o integration via OpenAI API
+- Local LLM support via Ollama (Added Dec 2025)
 - Configurable prompt templates (Labeling Prompt Templates)
 - Confidence scoring
 - Batch processing with progress tracking
@@ -433,6 +447,8 @@ Community Standard format ensures interoperability:
 | Neuronpedia | Export format compatibility | Complete |
 | SAELens | Weight format compatibility | Complete |
 | OpenAI API | GPT-4o auto-labeling | Complete |
+| Ollama | Local LLM auto-labeling | Complete |
+| spaCy | NLP analysis for features | Complete |
 
 ---
 
@@ -485,14 +501,40 @@ sudo bash -c 'echo "127.0.0.1 mistudio.mcslab.io" >> /etc/hosts'
 
 ---
 
-## 10. Revision History
+## 10. Recent Infrastructure Improvements (Dec 2025)
+
+### 10.1 Celery Resilience
+- Improved task routing with dedicated queues
+- Better error handling in background tasks
+- Graceful shutdown with signal handlers
+- Task retry logic with exponential backoff
+
+### 10.2 WebSocket Reliability
+- Fixed emission inconsistencies in Celery workers
+- Proper event name standardization
+- Connection state management with automatic fallback
+
+### 10.3 Data Handling
+- Bytes-safe dataset samples endpoint (handles HuggingFace binary data)
+- UTF-8/Latin-1 fallback encoding for non-text data
+- Improved error messages for debugging
+
+### 10.4 Background Monitoring
+- Improved system monitor with stable metrics collection
+- Fixed GPU memory reporting for multi-GPU systems
+- Optimized polling intervals for reduced overhead
+
+---
+
+## 11. Revision History
 
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-10-05 | Initial project vision and feature breakdown |
 | 2.0 | 2025-12-05 | MVP complete - reflects actual implementation |
+| 2.1 | 2025-12-16 | Post-MVP: NLP analysis, Ollama integration, infrastructure improvements |
 
 ---
 
-*Generated: 2025-12-05*
-*MechInterp Studio - MVP Complete*
+*Generated: 2025-12-16*
+*MechInterp Studio - Post-MVP Enhancements*

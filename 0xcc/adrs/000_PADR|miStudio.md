@@ -1,8 +1,8 @@
 # Architecture Decision Record: MechInterp Studio (miStudio)
 
-**Version:** 2.0 (MVP Complete)
+**Version:** 2.1 (Post-MVP Enhancements)
 **Created:** 2025-10-05
-**Updated:** 2025-12-05
+**Updated:** 2025-12-16
 **Status:** Active
 **Document Type:** Project-Level Architecture Decision Record
 
@@ -2509,13 +2509,133 @@ export.zip/
 
 ---
 
+### IDL-8: Local LLM Integration (Ollama)
+
+**Date:** 2025-12-10
+**Context:** Users may not have OpenAI API access or prefer local inference for privacy.
+
+**Decision:** Add Ollama as an alternative auto-labeling backend.
+
+**Implementation:**
+- Configurable LLM provider in settings (`openai` or `ollama`)
+- Ollama endpoint: `http://localhost:11434/api/generate`
+- Compatible with any Ollama-supported model (llama2, mistral, etc.)
+- Same prompt templates work with both backends
+
+**Rationale:** Enables fully offline operation and removes dependency on paid API.
+
+---
+
+### IDL-9: NLP Analysis for Feature Discovery
+
+**Date:** 2025-12-12
+**Context:** Token-level analysis insufficient for understanding feature patterns.
+
+**Decision:** Integrate spaCy for linguistic analysis of top-activating tokens.
+
+**Analysis Features:**
+- Part-of-speech tagging
+- Lemmatization for grouping
+- Named entity recognition
+- Semantic similarity grouping
+
+**Implementation:**
+- Backend service: `nlp_analysis_service.py`
+- spaCy model: `en_core_web_sm` (upgradeable)
+- Results cached in feature metadata
+
+**Rationale:** Provides richer understanding of what patterns each feature captures.
+
+---
+
+### IDL-10: Bytes-Safe Data Handling
+
+**Date:** 2025-12-16
+**Context:** HuggingFace datasets may contain binary data that fails JSON serialization.
+
+**Decision:** Implement sanitization layer for all API responses containing dataset data.
+
+**Implementation:**
+```python
+def sanitize_value(value):
+    if isinstance(value, bytes):
+        try:
+            return value.decode('utf-8')
+        except UnicodeDecodeError:
+            return value.decode('latin-1')  # Always succeeds
+    elif isinstance(value, dict):
+        return {k: sanitize_value(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [sanitize_value(item) for item in value]
+    return value
+```
+
+**Affected Endpoints:** `/api/v1/datasets/{id}/samples`
+
+**Rationale:** Latin-1 encoding accepts any byte sequence, ensuring graceful handling of binary data.
+
+---
+
+### IDL-11: Celery Resilience Improvements
+
+**Date:** 2025-12-14
+**Context:** Long-running tasks need better error handling and recovery.
+
+**Decision:** Implement comprehensive resilience patterns in Celery tasks.
+
+**Improvements:**
+- Task retry with exponential backoff (`max_retries=3`, `countdown=60s`)
+- Graceful shutdown handlers for SIGTERM/SIGINT
+- Task state persistence for resume capability
+- Dead letter queue for failed tasks
+- Improved error messages with stack traces
+
+**Configuration:**
+```python
+@celery_app.task(bind=True, max_retries=3, soft_time_limit=3600)
+def training_task(self, training_id: str):
+    try:
+        # ... task logic
+    except SoftTimeLimitExceeded:
+        self.update_state(state='REVOKED')
+        raise
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+```
+
+**Rationale:** Production-grade reliability for long-running ML operations.
+
+---
+
+### IDL-12: WebSocket Emission Standardization
+
+**Date:** 2025-12-15
+**Context:** Inconsistent WebSocket event naming caused frontend subscription issues.
+
+**Decision:** Standardize all WebSocket emissions through `websocket_emitter.py`.
+
+**Event Naming Convention:**
+- Events: lowercase with underscores (e.g., `download_progress`, `labeling_results`)
+- Channels: entity type/id pattern (e.g., `dataset/{id}`, `labeling/{id}`)
+
+**Emission Pattern:**
+```python
+def emit_progress(entity_type: str, entity_id: str, event: str, data: dict):
+    channel = f"{entity_type}/{entity_id}"
+    socketio.emit(event, data, room=channel)
+```
+
+**Rationale:** Consistent event handling between Celery workers and frontend subscriptions.
+
+---
+
 ## Document Control
 
-**Version:** 2.0
+**Version:** 2.1
 **Created By:** AI Dev Tasks Framework (XCC)
 **Created Date:** 2025-10-05
-**Last Updated:** 2025-12-05
-**Status:** Active - MVP Complete
+**Last Updated:** 2025-12-16
+**Status:** Active - Post-MVP Enhancements
 
 **Review and Approval:**
 - [x] Technical Lead (Backend/ML) Review
@@ -2533,6 +2653,7 @@ export.zip/
 |---------|------|---------|
 | 1.0 | 2025-10-05 | Initial architecture decisions |
 | 2.0 | 2025-12-05 | Added Implementation Decision Log for MVP |
+| 2.1 | 2025-12-16 | Added IDL-8 through IDL-12: Ollama, NLP Analysis, bytes handling, Celery resilience, WebSocket standardization |
 
 ---
 

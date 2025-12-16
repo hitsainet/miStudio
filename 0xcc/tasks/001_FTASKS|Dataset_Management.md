@@ -1,8 +1,8 @@
 # Feature Tasks: Dataset Management
 
 **Document ID:** 001_FTASKS|Dataset_Management
-**Version:** 1.0
-**Last Updated:** 2025-12-05
+**Version:** 1.1
+**Last Updated:** 2025-12-16
 **Status:** Implemented
 **Related PRD:** [001_FPRD|Dataset_Management](../prds/001_FPRD|Dataset_Management.md)
 

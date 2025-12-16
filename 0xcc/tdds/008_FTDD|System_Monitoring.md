@@ -1,8 +1,8 @@
 # Technical Design Document: System Monitoring
 
 **Document ID:** 008_FTDD|System_Monitoring
-**Version:** 1.0
-**Last Updated:** 2025-12-05
+**Version:** 1.1
+**Last Updated:** 2025-12-16
 **Status:** Implemented
 **Related PRD:** [008_FPRD|System_Monitoring](../prds/008_FPRD|System_Monitoring.md)
 
@@ -458,6 +458,71 @@ class Settings(BaseSettings):
     system_monitor_interval_seconds: int = 2
     system_monitor_history_hours: int = 1
     system_monitor_enabled: bool = True
+```
+
+---
+
+## 9. Stability Improvements (Added Dec 2025)
+
+### 9.1 Error Handling in Collectors
+```python
+class GPUMetricsCollector:
+    def collect(self, gpu_index: int) -> Optional[GPUMetrics]:
+        """Collect with graceful error handling."""
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+            # ... collection logic
+            return GPUMetrics(...)
+        except pynvml.NVMLError as e:
+            logger.warning(f"GPU {gpu_index} metrics unavailable: {e}")
+            return None  # Skip this GPU
+        except Exception as e:
+            logger.error(f"Unexpected error collecting GPU metrics: {e}")
+            return None
+```
+
+### 9.2 Multi-GPU Memory Reporting
+Fixed issue where VRAM reporting was incorrect for systems with multiple GPUs:
+```python
+def collect_all_gpus(self) -> List[GPUMetrics]:
+    """Collect metrics for all available GPUs."""
+    results = []
+    for gpu_idx in range(self.device_count):
+        metrics = self.collect(gpu_idx)
+        if metrics:
+            results.append(metrics)
+    return results
+```
+
+### 9.3 Rate Calculation Stability
+Improved I/O rate calculation to handle edge cases:
+```python
+def collect_disk_io(self) -> DiskIOMetrics:
+    current = psutil.disk_io_counters()
+    current_time = time.time()
+    elapsed = current_time - self.prev_time
+
+    # Guard against division by zero or negative elapsed time
+    if elapsed <= 0:
+        return self._last_disk_metrics  # Return cached metrics
+
+    # Guard against counter wrap-around
+    read_delta = max(0, current.read_bytes - self.prev_disk_io.read_bytes)
+    write_delta = max(0, current.write_bytes - self.prev_disk_io.write_bytes)
+
+    read_rate = read_delta / elapsed
+    write_rate = write_delta / elapsed
+    # ...
+```
+
+### 9.4 Connection Recovery
+WebSocket reconnection now properly re-subscribes to all channels:
+```typescript
+socket.on('connect', () => {
+  store.setWebSocketConnected(true);
+  // Re-subscribe to all system channels after reconnection
+  resubscribeToSystemChannels();
+});
 ```
 
 ---

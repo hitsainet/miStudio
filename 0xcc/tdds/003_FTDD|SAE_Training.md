@@ -1,8 +1,8 @@
 # Technical Design Document: SAE Training
 
 **Document ID:** 003_FTDD|SAE_Training
-**Version:** 1.0
-**Last Updated:** 2025-12-05
+**Version:** 1.1
+**Last Updated:** 2025-12-16
 **Status:** Implemented
 **Related PRD:** [003_FPRD|SAE_Training](../prds/003_FPRD|SAE_Training.md)
 
@@ -435,6 +435,78 @@ CREATE TABLE training_templates (
 | NaN loss | Reduce learning rate, restart |
 | Dead neurons > 50% | Enable resampling |
 | Checkpoint corrupt | Restore previous checkpoint |
+
+---
+
+## 10. Celery Resilience (Added Dec 2025)
+
+### 10.1 Task Configuration
+```python
+@celery_app.task(
+    bind=True,
+    queue='sae',
+    max_retries=3,
+    soft_time_limit=3600,    # 1 hour soft limit
+    time_limit=7200,         # 2 hour hard limit
+    acks_late=True,          # Acknowledge after completion
+    reject_on_worker_lost=True
+)
+def train_sae_task(self, training_id: str, config: dict):
+    """Training task with resilience patterns."""
+```
+
+### 10.2 Graceful Shutdown
+```python
+import signal
+
+def handle_shutdown(signum, frame):
+    """Handle graceful shutdown on SIGTERM/SIGINT."""
+    logger.info("Received shutdown signal, saving checkpoint...")
+    if current_sae and current_step:
+        save_emergency_checkpoint(current_sae, current_step, training_id)
+    raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, handle_shutdown)
+signal.signal(signal.SIGINT, handle_shutdown)
+```
+
+### 10.3 Retry with Exponential Backoff
+```python
+@celery_app.task(bind=True, max_retries=3)
+def train_sae_task(self, training_id: str, config: dict):
+    try:
+        # ... training logic
+    except SoftTimeLimitExceeded:
+        # Save state before timeout
+        save_checkpoint(sae, optimizer, current_step, training_id)
+        update_training_status(training_id, 'paused', f'Paused at step {current_step}')
+        raise
+    except (ConnectionError, TimeoutError) as exc:
+        # Retry with exponential backoff
+        countdown = 60 * (2 ** self.request.retries)  # 60s, 120s, 240s
+        raise self.retry(exc=exc, countdown=countdown)
+    except Exception as exc:
+        # Log full traceback for debugging
+        logger.exception(f"Training {training_id} failed: {exc}")
+        update_training_status(training_id, 'failed', str(exc))
+        raise
+```
+
+### 10.4 State Persistence
+Training state is persisted to database and Redis for recovery:
+- **Database**: Training record with current_step, status, error_message
+- **Redis**: Live progress cache for fast access
+- **Checkpoints**: Full SAE + optimizer state at intervals
+
+### 10.5 Dead Letter Queue
+Failed tasks are routed to dead letter queue for manual inspection:
+```python
+celery_app.conf.task_routes = {
+    'train_sae_task': {'queue': 'sae'},
+    'train_sae_task.retry': {'queue': 'sae_retry'},
+    'train_sae_task.failed': {'queue': 'sae_dlq'}
+}
+```
 
 ---
 

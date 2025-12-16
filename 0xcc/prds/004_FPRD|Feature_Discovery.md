@@ -1,8 +1,8 @@
 # Feature PRD: Feature Discovery
 
 **Document ID:** 004_FPRD|Feature_Discovery
-**Version:** 1.0 (MVP Complete)
-**Last Updated:** 2025-12-05
+**Version:** 1.1 (Post-MVP Enhancements)
+**Last Updated:** 2025-12-16
 **Status:** Implemented
 **Priority:** P0 (Core Feature)
 
@@ -87,6 +87,23 @@ A comprehensive feature discovery system with batch extraction, statistical anal
 | FR-7.2 | Variable substitution in prompts | Implemented |
 | FR-7.3 | System/user prompt separation | Implemented |
 | FR-7.4 | Template favorites | Implemented |
+
+### 2.8 NLP Analysis (Sub-feature - Added Dec 2025)
+| Requirement | Description | Status |
+|-------------|-------------|--------|
+| FR-8.1 | Part-of-speech tagging for tokens | Implemented |
+| FR-8.2 | Lemmatization for semantic grouping | Implemented |
+| FR-8.3 | Named entity recognition | Implemented |
+| FR-8.4 | BPE token reconstruction | Implemented |
+| FR-8.5 | spaCy integration | Implemented |
+
+### 2.9 Local LLM Integration (Sub-feature - Added Dec 2025)
+| Requirement | Description | Status |
+|-------------|-------------|--------|
+| FR-9.1 | Ollama backend for auto-labeling | Implemented |
+| FR-9.2 | Configurable LLM provider selection | Implemented |
+| FR-9.3 | Same prompt template compatibility | Implemented |
+| FR-9.4 | Offline operation support | Implemented |
 
 ---
 

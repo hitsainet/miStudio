@@ -19,13 +19,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 \
     python3.12-venv \
     python3.12-dev \
-    python3-pip \
     build-essential \
     curl \
     git \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && python3.12 -m ensurepip --upgrade
 
 WORKDIR /app
 

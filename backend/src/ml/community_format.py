@@ -570,7 +570,7 @@ def is_community_format(path: Path) -> bool:
     )
 
 
-def is_gemma_scope_format(path: Path) -> bool:
+def is_gemma_scope_format(path: Path) -> Tuple[bool, Optional[Path]]:
     """
     Check if a path contains Gemma Scope format (params.npz).
 
@@ -581,23 +581,33 @@ def is_gemma_scope_format(path: Path) -> bool:
     - b_dec: [d_in]
     - threshold: [d_sae] (for JumpReLU)
 
+    Handles nested directory structures like:
+    - layer_20/width_16k/average_l0_71/params.npz
+
     Args:
         path: Directory or file path to check
 
     Returns:
-        True if params.npz exists
+        Tuple of (is_gemma_scope_format, path_to_params_npz)
     """
     path = Path(path)
 
     # Check for direct params.npz file
     if path.name == "params.npz" and path.exists():
-        return True
+        return True, path
 
     # Check for params.npz in directory
     if path.is_dir() and (path / "params.npz").exists():
-        return True
+        return True, path / "params.npz"
 
-    return False
+    # Check for params.npz in nested subdirectories (Gemma Scope HuggingFace structure)
+    # e.g., layer_20/width_16k/average_l0_71/params.npz
+    if path.is_dir():
+        # Search recursively for params.npz
+        for npz_file in path.rglob("params.npz"):
+            return True, npz_file
+
+    return False, None
 
 
 def load_gemma_scope_format(
@@ -1090,9 +1100,11 @@ def load_sae_auto_detect(
         return state_dict, config, "community_standard"
 
     # Check for Gemma Scope format (params.npz)
-    if is_gemma_scope_format(path):
-        logger.info(f"Detected Gemma Scope format at {path}")
-        state_dict, config = load_gemma_scope_format(path, device)
+    # Handles nested directory structures like layer_20/width_16k/average_l0_71/params.npz
+    is_gs_format, npz_path = is_gemma_scope_format(path)
+    if is_gs_format and npz_path is not None:
+        logger.info(f"Detected Gemma Scope format at {npz_path}")
+        state_dict, config = load_gemma_scope_format(npz_path, device)
         return state_dict, config, "gemma_scope"
 
     # Check for HuggingFace SAELens format (safetensors with CS keys, no cfg.json)

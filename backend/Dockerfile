@@ -14,22 +14,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies and Python 3.11
+# Install system dependencies and Python 3.12
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-venv \
-    python3.11-dev \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
     python3-pip \
     build-essential \
     git \
     curl \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
 
 # Set working directory
 WORKDIR /app
@@ -49,8 +49,8 @@ COPY requirements.txt .
 # Install Python dependencies
 # Note: PyTorch with CUDA is included in requirements.txt
 # Explicitly upgrade pip, setuptools, and wheel to fix CVEs in base image
-RUN python3.11 -m pip install --upgrade pip "setuptools>=78.1.1" "wheel>=0.38.1" \
-    && python3.11 -m pip install -r requirements.txt
+RUN python3.12 -m pip install --upgrade pip "setuptools>=78.1.1" "wheel>=0.38.1" \
+    && python3.12 -m pip install -r requirements.txt
 
 # Copy application code
 COPY --chown=mistudio:mistudio . .

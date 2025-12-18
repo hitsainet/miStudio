@@ -19,8 +19,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add repo_id column to models table
-    op.add_column('models', sa.Column('repo_id', sa.String(length=500), nullable=True))
+    # Add repo_id column to models table (only if it doesn't exist)
+    # Note: repo_id may already exist from ed3e160eafad if c8c7653233ee kept it
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name='models' AND column_name='repo_id'"
+    ))
+    if result.fetchone() is None:
+        op.add_column('models', sa.Column('repo_id', sa.String(length=500), nullable=True))
 
 
 def downgrade() -> None:

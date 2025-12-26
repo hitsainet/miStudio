@@ -1,4 +1,6 @@
-# MechInterp Studio - Startup Guide
+# MechInterp Studio - Startup Guide (project)
+
+Use this guide to start, stop, and troubleshoot MechInterp Studio services.
 
 ## Quick Start
 
@@ -30,6 +32,90 @@ cd /home/x-sean/app/miStudio
 ```bash
 ./stop-mistudio.sh
 ```
+
+### Manual Shutdown (if script fails)
+
+If `stop-mistudio.sh` doesn't fully stop all services, use these commands in order:
+
+**1. Stop Native Processes First (reverse startup order):**
+```bash
+# Stop Frontend (Vite)
+pkill -f "vite" 2>/dev/null || true
+
+# Stop Backend (FastAPI/uvicorn)
+pkill -f "uvicorn src.main:app" 2>/dev/null || true
+
+# Stop Celery Beat
+pkill -f "celery.*beat.*src.core.celery_app" 2>/dev/null || true
+
+# Stop Celery Worker
+pkill -f "celery.*worker.*src.core.celery_app" 2>/dev/null || true
+```
+
+**2. Stop Docker Containers:**
+```bash
+# Stop Ollama (standalone docker run)
+docker stop mistudio-ollama 2>/dev/null || true
+
+# Stop docker-compose services
+cd /home/x-sean/app/miStudio
+docker-compose -f docker-compose.dev.yml stop
+```
+
+**3. Verify All Stopped:**
+```bash
+# Check for remaining processes
+lsof -i :8000  # Backend should be empty
+lsof -i :3000  # Frontend should be empty
+pgrep -f celery  # Should return nothing
+docker ps | grep mistudio  # Should show no running containers
+```
+
+### Emergency Shutdown (Zombie Processes)
+
+If processes become unresponsive or zombie:
+
+```bash
+# Force kill all Python processes (CAUTION: kills ALL Python)
+pkill -9 -f python 2>/dev/null || true
+
+# Force kill specific ports
+fuser -k 8000/tcp 2>/dev/null || true
+fuser -k 3000/tcp 2>/dev/null || true
+
+# Check for zombie processes
+ps aux | grep defunct
+
+# Clear GPU memory (if stuck)
+# Note: May require reboot if GPU processes are zombies
+nvidia-smi --gpu-reset  # Only works if no active clients
+```
+
+**If GPU is held by zombie process:** A system reboot is required. Zombie processes cannot be killed - they must be reaped by their parent, and if the parent is PID 1, only a reboot will clear them.
+
+## Service Architecture
+
+MechInterp Studio uses a **hybrid architecture** with both Docker-managed containers and native processes:
+
+### Docker-Managed Services (via docker-compose)
+| Service | Container Name | Port | Description |
+|---------|---------------|------|-------------|
+| PostgreSQL | mistudio-postgres | 5432 | Database |
+| Redis | mistudio-redis | 6379 | Message broker for Celery |
+| Nginx | mistudio-nginx | 80 | Reverse proxy |
+
+### Docker-Managed Services (via docker run)
+| Service | Container Name | Port | Description |
+|---------|---------------|------|-------------|
+| Ollama | mistudio-ollama | 11434 | LLM inference with GPU |
+
+### Native Processes (host system)
+| Service | Process | Port | Log File |
+|---------|---------|------|----------|
+| Backend | uvicorn | 8000 | `/tmp/backend.log` |
+| Frontend | vite | 3000 | `/tmp/frontend.log` |
+| Celery Worker | celery worker | - | `/tmp/celery-worker.log` |
+| Celery Beat | celery beat | - | `/tmp/celery-beat.log` |
 
 ## What Gets Started
 
@@ -286,25 +372,58 @@ If you need to completely reset everything:
 # Stop all services
 ./stop-mistudio.sh
 
-# Remove Docker containers and volumes
+# === NATIVE PROCESSES ===
+# Kill any remaining native processes
+pkill -f "uvicorn src.main:app" 2>/dev/null || true
+pkill -f "vite" 2>/dev/null || true
+pkill -f "celery.*src.core.celery_app" 2>/dev/null || true
+
+# === DOCKER CONTAINERS ===
+# Remove docker-compose containers and volumes (PostgreSQL, Redis, Nginx)
 cd /home/x-sean/app/miStudio
 docker-compose -f docker-compose.dev.yml down -v
 
-# Remove Ollama container and volumes
+# Remove Ollama container and volumes (standalone docker run)
 docker stop mistudio-ollama 2>/dev/null || true
 docker rm mistudio-ollama 2>/dev/null || true
 docker volume rm ollama_data 2>/dev/null || true  # WARNING: Deletes downloaded models!
 
-# Kill any remaining processes
-pkill -f uvicorn 2>/dev/null || true
-pkill -f vite 2>/dev/null || true
-pkill -f celery 2>/dev/null || true
+# === VERIFY CLEAN STATE ===
+# Check nothing is running
+lsof -i :8000 2>/dev/null || echo "Port 8000: Clear"
+lsof -i :3000 2>/dev/null || echo "Port 3000: Clear"
+pgrep -f celery || echo "Celery: Clear"
+docker ps | grep mistudio || echo "Docker: Clear"
+nvidia-smi --query-compute-apps=pid,name --format=csv,noheader || echo "GPU: Clear"
 
 # Restart everything
 ./start-mistudio.sh
 ```
 
 **Note:** Removing `ollama_data` volume will delete all downloaded models (~1.6GB for gemma2:2b). They will need to be re-downloaded on next start.
+
+### Reset Database Only
+
+To reset just the database without affecting other services:
+
+```bash
+# Stop backend and celery (they connect to DB)
+pkill -f "uvicorn src.main:app" 2>/dev/null || true
+pkill -f "celery.*src.core.celery_app" 2>/dev/null || true
+
+# Reset PostgreSQL
+docker-compose -f docker-compose.dev.yml down postgres
+docker volume rm mistudio_postgres_data 2>/dev/null || true
+docker-compose -f docker-compose.dev.yml up -d postgres
+
+# Run migrations
+cd /home/x-sean/app/miStudio/backend
+source venv/bin/activate
+alembic upgrade head
+
+# Restart backend and celery
+./start-mistudio.sh  # or manually start backend/celery
+```
 
 ## Development Workflow
 

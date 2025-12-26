@@ -68,7 +68,28 @@ export const useModelsStore = create<ModelsState>()(
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           const result = await response.json();
-          set({ models: result.data || [], loading: false });
+          const newModels = result.data || [];
+
+          // Preserve frontend-only extraction state (like extraction_started_at) when refreshing
+          set((state) => {
+            const existingModelsMap = new Map(
+              state.models.map((m) => [m.id, m])
+            );
+
+            const mergedModels = newModels.map((newModel: any) => {
+              const existing = existingModelsMap.get(newModel.id);
+              if (existing && existing.extraction_started_at) {
+                // Preserve frontend-only fields during refresh
+                return {
+                  ...newModel,
+                  extraction_started_at: existing.extraction_started_at,
+                };
+              }
+              return newModel;
+            });
+
+            return { models: mergedModels, loading: false };
+          });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to fetch models';
           set({ error: errorMessage, loading: false });
@@ -218,6 +239,23 @@ export const useModelsStore = create<ModelsState>()(
       ) => {
         console.log('[ModelsStore] extractActivations called for model:', modelId);
         set({ loading: true, error: null });
+
+        // Set immediate feedback - show "starting" state before API returns
+        set((state) => ({
+          models: state.models.map((model) =>
+            model.id === modelId
+              ? {
+                  ...model,
+                  extraction_id: 'pending',
+                  extraction_progress: 0,
+                  extraction_status: 'starting' as any,
+                  extraction_message: 'Starting extraction...',
+                  extraction_started_at: Date.now(),
+                }
+              : model
+          ),
+        }));
+
         try {
           console.log('[ModelsStore] Initiating extraction request...');
           const response = await fetch(`${API_BASE_URL}/api/v1/models/${modelId}/extract-activations`, {
@@ -236,6 +274,18 @@ export const useModelsStore = create<ModelsState>()(
           const result = await response.json();
           console.log('[ModelsStore] Extraction initiated, job_id:', result.job_id);
 
+          // Update with actual extraction ID from backend
+          set((state) => ({
+            models: state.models.map((model) =>
+              model.id === modelId
+                ? {
+                    ...model,
+                    extraction_id: result.extraction_id || result.job_id,
+                  }
+                : model
+            ),
+          }));
+
           // Subscribe to extraction progress updates
           if (subscribeToModelCallback) {
             console.log('[ModelsStore] Subscribing to extraction progress for model:', modelId);
@@ -243,7 +293,25 @@ export const useModelsStore = create<ModelsState>()(
           }
 
           set({ loading: false });
+
+          // Return the result so caller can know extraction started successfully
+          return result;
         } catch (error) {
+          // Clear extraction state on error
+          set((state) => ({
+            models: state.models.map((model) =>
+              model.id === modelId
+                ? {
+                    ...model,
+                    extraction_id: undefined,
+                    extraction_progress: undefined,
+                    extraction_status: undefined,
+                    extraction_message: undefined,
+                    extraction_started_at: undefined,
+                  }
+                : model
+            ),
+          }));
           const errorMessage = error instanceof Error ? error.message : 'Failed to extract activations';
           set({ error: errorMessage, loading: false });
           throw error;
@@ -444,6 +512,7 @@ export const useModelsStore = create<ModelsState>()(
                   extraction_progress: undefined,
                   extraction_status: undefined,
                   extraction_message: undefined,
+                  extraction_started_at: undefined,
                 }
               : model
           ),

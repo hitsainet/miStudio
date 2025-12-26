@@ -7,9 +7,11 @@
  * - Status indicators (ready, downloading, quantizing, error)
  * - Action buttons (extract activations, view history, delete)
  * - Click to view architecture details
+ * - Elapsed time display during extraction
  */
 
-import { Cpu, CheckCircle, Loader, Activity, AlertCircle, Trash2, History } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Cpu, CheckCircle, Loader, Activity, AlertCircle, Trash2, History, Clock } from 'lucide-react';
 import { Model, ModelStatus } from '../../types/model';
 import { COMPONENTS } from '../../config/brand';
 
@@ -24,13 +26,43 @@ interface ModelCardProps {
 }
 
 export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDelete, onCancel }: ModelCardProps) {
+  const [elapsedTime, setElapsedTime] = useState<number>(0);
+
   const isActive = model.status === ModelStatus.DOWNLOADING ||
                    model.status === ModelStatus.LOADING ||
                    model.status === ModelStatus.QUANTIZING;
 
   const isReady = model.status === ModelStatus.READY;
   const isError = model.status === ModelStatus.ERROR;
-  const isExtracting = model.extraction_status && model.extraction_status !== 'complete' && model.extraction_status !== 'error';
+  const isExtracting = model.extraction_status && model.extraction_status !== 'complete' && model.extraction_status !== 'error' && model.extraction_status !== 'failed';
+
+  // Track elapsed time during extraction
+  useEffect(() => {
+    if (isExtracting && model.extraction_started_at) {
+      // Calculate initial elapsed time
+      const initialElapsed = Math.floor((Date.now() - model.extraction_started_at) / 1000);
+      setElapsedTime(initialElapsed);
+
+      // Update every second
+      const timer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - model.extraction_started_at!) / 1000);
+        setElapsedTime(elapsed);
+      }, 1000);
+
+      return () => clearInterval(timer);
+    }
+    setElapsedTime(0);
+    return undefined;
+  }, [isExtracting, model.extraction_started_at]);
+
+  const formatElapsedTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
+  };
 
   const formatParams = (count: number): string => {
     if (count >= 1_000_000_000) {
@@ -246,21 +278,30 @@ export function ModelCard({ model, onClick, onExtract, onViewExtractions, onDele
       )}
 
       {/* Extraction Progress Bar */}
-      {isExtracting && model.extraction_progress !== undefined && (
+      {isExtracting && (
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-400">
+            <span className="text-slate-400 flex items-center gap-2">
               {model.extraction_status === 'starting' && 'Starting Extraction'}
               {model.extraction_status === 'loading' && 'Loading Model'}
               {model.extraction_status === 'extracting' && 'Extracting Activations'}
               {model.extraction_status === 'saving' && 'Saving Results'}
+              {/* Elapsed time indicator */}
+              {elapsedTime > 0 && (
+                <span className="flex items-center gap-1 text-slate-500">
+                  <Clock className="w-3 h-3" />
+                  {formatElapsedTime(elapsedTime)}
+                </span>
+              )}
             </span>
             <span className="text-emerald-400 font-medium font-mono">
-              {model.extraction_progress > 0 ? `${model.extraction_progress.toFixed(1)}%` : 'Starting...'}
+              {model.extraction_progress !== undefined && model.extraction_progress > 0
+                ? `${model.extraction_progress.toFixed(1)}%`
+                : 'Starting...'}
             </span>
           </div>
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-            {model.extraction_progress > 0 ? (
+            {model.extraction_progress !== undefined && model.extraction_progress > 0 ? (
               <div
                 className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
                 style={{ width: `${model.extraction_progress}%` }}

@@ -330,10 +330,9 @@ export function ActivationExtractionConfig({
 
       await onExtract(model.id, config);
 
-      // Keep modal open so user can see progress or errors
-      // WebSocket will update the model state, which will trigger error display if needed
-      // User can manually close when ready
-      setExtracting(false);
+      // Close modal immediately after extraction starts successfully
+      // User can see progress on the model card
+      onClose();
     } catch (error) {
       console.error('[ActivationExtractionConfig] Extraction failed:', error);
       setValidationError(error instanceof Error ? error.message : 'Extraction failed');

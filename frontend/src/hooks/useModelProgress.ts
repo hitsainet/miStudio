@@ -175,11 +175,17 @@ export function useAllModelsProgress() {
           data.message
         );
 
-        // Clear extraction state if completed, failed, or cancelled
-        if (data.status === 'complete' || data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
-          console.log('[useAllModelsProgress] Extraction finished, clearing state:', data.status);
-          clearExtractionProgress(data.model_id);
+        // On completion, keep the 'complete' status visible so users see the completion message
+        // Auto-clear after 5 seconds to reset for next extraction
+        if (data.status === 'complete' || data.status === 'completed') {
+          console.log('[useAllModelsProgress] Extraction completed, showing completion state');
+          setTimeout(() => {
+            console.log('[useAllModelsProgress] Auto-clearing completion state after 5s');
+            clearExtractionProgress(data.model_id);
+          }, 5000);
         }
+        // For failed/cancelled, keep state visible indefinitely for user to see error
+        // State will be cleared when user starts a new extraction
       }
     };
 
@@ -212,12 +218,17 @@ export function useAllModelsProgress() {
       });
     });
 
-    // Subscribe to extraction channels for all ready models
+    // Join extraction rooms for all ready models (so server sends us events for these rooms)
     readyModels.forEach((model) => {
       const extractionChannel = `models/${model.id}/extraction`;
-      subscribe(extractionChannel, handleExtractionProgress);
-      console.log(`[useAllModelsProgress] Subscribed to extraction channel for model: ${model.id}`);
+      // Join the room - use empty handler since we listen on the event name below
+      subscribe(extractionChannel, () => {});
+      console.log(`[useAllModelsProgress] Joined extraction room for model: ${model.id}`);
     });
+
+    // Subscribe to 'extraction:progress' event - this is the actual event name the server emits
+    // The room membership ensures we only receive events for our subscribed models
+    subscribe('extraction:progress', handleExtractionProgress);
 
     // Subscribe to 'extraction:failed' event for extraction failures
     subscribe('extraction:failed', handleExtractionFailed);
@@ -238,8 +249,11 @@ export function useAllModelsProgress() {
       // Leave all extraction rooms
       readyModels.forEach((model) => {
         const extractionChannel = `models/${model.id}/extraction`;
-        unsubscribe(extractionChannel, handleExtractionProgress);
+        unsubscribe(extractionChannel);
       });
+
+      // Unsubscribe from extraction:progress event
+      unsubscribe('extraction:progress', handleExtractionProgress);
     };
   }, [models, subscribe, unsubscribe, updateModelProgress, updateModelStatus, updateExtractionProgress, updateExtractionFailure, fetchModels, checkActiveExtraction]);
 }
@@ -281,6 +295,11 @@ export function useModelExtractionProgress(modelId?: string) {
       // Backend sends { type: 'extraction_progress', model_id, extraction_id, progress, status, message }
       const data = event.data || event;
 
+      // Only process events for this specific model
+      if (data.model_id !== modelId) {
+        return;
+      }
+
       if (data.model_id && data.extraction_id && data.progress !== undefined && data.status && data.message) {
         updateExtractionProgress(
           data.model_id,
@@ -291,19 +310,28 @@ export function useModelExtractionProgress(modelId?: string) {
         );
       }
 
-      // If extraction is completed or failed, clear active extraction state
-      // Backend emits status="complete" or status="completed" on success
-      // This clears the progress bar and marks model as having no active extraction
-      if (data.status === 'complete' || data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
-        console.log('[useModelExtractionProgress] Extraction finished, clearing state:', data.status);
-        clearExtractionProgress(data.model_id);
+      // On completion, keep the 'complete' status visible so users see the completion message
+      // Auto-clear after 5 seconds to reset for next extraction
+      if (data.status === 'complete' || data.status === 'completed') {
+        console.log('[useModelExtractionProgress] Extraction completed, showing completion state');
+        setTimeout(() => {
+          console.log('[useModelExtractionProgress] Auto-clearing completion state after 5s');
+          clearExtractionProgress(data.model_id);
+        }, 5000);
       }
+      // For failed/cancelled, keep state visible indefinitely for user to see error
+      // State will be cleared when user starts a new extraction
     };
 
-    subscribe(extractionChannel, handleExtractionUpdate);
+    // Join the extraction room for this model
+    subscribe(extractionChannel, () => {});
+
+    // Listen for extraction:progress events (the actual event name the server emits)
+    subscribe('extraction:progress', handleExtractionUpdate);
 
     return () => {
-      unsubscribe(extractionChannel, handleExtractionUpdate);
+      unsubscribe(extractionChannel);
+      unsubscribe('extraction:progress', handleExtractionUpdate);
     };
-  }, [modelId, subscribe, unsubscribe, updateExtractionProgress, checkActiveExtraction]);
+  }, [modelId, subscribe, unsubscribe, updateExtractionProgress, clearExtractionProgress, checkActiveExtraction]);
 }

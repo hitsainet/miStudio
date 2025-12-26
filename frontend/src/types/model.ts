@@ -247,6 +247,8 @@ export interface Model {
   extraction_error_type?: string;
   /** Suggested retry parameters for failed extraction */
   extraction_suggested_retry_params?: Record<string, any>;
+  /** Timestamp when extraction was started (ms since epoch) */
+  extraction_started_at?: number;
 }
 
 /**

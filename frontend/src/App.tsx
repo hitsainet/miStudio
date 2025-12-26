@@ -12,7 +12,7 @@ import { SteeringPanel } from './components/panels/SteeringPanel';
 import { SystemMonitor } from './components/SystemMonitor/SystemMonitor';
 import { CompactGPUStatus } from './components/SystemMonitor/CompactGPUStatus';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
-import { useGlobalDatasetProgress } from './hooks/useDatasetProgressV2';
+import { useGlobalDatasetProgress } from './hooks/useDatasetProgress';
 import { setDatasetSubscriptionCallback } from './stores/datasetsStore';
 import { COMPONENTS } from './config/brand';
 

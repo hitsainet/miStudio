@@ -23,7 +23,8 @@ def upgrade() -> None:
     op.execute("CREATE TYPE extraction_status_enum AS ENUM ('queued', 'extracting', 'completed', 'failed', 'cancelled')")
 
     # Create enum for label source
-    op.execute("CREATE TYPE label_source_enum AS ENUM ('auto', 'user')")
+    # Values: auto (fallback), user (edited), llm (deprecated), local_llm (HF models), openai (OpenAI API)
+    op.execute("CREATE TYPE label_source_enum AS ENUM ('auto', 'user', 'llm', 'local_llm', 'openai')")
 
     # Create enum for analysis type
     op.execute("CREATE TYPE analysis_type_enum AS ENUM ('logit_lens', 'correlations', 'ablation')")
@@ -81,7 +82,7 @@ def upgrade() -> None:
         # Feature identification
         sa.Column('name', sa.String(500), nullable=False, comment='Feature name/label (auto-generated or user-edited)'),
         sa.Column('description', sa.Text, nullable=True, comment='Feature description'),
-        sa.Column('label_source', postgresql.ENUM('auto', 'user', name='label_source_enum', create_type=False), nullable=False, server_default='auto', comment='Label source: auto (heuristic) or user (edited)'),
+        sa.Column('label_source', postgresql.ENUM('auto', 'user', 'llm', 'local_llm', 'openai', name='label_source_enum', create_type=False), nullable=False, server_default='auto', comment='Label source: auto, user, llm, local_llm, or openai'),
 
         # Feature statistics
         sa.Column('activation_frequency', sa.Float, nullable=False, comment='Fraction of samples where feature activates (>0.01)'),

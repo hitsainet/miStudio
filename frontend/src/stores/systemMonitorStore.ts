@@ -21,7 +21,7 @@ import type {
   AllMonitoringDataResponse,
   GPUListResponse,
 } from '../types/system';
-import { getAllMonitoringData, getGPUList } from '../api/system';
+import { getAllMonitoringData, getGPUList, getAllGPUMetrics } from '../api/system';
 
 interface SystemMonitorState {
   // State
@@ -30,6 +30,9 @@ interface SystemMonitorState {
   gpuMetrics: GPUMetrics | null;
   gpuInfo: GPUInfo | null;
   gpuProcesses: GPUProcess[];
+  // Per-GPU metrics for comparison view
+  allGpuMetrics: Record<number, GPUMetrics>;
+  allGpuInfo: Record<number, GPUInfo>;
   systemMetrics: SystemMetrics | null;
   diskUsage: DiskUsage[];
   networkRates: NetworkRates | null;
@@ -49,6 +52,7 @@ interface SystemMonitorState {
   // Actions
   fetchGPUList: () => Promise<void>;
   fetchAllMetrics: () => Promise<void>;
+  fetchAllGpuMetrics: () => Promise<void>;
   setSelectedGPU: (gpuId: number) => void;
   setUpdateInterval: (interval: number) => void;
   setViewMode: (mode: 'single' | 'compare') => void;
@@ -76,6 +80,8 @@ export const useSystemMonitorStore = create<SystemMonitorState>()(
         gpuMetrics: null,
         gpuInfo: null,
         gpuProcesses: [],
+        allGpuMetrics: {},
+        allGpuInfo: {},
         systemMetrics: null,
         diskUsage: [],
         networkRates: null,
@@ -97,8 +103,28 @@ export const useSystemMonitorStore = create<SystemMonitorState>()(
           try {
             const data = await getGPUList();
             set({ gpuList: data });
+            // Also populate allGpuInfo from the list
+            const allGpuInfo: Record<number, GPUInfo> = {};
+            data.gpus.forEach((gpu: any) => {
+              allGpuInfo[gpu.gpu_id] = gpu;
+            });
+            set({ allGpuInfo });
           } catch (error) {
             console.error('Failed to fetch GPU list:', error);
+          }
+        },
+
+        // Fetch metrics for all GPUs (for comparison view)
+        fetchAllGpuMetrics: async () => {
+          try {
+            const data = await getAllGPUMetrics();
+            const allGpuMetrics: Record<number, GPUMetrics> = {};
+            data.gpus.forEach((gpu: any) => {
+              allGpuMetrics[gpu.gpu_id] = gpu;
+            });
+            set({ allGpuMetrics, lastSuccessfulFetch: Date.now() });
+          } catch (error) {
+            console.error('Failed to fetch all GPU metrics:', error);
           }
         },
 
@@ -261,12 +287,22 @@ export const useSystemMonitorStore = create<SystemMonitorState>()(
 
       // Set GPU metrics from WebSocket update
       setGPUMetrics: (gpuId: number, metrics: any) => {
-        // Only update if this is the selected GPU
-        if (gpuId === get().selectedGPU) {
+        const state = get();
+        // Always update allGpuMetrics for comparison view
+        const newAllGpuMetrics = { ...state.allGpuMetrics, [gpuId]: metrics };
+
+        // Update selected GPU metrics if this is the selected GPU
+        if (gpuId === state.selectedGPU) {
           set({
             gpuMetrics: metrics,
+            allGpuMetrics: newAllGpuMetrics,
             lastSuccessfulFetch: Date.now(),
             consecutiveErrors: 0,
+          });
+        } else {
+          set({
+            allGpuMetrics: newAllGpuMetrics,
+            lastSuccessfulFetch: Date.now(),
           });
         }
       },

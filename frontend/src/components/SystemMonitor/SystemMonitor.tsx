@@ -29,6 +29,8 @@ export function SystemMonitor() {
     gpuMetrics,
     gpuInfo,
     gpuProcesses,
+    allGpuMetrics,
+    allGpuInfo,
     systemMetrics,
     diskUsage,
     selectedGPU,
@@ -41,6 +43,7 @@ export function SystemMonitor() {
     isConnected,
     isWebSocketConnected,
     fetchGPUList,
+    fetchAllGpuMetrics,
     setSelectedGPU,
     setUpdateInterval,
     setViewMode,
@@ -72,6 +75,19 @@ export function SystemMonitor() {
   useEffect(() => {
     fetchGPUList();
   }, [fetchGPUList]);
+
+  // Fetch all GPU metrics when in comparison mode
+  useEffect(() => {
+    if (viewMode === 'compare' && gpuAvailable) {
+      fetchAllGpuMetrics();
+      // Set up periodic refresh for comparison view
+      const intervalId = setInterval(() => {
+        fetchAllGpuMetrics();
+      }, updateInterval);
+      return () => clearInterval(intervalId);
+    }
+    return undefined;
+  }, [viewMode, gpuAvailable, fetchAllGpuMetrics, updateInterval]);
 
   // Fallback polling: Only start if WebSocket is not connected
   // WebSocket connection state managed by useSystemMonitorWebSocket hook
@@ -252,10 +268,12 @@ export function SystemMonitor() {
         )}
 
         {/* RIGHT COLUMN: GPU Information */}
-        {gpuAvailable && gpuMetrics && gpuInfo && viewMode === 'single' ? (
+        {gpuAvailable && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-100">GPU Information</h2>
+              <h2 className="text-lg font-semibold text-slate-100">
+                {viewMode === 'compare' ? 'GPU Comparison' : 'GPU Information'}
+              </h2>
               <div className="flex items-center gap-2">
                 {gpuList && viewMode === 'single' && gpuList.gpus.length > 0 && (
                   <GPUSelector
@@ -269,6 +287,24 @@ export function SystemMonitor() {
                 )}
               </div>
             </div>
+
+            {/* Compare Mode: Stacked GPU Cards */}
+            {viewMode === 'compare' && gpuList && (
+              <div className="space-y-4">
+                {gpuList.gpus.map((gpu) => (
+                  <GPUCard
+                    key={gpu.gpu_id}
+                    gpuId={gpu.gpu_id}
+                    metrics={allGpuMetrics[gpu.gpu_id] || null}
+                    info={allGpuInfo[gpu.gpu_id] || gpu}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Single Mode: Detailed GPU View */}
+            {viewMode === 'single' && gpuMetrics && gpuInfo && (
+              <>
 
             {/* Critical Warnings */}
             {(gpuMetrics.temperature > 85 || gpuMetrics.memory.used_percent > 95 || gpuMetrics.utilization.gpu > 95) && (
@@ -368,14 +404,19 @@ export function SystemMonitor() {
                 </div>
               </div>
             </div>
+              </>
+            )}
+
+            {/* No GPU metrics available yet */}
+            {viewMode === 'single' && !gpuMetrics && (
+              <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
+                <div className="text-slate-400 text-center">
+                  Loading GPU metrics...
+                </div>
+              </div>
+            )}
           </div>
-        ) : gpuAvailable && !gpuMetrics ? (
-          <div className="bg-slate-900 rounded-lg p-4 border border-slate-800">
-            <div className="text-slate-400 text-center">
-              GPU monitoring not available. Ensure NVIDIA GPU and drivers are installed.
-            </div>
-          </div>
-        ) : null}
+        )}
       </div>
 
       {/* GPU Processes - Full Width */}
@@ -407,36 +448,6 @@ export function SystemMonitor() {
         </div>
       )}
 
-      {/* GPU Comparison View (when multiple GPUs) */}
-      {gpuAvailable && viewMode === 'compare' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h2 className="text-lg font-semibold text-slate-100">GPU Comparison</h2>
-              {gpuList && gpuList.gpus.length > 4 && (
-                <span className="text-sm text-slate-600 dark:text-slate-400">
-                  {gpuList.gpus.length} GPUs detected - Scroll to view all
-                </span>
-              )}
-            </div>
-            {gpuList && gpuList.gpus.length > 1 && (
-              <ViewModeToggle mode={viewMode} onChange={setViewMode} />
-            )}
-          </div>
-          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${
-            gpuList && gpuList.gpus.length > 6 ? 'max-h-[800px] overflow-y-auto pr-2' : ''
-          }`}>
-            {gpuList?.gpus.map((gpu) => (
-              <GPUCard
-                key={gpu.gpu_id}
-                gpuId={gpu.gpu_id}
-                metrics={gpuMetrics || null}
-                info={gpuInfo || null}
-              />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Historical Trends - Full Width */}
       {gpuAvailable && gpuMetrics && gpuInfo && viewMode === 'single' && (

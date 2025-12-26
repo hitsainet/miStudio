@@ -11,7 +11,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { Dataset, DatasetStatus, DatasetTokenization, DatasetTokenizationListResponse, DatasetTokenizationProgress } from '../types/dataset';
+import { Dataset, DatasetStatus, DatasetTokenization, DatasetTokenizationListResponse, DatasetTokenizationProgress, TokenizationStatus } from '../types/dataset';
 import { API_BASE_URL } from '../config/api';
 import { cancelDatasetDownload, getDataset } from '../api/datasets';
 import { startPolling } from '../utils/polling';
@@ -354,13 +354,42 @@ export const useDatasetsStore = create<DatasetsState>()(
       },
 
       // Update tokenization progress (called by WebSocket)
-      updateTokenizationProgress: (_datasetId: string, tokenizationId: string, progress: DatasetTokenizationProgress) => {
-        set((state) => ({
-          tokenizationProgress: {
-            ...state.tokenizationProgress,
-            [tokenizationId]: progress,
-          },
-        }));
+      updateTokenizationProgress: (datasetId: string, tokenizationId: string, progress: DatasetTokenizationProgress) => {
+        set((state) => {
+          const newState: Partial<DatasetsState> = {
+            tokenizationProgress: {
+              ...state.tokenizationProgress,
+              [tokenizationId]: progress,
+            },
+          };
+
+          // When tokenization completes (stage === "complete"), also update the tokenization status
+          // This ensures the UI updates immediately without needing a manual refresh
+          if (progress.stage === 'complete' && progress.progress >= 100) {
+            const datasetTokenizations = state.tokenizations[datasetId];
+            if (datasetTokenizations) {
+              newState.tokenizations = {
+                ...state.tokenizations,
+                [datasetId]: datasetTokenizations.map((t) =>
+                  t.id === tokenizationId
+                    ? { ...t, status: TokenizationStatus.READY, progress: 100 }
+                    : t
+                ),
+              };
+            }
+          }
+
+          return newState;
+        });
+
+        // When tokenization completes, refetch to get full statistics (vocab_size, num_tokens, etc.)
+        // This is done outside set() since fetchTokenizations is async
+        if (progress.stage === 'complete' && progress.progress >= 100) {
+          // Small delay to ensure backend has finalized the record
+          setTimeout(() => {
+            _get().fetchTokenizations(datasetId);
+          }, 500);
+        }
       },
     }),
     {

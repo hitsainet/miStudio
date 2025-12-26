@@ -6,13 +6,71 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CheckCircle, Loader, AlertCircle, Plus, Trash2, Hash, X } from 'lucide-react';
+import { CheckCircle, Loader, AlertCircle, Plus, Trash2, Hash, X, Clock } from 'lucide-react';
 import { TokenizationStatus, TokenFilterMode } from '../../types/dataset';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { COMPONENTS } from '../../config/brand';
 import { useTokenizationWebSocket } from '../../hooks/useTokenizationWebSocket';
 import { TokenizationProgressDisplay } from './TokenizationProgressDisplay';
+
+// Helper to format seconds to human-readable time
+const formatElapsedTime = (seconds: number): string => {
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  } else if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return `${mins}m ${secs}s`;
+  } else {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${mins}m`;
+  }
+};
+
+// Fallback progress component for when WebSocket updates aren't available
+function FallbackProgress({ progress, createdAt }: { progress: number; createdAt?: string }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!createdAt) return;
+
+    const startTime = new Date(createdAt).getTime();
+
+    const updateElapsed = () => {
+      const now = Date.now();
+      setElapsed((now - startTime) / 1000);
+    };
+
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+
+    return () => clearInterval(interval);
+  }, [createdAt]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+        <span className="text-blue-400">Processing</span>
+        <span className="font-medium text-emerald-400">{progress.toFixed(1)}%</span>
+      </div>
+      <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-emerald-500 transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      {createdAt && (
+        <div className="flex items-center gap-1.5 text-xs">
+          <Clock className="w-3 h-3 text-slate-500" />
+          <span className="text-slate-500">Elapsed:</span>
+          <span className="text-slate-300 font-medium">{formatElapsedTime(elapsed)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface TokenizationsListProps {
   datasetId: string;
@@ -275,6 +333,7 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                   <label className="text-xs font-medium text-slate-300">Custom Characters to Filter</label>
                   <input
                     type="text"
+                    autoComplete="off"
                     value={customFilterChars}
                     onChange={(e) => setCustomFilterChars(e.target.value)}
                     placeholder="e.g., ~@#$%"
@@ -419,18 +478,10 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                   {tokenizationProgress[tokenization.id] ? (
                     <TokenizationProgressDisplay progress={tokenizationProgress[tokenization.id]} />
                   ) : tokenization.progress !== undefined ? (
-                    <div>
-                      <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                        <span>Progress</span>
-                        <span>{tokenization.progress.toFixed(1)}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-blue-500 transition-all duration-300"
-                          style={{ width: `${tokenization.progress}%` }}
-                        />
-                      </div>
-                    </div>
+                    <FallbackProgress
+                      progress={tokenization.progress}
+                      createdAt={tokenization.created_at}
+                    />
                   ) : null}
                 </div>
               )}

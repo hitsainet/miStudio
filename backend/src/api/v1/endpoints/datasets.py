@@ -503,36 +503,63 @@ async def tokenize_dataset(
                 detail="Dataset has no raw_path - cannot tokenize"
             )
 
-        # Auto-clear existing tokenization before starting new job
-        # This handles both ERROR status (failed tokenization) and already-tokenized datasets
-        # Check if any tokenization exists by querying the relationship
+        # Check if a tokenization for this specific model already exists
+        # Only clear that specific tokenization, not all tokenizations (allows multiple models)
         try:
-            logger.info(f"Checking for existing tokenizations on dataset {dataset_id}")
-            has_tokenization = dataset.tokenizations and len(dataset.tokenizations) > 0
-            logger.info(f"Dataset {dataset_id} has_tokenization={has_tokenization}, status={dataset.status}")
+            from sqlalchemy import select
+            from ....models.dataset_tokenization import DatasetTokenization, TokenizationStatus
 
-            if dataset.status == DatasetStatus.ERROR or has_tokenization:
-                logger.info(f"Auto-clearing existing tokenization for dataset {dataset_id} before re-tokenization")
-                dataset = await DatasetService.clear_tokenization(db, dataset_id)
-                if not dataset:
+            logger.info(f"Checking for existing tokenization on dataset {dataset_id} for model {request.model_id}")
+
+            # Query for existing tokenization with this model_id
+            result = await db.execute(
+                select(DatasetTokenization)
+                .where(
+                    DatasetTokenization.dataset_id == dataset_id,
+                    DatasetTokenization.model_id == request.model_id
+                )
+            )
+            existing_tokenization = result.scalar_one_or_none()
+
+            if existing_tokenization:
+                logger.info(f"Found existing tokenization for model {request.model_id}, status: {existing_tokenization.status}")
+
+                # If currently processing, return 409 conflict
+                if existing_tokenization.status == TokenizationStatus.PROCESSING:
                     redis_client.delete(lock_key)  # Release lock
                     raise HTTPException(
-                        status_code=500,
-                        detail="Failed to clear existing tokenization"
+                        status_code=409,
+                        detail=f"Tokenization for model {request.model_id} is already in progress"
                     )
-        except AttributeError as e:
-            logger.error(f"AttributeError in tokenization check: {e}", exc_info=True)
-            redis_client.delete(lock_key)  # Release lock
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to check tokenization status: {str(e)}"
-            )
+
+                # Clear only this specific tokenization (for retry or re-tokenize)
+                # Delete the tokenized files if they exist
+                if existing_tokenization.tokenized_path:
+                    from pathlib import Path
+                    tokenized_path = settings.resolve_data_path(existing_tokenization.tokenized_path)
+                    if tokenized_path.exists():
+                        import shutil
+                        if tokenized_path.is_dir():
+                            shutil.rmtree(tokenized_path)
+                        else:
+                            tokenized_path.unlink()
+                        logger.info(f"Deleted existing tokenized files at {tokenized_path}")
+
+                # Delete the tokenization record
+                await db.delete(existing_tokenization)
+                await db.flush()
+                logger.info(f"Deleted existing tokenization record for model {request.model_id}")
+            else:
+                logger.info(f"No existing tokenization for model {request.model_id}, creating new one")
+
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Unexpected error in tokenization check: {e}", exc_info=True)
+            logger.error(f"Error checking/clearing tokenization: {e}", exc_info=True)
             redis_client.delete(lock_key)  # Release lock
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to start tokenization: {str(e)}"
+                detail=f"Failed to prepare tokenization: {str(e)}"
             )
 
         # Update status to processing and save filter configuration

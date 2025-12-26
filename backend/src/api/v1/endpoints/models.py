@@ -492,6 +492,7 @@ async def extract_model_activations(
             max_samples=request.max_samples,
             batch_size=request.batch_size or 8,
             micro_batch_size=request.micro_batch_size,
+            gpu_id=request.gpu_id or 0,
         )
 
         # Emit immediate progress update to show job has started
@@ -962,6 +963,8 @@ async def retry_extraction(
         new_extraction_id = f"ext_{model_id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         # Queue new extraction job with Celery
+        # Use the original gpu_id if available, default to 0
+        gpu_id = getattr(original_extraction, 'gpu_id', 0) or 0
         task = extract_activations.delay(
             model_id=model_id,
             dataset_id=original_extraction.dataset_id,
@@ -970,6 +973,7 @@ async def retry_extraction(
             max_samples=max_samples,
             batch_size=batch_size,
             micro_batch_size=micro_batch_size,
+            gpu_id=gpu_id,
         )
 
         logger.info(

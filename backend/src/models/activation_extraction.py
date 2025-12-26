@@ -49,6 +49,7 @@ class ActivationExtraction(Base):
     max_samples = Column(Integer, nullable=False)
     batch_size = Column(Integer, nullable=False, default=8)
     micro_batch_size = Column(Integer, nullable=True)  # GPU micro-batch size (defaults to batch_size)
+    gpu_id = Column(Integer, nullable=False, default=0)  # GPU device ID to use for extraction
 
     # Processing status
     status = Column(SQLEnum(ExtractionStatus), nullable=False, default=ExtractionStatus.QUEUED)

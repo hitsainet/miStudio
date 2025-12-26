@@ -132,6 +132,21 @@ async def generate_steering_comparison(
     if not sae_path.exists():
         raise HTTPException(400, f"SAE path does not exist: {sae.local_path}")
 
+    # Validate feature indices against SAE dimension
+    if sae.n_features:
+        invalid_features = [
+            f for f in request.selected_features
+            if f.feature_idx >= sae.n_features
+        ]
+        if invalid_features:
+            invalid_indices = [f.feature_idx for f in invalid_features]
+            raise HTTPException(
+                400,
+                f"Invalid feature indices: {invalid_indices}. "
+                f"SAE only has {sae.n_features} features (valid indices: 0-{sae.n_features-1}). "
+                f"The selected features may be from a different SAE."
+            )
+
     # Determine model to use
     model_id = request.model_id
     if not model_id:

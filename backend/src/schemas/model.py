@@ -111,6 +111,7 @@ class ActivationExtractionRequest(BaseModel):
     batch_size: Optional[int] = Field(8, ge=1, le=512, description="Batch size for processing (1, 8, 16, 32, 64, 128, 256, 512)")
     micro_batch_size: Optional[int] = Field(None, ge=1, le=512, description="GPU micro-batch size for memory efficiency (defaults to batch_size if not specified)")
     top_k_examples: Optional[int] = Field(10, ge=1, le=100, description="Number of top activating examples to save")
+    gpu_id: Optional[int] = Field(0, ge=0, description="GPU device ID to use for extraction (default: 0)")
 
     @field_validator("hook_types")
     @classmethod

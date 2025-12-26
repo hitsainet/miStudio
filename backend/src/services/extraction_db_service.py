@@ -32,6 +32,7 @@ class ExtractionDatabaseService:
         batch_size: int,
         micro_batch_size: Optional[int] = None,
         celery_task_id: Optional[str] = None,
+        gpu_id: int = 0,
     ) -> ActivationExtraction:
         """
         Create a new extraction record in the database.
@@ -47,6 +48,7 @@ class ExtractionDatabaseService:
             batch_size: Batch size for processing
             micro_batch_size: GPU micro-batch size for memory efficiency
             celery_task_id: Optional Celery task ID
+            gpu_id: GPU device ID to use (default: 0)
 
         Returns:
             Created ActivationExtraction record
@@ -64,6 +66,7 @@ class ExtractionDatabaseService:
             max_samples=max_samples,
             batch_size=batch_size,
             micro_batch_size=micro_batch_size,
+            gpu_id=gpu_id,
             status=ExtractionStatus.QUEUED,
             progress=0.0,
             samples_processed=0,

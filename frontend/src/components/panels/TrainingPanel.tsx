@@ -991,7 +991,8 @@ export const TrainingPanel: React.FC = () => {
                 </div>
 
                 {/* L1 Alpha with Auto-Calculate */}
-                <div>
+                {/* Note: L1 is irrelevant for JumpReLU which uses sparsity_coeff instead */}
+                <div className={config.architecture_type === SAEArchitectureType.JUMPRELU ? 'opacity-40' : ''}>
                   <HyperparameterLabel
                     paramName="l1_alpha"
                     label="L1 Sparsity Coefficient"
@@ -1007,7 +1008,8 @@ export const TrainingPanel: React.FC = () => {
                       min={0.00001}
                       max={10.0}
                       step={0.00001}
-                      className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
+                      disabled={config.architecture_type === SAEArchitectureType.JUMPRELU}
+                      className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed"
                     />
                     <button
                       type="button"
@@ -1015,14 +1017,17 @@ export const TrainingPanel: React.FC = () => {
                         const optimal = calculateOptimalL1Alpha(config.latent_dim, config.target_l0 ?? 0.05);
                         updateConfig({ l1_alpha: optimal });
                       }}
-                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-md transition-colors whitespace-nowrap"
-                      title={`Calculate optimal L1 alpha for ${config.latent_dim} latent dimensions`}
+                      disabled={config.architecture_type === SAEArchitectureType.JUMPRELU}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-sm rounded-md transition-colors whitespace-nowrap"
+                      title={config.architecture_type === SAEArchitectureType.JUMPRELU
+                        ? 'L1 is not used for JumpReLU - use L0 Sparsity Coefficient instead'
+                        : `Calculate optimal L1 alpha for ${config.latent_dim} latent dimensions`}
                     >
                       Auto
                     </button>
                   </div>
-                  {/* Sparsity Warnings */}
-                  {(() => {
+                  {/* Sparsity Warnings - only show for non-JumpReLU architectures */}
+                  {config.architecture_type !== SAEArchitectureType.JUMPRELU && (() => {
                     const warnings = validateSparsityConfig(config.l1_alpha, config.latent_dim, config.target_l0 ?? 0.05);
                     return warnings.length > 0 ? (
                       <div className="mt-2 space-y-1">
@@ -1035,6 +1040,12 @@ export const TrainingPanel: React.FC = () => {
                       </div>
                     ) : null;
                   })()}
+                  {/* JumpReLU notice */}
+                  {config.architecture_type === SAEArchitectureType.JUMPRELU && (
+                    <p className="mt-1 text-xs text-slate-500 italic">
+                      L1 is not used for JumpReLU. Use "L0 Sparsity Coefficient" below instead.
+                    </p>
+                  )}
                 </div>
 
                 {/* Target L0 */}

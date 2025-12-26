@@ -151,7 +151,8 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
               <input
-                type="text"
+                type="search"
+                autoComplete="off"
                 placeholder="Search SAEs by name, model, or repository..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}

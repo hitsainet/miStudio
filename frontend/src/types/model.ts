@@ -136,6 +136,8 @@ export interface ActivationExtractionConfig {
   micro_batch_size?: number;
   /** Top K examples to save per feature */
   top_k_examples?: number;
+  /** GPU device ID to use for extraction (default: 0) */
+  gpu_id?: number;
 }
 
 /**

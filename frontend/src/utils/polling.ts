@@ -125,6 +125,19 @@ export function startPolling<T>(config: PollingConfig<T>): () => void {
       // Fetch current status
       const resource = await fetchStatus();
 
+      // Check if resource doesn't exist (was deleted or never existed)
+      if (!resource) {
+        console.warn(`[Polling] Resource not found for ${resourceType} ${resourceId}, stopping polling`);
+        if (intervalId !== null) {
+          window.clearInterval(intervalId);
+          intervalId = null;
+        }
+        if (onError) {
+          onError(`Resource ${resourceType} ${resourceId} not found`);
+        }
+        return;
+      }
+
       // Notify update callback
       onUpdate(resource);
 

@@ -122,7 +122,7 @@ function OverviewTab({ dataset }: { dataset: Dataset }) {
         {dataset.raw_path && <InfoCard label="Raw Path" value={dataset.raw_path} />}
       </div>
 
-      {dataset.num_samples !== undefined && (
+      {dataset.num_samples != null && (
         <div className="bg-slate-800/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-slate-100 mb-4">Dataset Statistics</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

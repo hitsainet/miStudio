@@ -11,11 +11,12 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Play, Save, AlertCircle, Info } from 'lucide-react';
+import { X, Play, Save, AlertCircle, Info, Cpu } from 'lucide-react';
 import { Model, ActivationExtractionConfig as ExtractionConfig } from '../../types/model';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
 import { useModelsStore } from '../../stores/modelsStore';
+import { useSystemMonitorStore } from '../../stores/systemMonitorStore';
 import { useModelExtractionProgress } from '../../hooks/useModelProgress';
 import { estimateExtractionResources } from '../../api/models';
 
@@ -30,9 +31,10 @@ export function ActivationExtractionConfig({
   onClose,
   onExtract
 }: ActivationExtractionConfigProps) {
-  const { datasets, fetchDatasets } = useDatasetsStore();
+  const { datasets, fetchDatasets, tokenizations, fetchTokenizations } = useDatasetsStore();
   const { templates, favorites, fetchTemplates, fetchFavorites, createTemplate } = useExtractionTemplatesStore();
   const { models } = useModelsStore();
+  const { gpuList, fetchGPUList } = useSystemMonitorStore();
 
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [selectedDataset, setSelectedDataset] = useState('');
@@ -42,6 +44,7 @@ export function ActivationExtractionConfig({
   const [microBatchSize, setMicroBatchSize] = useState<number | ''>(8); // GPU micro-batch size for memory efficiency
   const [maxSamples, setMaxSamples] = useState(100000);
   const [topKExamples, setTopKExamples] = useState(10);
+  const [gpuId, setGpuId] = useState(0);
   const [extracting, setExtracting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [extractionStarted, setExtractionStarted] = useState(false);
@@ -64,12 +67,13 @@ export function ActivationExtractionConfig({
                    12;
   const layers = Array.from({ length: numLayers }, (_, i) => i);
 
-  // Fetch datasets and templates on mount
+  // Fetch datasets, templates, and GPU list on mount
   useEffect(() => {
     fetchDatasets();
     fetchTemplates();
     fetchFavorites();
-  }, [fetchDatasets, fetchTemplates, fetchFavorites]);
+    fetchGPUList();
+  }, [fetchDatasets, fetchTemplates, fetchFavorites, fetchGPUList]);
 
   // Set first dataset as default
   useEffect(() => {
@@ -77,6 +81,18 @@ export function ActivationExtractionConfig({
       setSelectedDataset(datasets[0].id);
     }
   }, [datasets, selectedDataset]);
+
+  // Fetch tokenizations when dataset changes
+  useEffect(() => {
+    if (selectedDataset) {
+      fetchTokenizations(selectedDataset);
+    }
+  }, [selectedDataset, fetchTokenizations]);
+
+  // Check if selected dataset has tokenizations for this model
+  const datasetTokenizations = selectedDataset ? tokenizations[selectedDataset] || [] : [];
+  const modelTokenization = datasetTokenizations.find(t => t.model_id === model.id && t.status === 'ready');
+  const hasTokenization = !!modelTokenization;
 
   // Monitor extraction progress from store and display errors
   useEffect(() => {
@@ -200,6 +216,12 @@ export function ActivationExtractionConfig({
       return false;
     }
 
+    if (!hasTokenization) {
+      const selectedDs = datasets.find(d => d.id === selectedDataset);
+      setValidationError(`Dataset "${selectedDs?.name || selectedDataset}" has not been tokenized for model "${model.name}". Please tokenize the dataset first.`);
+      return false;
+    }
+
     if (selectedLayers.length === 0) {
       setValidationError('Please select at least one layer');
       return false;
@@ -303,6 +325,7 @@ export function ActivationExtractionConfig({
         batch_size: batchSize,
         micro_batch_size: microBatchSize === '' ? undefined : microBatchSize,
         top_k_examples: topKExamples,
+        gpu_id: gpuId,
       };
 
       await onExtract(model.id, config);
@@ -396,19 +419,39 @@ export function ActivationExtractionConfig({
                 No ready datasets available. Please download and prepare a dataset first.
               </div>
             ) : (
-              <select
-                id="extraction-dataset"
-                value={selectedDataset}
-                onChange={(e) => setSelectedDataset(e.target.value)}
-                disabled={extracting}
-                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {readyDatasets.map((ds) => (
-                  <option key={ds.id} value={ds.id}>
-                    {ds.name} ({ds.num_samples?.toLocaleString() || 0} samples)
-                  </option>
-                ))}
-              </select>
+              <>
+                <select
+                  id="extraction-dataset"
+                  value={selectedDataset}
+                  onChange={(e) => setSelectedDataset(e.target.value)}
+                  disabled={extracting}
+                  className={`w-full px-4 py-2 bg-slate-900 border rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+                    selectedDataset && !hasTokenization ? 'border-yellow-500/50' : 'border-slate-700'
+                  }`}
+                >
+                  {readyDatasets.map((ds) => (
+                    <option key={ds.id} value={ds.id}>
+                      {ds.name} ({ds.num_samples?.toLocaleString() || 0} samples)
+                    </option>
+                  ))}
+                </select>
+                {/* Tokenization Warning */}
+                {selectedDataset && !hasTokenization && (
+                  <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-yellow-400">
+                      <span className="font-medium">Tokenization required:</span> This dataset has not been tokenized for {model.name}.
+                      Go to the Datasets panel to tokenize it first.
+                    </div>
+                  </div>
+                )}
+                {/* Show tokenization info when available */}
+                {selectedDataset && hasTokenization && modelTokenization && (
+                  <p className="text-xs text-emerald-400/70 mt-1">
+                    ✓ Tokenized: {modelTokenization.num_tokens?.toLocaleString() || '?'} tokens
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -545,6 +588,32 @@ export function ActivationExtractionConfig({
                 className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               />
             </div>
+            <div>
+              <label htmlFor="extraction-gpu" className="block text-sm font-medium text-slate-300 mb-2">
+                <Cpu className="w-4 h-4 inline mr-1" />
+                GPU Device
+              </label>
+              <select
+                id="extraction-gpu"
+                value={gpuId}
+                onChange={(e) => setGpuId(parseInt(e.target.value))}
+                disabled={extracting}
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {gpuList?.gpus && gpuList.gpus.length > 0 ? (
+                  gpuList.gpus.map((gpu) => (
+                    <option key={gpu.gpu_id} value={gpu.gpu_id}>
+                      GPU {gpu.gpu_id}: {gpu.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value={0}>GPU 0 (Default)</option>
+                )}
+              </select>
+              {gpuList?.gpus && gpuList.gpus.length > 1 && (
+                <p className="text-xs text-slate-500 mt-1">Select GPU with most free VRAM</p>
+              )}
+            </div>
           </div>
 
           {/* Resource Estimates */}
@@ -657,7 +726,7 @@ export function ActivationExtractionConfig({
             <button
               type="button"
               onClick={handleExtract}
-              disabled={extracting || readyDatasets.length === 0 || selectedLayers.length === 0 || hookTypes.length === 0}
+              disabled={extracting || readyDatasets.length === 0 || selectedLayers.length === 0 || hookTypes.length === 0 || !hasTokenization}
               className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded-lg flex items-center justify-center gap-2 transition-colors font-medium text-white"
             >
               {extracting ? (
@@ -707,6 +776,7 @@ export function ActivationExtractionConfig({
                 <input
                   id="template-name"
                   type="text"
+                  autoComplete="off"
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
                   disabled={savingTemplate}

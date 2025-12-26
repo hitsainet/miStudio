@@ -150,6 +150,7 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
           <input
             id="sae-repo"
             type="text"
+            autoComplete="off"
             placeholder="e.g., jbloom/GPT2-Small-SAEs-Reformatted"
             value={repoId}
             onChange={(e) => {
@@ -170,6 +171,7 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
           <input
             id="sae-name"
             type="text"
+            autoComplete="off"
             placeholder="Auto-generated from file path"
             value={customName}
             onChange={(e) => setCustomName(e.target.value)}
@@ -187,13 +189,19 @@ export function DownloadFromHF({ onDownloadComplete }: DownloadFromHFProps) {
         <div className="relative">
           <input
             id="sae-access-token"
-            type={showToken ? 'text' : 'password'}
+            name="sae-hf-credential-input"
+            type="text"
+            autoComplete="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-form-type="other"
             placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
             value={accessToken}
             onChange={(e) => setAccessToken(e.target.value)}
             onKeyPress={handleKeyPress}
             disabled={hfPreviewLoading || isDownloading}
             className="w-full px-4 py-2 pr-10 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 font-mono text-sm text-slate-100 placeholder-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{ WebkitTextSecurity: showToken ? 'none' : 'disc' } as React.CSSProperties}
           />
           {accessToken && (
             <button

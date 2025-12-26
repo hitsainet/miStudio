@@ -132,6 +132,7 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
           <input
             id="model-repo"
             type="text"
+            autoComplete="off"
             placeholder="e.g., TinyLlama/TinyLlama-1.1B"
             value={hfModelRepo}
             onChange={(e) => {
@@ -173,13 +174,19 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
         <div className="relative">
           <input
             id="access-token"
-            type={showToken ? 'text' : 'password'}
+            name="model-hf-credential-input"
+            type="text"
+            autoComplete="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-form-type="other"
             placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
             value={accessToken}
             onChange={(e) => setAccessToken(e.target.value)}
             onKeyPress={handleKeyPress}
             disabled={isSubmitting}
             className="w-full px-4 py-2 pr-10 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-emerald-500 font-mono text-sm text-slate-100 placeholder-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{ WebkitTextSecurity: showToken ? 'none' : 'disc' } as React.CSSProperties}
           />
           {accessToken && (
             <button

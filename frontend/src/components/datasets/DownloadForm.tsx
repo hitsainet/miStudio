@@ -117,6 +117,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
           <input
             id="hf-repo"
             type="text"
+            autoComplete="off"
             value={hfRepo}
             onChange={(e) => setHfRepo(e.target.value)}
             placeholder="publisher/dataset-name"
@@ -136,12 +137,18 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
           <div className="relative">
             <input
               id="access-token"
-              type={showToken ? 'text' : 'password'}
+              name="dataset-hf-credential-input"
+              type="text"
+              autoComplete="off"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-form-type="other"
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
               placeholder="hf_..."
               className="w-full px-4 py-2 pr-10 bg-slate-800 border border-slate-700 rounded text-slate-100 placeholder-slate-500 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
               disabled={isSubmitting}
+              style={{ WebkitTextSecurity: showToken ? 'none' : 'disc' } as React.CSSProperties}
             />
             {accessToken && (
               <button
@@ -175,6 +182,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
             <input
               id="split"
               type="text"
+              autoComplete="off"
               value={split}
               onChange={(e) => setSplit(e.target.value)}
               placeholder="train, validation, test"
@@ -196,6 +204,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
             <input
               id="config"
               type="text"
+              autoComplete="off"
               value={config}
               onChange={(e) => setConfig(e.target.value)}
               placeholder="en, zh, etc."

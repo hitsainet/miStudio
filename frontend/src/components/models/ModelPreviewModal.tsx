@@ -18,18 +18,28 @@ interface ModelPreviewModalProps {
   repoId: string;
   onClose: () => void;
   onDownload?: (quantization: string, trustRemoteCode: boolean) => void;
+  initialTrustRemoteCode?: boolean;
+  onTrustRemoteCodeChange?: (value: boolean) => void;
 }
 
 export function ModelPreviewModal({
   repoId,
   onClose,
   onDownload,
+  initialTrustRemoteCode = false,
+  onTrustRemoteCodeChange,
 }: ModelPreviewModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [selectedQuantization, setSelectedQuantization] = useState<string>(QuantizationFormat.Q4);
-  const [trustRemoteCode, setTrustRemoteCode] = useState(false);
+  const [trustRemoteCode, setTrustRemoteCode] = useState(initialTrustRemoteCode);
+
+  // Handle trust remote code changes - sync with parent
+  const handleTrustRemoteCodeChange = (checked: boolean) => {
+    setTrustRemoteCode(checked);
+    onTrustRemoteCodeChange?.(checked);
+  };
 
   useEffect(() => {
     fetchModelInfo();
@@ -326,7 +336,7 @@ export function ModelPreviewModal({
                   type="checkbox"
                   id="preview-trust-remote-code"
                   checked={trustRemoteCode}
-                  onChange={(e) => setTrustRemoteCode(e.target.checked)}
+                  onChange={(e) => handleTrustRemoteCodeChange(e.target.checked)}
                   className="mt-1 w-4 h-4 rounded border-yellow-500/50 bg-slate-900 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-slate-950"
                 />
                 <div className="flex-1">

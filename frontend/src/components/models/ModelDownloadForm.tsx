@@ -274,6 +274,8 @@ export function ModelDownloadForm({ onDownload }: ModelDownloadFormProps) {
           repoId={hfModelRepo}
           onClose={() => setShowPreview(false)}
           onDownload={handlePreviewDownload}
+          initialTrustRemoteCode={trustRemoteCode}
+          onTrustRemoteCodeChange={setTrustRemoteCode}
         />
       )}
     </div>

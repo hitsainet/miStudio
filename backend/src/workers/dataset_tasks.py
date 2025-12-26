@@ -481,7 +481,18 @@ def tokenize_dataset_task(
             tokenizer_name = model_obj.repo_id
             # Get model's local cache directory for tokenizer files
             # Resolve relative path to absolute using settings.data_dir
-            model_cache_dir = str(settings.resolve_data_path(model_obj.file_path)) if model_obj.file_path else None
+            if model_obj.file_path:
+                resolved_path = settings.resolve_data_path(model_obj.file_path)
+                # Check if file_path is a HF cache directory (contains snapshots/ subdirectory)
+                # or starts with "models--". In that case, use its parent as cache_dir.
+                # HuggingFace expects cache_dir to be the PARENT of "models--{org}--{model}"
+                if (resolved_path / "snapshots").exists() or resolved_path.name.startswith("models--"):
+                    model_cache_dir = str(resolved_path.parent)
+                    print(f"[TOKENIZER] Detected HF cache format, using parent as cache_dir")
+                else:
+                    model_cache_dir = str(resolved_path)
+            else:
+                model_cache_dir = None
             print(f"Using tokenizer from model {model_id}: {tokenizer_name}")
             print(f"Model cache directory: {model_cache_dir}")
 

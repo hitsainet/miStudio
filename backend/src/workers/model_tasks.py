@@ -595,6 +595,7 @@ def extract_activations(
     batch_size: int = 8,
     micro_batch_size: Optional[int] = None,
     extraction_id: Optional[str] = None,
+    gpu_id: int = 0,
 ):
     """
     Extract activations from a model using a tokenized dataset.
@@ -616,6 +617,7 @@ def extract_activations(
         batch_size: Batch size for processing (default: 8)
         micro_batch_size: GPU micro-batch size for memory efficiency (defaults to batch_size)
         extraction_id: Optional extraction ID (generated if not provided)
+        gpu_id: GPU device ID to use for extraction (default: 0)
 
     Returns:
         dict with extraction metadata
@@ -627,28 +629,29 @@ def extract_activations(
     try:
         logger.info(
             f"Starting activation extraction for model {model_id}, "
-            f"dataset {dataset_id}, layers {layer_indices}, hooks {hook_types}"
+            f"dataset {dataset_id}, layers {layer_indices}, hooks {hook_types}, gpu={gpu_id}"
         )
 
         # Pre-task GPU memory check - ensure clean state before loading model
         import torch
         if torch.cuda.is_available():
-            allocated_before = torch.cuda.memory_allocated(0) / (1024 ** 3)  # GB
-            reserved_before = torch.cuda.memory_reserved(0) / (1024 ** 3)    # GB
+            allocated_before = torch.cuda.memory_allocated(gpu_id) / (1024 ** 3)  # GB
+            reserved_before = torch.cuda.memory_reserved(gpu_id) / (1024 ** 3)    # GB
             logger.info(
-                f"[Pre-extraction {self.request.id}] GPU memory before cleanup: "
+                f"[Pre-extraction {self.request.id}] GPU {gpu_id} memory before cleanup: "
                 f"Allocated={allocated_before:.2f} GB, Reserved={reserved_before:.2f} GB"
             )
 
             # Force cleanup in case previous task didn't complete cleanup
-            torch.cuda.empty_cache()
+            with torch.cuda.device(gpu_id):
+                torch.cuda.empty_cache()
             import gc
             gc.collect()
 
-            allocated_after = torch.cuda.memory_allocated(0) / (1024 ** 3)
-            reserved_after = torch.cuda.memory_reserved(0) / (1024 ** 3)
+            allocated_after = torch.cuda.memory_allocated(gpu_id) / (1024 ** 3)
+            reserved_after = torch.cuda.memory_reserved(gpu_id) / (1024 ** 3)
             logger.info(
-                f"[Pre-extraction {self.request.id}] GPU memory after cleanup: "
+                f"[Pre-extraction {self.request.id}] GPU {gpu_id} memory after cleanup: "
                 f"Allocated={allocated_after:.2f} GB, Reserved={reserved_after:.2f} GB"
             )
 
@@ -740,8 +743,9 @@ def extract_activations(
                         batch_size=batch_size,
                         micro_batch_size=micro_batch_size,
                         celery_task_id=self.request.id,
+                        gpu_id=gpu_id,
                     )
-                    logger.info(f"Created database record for extraction {extraction_id}")
+                    logger.info(f"Created database record for extraction {extraction_id} (GPU {gpu_id})")
         except Exception as db_e:
             # Don't fail extraction if database tracking fails
             logger.warning(f"Failed to create/update extraction database record: {db_e}")
@@ -825,6 +829,7 @@ def extract_activations(
                 micro_batch_size=micro_batch_size,
                 extraction_id=extraction_id,
                 progress_callback=on_extraction_progress,
+                gpu_id=gpu_id,
             )
 
             # Update progress: saving
@@ -1023,12 +1028,13 @@ def extract_activations(
         if torch.cuda.is_available():
             import gc
             gc.collect()
-            torch.cuda.empty_cache()
+            with torch.cuda.device(gpu_id):
+                torch.cuda.empty_cache()
 
-            allocated_final = torch.cuda.memory_allocated(0) / (1024 ** 3)
-            reserved_final = torch.cuda.memory_reserved(0) / (1024 ** 3)
+            allocated_final = torch.cuda.memory_allocated(gpu_id) / (1024 ** 3)
+            reserved_final = torch.cuda.memory_reserved(gpu_id) / (1024 ** 3)
             logger.info(
-                f"[Post-extraction {self.request.id}] GPU memory after task cleanup: "
+                f"[Post-extraction {self.request.id}] GPU {gpu_id} memory after task cleanup: "
                 f"Allocated={allocated_final:.2f} GB, Reserved={reserved_final:.2f} GB"
             )
 

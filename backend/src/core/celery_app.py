@@ -135,6 +135,9 @@ celery_app.conf.update(
         "src.workers.cleanup_stuck_trainings.*": {
             "queue": "low_priority",
         },
+        "src.workers.cleanup_stuck_activations.*": {
+            "queue": "low_priority",
+        },
 
         # SAE operations: HuggingFace downloads/uploads
         "src.workers.sae_tasks.*": {
@@ -214,6 +217,23 @@ celery_app.conf.update(
                 "queue": "low_priority",
             },
         },
+        # Cleanup stuck activation extraction jobs - runs every 10 minutes
+        "cleanup-stuck-activations": {
+            "task": "cleanup_stuck_activations",
+            "schedule": 600.0,  # Run every 10 minutes (600 seconds)
+            "options": {
+                "queue": "low_priority",
+            },
+        },
+        # GPU Memory Watchdog - runs every minute to detect stuck processes
+        # This is critical for preventing zombie processes from holding GPU memory
+        "gpu-memory-watchdog": {
+            "task": "gpu_watchdog",
+            "schedule": 60.0,  # Run every 60 seconds (1 minute)
+            "options": {
+                "queue": "low_priority",
+            },
+        },
     },
 
     # Worker settings
@@ -246,6 +266,8 @@ celery_app.autodiscover_tasks(
         "src.workers.system_monitor_tasks",
         "src.workers.cleanup_stuck_extractions",
         "src.workers.cleanup_stuck_trainings",
+        "src.workers.cleanup_stuck_activations",
+        "src.workers.gpu_watchdog_task",  # GPU memory watchdog for detecting stuck processes
         "src.workers.sae_tasks",
         "src.workers.neuronpedia_tasks",
         "src.workers.nlp_analysis_tasks",

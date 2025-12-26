@@ -45,19 +45,20 @@ class ActivationService:
         self.activations_dir = settings.data_dir / "activations"
         self.activations_dir.mkdir(parents=True, exist_ok=True)
 
-    def _log_gpu_memory(self, stage: str) -> None:
+    def _log_gpu_memory(self, stage: str, gpu_id: int = 0) -> None:
         """
         Log current GPU memory usage.
 
         Args:
             stage: Description of the current stage (e.g., "before_load", "after_extraction")
+            gpu_id: GPU device ID to check memory for
         """
         if torch.cuda.is_available():
-            allocated = torch.cuda.memory_allocated(0) / (1024 ** 3)  # GB
-            reserved = torch.cuda.memory_reserved(0) / (1024 ** 3)    # GB
-            logger.info(f"[GPU Memory - {stage}] Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
+            allocated = torch.cuda.memory_allocated(gpu_id) / (1024 ** 3)  # GB
+            reserved = torch.cuda.memory_reserved(gpu_id) / (1024 ** 3)    # GB
+            logger.info(f"[GPU {gpu_id} Memory - {stage}] Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
 
-    def _cleanup_model(self, model: torch.nn.Module) -> None:
+    def _cleanup_model(self, model: torch.nn.Module, gpu_id: int = 0) -> None:
         """
         Explicitly clean up model from GPU memory.
 
@@ -66,32 +67,75 @@ class ActivationService:
 
         Args:
             model: PyTorch model to clean up
+            gpu_id: GPU device ID that the model was loaded on
         """
+        import gc
+
         try:
             # Log memory before cleanup
-            self._log_gpu_memory("before_cleanup")
+            self._log_gpu_memory("before_cleanup", gpu_id)
 
-            # Move model to CPU to free GPU memory
-            model.cpu()
+            # Synchronize CUDA to ensure all operations are complete
+            if torch.cuda.is_available():
+                torch.cuda.synchronize(gpu_id)
+
+            # AGGRESSIVE CLEANUP: Delete all model parameters and buffers explicitly
+            # This is more reliable than model.cpu() when using device_map
+            try:
+                # Clear all parameters
+                for param in model.parameters():
+                    param.data = torch.empty(0)
+                    if param.grad is not None:
+                        param.grad = None
+
+                # Clear all buffers
+                for buffer in model.buffers():
+                    buffer.data = torch.empty(0)
+            except Exception as e:
+                logger.warning(f"Error clearing model parameters/buffers: {e}")
+
+            # Try to move model to CPU (may not work with device_map, but worth trying)
+            try:
+                model.cpu()
+            except Exception as e:
+                logger.warning(f"model.cpu() failed (expected with device_map): {e}")
+
+            # Delete all module attributes that might hold tensor references
+            try:
+                for name, child in list(model.named_children()):
+                    delattr(model, name)
+            except Exception as e:
+                logger.warning(f"Error deleting model children: {e}")
 
             # Delete model reference
             del model
 
-            # Force garbage collection
-            import gc
-            gc.collect()
+            # Multiple rounds of garbage collection to ensure cleanup
+            for _ in range(3):
+                gc.collect()
 
-            # Empty CUDA cache to release memory back to GPU
+            # Empty CUDA cache on the specific GPU
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+                with torch.cuda.device(gpu_id):
+                    torch.cuda.empty_cache()
+                    # Also synchronize again after cache clear
+                    torch.cuda.synchronize(gpu_id)
 
             # Log memory after cleanup
-            self._log_gpu_memory("after_cleanup")
+            self._log_gpu_memory("after_cleanup", gpu_id)
 
-            logger.info("Model cleaned up from GPU memory")
+            logger.info(f"Model cleaned up from GPU {gpu_id} memory")
 
         except Exception as e:
             logger.warning(f"Error during model cleanup: {e}")
+            # Still try to clear cache even if other cleanup failed
+            if torch.cuda.is_available():
+                try:
+                    gc.collect()
+                    with torch.cuda.device(gpu_id):
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
 
     def extract_activations(
         self,
@@ -107,6 +151,7 @@ class ActivationService:
         micro_batch_size: Optional[int] = None,
         extraction_id: Optional[str] = None,
         progress_callback: Optional[callable] = None,
+        gpu_id: int = 0,
     ) -> Dict[str, Any]:
         """
         Extract activations from a model using a dataset.
@@ -124,6 +169,7 @@ class ActivationService:
             micro_batch_size: GPU micro-batch size for memory efficiency (defaults to batch_size)
             extraction_id: Optional extraction ID (generated if not provided)
             progress_callback: Optional callback function(samples_processed, total_samples)
+            gpu_id: GPU device ID to use for extraction (default: 0)
 
         Returns:
             Dictionary with extraction metadata including output_path and statistics
@@ -152,15 +198,15 @@ class ActivationService:
         model = None  # Initialize to None for cleanup in finally block
         try:
             # Log GPU memory before loading model
-            self._log_gpu_memory("before_load")
+            self._log_gpu_memory("before_load", gpu_id)
 
             # Load model
-            logger.info(f"Loading model from {model_path}")
-            model, tokenizer = self._load_model(model_path, quantization)
+            logger.info(f"Loading model from {model_path} to GPU {gpu_id}")
+            model, tokenizer = self._load_model(model_path, quantization, gpu_id=gpu_id)
             model.eval()  # Set to evaluation mode
 
             # Log GPU memory after loading model
-            self._log_gpu_memory("after_load")
+            self._log_gpu_memory("after_load", gpu_id)
 
             # Load dataset
             logger.info(f"Loading dataset from {dataset_path}")
@@ -191,14 +237,14 @@ class ActivationService:
             )
 
             # Log GPU memory after extraction
-            self._log_gpu_memory("after_extraction")
+            self._log_gpu_memory("after_extraction", gpu_id)
 
             # CRITICAL: Clean up GPU memory immediately after extraction completes
             # Model and hooks are no longer needed for saving/statistics phases
             # This frees ~8-10 GB of GPU memory that would otherwise sit idle
             logger.info(f"Cleaning up GPU memory after extraction (model no longer needed)")
             if model is not None:
-                self._cleanup_model(model)
+                self._cleanup_model(model, gpu_id)
                 model = None  # Mark as cleaned up to avoid double cleanup in finally block
 
             # Save activations to disk
@@ -250,15 +296,16 @@ class ActivationService:
         finally:
             # CRITICAL: Always clean up GPU memory, even if extraction failed
             if model is not None:
-                logger.info(f"Cleaning up model for extraction {extraction_id}")
-                self._cleanup_model(model)
+                logger.info(f"Cleaning up model for extraction {extraction_id} on GPU {gpu_id}")
+                self._cleanup_model(model, gpu_id)
             else:
-                logger.info(f"No model to clean up for extraction {extraction_id}")
+                logger.info(f"No model to clean up for extraction {extraction_id} (already cleaned or never loaded)")
 
     def _load_model(
         self,
         model_path: str,
-        quantization: QuantizationFormat
+        quantization: QuantizationFormat,
+        gpu_id: int = 0
     ) -> tuple[torch.nn.Module, Any]:
         """
         Load model from disk, handling HuggingFace cache structure.
@@ -266,6 +313,7 @@ class ActivationService:
         Args:
             model_path: Path to model files (may contain HF cache structure)
             quantization: Quantization format
+            gpu_id: GPU device ID to use (default: 0)
 
         Returns:
             Tuple of (model, tokenizer)
@@ -302,15 +350,22 @@ class ActivationService:
         if not torch.cuda.is_available():
             raise ActivationExtractionError("CUDA is not available. GPU is required for activation extraction.")
 
-        device = torch.device("cuda:0")
-        logger.info(f"Loading model to device: {device} (CUDA device: {torch.cuda.get_device_name(0)})")
+        # Validate GPU ID
+        num_gpus = torch.cuda.device_count()
+        if gpu_id >= num_gpus:
+            raise ActivationExtractionError(
+                f"GPU {gpu_id} not available. System has {num_gpus} GPU(s) (indices 0-{num_gpus-1})."
+            )
+
+        device = torch.device(f"cuda:{gpu_id}")
+        logger.info(f"Loading model to device: {device} (CUDA device: {torch.cuda.get_device_name(gpu_id)})")
 
         # Load model directly to GPU with explicit device parameter
-        # IMPORTANT: Use device="cuda:0" instead of device_map="auto" to force GPU placement
+        # IMPORTANT: Use explicit cuda:N instead of device_map="auto" to force GPU placement
         # device_map="auto" with accelerate can offload to CPU if it thinks there's not enough memory
         model = AutoModelForCausalLM.from_pretrained(
             actual_model_path,
-            device_map={"": device},  # Force all layers to GPU 0
+            device_map={"": device},  # Force all layers to specified GPU
             torch_dtype=torch.float16,  # Always use FP16 for memory efficiency
             low_cpu_mem_usage=True,  # Minimize CPU memory during loading
         )

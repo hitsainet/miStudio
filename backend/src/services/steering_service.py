@@ -7,11 +7,18 @@ This module provides the core steering functionality:
 3. Modifying activations based on feature strengths
 4. Generating steered and unsteered text
 5. Computing evaluation metrics (perplexity, coherence, behavioral score)
+
+CRITICAL: This module includes signal handlers and atexit handlers to ensure
+GPU memory is properly cleaned up even on abnormal process termination.
 """
 
 import asyncio
+import atexit
+import gc
 import logging
 import math
+import signal
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -52,6 +59,77 @@ from ..schemas.steering import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# GPU CLEANUP ON ABNORMAL EXIT
+# =============================================================================
+# These handlers ensure GPU memory is freed even when the process is killed
+# by a signal or exits abnormally. Without these, zombie processes can hold
+# GPU memory indefinitely.
+
+
+def _emergency_gpu_cleanup():
+    """
+    Emergency GPU cleanup called on process exit or signal.
+
+    This is a last-resort cleanup that runs independently of any service instance.
+    It clears ALL GPU caches across all available GPUs.
+    """
+    try:
+        logger.warning("[Emergency GPU Cleanup] Running emergency GPU cleanup...")
+        gc.collect()
+
+        if torch.cuda.is_available():
+            num_gpus = torch.cuda.device_count()
+            for gpu_id in range(num_gpus):
+                try:
+                    with torch.cuda.device(gpu_id):
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                except Exception as e:
+                    logger.warning(f"[Emergency GPU Cleanup] GPU {gpu_id} cleanup error: {e}")
+            logger.warning(f"[Emergency GPU Cleanup] Cleared cache on {num_gpus} GPU(s)")
+
+        gc.collect()
+    except Exception as e:
+        # Last resort - try to at least log the error
+        try:
+            logger.error(f"[Emergency GPU Cleanup] Failed: {e}")
+        except:
+            pass  # If logging fails, silently ignore
+
+
+def _signal_handler(signum, frame):
+    """
+    Signal handler for SIGTERM and SIGINT.
+
+    Runs emergency GPU cleanup before allowing the process to terminate.
+    """
+    sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+    logger.warning(f"[Signal Handler] Received {sig_name}, running GPU cleanup...")
+    _emergency_gpu_cleanup()
+
+    # Re-raise the signal to allow default handling (process termination)
+    # Reset to default handler to avoid infinite loop
+    signal.signal(signum, signal.SIG_DFL)
+    raise SystemExit(128 + signum)
+
+
+# Register signal handlers
+# Note: These may not work in all contexts (e.g., inside async loops)
+# but provide an extra layer of protection
+try:
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    logger.info("[Signal Handler] Registered SIGTERM and SIGINT handlers for GPU cleanup")
+except Exception as e:
+    logger.warning(f"[Signal Handler] Could not register signal handlers: {e}")
+
+# Register atexit handler
+# This runs on normal exit, sys.exit(), and unhandled exceptions
+atexit.register(_emergency_gpu_cleanup)
+logger.info("[atexit] Registered emergency GPU cleanup on exit")
 
 
 @dataclass
@@ -131,6 +209,124 @@ class SteeringService:
         self._loaded_models: Dict[str, Tuple[PreTrainedModel, PreTrainedTokenizer]] = {}
         self._sentence_model = None  # Lazy-loaded for coherence metrics
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    def cleanup_gpu(
+        self,
+        model: Optional[PreTrainedModel] = None,
+        device_id: Optional[int] = None,
+    ) -> None:
+        """
+        Clean up GPU memory to prevent memory leaks.
+
+        Supports multi-GPU systems by cleaning all available GPUs or a specific one.
+
+        This should be called:
+        - After any error during model operations
+        - After completing steering operations
+        - When explicitly unloading models
+
+        Args:
+            model: Optional model to clear hooks from before cleanup
+            device_id: Optional specific GPU to clean (None = all GPUs)
+        """
+        try:
+            # Clear hooks from the model if provided
+            if model is not None:
+                self._clear_all_model_hooks(model)
+
+            # Force garbage collection first to release Python references
+            gc.collect()
+
+            # Clear CUDA cache on all GPUs or specific GPU
+            if torch.cuda.is_available():
+                num_gpus = torch.cuda.device_count()
+
+                if device_id is not None:
+                    # Clean specific GPU
+                    if device_id < num_gpus:
+                        with torch.cuda.device(device_id):
+                            torch.cuda.empty_cache()
+                            torch.cuda.synchronize()
+                        logger.info(f"[GPU Cleanup] GPU {device_id} cache cleared")
+                else:
+                    # Clean ALL GPUs - critical for multi-GPU systems
+                    for gpu_id in range(num_gpus):
+                        with torch.cuda.device(gpu_id):
+                            torch.cuda.empty_cache()
+                            torch.cuda.synchronize()
+                    logger.info(f"[GPU Cleanup] Cleared cache on {num_gpus} GPU(s)")
+
+            # Second garbage collection pass
+            gc.collect()
+
+            # Final CUDA cleanup pass on all GPUs
+            if torch.cuda.is_available():
+                for gpu_id in range(torch.cuda.device_count()):
+                    with torch.cuda.device(gpu_id):
+                        torch.cuda.empty_cache()
+
+        except Exception as e:
+            logger.warning(f"[GPU Cleanup] Error during cleanup: {e}")
+
+    def unload_model(self, model_id: str) -> bool:
+        """
+        Explicitly unload a model from cache and GPU memory.
+
+        Args:
+            model_id: The model identifier to unload
+
+        Returns:
+            True if model was unloaded, False if not found
+        """
+        if model_id not in self._loaded_models:
+            logger.info(f"[Unload] Model {model_id} not in cache")
+            return False
+
+        try:
+            model, tokenizer = self._loaded_models.pop(model_id)
+
+            # Clear any hooks
+            self._clear_all_model_hooks(model)
+
+            # Move model to CPU first (helps with GPU memory release)
+            try:
+                model.to("cpu")
+            except Exception:
+                pass
+
+            # Delete references
+            del model
+            del tokenizer
+
+            # Clean up GPU
+            self.cleanup_gpu()
+
+            logger.info(f"[Unload] Model {model_id} unloaded and GPU cleaned")
+            return True
+
+        except Exception as e:
+            logger.error(f"[Unload] Error unloading model {model_id}: {e}")
+            self.cleanup_gpu()
+            return False
+
+    def unload_all_models(self) -> int:
+        """
+        Unload all cached models and clean GPU memory.
+
+        Returns:
+            Number of models unloaded
+        """
+        model_ids = list(self._loaded_models.keys())
+        count = 0
+
+        for model_id in model_ids:
+            if self.unload_model(model_id):
+                count += 1
+
+        # Final cleanup
+        self.cleanup_gpu()
+        logger.info(f"[Unload] Unloaded {count} models, GPU cleaned")
+        return count
 
     async def load_sae(
         self,
@@ -537,8 +733,21 @@ class SteeringService:
                     # - Consistent results regardless of activation values
                     total_steering_vector = torch.zeros(hidden_dim, device=hidden_states.device, dtype=input_dtype)
 
+                    # Get SAE dimension for validation
+                    sae_dim = decoder_weight.shape[1]  # Number of features in SAE
+
                     for config in feature_configs:
                         feat_idx = config.feature_idx
+
+                        # CRITICAL: Validate feature index is within SAE bounds
+                        if feat_idx >= sae_dim:
+                            logger.error(
+                                f"[Steering Hook] Feature index {feat_idx} is out of bounds! "
+                                f"SAE only has {sae_dim} features (valid indices: 0-{sae_dim-1}). "
+                                f"Skipping this feature."
+                            )
+                            continue
+
                         # Steering coefficient: multiplier - 1 (so multiplier=1 means no change)
                         steering_coefficient = config.multiplier - 1.0
 
@@ -927,91 +1136,167 @@ class SteeringService:
         """
         start_time = time.time()
         comparison_id = f"cmp_{uuid4().hex[:12]}"
+        model = None  # Track for cleanup
 
-        # Load SAE and model
-        sae = await self.load_sae(
-            sae_path,
-            request.sae_id,
-            layer=sae_layer,
-            d_model=sae_d_model,
-            n_features=sae_n_features,
-            architecture=sae_architecture,
-        )
-        model, tokenizer = await self.load_model(model_id, model_path)
-
-        # CRITICAL: Clear any stale hooks from previous requests that may have timed out
-        # This ensures unsteered baseline is truly unsteered and not contaminated
-        # by steering hooks from a previous request that didn't clean up properly
-        self._clear_all_model_hooks(model)
-
-        # Use all selected features - duplicates with different strengths are intentional
-        # (e.g., same feature at +50 and -50 for A/B comparison)
-        unique_features = request.selected_features
-
-        feature_configs = [
-            FeatureSteeringConfig(
-                feature_idx=f.feature_idx,
-                layer=f.layer,
-                strength=f.strength,
-                label=f.label,
-                color=f.color,
+        try:
+            # Load SAE and model
+            sae = await self.load_sae(
+                sae_path,
+                request.sae_id,
+                layer=sae_layer,
+                d_model=sae_d_model,
+                n_features=sae_n_features,
+                architecture=sae_architecture,
             )
-            for f in unique_features
-        ]
+            model, tokenizer = await self.load_model(model_id, model_path)
 
-        # Generate unsteered baseline
-        unsteered_output = None
-        unsteered_text = None
+            # CRITICAL: Clear any stale hooks from previous requests that may have timed out
+            # This ensures unsteered baseline is truly unsteered and not contaminated
+            # by steering hooks from a previous request that didn't clean up properly
+            self._clear_all_model_hooks(model)
 
-        if request.include_unsteered:
-            # Disable KV cache for consistency with steered generation
-            # Some models (e.g., Gemma-2) behave differently with/without cache
-            text, token_count, gen_time = await self._generate_text(
-                model, tokenizer, request.prompt,
-                request.generation_params,
-                request.advanced_params,
-                disable_cache=True,
-            )
-            unsteered_text = text
+            # Use all selected features - duplicates with different strengths are intentional
+            # (e.g., same feature at +50 and -50 for A/B comparison)
+            unique_features = request.selected_features
 
-            metrics = None
-            if request.compute_metrics:
-                metrics = await self._compute_metrics(
+            feature_configs = [
+                FeatureSteeringConfig(
+                    feature_idx=f.feature_idx,
+                    layer=f.layer,
+                    strength=f.strength,
+                    label=f.label,
+                    color=f.color,
+                )
+                for f in unique_features
+            ]
+
+            # Generate unsteered baseline
+            unsteered_output = None
+            unsteered_text = None
+
+            if request.include_unsteered:
+                # Disable KV cache for consistency with steered generation
+                # Some models (e.g., Gemma-2) behave differently with/without cache
+                text, token_count, gen_time = await self._generate_text(
                     model, tokenizer, request.prompt,
-                    text, token_count, gen_time,
+                    request.generation_params,
+                    request.advanced_params,
+                    disable_cache=True,
+                )
+                unsteered_text = text
+
+                metrics = None
+                if request.compute_metrics:
+                    metrics = await self._compute_metrics(
+                        model, tokenizer, request.prompt,
+                        text, token_count, gen_time,
+                    )
+
+                unsteered_output = UnsteeredOutput(
+                    text=text,
+                    metrics=metrics,
                 )
 
-            unsteered_output = UnsteeredOutput(
-                text=text,
-                metrics=metrics,
+            # Check if any feature has additional_strengths (multi-strength mode)
+            has_multi_strength = any(
+                f.additional_strengths and len(f.additional_strengths) > 0
+                for f in unique_features
             )
 
-        # Check if any feature has additional_strengths (multi-strength mode)
-        has_multi_strength = any(
-            f.additional_strengths and len(f.additional_strengths) > 0
-            for f in unique_features
-        )
+            if has_multi_strength:
+                # Multi-strength mode: generate at multiple strengths per feature
+                steered_multi_outputs = await self._generate_multi_strength_outputs(
+                    model=model,
+                    tokenizer=tokenizer,
+                    sae=sae,
+                    request=request,
+                    unique_features=unique_features,
+                    unsteered_text=unsteered_text,
+                )
 
-        if has_multi_strength:
-            # Multi-strength mode: generate at multiple strengths per feature
-            steered_multi_outputs = await self._generate_multi_strength_outputs(
-                model=model,
-                tokenizer=tokenizer,
-                sae=sae,
-                request=request,
-                unique_features=unique_features,
-                unsteered_text=unsteered_text,
-            )
+                # Build metrics summary for multi-strength mode
+                metrics_summary = None
+                if request.compute_metrics and steered_multi_outputs:
+                    first_result = steered_multi_outputs[0].primary_result
+                    metrics_summary = {
+                        "steered_perplexity": first_result.metrics.perplexity if first_result.metrics else None,
+                        "unsteered_perplexity": unsteered_output.metrics.perplexity if unsteered_output and unsteered_output.metrics else None,
+                        "coherence": first_result.metrics.coherence if first_result.metrics else None,
+                        "behavioral_score": first_result.metrics.behavioral_score if first_result.metrics else None,
+                    }
 
-            # Build metrics summary for multi-strength mode
+                total_time_ms = int((time.time() - start_time) * 1000)
+
+                return SteeringComparisonResponse(
+                    comparison_id=comparison_id,
+                    sae_id=request.sae_id,
+                    model_id=model_id,
+                    prompt=request.prompt,
+                    unsteered=unsteered_output,
+                    steered=[],  # Empty for multi-strength mode
+                    steered_multi=steered_multi_outputs,
+                    metrics_summary=metrics_summary,
+                    total_time_ms=total_time_ms,
+                    created_at=datetime.utcnow(),
+                )
+
+            # Single-strength mode: one output per feature (existing behavior)
+            steered_outputs = []
+
+            for feature in unique_features:
+                # Create config for just this feature
+                single_feature_config = [
+                    FeatureSteeringConfig(
+                        feature_idx=feature.feature_idx,
+                        layer=feature.layer,
+                        strength=feature.strength,
+                        label=feature.label,
+                    )
+                ]
+
+                # Register steering hooks for this single feature
+                handles = self._register_steering_hooks(model, sae, single_feature_config)
+
+                try:
+                    # Generate with steering for this feature
+                    # Disable KV cache because some models (e.g., Gemma-2 with hybrid cache)
+                    # are incompatible with forward hooks when caching is enabled
+                    text, token_count, gen_time = await self._generate_text(
+                        model, tokenizer, request.prompt,
+                        request.generation_params,
+                        request.advanced_params,
+                        disable_cache=True,
+                    )
+
+                    metrics = None
+                    if request.compute_metrics:
+                        feature_label = feature.label or f"Feature {feature.feature_idx}"
+                        metrics = await self._compute_metrics(
+                            model, tokenizer, request.prompt,
+                            text, token_count, gen_time,
+                            unsteered_text=unsteered_text,
+                            feature_labels=[feature_label],
+                        )
+
+                    steered_outputs.append(SteeredOutput(
+                        text=text,
+                        feature_config=feature,
+                        metrics=metrics,
+                    ))
+
+                finally:
+                    # Clean up hooks before next feature
+                    for handle in handles:
+                        handle.remove()
+
+            # Build metrics summary
             metrics_summary = None
-            if request.compute_metrics and steered_multi_outputs:
-                first_result = steered_multi_outputs[0].primary_result
+            if request.compute_metrics and steered_outputs:
                 metrics_summary = {
-                    "steered_perplexity": first_result.metrics.perplexity if first_result.metrics else None,
+                    "steered_perplexity": steered_outputs[0].metrics.perplexity if steered_outputs[0].metrics else None,
                     "unsteered_perplexity": unsteered_output.metrics.perplexity if unsteered_output and unsteered_output.metrics else None,
-                    "coherence": first_result.metrics.coherence if first_result.metrics else None,
-                    "behavioral_score": first_result.metrics.behavioral_score if first_result.metrics else None,
+                    "coherence": steered_outputs[0].metrics.coherence if steered_outputs[0].metrics else None,
+                    "behavioral_score": steered_outputs[0].metrics.behavioral_score if steered_outputs[0].metrics else None,
                 }
 
             total_time_ms = int((time.time() - start_time) * 1000)
@@ -1022,86 +1307,24 @@ class SteeringService:
                 model_id=model_id,
                 prompt=request.prompt,
                 unsteered=unsteered_output,
-                steered=[],  # Empty for multi-strength mode
-                steered_multi=steered_multi_outputs,
+                steered=steered_outputs,
+                steered_multi=None,  # Not in multi-strength mode
                 metrics_summary=metrics_summary,
                 total_time_ms=total_time_ms,
                 created_at=datetime.utcnow(),
             )
 
-        # Single-strength mode: one output per feature (existing behavior)
-        steered_outputs = []
+        except Exception as e:
+            logger.error(f"[Steering] Error during generate_comparison: {e}")
+            raise
 
-        for feature in unique_features:
-            # Create config for just this feature
-            single_feature_config = [
-                FeatureSteeringConfig(
-                    feature_idx=feature.feature_idx,
-                    layer=feature.layer,
-                    strength=feature.strength,
-                    label=feature.label,
-                )
-            ]
-
-            # Register steering hooks for this single feature
-            handles = self._register_steering_hooks(model, sae, single_feature_config)
-
-            try:
-                # Generate with steering for this feature
-                # Disable KV cache because some models (e.g., Gemma-2 with hybrid cache)
-                # are incompatible with forward hooks when caching is enabled
-                text, token_count, gen_time = await self._generate_text(
-                    model, tokenizer, request.prompt,
-                    request.generation_params,
-                    request.advanced_params,
-                    disable_cache=True,
-                )
-
-                metrics = None
-                if request.compute_metrics:
-                    feature_label = feature.label or f"Feature {feature.feature_idx}"
-                    metrics = await self._compute_metrics(
-                        model, tokenizer, request.prompt,
-                        text, token_count, gen_time,
-                        unsteered_text=unsteered_text,
-                        feature_labels=[feature_label],
-                    )
-
-                steered_outputs.append(SteeredOutput(
-                    text=text,
-                    feature_config=feature,
-                    metrics=metrics,
-                ))
-
-            finally:
-                # Clean up hooks before next feature
-                for handle in handles:
-                    handle.remove()
-
-        # Build metrics summary
-        metrics_summary = None
-        if request.compute_metrics and steered_outputs:
-            metrics_summary = {
-                "steered_perplexity": steered_outputs[0].metrics.perplexity if steered_outputs[0].metrics else None,
-                "unsteered_perplexity": unsteered_output.metrics.perplexity if unsteered_output and unsteered_output.metrics else None,
-                "coherence": steered_outputs[0].metrics.coherence if steered_outputs[0].metrics else None,
-                "behavioral_score": steered_outputs[0].metrics.behavioral_score if steered_outputs[0].metrics else None,
-            }
-
-        total_time_ms = int((time.time() - start_time) * 1000)
-
-        return SteeringComparisonResponse(
-            comparison_id=comparison_id,
-            sae_id=request.sae_id,
-            model_id=model_id,
-            prompt=request.prompt,
-            unsteered=unsteered_output,
-            steered=steered_outputs,
-            steered_multi=None,  # Not in multi-strength mode
-            metrics_summary=metrics_summary,
-            total_time_ms=total_time_ms,
-            created_at=datetime.utcnow(),
-        )
+        finally:
+            # CRITICAL: Always clean up GPU memory, even on error
+            # This prevents zombie processes holding GPU memory
+            if model is not None:
+                self._clear_all_model_hooks(model)
+            self.cleanup_gpu(model)
+            logger.info("[Steering] GPU cleanup completed")
 
     async def _generate_multi_strength_outputs(
         self,
@@ -1237,97 +1460,111 @@ class SteeringService:
         """
         start_time = time.time()
         sweep_id = f"sweep_{uuid4().hex[:12]}"
+        model = None  # Track for cleanup
 
-        # Load SAE and model
-        sae = await self.load_sae(
-            sae_path,
-            request.sae_id,
-            layer=sae_layer,
-            d_model=sae_d_model,
-            n_features=sae_n_features,
-            architecture=sae_architecture,
-        )
-        model, tokenizer = await self.load_model(model_id, model_path)
+        try:
+            # Load SAE and model
+            sae = await self.load_sae(
+                sae_path,
+                request.sae_id,
+                layer=sae_layer,
+                d_model=sae_d_model,
+                n_features=sae_n_features,
+                architecture=sae_architecture,
+            )
+            model, tokenizer = await self.load_model(model_id, model_path)
 
-        # CRITICAL: Clear any stale hooks from previous requests that may have timed out
-        # This ensures unsteered baseline is truly unsteered
-        self._clear_all_model_hooks(model)
+            # CRITICAL: Clear any stale hooks from previous requests that may have timed out
+            # This ensures unsteered baseline is truly unsteered
+            self._clear_all_model_hooks(model)
 
-        # Generate unsteered baseline
-        # Disable KV cache for consistency - some models behave differently with/without cache
-        text, token_count, gen_time = await self._generate_text(
-            model, tokenizer, request.prompt,
-            request.generation_params,
-            disable_cache=True,
-        )
-
-        unsteered_metrics = await self._compute_metrics(
-            model, tokenizer, request.prompt,
-            text, token_count, gen_time,
-        )
-
-        unsteered = UnsteeredOutput(
-            text=text,
-            metrics=unsteered_metrics,
-        )
-
-        # Generate for each strength value
-        results = []
-
-        for strength in request.strength_values:
-            # Create feature config
-            feature_config = FeatureSteeringConfig(
-                feature_idx=request.feature_idx,
-                layer=request.layer,
-                strength=strength,
+            # Generate unsteered baseline
+            # Disable KV cache for consistency - some models behave differently with/without cache
+            text, token_count, gen_time = await self._generate_text(
+                model, tokenizer, request.prompt,
+                request.generation_params,
+                disable_cache=True,
             )
 
-            # Register hook
-            handles = self._register_steering_hooks(model, sae, [feature_config])
+            unsteered_metrics = await self._compute_metrics(
+                model, tokenizer, request.prompt,
+                text, token_count, gen_time,
+            )
 
-            try:
-                # Disable KV cache for consistency with unsteered generation
-                text, token_count, gen_time = await self._generate_text(
-                    model, tokenizer, request.prompt,
-                    request.generation_params,
-                    disable_cache=True,
-                )
+            unsteered = UnsteeredOutput(
+                text=text,
+                metrics=unsteered_metrics,
+            )
 
-                metrics = await self._compute_metrics(
-                    model, tokenizer, request.prompt,
-                    text, token_count, gen_time,
-                    unsteered_text=unsteered.text,
-                    feature_labels=[f"Feature {request.feature_idx}"],
-                )
+            # Generate for each strength value
+            results = []
 
-                results.append(StrengthSweepResult(
+            for strength in request.strength_values:
+                # Create feature config
+                feature_config = FeatureSteeringConfig(
+                    feature_idx=request.feature_idx,
+                    layer=request.layer,
                     strength=strength,
-                    text=text,
-                    metrics=metrics,
-                ))
+                )
 
-            finally:
-                for handle in handles:
-                    handle.remove()
+                # Register hook
+                handles = self._register_steering_hooks(model, sae, [feature_config])
 
-        total_time_ms = int((time.time() - start_time) * 1000)
+                try:
+                    # Disable KV cache for consistency with unsteered generation
+                    text, token_count, gen_time = await self._generate_text(
+                        model, tokenizer, request.prompt,
+                        request.generation_params,
+                        disable_cache=True,
+                    )
 
-        return StrengthSweepResponse(
-            sweep_id=sweep_id,
-            sae_id=request.sae_id,
-            model_id=model_id,
-            prompt=request.prompt,
-            feature_idx=request.feature_idx,
-            layer=request.layer,
-            unsteered=unsteered,
-            results=results,
-            total_time_ms=total_time_ms,
-            created_at=datetime.utcnow(),
-        )
+                    metrics = await self._compute_metrics(
+                        model, tokenizer, request.prompt,
+                        text, token_count, gen_time,
+                        unsteered_text=unsteered.text,
+                        feature_labels=[f"Feature {request.feature_idx}"],
+                    )
+
+                    results.append(StrengthSweepResult(
+                        strength=strength,
+                        text=text,
+                        metrics=metrics,
+                    ))
+
+                finally:
+                    for handle in handles:
+                        handle.remove()
+
+            total_time_ms = int((time.time() - start_time) * 1000)
+
+            return StrengthSweepResponse(
+                sweep_id=sweep_id,
+                sae_id=request.sae_id,
+                model_id=model_id,
+                prompt=request.prompt,
+                feature_idx=request.feature_idx,
+                layer=request.layer,
+                unsteered=unsteered,
+                results=results,
+                total_time_ms=total_time_ms,
+                created_at=datetime.utcnow(),
+            )
+
+        except Exception as e:
+            logger.error(f"[Strength Sweep] Error during generate_strength_sweep: {e}")
+            raise
+
+        finally:
+            # CRITICAL: Always clean up GPU memory on all GPUs, even on error
+            # This prevents zombie processes holding GPU memory
+            if model is not None:
+                self._clear_all_model_hooks(model)
+            self.cleanup_gpu(model)
+            logger.info("[Strength Sweep] GPU cleanup completed")
 
     def unload_sae(self, sae_id: str) -> bool:
         """
-        Unload a cached SAE from memory.
+        Unload a cached SAE from memory and clean up GPU.
 
         Args:
             sae_id: SAE identifier
@@ -1335,25 +1572,75 @@ class SteeringService:
         Returns:
             True if unloaded, False if not found
         """
-        if sae_id in self._loaded_saes:
-            del self._loaded_saes[sae_id]
+        if sae_id not in self._loaded_saes:
+            logger.info(f"[Unload SAE] SAE {sae_id} not in cache")
+            return False
+
+        try:
+            loaded_sae = self._loaded_saes.pop(sae_id)
+
+            # Move SAE model to CPU first (helps with GPU memory release)
+            try:
+                if hasattr(loaded_sae.model, 'to'):
+                    loaded_sae.model.to("cpu")
+            except Exception:
+                pass
+
+            # Delete reference
+            del loaded_sae
+
+            # Clean up GPU
+            self.cleanup_gpu()
+
+            logger.info(f"[Unload SAE] SAE {sae_id} unloaded and GPU cleaned")
             return True
-        return False
 
-    def unload_model(self, model_id: str) -> bool:
+        except Exception as e:
+            logger.error(f"[Unload SAE] Error unloading SAE {sae_id}: {e}")
+            self.cleanup_gpu()
+            return False
+
+    def unload_all_saes(self) -> int:
         """
-        Unload a cached model from memory.
-
-        Args:
-            model_id: Model identifier
+        Unload all cached SAEs and clean GPU memory.
 
         Returns:
-            True if unloaded, False if not found
+            Number of SAEs unloaded
         """
-        if model_id in self._loaded_models:
-            del self._loaded_models[model_id]
-            return True
-        return False
+        sae_ids = list(self._loaded_saes.keys())
+        count = 0
+
+        for sae_id in sae_ids:
+            if self.unload_sae(sae_id):
+                count += 1
+
+        # Final cleanup
+        self.cleanup_gpu()
+        logger.info(f"[Unload SAE] Unloaded {count} SAEs, GPU cleaned")
+        return count
+
+    def unload_all(self) -> Dict[str, int]:
+        """
+        Unload all cached models and SAEs, clean all GPUs.
+
+        Returns:
+            Dictionary with counts of unloaded models and SAEs
+        """
+        models_unloaded = self.unload_all_models()
+        saes_unloaded = self.unload_all_saes()
+
+        # Final comprehensive cleanup on all GPUs
+        self.cleanup_gpu()
+
+        logger.info(
+            f"[Unload All] Unloaded {models_unloaded} models, "
+            f"{saes_unloaded} SAEs, all GPUs cleaned"
+        )
+
+        return {
+            "models_unloaded": models_unloaded,
+            "saes_unloaded": saes_unloaded,
+        }
 
     def _get_system_vram_usage_gb(self) -> float:
         """

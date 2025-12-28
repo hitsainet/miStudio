@@ -12,6 +12,7 @@ from src.core.celery_app import celery_app
 from src.core.config import settings
 from src.services.extraction_service import ExtractionService
 from src.workers.base_task import DatabaseTask
+from src.workers.websocket_emitter import emit_extraction_deleted
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +301,9 @@ def delete_extraction_task(self, extraction_id: str) -> Dict[str, Any]:
             db.commit()
 
             logger.info(f"Successfully deleted extraction {extraction_id} with {feature_count} features")
+
+            # Emit WebSocket event to notify frontend
+            emit_extraction_deleted(extraction_id, feature_count)
 
             return {
                 "extraction_id": extraction_id,

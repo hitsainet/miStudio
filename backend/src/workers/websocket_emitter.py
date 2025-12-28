@@ -375,6 +375,41 @@ def emit_extraction_failed(
     return emit_progress(channel, "extraction:failed", data)
 
 
+def emit_extraction_deleted(
+    extraction_id: str,
+    feature_count: int = 0,
+) -> bool:
+    """
+    Emit notification that an extraction job has been deleted.
+
+    This function emits a deletion complete event, allowing the frontend
+    to remove the extraction from its state after async background deletion.
+
+    Args:
+        extraction_id: ID of the deleted extraction
+        feature_count: Number of features that were deleted
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Examples:
+        >>> emit_extraction_deleted(
+        ...     extraction_id="extr_20250115_031430_train_abc",
+        ...     feature_count=8192
+        ... )
+        True
+    """
+    channel = f"extraction/{extraction_id}"
+    data = {
+        "type": "extraction_deleted",
+        "extraction_id": extraction_id,
+        "feature_count": feature_count,
+        "status": "deleted",
+    }
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "extraction:deleted", data)
+
+
 def emit_training_progress(
     training_id: str,
     event: str,
@@ -1126,6 +1161,7 @@ __all__ = [
     "emit_model_progress",
     "emit_extraction_progress",
     "emit_extraction_failed",
+    "emit_extraction_deleted",
     "emit_extraction_job_progress",
     "emit_training_progress",
     "emit_checkpoint_created",

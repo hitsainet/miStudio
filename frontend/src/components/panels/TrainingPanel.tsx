@@ -54,6 +54,7 @@ export const TrainingPanel: React.FC = () => {
     config,
     updateConfig,
     fetchTrainings,
+    fetchTraining,
     createTraining,
     deleteTraining,
     statusFilter,
@@ -230,6 +231,26 @@ export const TrainingPanel: React.FC = () => {
 
   // Subscribe to WebSocket updates for all trainings
   useTrainingWebSocket(trainings.map((t) => t.id));
+
+  // Polling fallback for running trainings (in case WebSocket isn't working)
+  useEffect(() => {
+    const runningTrainingIds = trainings
+      .filter((t) => t.status === TrainingStatus.RUNNING || t.status === TrainingStatus.INITIALIZING)
+      .map((t) => t.id);
+
+    if (runningTrainingIds.length === 0) {
+      return;
+    }
+
+    // Poll every 5 seconds - silent update to avoid UI flicker/collapse
+    const pollInterval = setInterval(() => {
+      runningTrainingIds.forEach((id) => {
+        fetchTraining(id, true); // silent=true prevents loading state changes
+      });
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [trainings.map((t) => `${t.id}:${t.status}`).join(','), fetchTraining]);
 
   // Handle deletion progress updates via WebSocket
   const handleDeletionTaskUpdate = React.useCallback((update: {

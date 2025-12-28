@@ -123,7 +123,7 @@ interface TrainingStoreState {
 interface TrainingStoreActions {
   // Training CRUD operations
   fetchTrainings: (page?: number, limit?: number) => Promise<void>;
-  fetchTraining: (trainingId: string) => Promise<void>;
+  fetchTraining: (trainingId: string, silent?: boolean) => Promise<void>;
   createTraining: (config: TrainingCreateRequest) => Promise<Training>;
   deleteTraining: (trainingId: string) => Promise<void>;
   retryTraining: (trainingId: string) => Promise<Training>;
@@ -308,23 +308,28 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
    *
    * @param trainingId - Training job ID
    */
-  fetchTraining: async (trainingId: string) => {
-    set({ isLoading: true, error: null });
+  fetchTraining: async (trainingId: string, silent = false) => {
+    // Only set loading state if not silent (for polling updates)
+    if (!silent) {
+      set({ isLoading: true, error: null });
+    }
 
     try {
       const response = await axios.get<Training>(`${API_BASE_URL}/${trainingId}`);
 
-      // Update the training in the list
+      // Update the training in the list (silently - no loading state change)
       set((state) => ({
         trainings: state.trainings.map((t) => (t.id === trainingId ? response.data : t)),
-        selectedTraining: response.data,
-        isLoading: false,
+        selectedTraining: state.selectedTraining?.id === trainingId ? response.data : state.selectedTraining,
+        ...(silent ? {} : { isLoading: false }),
       }));
     } catch (error: any) {
-      set({
-        error: error.response?.data?.message || 'Failed to fetch training',
-        isLoading: false,
-      });
+      if (!silent) {
+        set({
+          error: error.response?.data?.message || 'Failed to fetch training',
+          isLoading: false,
+        });
+      }
       throw error;
     }
   },

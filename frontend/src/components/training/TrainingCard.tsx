@@ -35,6 +35,7 @@ import {
   Brain,
   Copy,
   Check,
+  Clock,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useSAEsStore } from '../../stores/saesStore';
@@ -98,6 +99,9 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     timestamps: [],
     steps: [],
   });
+
+  // Elapsed time state for running trainings
+  const [elapsedTime, setElapsedTime] = useState<string>('');
 
   // Track whether we've loaded historical metrics
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
@@ -260,6 +264,44 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
       setIsImportingToSAE(false);
     }
   };
+
+  // Update elapsed time for running trainings
+  useEffect(() => {
+    if (training.status !== TrainingStatus.RUNNING || !training.started_at) {
+      return;
+    }
+
+    const updateElapsed = () => {
+      const start = new Date(training.started_at!).getTime();
+      const now = Date.now();
+      const durationMs = now - start;
+
+      const seconds = Math.floor(durationMs / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+
+      let formatted: string;
+      if (days > 0) {
+        formatted = `${days}d ${hours % 24}h ${minutes % 60}m`;
+      } else if (hours > 0) {
+        formatted = `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+      } else if (minutes > 0) {
+        formatted = `${minutes}m ${seconds % 60}s`;
+      } else {
+        formatted = `${seconds}s`;
+      }
+      setElapsedTime(formatted);
+    };
+
+    // Update immediately
+    updateElapsed();
+
+    // Update every second
+    const interval = setInterval(updateElapsed, 1000);
+
+    return () => clearInterval(interval);
+  }, [training.status, training.started_at]);
 
   // Fetch checkpoints on mount to show correct count
   useEffect(() => {
@@ -590,9 +632,17 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                 </div>
               )}
             </div>
-            <span className="text-emerald-400 font-medium">
-              {training.progress.toFixed(1)}%
-            </span>
+            <div className="flex items-center gap-3">
+              {training.status === TrainingStatus.RUNNING && elapsedTime && (
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span className="text-sm">{elapsedTime}</span>
+                </div>
+              )}
+              <span className="text-emerald-400 font-medium">
+                {training.progress.toFixed(1)}%
+              </span>
+            </div>
           </div>
 
           {/* Progress Bar */}

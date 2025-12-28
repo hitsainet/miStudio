@@ -12,7 +12,7 @@ import { Copy, Check } from 'lucide-react';
 import { FeatureActivationExample } from '../../types/features';
 import { formatActivation } from '../../utils/formatters';
 import { formatSingleExampleForClipboard, copyToClipboard } from '../../utils/featureExampleFormatter';
-import { cleanToken, getPrimeWord } from '../../utils/tokenUtils';
+import { cleanToken, getPrimeWord, hasMarkers, isWordStart } from '../../utils/tokenUtils';
 
 interface ExampleRowProps {
   example: FeatureActivationExample;
@@ -88,6 +88,39 @@ export const ExampleRow: React.FC<ExampleRowProps> = ({
 
   const allTokens = getAllTokens();
 
+  // Compute word boundaries for token grouping
+  // This determines which tokens should be visually connected (no gap)
+  const getTokenWordInfo = () => {
+    if (allTokens.length === 0) return { tokenToWordMap: [], useHeuristics: false };
+
+    // Check if tokens have BPE markers
+    const useHeuristics = !hasMarkers(allTokens);
+
+    // Build token-to-word mapping
+    const tokenToWordMap: number[] = [];
+    let currentWordIndex = 0;
+
+    for (let i = 0; i < allTokens.length; i++) {
+      const token = allTokens[i];
+      const startsNewWord = i === 0 || isWordStart(token, i, allTokens, useHeuristics);
+
+      if (startsNewWord && i > 0) {
+        currentWordIndex++;
+      }
+      tokenToWordMap.push(currentWordIndex);
+    }
+
+    return { tokenToWordMap, useHeuristics };
+  };
+
+  const { tokenToWordMap } = getTokenWordInfo();
+
+  // Check if token is the last in its word (used for spacing)
+  const isLastTokenInWord = (idx: number): boolean => {
+    if (idx >= allTokens.length - 1) return true;
+    return tokenToWordMap[idx] !== tokenToWordMap[idx + 1];
+  };
+
   // Handle copy
   const handleCopy = async () => {
     const text = formatSingleExampleForClipboard(example, index);
@@ -126,13 +159,14 @@ export const ExampleRow: React.FC<ExampleRowProps> = ({
 
       {/* Center: Token context (wrapping) */}
       <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap gap-1 font-mono text-sm leading-relaxed">
+        <div className="flex flex-wrap font-mono text-sm leading-relaxed">
           {allTokens.map((token, idx) => {
             const activation = example.activations[idx] || 0;
             const intensity = calculateIntensity(activation, effectiveMaxActivation);
             const backgroundColor = getBackgroundColor(intensity);
             const isPrime = idx === primeIndex;
             const cleanedToken = cleanToken(token);
+            const lastInWord = isLastTokenInWord(idx);
 
             // Text color based on intensity
             const textColorClass = intensity > 0.6 ? 'text-white' : 'text-slate-300';
@@ -140,11 +174,16 @@ export const ExampleRow: React.FC<ExampleRowProps> = ({
             const borderClass = intensity > 0.7 ? 'border border-emerald-500' : '';
             // Prime token styling
             const primeClass = isPrime ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-slate-900 font-bold' : '';
+            // Spacing: only add margin after the last token in a word
+            const spacingClass = lastInWord ? 'mr-1' : 'mr-0';
+            // Rounding: round edges differently for word fragments
+            const roundingClass = lastInWord ? 'rounded-r' : '';
+            const roundingLeftClass = idx === 0 || tokenToWordMap[idx] !== tokenToWordMap[idx - 1] ? 'rounded-l' : '';
 
             return (
               <span
                 key={idx}
-                className={`relative px-1.5 py-0.5 rounded cursor-help ${textColorClass} ${borderClass} ${primeClass}`}
+                className={`relative px-1.5 py-0.5 cursor-help ${textColorClass} ${borderClass} ${primeClass} ${spacingClass} ${roundingClass} ${roundingLeftClass}`}
                 style={{ backgroundColor }}
                 title={`Activation: ${activation.toFixed(3)}${isPrime ? ' (PRIME)' : ''}`}
               >

@@ -48,6 +48,48 @@ from src.models.model import Model as ModelRecord, QuantizationFormat
 logger = logging.getLogger(__name__)
 
 
+def get_token_with_marker(tokenizer, token_id: int) -> str:
+    """
+    Get token string preserving BPE markers (Ġ, ▁, ##).
+
+    Uses convert_ids_to_tokens() which preserves markers, with fallback
+    handling for byte-level tokens like <0x0A>.
+
+    This is important for proper word reconstruction in the frontend.
+    The markers indicate word boundaries:
+    - Ġ (U+0120): GPT-2/LLaMA word start marker
+    - ▁ (U+2581): SentencePiece/T5 word start marker
+    - ##: BERT continuation marker
+
+    Args:
+        tokenizer: HuggingFace tokenizer instance
+        token_id: Token ID to convert
+
+    Returns:
+        Token string with BPE markers preserved
+    """
+    raw_token = tokenizer.convert_ids_to_tokens(token_id)
+
+    # Handle None or empty
+    if not raw_token:
+        return ""
+
+    # Handle byte tokens like <0x0A> (newline), <0x20> (space)
+    # These are used by some tokenizers for control characters
+    if isinstance(raw_token, str) and raw_token.startswith('<0x') and raw_token.endswith('>'):
+        try:
+            byte_val = int(raw_token[3:-1], 16)
+            # Convert printable ASCII to actual char, keep others as-is
+            if 32 <= byte_val < 127:
+                return chr(byte_val)
+            # Keep special bytes (newline, tab, etc.) as marker for visibility
+            return raw_token
+        except ValueError:
+            return raw_token
+
+    return raw_token
+
+
 class ExtractionService:
     """
     Service for extracting interpretable features from trained SAE models.
@@ -215,8 +257,8 @@ class ExtractionService:
             filter_fragments=config.get('filter_fragments', True),
             filter_stop_words=config.get('filter_stop_words', False),
             # Context window configuration
-            context_prefix_tokens=config.get('context_prefix_tokens', 5),
-            context_suffix_tokens=config.get('context_suffix_tokens', 3),
+            context_prefix_tokens=config.get('context_prefix_tokens', 25),
+            context_suffix_tokens=config.get('context_suffix_tokens', 25),
             progress=0.0,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
@@ -323,8 +365,8 @@ class ExtractionService:
             filter_numbers=config.get('filter_numbers', True),
             filter_fragments=config.get('filter_fragments', True),
             filter_stop_words=config.get('filter_stop_words', False),
-            context_prefix_tokens=config.get('context_prefix_tokens', 5),
-            context_suffix_tokens=config.get('context_suffix_tokens', 3),
+            context_prefix_tokens=config.get('context_prefix_tokens', 25),
+            context_suffix_tokens=config.get('context_suffix_tokens', 25),
             progress=0.0,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
@@ -1459,10 +1501,9 @@ class ExtractionService:
 
                             batch_sae_features.append(sae_features)
 
-                            # Get token strings for this sample
-                            # Use decode() instead of convert_ids_to_tokens() to properly handle
-                            # byte-level BPE tokenizers (GPT-2, Phi) which return raw byte representations
-                            token_strings = [tokenizer.decode([tid]) for tid in batch_input_ids[batch_idx]]
+                            # Get token strings for this sample, preserving BPE markers for word reconstruction
+                            # Uses get_token_with_marker() which preserves Ġ/▁/## markers while handling byte tokens
+                            token_strings = [get_token_with_marker(tokenizer, tid) for tid in batch_input_ids[batch_idx]]
                             batch_token_strings.append(token_strings)
 
                         # Stack into batch tensor (handle variable sequence lengths with padding if needed)
@@ -2134,9 +2175,9 @@ class ExtractionService:
                             ).detach()
                             batch_sae_features.append(sae_features)
 
-                            # Use decode() instead of convert_ids_to_tokens() to properly handle
-                            # byte-level BPE tokenizers (GPT-2, Phi) which return raw byte representations
-                            token_strings = [tokenizer.decode([tid]) for tid in batch_input_ids[batch_idx]]
+                            # Get token strings preserving BPE markers for word reconstruction
+                            # Uses get_token_with_marker() which preserves Ġ/▁/## markers while handling byte tokens
+                            token_strings = [get_token_with_marker(tokenizer, tid) for tid in batch_input_ids[batch_idx]]
                             batch_token_strings.append(token_strings)
 
                         if batch_sae_features:

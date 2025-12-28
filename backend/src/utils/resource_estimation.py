@@ -161,6 +161,11 @@ def estimate_processing_time(
     - Number of forward passes needed (num_samples / batch_size)
     - Model size (affects inference speed)
     - Device type (GPU vs CPU)
+    - Model loading time (significant for large models)
+    - Activation hook overhead
+
+    Note: These estimates are calibrated for RTX 3090 GPU. Actual times may vary
+    based on GPU model, system memory, disk speed, and other factors.
 
     Args:
         num_samples: Number of samples to extract
@@ -176,43 +181,72 @@ def estimate_processing_time(
     # Calculate number of batches
     num_batches = int(np.ceil(num_samples / batch_size))
 
+    # Estimate MODEL LOADING time (significant for large models)
+    # This is a one-time cost at the start of extraction
+    if model_params_count:
+        if model_params_count < 1_000_000_000:  # < 1B params
+            model_load_seconds = 10 if device_type == "cuda" else 30
+        elif model_params_count < 3_000_000_000:  # 1-3B params
+            model_load_seconds = 20 if device_type == "cuda" else 60
+        elif model_params_count < 7_000_000_000:  # 3-7B params
+            model_load_seconds = 40 if device_type == "cuda" else 120
+        elif model_params_count < 15_000_000_000:  # 7-15B params
+            model_load_seconds = 60 if device_type == "cuda" else 180
+        else:  # 15B+ params
+            model_load_seconds = 90 if device_type == "cuda" else 300
+    else:
+        model_load_seconds = 30 if device_type == "cuda" else 90
+
     # Estimate seconds per batch based on device and model size
+    # These are REALISTIC values for activation extraction (not just inference)
+    # Includes: forward pass + hook execution + activation capture
     if model_params_count:
         # Use actual parameter count
-        if model_params_count < 1_000_000_000:  # < 1B params
-            base_seconds_per_batch = 0.3 if device_type == "cuda" else 3.0
+        if model_params_count < 500_000_000:  # < 500M params (TinyLlama, etc.)
+            base_seconds_per_batch = 0.8 if device_type == "cuda" else 8.0
+        elif model_params_count < 1_000_000_000:  # 500M-1B params
+            base_seconds_per_batch = 1.5 if device_type == "cuda" else 15.0
         elif model_params_count < 3_000_000_000:  # 1-3B params
-            base_seconds_per_batch = 0.5 if device_type == "cuda" else 5.0
+            base_seconds_per_batch = 3.0 if device_type == "cuda" else 30.0
         elif model_params_count < 7_000_000_000:  # 3-7B params
-            base_seconds_per_batch = 1.0 if device_type == "cuda" else 10.0
-        else:  # 7B+ params
-            base_seconds_per_batch = 2.0 if device_type == "cuda" else 20.0
+            base_seconds_per_batch = 6.0 if device_type == "cuda" else 60.0
+        elif model_params_count < 15_000_000_000:  # 7-15B params (Phi-4, Llama-2-13B)
+            base_seconds_per_batch = 10.0 if device_type == "cuda" else 100.0
+        else:  # 15B+ params
+            base_seconds_per_batch = 15.0 if device_type == "cuda" else 150.0
     elif hidden_size:
-        # Estimate from hidden size
-        if hidden_size < 1024:  # Small models (< 1B)
-            base_seconds_per_batch = 0.3 if device_type == "cuda" else 3.0
-        elif hidden_size < 2048:  # Medium models (1-3B)
-            base_seconds_per_batch = 0.5 if device_type == "cuda" else 5.0
-        elif hidden_size < 4096:  # Large models (3-7B)
-            base_seconds_per_batch = 1.0 if device_type == "cuda" else 10.0
-        else:  # Very large models (7B+)
+        # Estimate from hidden size (less accurate)
+        if hidden_size < 1024:  # Small models (< 500M)
+            base_seconds_per_batch = 0.8 if device_type == "cuda" else 8.0
+        elif hidden_size < 2048:  # Medium models (500M-3B)
             base_seconds_per_batch = 2.0 if device_type == "cuda" else 20.0
+        elif hidden_size < 4096:  # Large models (3-7B)
+            base_seconds_per_batch = 6.0 if device_type == "cuda" else 60.0
+        elif hidden_size < 6144:  # Very large models (7-15B)
+            base_seconds_per_batch = 10.0 if device_type == "cuda" else 100.0
+        else:  # Huge models (15B+)
+            base_seconds_per_batch = 15.0 if device_type == "cuda" else 150.0
     else:
         # Fallback to conservative estimate
-        base_seconds_per_batch = 1.0 if device_type == "cuda" else 10.0
+        base_seconds_per_batch = 5.0 if device_type == "cuda" else 50.0
 
-    # Layer extraction overhead (negligible for modern GPUs)
-    layer_overhead_factor = 1.0 + (num_layers * 0.01)
+    # Layer extraction overhead
+    # Each additional layer adds ~3% overhead for hook management
+    layer_overhead_factor = 1.0 + (num_layers * 0.03)
+
+    # Batch processing time
+    batch_processing_seconds = num_batches * base_seconds_per_batch * layer_overhead_factor
+
+    # Add overhead for saving activations to disk
+    # This is significant for many layers - roughly 20% of extraction time
+    save_overhead_factor = 1.2
 
     # Total time estimate
-    total_seconds = num_batches * base_seconds_per_batch * layer_overhead_factor
-
-    # Add overhead for saving and statistics calculation (roughly 10% of extraction time)
-    total_seconds_with_overhead = total_seconds * 1.1
+    total_seconds = model_load_seconds + (batch_processing_seconds * save_overhead_factor)
 
     # Convert to human-readable format
-    total_minutes = total_seconds_with_overhead / 60
-    total_hours = total_seconds_with_overhead / 3600
+    total_minutes = total_seconds / 60
+    total_hours = total_seconds / 3600
 
     # Format as string
     if total_hours >= 1:
@@ -220,13 +254,14 @@ def estimate_processing_time(
     elif total_minutes >= 1:
         time_str = f"{total_minutes:.1f} minutes"
     else:
-        time_str = f"{int(total_seconds_with_overhead)} seconds"
+        time_str = f"{int(total_seconds)} seconds"
 
     return {
-        "total_seconds": int(total_seconds_with_overhead),
+        "total_seconds": int(total_seconds),
         "time_str": time_str,
         "estimated_batches": num_batches,
         "seconds_per_batch": round(base_seconds_per_batch, 2),
+        "model_load_seconds": model_load_seconds,
         "warning": "long" if total_hours > 1 else "medium" if total_minutes > 30 else "normal"
     }
 

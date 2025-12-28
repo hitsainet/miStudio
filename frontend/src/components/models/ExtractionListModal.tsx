@@ -330,6 +330,9 @@ export function ExtractionListModal({
                           <Database className="w-3 h-3" />
                           <span>{getSamplesProcessed(extraction).toLocaleString()} samples</span>
                         </div>
+                        <div className="text-slate-500">
+                          [{extraction.layer_indices.sort((a, b) => a - b).map(l => `L${l}`).join(', ')}]
+                        </div>
                       </div>
                       {extraction.error_message && (
                         <div className="mt-2 text-xs text-red-400 truncate">

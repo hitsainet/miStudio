@@ -45,7 +45,7 @@ interface ModelsState {
   updateModelProgress: (id: string, progress: number) => void;
   updateModelStatus: (id: string, status: ModelStatus, errorMessage?: string) => void;
   updateExtractionProgress: (modelId: string, extractionId: string, progress: number, status: string, message: string) => void;
-  clearExtractionProgress: (modelId: string) => void;
+  clearExtractionProgress: (modelId: string, completedSuccessfully?: boolean) => void;
   updateExtractionFailure: (modelId: string, extractionId: string, errorType: string, errorMessage: string, suggestedRetryParams?: Record<string, any>) => void;
   setError: (error: string | null) => void;
   clearError: () => void;
@@ -501,8 +501,9 @@ export const useModelsStore = create<ModelsState>()(
       },
 
       // Clear extraction progress (called when extraction completes or fails)
-      clearExtractionProgress: (modelId: string) => {
-        console.log('[ModelsStore] clearExtractionProgress:', modelId);
+      // If completedSuccessfully is true, also set has_completed_extractions to true
+      clearExtractionProgress: (modelId: string, completedSuccessfully?: boolean) => {
+        console.log('[ModelsStore] clearExtractionProgress:', modelId, 'completedSuccessfully:', completedSuccessfully);
         set((state) => ({
           models: state.models.map((model) =>
             model.id === modelId
@@ -513,6 +514,8 @@ export const useModelsStore = create<ModelsState>()(
                   extraction_status: undefined,
                   extraction_message: undefined,
                   extraction_started_at: undefined,
+                  // Mark that this model has completed extractions if extraction was successful
+                  ...(completedSuccessfully ? { has_completed_extractions: true } : {}),
                 }
               : model
           ),

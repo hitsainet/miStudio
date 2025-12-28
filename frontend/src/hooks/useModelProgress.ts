@@ -197,7 +197,8 @@ export function useAllModelsProgress() {
         console.log('[useAllModelsProgress] Extraction completed, showing completion state');
         setTimeout(() => {
           console.log('[useAllModelsProgress] Auto-clearing completion state after 5s');
-          clearExtractionProgress(data.model_id);
+          // Pass true to indicate successful completion - this will set has_completed_extractions
+          clearExtractionProgress(data.model_id, true);
         }, 5000);
       }
       // For failed/cancelled, keep state visible indefinitely for user to see error
@@ -387,7 +388,8 @@ export function useModelExtractionProgress(modelId?: string) {
         console.log('[useModelExtractionProgress] Extraction completed, showing completion state');
         setTimeout(() => {
           console.log('[useModelExtractionProgress] Auto-clearing completion state after 5s');
-          clearExtractionProgress(data.model_id);
+          // Pass true to indicate successful completion - this will set has_completed_extractions
+          clearExtractionProgress(data.model_id, true);
         }, 5000);
       }
       // For failed/cancelled, keep state visible indefinitely for user to see error

@@ -42,6 +42,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const isActive = extraction.status === 'queued' || extraction.status === 'extracting' || extraction.status === 'finalizing';
   const isCompleted = extraction.status === 'completed';
   const isFailed = extraction.status === 'failed';
+  const isDeleting = extraction.status === 'deleting';
 
   // Expandable features list state
   const [isExpanded, setIsExpanded] = useState(false);
@@ -707,6 +708,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             Failed
           </span>
         );
+      case 'deleting':
+        return (
+          <span className={`${baseClasses} bg-orange-900/30 text-orange-400 flex items-center gap-1`}>
+            <Loader className="w-4 h-4 animate-spin" />
+            Deleting
+          </span>
+        );
       default:
         return (
           <span className={`${baseClasses} bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300`}>
@@ -717,6 +725,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   };
 
   const progress = (extraction.progress || 0) * 100;
+  const deletionProgress = (extraction.deletion_progress || 0) * 100;
 
   return (
     <div className={`${COMPONENTS.card.base} p-6 ${COMPONENTS.border.hover} transition-colors`}>
@@ -931,7 +940,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               }}
             />
           )}
-          {(isCompleted || isFailed) && onDelete && (
+          {(isCompleted || isFailed) && !isDeleting && onDelete && (
             <button
               type="button"
               onClick={() => {
@@ -1249,6 +1258,32 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Deletion Progress Bar */}
+      {isDeleting && (
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-orange-400">
+              {extraction.status_message ||
+                (extraction.deletion_features_deleted != null && extraction.deletion_total_features != null
+                  ? `Deleting ${extraction.deletion_features_deleted.toLocaleString()} / ${extraction.deletion_total_features.toLocaleString()} features...`
+                  : 'Deleting extraction...')}
+            </span>
+            <span className="text-orange-400 font-medium">
+              {deletionProgress.toFixed(1)}%
+            </span>
+          </div>
+          <div className={COMPONENTS.progress.container}>
+            <div
+              className="h-full transition-all duration-300 bg-gradient-to-r from-orange-500 to-orange-400"
+              style={{ width: `${deletionProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            This may take a while for large extractions with many features.
+          </p>
         </div>
       )}
 

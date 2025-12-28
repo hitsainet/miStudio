@@ -287,22 +287,71 @@ def delete_extraction_task(self, extraction_id: str) -> Dict[str, Any]:
 
             logger.info(f"Deleting {feature_count} features for extraction {extraction_id}")
 
-            # Delete features (CASCADE will automatically delete feature_activations)
-            db.query(Feature).filter(
-                Feature.extraction_job_id == extraction_id
-            ).delete(synchronize_session=False)
+            # Import deletion progress emitter
+            from src.workers.websocket_emitter import emit_extraction_deletion_progress
+
+            # Delete features in batches with progress updates
+            # Use batch deletion to avoid long-running transactions and provide progress
+            BATCH_SIZE = 500  # Delete 500 features at a time
+            features_deleted = 0
+
+            if feature_count > 0:
+                # Emit initial progress
+                emit_extraction_deletion_progress(
+                    extraction_id=extraction_id,
+                    features_deleted=0,
+                    total_features=feature_count,
+                    progress=0.0,
+                    status="deleting",
+                    message=f"Starting deletion of {feature_count} features..."
+                )
+
+                while features_deleted < feature_count:
+                    # Get batch of feature IDs to delete
+                    batch_features = db.query(Feature.id).filter(
+                        Feature.extraction_job_id == extraction_id
+                    ).limit(BATCH_SIZE).all()
+
+                    if not batch_features:
+                        break  # No more features to delete
+
+                    batch_ids = [f.id for f in batch_features]
+
+                    # Delete this batch (CASCADE will handle feature_activations)
+                    db.query(Feature).filter(
+                        Feature.id.in_(batch_ids)
+                    ).delete(synchronize_session=False)
+                    db.commit()
+
+                    features_deleted += len(batch_ids)
+                    progress = features_deleted / feature_count
+
+                    logger.info(
+                        f"Deleted {features_deleted}/{feature_count} features "
+                        f"({progress * 100:.1f}%) for extraction {extraction_id}"
+                    )
+
+                    # Emit progress update
+                    emit_extraction_deletion_progress(
+                        extraction_id=extraction_id,
+                        features_deleted=features_deleted,
+                        total_features=feature_count,
+                        progress=progress,
+                        status="deleting",
+                        message=f"Deleted {features_deleted:,} of {feature_count:,} features..."
+                    )
 
             # Delete extraction job
             db.query(ExtractionJob).filter(
                 ExtractionJob.id == extraction_id
             ).delete(synchronize_session=False)
 
-            # Commit transaction
+            # Commit final deletion
             db.commit()
 
             logger.info(f"Successfully deleted extraction {extraction_id} with {feature_count} features")
 
-            # Emit WebSocket event to notify frontend
+            # Emit final WebSocket event to notify frontend
             emit_extraction_deleted(extraction_id, feature_count)
 
             return {

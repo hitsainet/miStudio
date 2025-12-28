@@ -26,7 +26,7 @@ import type { ExtractionStatus } from '../types/features';
 
 export interface ExtractionProgressEvent {
   extraction_id: string;
-  status: ExtractionStatus | 'deleted';
+  status: ExtractionStatus | 'deleted' | 'deleting';
   progress: number;
   features_extracted: number | null;
   total_features: number | null;
@@ -43,6 +43,7 @@ export interface ExtractionProgressEvent {
   heap_examples_count?: number;
   // Deletion-specific fields
   feature_count?: number;
+  features_deleted?: number;  // For deletion progress
   // NLP auto-trigger fields (sent with extraction:completed when auto_nlp=true)
   nlp_status?: string;  // 'pending' when NLP is about to start
   nlp_progress?: number;
@@ -65,11 +66,13 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
     completed: ((data: ExtractionProgressEvent) => void) | null;
     failed: ((data: ExtractionProgressEvent) => void) | null;
     deleted: ((data: ExtractionDeletedEvent) => void) | null;
+    deletionProgress: ((data: ExtractionProgressEvent) => void) | null;
   }>({
     progress: null,
     completed: null,
     failed: null,
     deleted: null,
+    deletionProgress: null,
   });
 
   // Create stable handler using useCallback
@@ -142,6 +145,18 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
     fetchAllExtractions();
   }, [fetchAllExtractions]);
 
+  const handleDeletionProgress = useCallback((data: ExtractionProgressEvent) => {
+    console.log('[Extraction WS] 🗑️ Deletion progress:', data);
+    // Update extraction with deletion progress
+    updateExtractionById(data.extraction_id, {
+      status: 'deleting',  // 'deleting' is now a valid ExtractionStatus
+      deletion_progress: data.progress,
+      deletion_features_deleted: data.features_deleted,
+      deletion_total_features: data.total_features,
+      status_message: data.message,
+    });
+  }, [updateExtractionById]);
+
   // Register event handlers
   useEffect(() => {
     console.log('[Extraction WS] Setting up event handlers');
@@ -152,6 +167,7 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
       completed: handleCompleted,
       failed: handleFailed,
       deleted: handleDeleted,
+      deletionProgress: handleDeletionProgress,
     };
 
     // Register event handlers
@@ -159,6 +175,7 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
     on('extraction:completed', handleCompleted);
     on('extraction:failed', handleFailed);
     on('extraction:deleted', handleDeleted);
+    on('extraction:deletion_progress', handleDeletionProgress);
 
     console.log('[Extraction WS] ✓ Event handlers registered');
 
@@ -170,6 +187,7 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
       if (handlers.completed) off('extraction:completed', handlers.completed);
       if (handlers.failed) off('extraction:failed', handlers.failed);
       if (handlers.deleted) off('extraction:deleted', handlers.deleted);
+      if (handlers.deletionProgress) off('extraction:deletion_progress', handlers.deletionProgress);
 
       // Clear refs
       handlersRef.current = {
@@ -177,9 +195,10 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
         completed: null,
         failed: null,
         deleted: null,
+        deletionProgress: null,
       };
     };
-  }, [on, off, handleProgress, handleCompleted, handleFailed, handleDeleted]);
+  }, [on, off, handleProgress, handleCompleted, handleFailed, handleDeleted, handleDeletionProgress]);
 
   // Subscribe to channels for extractions
   useEffect(() => {

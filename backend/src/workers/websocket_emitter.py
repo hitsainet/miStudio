@@ -410,6 +410,56 @@ def emit_extraction_deleted(
     return emit_progress(channel, "extraction:deleted", data)
 
 
+def emit_extraction_deletion_progress(
+    extraction_id: str,
+    features_deleted: int,
+    total_features: int,
+    progress: float,
+    status: str = "deleting",
+    message: Optional[str] = None,
+) -> bool:
+    """
+    Emit progress update during extraction deletion.
+
+    Large extractions with many features take significant time to delete
+    due to CASCADE deleting feature_activations. This provides real-time
+    progress feedback during batch deletion.
+
+    Args:
+        extraction_id: ID of the extraction being deleted
+        features_deleted: Number of features deleted so far
+        total_features: Total number of features to delete
+        progress: Progress percentage (0.0 to 1.0)
+        status: Current status ('deleting', 'completed', 'failed')
+        message: Optional human-readable status message
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Examples:
+        >>> emit_extraction_deletion_progress(
+        ...     extraction_id="extr_20250128_120000_train_abc",
+        ...     features_deleted=4096,
+        ...     total_features=8192,
+        ...     progress=0.5,
+        ...     status="deleting",
+        ...     message="Deleting features batch 2/4..."
+        ... )
+        True
+    """
+    channel = f"extraction/{extraction_id}"
+    data = {
+        "extraction_id": extraction_id,
+        "features_deleted": features_deleted,
+        "total_features": total_features,
+        "progress": progress,
+        "status": status,
+        "message": message or f"Deleting features ({features_deleted}/{total_features})...",
+    }
+    # Add namespace prefix to event name for proper WebSocket routing
+    return emit_progress(channel, "extraction:deletion_progress", data)
+
+
 def emit_training_progress(
     training_id: str,
     event: str,
@@ -1162,6 +1212,7 @@ __all__ = [
     "emit_extraction_progress",
     "emit_extraction_failed",
     "emit_extraction_deleted",
+    "emit_extraction_deletion_progress",
     "emit_extraction_job_progress",
     "emit_training_progress",
     "emit_checkpoint_created",

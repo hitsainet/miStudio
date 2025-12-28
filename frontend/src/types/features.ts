@@ -8,7 +8,7 @@
 /**
  * Extraction job status.
  */
-export type ExtractionStatus = 'queued' | 'extracting' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
+export type ExtractionStatus = 'queued' | 'extracting' | 'finalizing' | 'completed' | 'failed' | 'cancelled' | 'deleting';
 
 /**
  * Feature label source.
@@ -96,6 +96,10 @@ export interface ExtractionStatusResponse {
   features_in_heap?: number;
   heap_examples_count?: number;
   status_message?: string;  // Status message (e.g., "Saving features to database...")
+  // Deletion progress (from WebSocket updates during background deletion)
+  deletion_progress?: number;  // 0.0 to 1.0
+  deletion_features_deleted?: number;
+  deletion_total_features?: number;
 }
 
 /**

@@ -218,9 +218,9 @@ def batch_process_features(
     filter_numbers: bool = True,
     filter_fragments: bool = True,
     filter_stop_words: bool = False,
-    # Context window parameters (based on Anthropic/OpenAI research)
-    context_prefix_tokens: int = 5,
-    context_suffix_tokens: int = 3
+    # Context window parameters (based on Gemma Scope defaults)
+    context_prefix_tokens: int = 25,
+    context_suffix_tokens: int = 25
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
     """
     Vectorized feature processing - replaces sequential loop over features.

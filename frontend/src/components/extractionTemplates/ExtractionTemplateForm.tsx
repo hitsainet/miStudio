@@ -50,8 +50,8 @@ export function ExtractionTemplateForm({
   );
 
   // Context window configuration state
-  const [contextPrefixTokens, setContextPrefixTokens] = useState(template?.context_prefix_tokens || 5);
-  const [contextSuffixTokens, setContextSuffixTokens] = useState(template?.context_suffix_tokens || 3);
+  const [contextPrefixTokens, setContextPrefixTokens] = useState(template?.context_prefix_tokens || 25);
+  const [contextSuffixTokens, setContextSuffixTokens] = useState(template?.context_suffix_tokens || 25);
   const [contextPreset, setContextPreset] = useState<'quick' | 'standard' | 'deep' | 'symmetric' | 'custom'>('standard');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -71,8 +71,8 @@ export function ExtractionTemplateForm({
       setMetadataJson(template.extra_metadata ? JSON.stringify(template.extra_metadata, null, 2) : '{}');
       setFilterEnabled(template.extraction_filter_enabled || false);
       setFilterMode(template.extraction_filter_mode || 'standard');
-      const prefixTokens = template.context_prefix_tokens || 5;
-      const suffixTokens = template.context_suffix_tokens || 3;
+      const prefixTokens = template.context_prefix_tokens || 25;
+      const suffixTokens = template.context_suffix_tokens || 25;
       setContextPrefixTokens(prefixTokens);
       setContextSuffixTokens(suffixTokens);
       setContextPreset(detectContextPreset(prefixTokens, suffixTokens));

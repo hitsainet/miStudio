@@ -82,8 +82,8 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [showFilters, setShowFilters] = useState(false);
 
   // Context window
-  const [contextPrefixTokens, setContextPrefixTokens] = useState(5);
-  const [contextSuffixTokens, setContextSuffixTokens] = useState(3);
+  const [contextPrefixTokens, setContextPrefixTokens] = useState(25);
+  const [contextSuffixTokens, setContextSuffixTokens] = useState(25);
   const [showContextWindow, setShowContextWindow] = useState(false);
 
   // Dead neuron filtering

@@ -67,8 +67,8 @@ class ExtractionJob(Base):
     # Context window configuration (per-job)
     # Captures tokens before and after the prime token (max activation) for better interpretability
     # Based on Anthropic/OpenAI research showing asymmetric windows improve feature understanding
-    context_prefix_tokens = Column(Integer, nullable=False, default=5, server_default='5')  # Tokens before prime token
-    context_suffix_tokens = Column(Integer, nullable=False, default=3, server_default='3')  # Tokens after prime token
+    context_prefix_tokens = Column(Integer, nullable=False, default=25, server_default='25')  # Tokens before prime token
+    context_suffix_tokens = Column(Integer, nullable=False, default=25, server_default='25')  # Tokens after prime token
 
     # Processing status
     status = Column(

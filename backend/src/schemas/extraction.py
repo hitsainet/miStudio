@@ -63,8 +63,8 @@ class ExtractionConfigRequest(BaseModel):
     # Context window configuration
     # Captures tokens before and after the prime token (max activation) for better interpretability
     # Based on Anthropic/OpenAI research showing asymmetric windows improve feature understanding
-    context_prefix_tokens: int = Field(5, ge=0, le=50, description="Number of tokens before the prime token (0-50)")
-    context_suffix_tokens: int = Field(3, ge=0, le=50, description="Number of tokens after the prime token (0-50)")
+    context_prefix_tokens: int = Field(25, ge=0, le=50, description="Number of tokens before the prime token (0-50)")
+    context_suffix_tokens: int = Field(25, ge=0, le=50, description="Number of tokens after the prime token (0-50)")
 
     # Dead neuron filtering
     # Neurons that fire on less than this fraction of samples are considered "dead" and skipped
@@ -116,8 +116,8 @@ class ExtractionStatusResponse(BaseModel):
     filter_stop_words: Optional[bool] = False
 
     # Context window configuration
-    context_prefix_tokens: Optional[int] = 5
-    context_suffix_tokens: Optional[int] = 3
+    context_prefix_tokens: Optional[int] = 25
+    context_suffix_tokens: Optional[int] = 25
 
     # NLP Processing status (separate from feature extraction)
     nlp_status: Optional[str] = Field(

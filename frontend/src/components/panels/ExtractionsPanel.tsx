@@ -33,10 +33,10 @@ export const ExtractionsPanel: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [showStartModal, setShowStartModal] = useState(false);
 
-  // Get IDs of active extractions (queued or extracting) for WebSocket subscriptions
+  // Get IDs of active extractions (queued, extracting, or finalizing) for WebSocket subscriptions
   const activeExtractionIds = useMemo(() => {
     return allExtractions
-      .filter(e => e.status === 'queued' || e.status === 'extracting')
+      .filter(e => e.status === 'queued' || e.status === 'extracting' || e.status === 'finalizing')
       .map(e => e.id);
   }, [allExtractions]);
 

@@ -39,7 +39,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   onDelete,
   onRetry,
 }) => {
-  const isActive = extraction.status === 'queued' || extraction.status === 'extracting';
+  const isActive = extraction.status === 'queued' || extraction.status === 'extracting' || extraction.status === 'finalizing';
   const isCompleted = extraction.status === 'completed';
   const isFailed = extraction.status === 'failed';
 
@@ -675,6 +675,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
           <span className={`${baseClasses} bg-blue-900/30 text-blue-400 flex items-center gap-1`}>
             <Loader className="w-4 h-4 animate-spin" />
             Extracting
+          </span>
+        );
+      case 'finalizing':
+        return (
+          <span className={`${baseClasses} bg-amber-900/30 text-amber-400 flex items-center gap-1`}>
+            <Loader className="w-4 h-4 animate-spin" />
+            Saving
           </span>
         );
       case 'queued':
@@ -1757,9 +1764,9 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
               {/* Context Window Configuration */}
               <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Context Window</div>
-              <div>Prefix Tokens: <span className={COMPONENTS.text.primary}>{extraction.context_prefix_tokens ?? 5}</span></div>
+              <div>Prefix Tokens: <span className={COMPONENTS.text.primary}>{extraction.context_prefix_tokens ?? 25}</span></div>
               <div>Prime Token: <span className="text-emerald-400">1</span></div>
-              <div>Suffix Tokens: <span className={COMPONENTS.text.primary}>{extraction.context_suffix_tokens ?? 3}</span></div>
+              <div>Suffix Tokens: <span className={COMPONENTS.text.primary}>{extraction.context_suffix_tokens ?? 25}</span></div>
 
               {/* Token Filtering Configuration */}
               <div className="col-span-3 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-2 mb-1">Token Filtering</div>

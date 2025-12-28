@@ -26,7 +26,7 @@ import type { ExtractionStatus } from '../types/features';
 
 export interface ExtractionProgressEvent {
   extraction_id: string;
-  status: ExtractionStatus | 'finalizing';
+  status: ExtractionStatus;
   progress: number;
   features_extracted: number | null;
   total_features: number | null;

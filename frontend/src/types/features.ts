@@ -8,7 +8,7 @@
 /**
  * Extraction job status.
  */
-export type ExtractionStatus = 'queued' | 'extracting' | 'completed' | 'failed' | 'cancelled';
+export type ExtractionStatus = 'queued' | 'extracting' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
 
 /**
  * Feature label source.

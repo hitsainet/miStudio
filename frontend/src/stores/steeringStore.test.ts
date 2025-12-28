@@ -67,12 +67,26 @@ function createMockSAE(overrides: Partial<SAE> = {}): SAE {
 }
 
 // Helper to create mock feature
-function createMockFeature(overrides: Partial<SelectedFeature> = {}): Omit<SelectedFeature, 'color'> {
+function createMockFeature(overrides: Partial<SelectedFeature> = {}): Omit<SelectedFeature, 'color' | 'instance_id'> {
   return {
     feature_idx: 100,
     layer: 6,
     strength: 50,
     label: 'Test Feature',
+    ...overrides,
+  };
+}
+
+// Helper to create a full mock feature with instance_id
+function createFullMockFeature(overrides: Partial<SelectedFeature> = {}): SelectedFeature {
+  const id = overrides.instance_id || `inst_${overrides.feature_idx || 100}_${overrides.layer || 6}`;
+  return {
+    feature_idx: 100,
+    layer: 6,
+    strength: 50,
+    label: 'Test Feature',
+    color: 'teal',
+    instance_id: id,
     ...overrides,
   };
 }
@@ -83,7 +97,7 @@ describe('SteeringStore', () => {
     useSteeringStore.setState({
       selectedSAE: null,
       selectedFeatures: [],
-      prompt: '',
+      prompts: [''],
       generationParams: { ...DEFAULT_GENERATION_PARAMS },
       advancedParams: null,
       showAdvancedParams: false,
@@ -112,7 +126,7 @@ describe('SteeringStore', () => {
 
       expect(state.selectedSAE).toBeNull();
       expect(state.selectedFeatures).toEqual([]);
-      expect(state.prompt).toBe('');
+      expect(state.prompts).toEqual(['']);
       expect(state.generationParams).toEqual(DEFAULT_GENERATION_PARAMS);
       expect(state.isGenerating).toBe(false);
     });
@@ -187,16 +201,20 @@ describe('SteeringStore', () => {
       expect(features[2].color).toBe(FEATURE_COLOR_ORDER[2]);
     });
 
-    it('should reject duplicate features', () => {
+    it('should allow adding same feature multiple times (for A/B comparison)', () => {
       const feature = createMockFeature({ feature_idx: 100, layer: 6 });
 
       act(() => {
         useSteeringStore.getState().addFeature(feature);
         const result = useSteeringStore.getState().addFeature(feature);
-        expect(result).toBe(false);
+        // Same feature can be added multiple times with different instance_ids
+        expect(result).toBe(true);
       });
 
-      expect(useSteeringStore.getState().selectedFeatures).toHaveLength(1);
+      // Both instances should exist with unique instance_ids
+      const features = useSteeringStore.getState().selectedFeatures;
+      expect(features).toHaveLength(2);
+      expect(features[0].instance_id).not.toBe(features[1].instance_id);
     });
 
     it('should reject when max features reached', () => {
@@ -222,16 +240,16 @@ describe('SteeringStore', () => {
   });
 
   describe('removeFeature', () => {
-    it('should remove a feature by idx and layer', () => {
+    it('should remove a feature by instance_id', () => {
       useSteeringStore.setState({
         selectedFeatures: [
-          { ...createMockFeature({ feature_idx: 1, layer: 6 }), color: 'teal' },
-          { ...createMockFeature({ feature_idx: 2, layer: 6 }), color: 'blue' },
+          createFullMockFeature({ feature_idx: 1, layer: 6, instance_id: 'inst_1_6', color: 'teal' }),
+          createFullMockFeature({ feature_idx: 2, layer: 6, instance_id: 'inst_2_6', color: 'blue' }),
         ],
       });
 
       act(() => {
-        useSteeringStore.getState().removeFeature(1, 6);
+        useSteeringStore.getState().removeFeature('inst_1_6');
       });
 
       const features = useSteeringStore.getState().selectedFeatures;
@@ -244,12 +262,12 @@ describe('SteeringStore', () => {
     it('should update feature strength', () => {
       useSteeringStore.setState({
         selectedFeatures: [
-          { ...createMockFeature({ feature_idx: 1, strength: 50 }), color: 'teal' },
+          createFullMockFeature({ feature_idx: 1, strength: 50, instance_id: 'inst_1_6', color: 'teal' }),
         ],
       });
 
       act(() => {
-        useSteeringStore.getState().updateFeatureStrength(1, 6, 100);
+        useSteeringStore.getState().updateFeatureStrength('inst_1_6', 100);
       });
 
       expect(useSteeringStore.getState().selectedFeatures[0].strength).toBe(100);
@@ -312,13 +330,13 @@ describe('SteeringStore', () => {
     });
   });
 
-  describe('setPrompt', () => {
-    it('should set the prompt', () => {
+  describe('setPrompts', () => {
+    it('should set the prompts', () => {
       act(() => {
-        useSteeringStore.getState().setPrompt('Once upon a time');
+        useSteeringStore.getState().setPrompts(['Once upon a time']);
       });
 
-      expect(useSteeringStore.getState().prompt).toBe('Once upon a time');
+      expect(useSteeringStore.getState().prompts).toEqual(['Once upon a time']);
     });
   });
 
@@ -508,8 +526,8 @@ describe('SteeringStore Selectors', () => {
     it('should return true when all requirements met', () => {
       useSteeringStore.setState({
         selectedSAE: createMockSAE(),
-        selectedFeatures: [{ ...createMockFeature(), color: 'teal' }],
-        prompt: 'Test prompt',
+        selectedFeatures: [createFullMockFeature({ color: 'teal' })],
+        prompts: ['Test prompt'],
         isGenerating: false,
       });
 
@@ -519,8 +537,8 @@ describe('SteeringStore Selectors', () => {
     it('should return false without SAE', () => {
       useSteeringStore.setState({
         selectedSAE: null,
-        selectedFeatures: [{ ...createMockFeature(), color: 'teal' }],
-        prompt: 'Test prompt',
+        selectedFeatures: [createFullMockFeature({ color: 'teal' })],
+        prompts: ['Test prompt'],
       });
 
       expect(selectCanGenerate(useSteeringStore.getState())).toBe(false);
@@ -530,7 +548,7 @@ describe('SteeringStore Selectors', () => {
       useSteeringStore.setState({
         selectedSAE: createMockSAE(),
         selectedFeatures: [],
-        prompt: 'Test prompt',
+        prompts: ['Test prompt'],
       });
 
       expect(selectCanGenerate(useSteeringStore.getState())).toBe(false);
@@ -539,8 +557,8 @@ describe('SteeringStore Selectors', () => {
     it('should return false without prompt', () => {
       useSteeringStore.setState({
         selectedSAE: createMockSAE(),
-        selectedFeatures: [{ ...createMockFeature(), color: 'teal' }],
-        prompt: '   ', // Whitespace only
+        selectedFeatures: [createFullMockFeature({ color: 'teal' })],
+        prompts: ['   '], // Whitespace only
       });
 
       expect(selectCanGenerate(useSteeringStore.getState())).toBe(false);
@@ -549,8 +567,8 @@ describe('SteeringStore Selectors', () => {
     it('should return false while generating', () => {
       useSteeringStore.setState({
         selectedSAE: createMockSAE(),
-        selectedFeatures: [{ ...createMockFeature(), color: 'teal' }],
-        prompt: 'Test prompt',
+        selectedFeatures: [createFullMockFeature({ color: 'teal' })],
+        prompts: ['Test prompt'],
         isGenerating: true,
       });
 

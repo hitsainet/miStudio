@@ -12,6 +12,7 @@ import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useTrainingWebSocket } from '../../hooks/useTrainingWebSocket';
+import { useDeletionProgressWebSocket } from '../../hooks/useDeletionProgressWebSocket';
 import { useWebSocketContext } from '../../contexts/WebSocketContext';
 import { TrainingStatus, SAEArchitectureType } from '../../types/training';
 
@@ -20,6 +21,7 @@ vi.mock('../../stores/trainingsStore');
 vi.mock('../../stores/modelsStore');
 vi.mock('../../stores/datasetsStore');
 vi.mock('../../hooks/useTrainingWebSocket');
+vi.mock('../../hooks/useDeletionProgressWebSocket');
 vi.mock('../../contexts/WebSocketContext');
 
 // Mock child components
@@ -51,6 +53,7 @@ global.confirm = vi.fn(() => true);
 
 describe('TrainingPanel', () => {
   const mockFetchTrainings = vi.fn();
+  const mockFetchTraining = vi.fn();
   const mockCreateTraining = vi.fn();
   const mockDeleteTraining = vi.fn();
   const mockUpdateConfig = vi.fn();
@@ -76,6 +79,7 @@ describe('TrainingPanel', () => {
     log_interval: 100,
     dead_neuron_threshold: 10000,
     resample_dead_neurons: true,
+    training_layers: [0, 1, 2],
   };
 
   const mockModels = [
@@ -166,10 +170,12 @@ describe('TrainingPanel', () => {
       config: mockConfig,
       updateConfig: mockUpdateConfig,
       fetchTrainings: mockFetchTrainings,
+      fetchTraining: mockFetchTraining,
       createTraining: mockCreateTraining,
       deleteTraining: mockDeleteTraining,
       statusFilter: 'all',
       setStatusFilter: mockSetStatusFilter,
+      statusCounts: { all: 0, running: 0, completed: 0, failed: 0, pending: 0 },
       isLoading: false,
       error: null,
     });
@@ -188,6 +194,9 @@ describe('TrainingPanel', () => {
 
     // Default WebSocket hook mock
     (useTrainingWebSocket as any).mockReturnValue({});
+
+    // Default deletion progress WebSocket hook mock
+    (useDeletionProgressWebSocket as any).mockReturnValue(undefined);
 
     // Default WebSocket context mock
     (useWebSocketContext as any).mockReturnValue({
@@ -266,10 +275,11 @@ describe('TrainingPanel', () => {
       render(<TrainingPanel />);
       const selects = screen.getAllByRole('combobox');
       const archSelect = selects[2] as HTMLSelectElement;
-      expect(archSelect.options.length).toBe(3);
+      expect(archSelect.options.length).toBe(4);
       expect(archSelect.options[0].value).toBe(SAEArchitectureType.STANDARD);
       expect(archSelect.options[1].value).toBe(SAEArchitectureType.SKIP);
       expect(archSelect.options[2].value).toBe(SAEArchitectureType.TRANSCODER);
+      expect(archSelect.options[3].value).toBe(SAEArchitectureType.JUMPRELU);
     });
 
     it('should call updateConfig when dataset is selected', () => {
@@ -304,10 +314,12 @@ describe('TrainingPanel', () => {
         config: { ...mockConfig, model_id: '', dataset_id: '' },
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 0, running: 0, completed: 0, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -323,10 +335,12 @@ describe('TrainingPanel', () => {
         config: { ...mockConfig, model_id: 'm_gpt2', dataset_id: 'ds_dataset1' },
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 0, running: 0, completed: 0, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -392,10 +406,12 @@ describe('TrainingPanel', () => {
         config: validConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 0, running: 0, completed: 0, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -410,13 +426,14 @@ describe('TrainingPanel', () => {
         expect(mockCreateTraining).toHaveBeenCalledWith({
           model_id: 'm_gpt2',
           dataset_id: 'ds_dataset1',
-          extraction_id: undefined,
           hyperparameters: {
             hidden_dim: 768,
             latent_dim: 8192,
             architecture_type: SAEArchitectureType.STANDARD,
+            training_layers: [0, 1, 2],
             l1_alpha: 0.001,
             target_l0: 0.05,
+            top_k_sparsity: undefined,
             learning_rate: 0.0003,
             batch_size: 32,
             total_steps: 100000,
@@ -444,10 +461,12 @@ describe('TrainingPanel', () => {
         config: validConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 0, running: 0, completed: 0, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -483,10 +502,12 @@ describe('TrainingPanel', () => {
         config: mockConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 0, running: 0, completed: 0, failed: 0, pending: 0 },
         isLoading: true,
         error: null,
       });
@@ -502,10 +523,12 @@ describe('TrainingPanel', () => {
         config: mockConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 2, running: 1, completed: 1, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -521,10 +544,12 @@ describe('TrainingPanel', () => {
         config: mockConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 0, running: 0, completed: 0, failed: 0, pending: 0 },
         isLoading: false,
         error: 'Failed to load trainings',
       });
@@ -541,10 +566,12 @@ describe('TrainingPanel', () => {
         config: mockConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 2, running: 1, completed: 1, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -594,10 +621,12 @@ describe('TrainingPanel', () => {
         config: mockConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 2, running: 1, completed: 1, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -711,10 +740,12 @@ describe('TrainingPanel', () => {
         config: mockConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 2, running: 1, completed: 1, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });
@@ -735,10 +766,12 @@ describe('TrainingPanel', () => {
         config: mockConfig,
         updateConfig: mockUpdateConfig,
         fetchTrainings: mockFetchTrainings,
+        fetchTraining: mockFetchTraining,
         createTraining: mockCreateTraining,
         deleteTraining: mockDeleteTraining,
         statusFilter: 'all',
         setStatusFilter: mockSetStatusFilter,
+        statusCounts: { all: 2, running: 1, completed: 1, failed: 0, pending: 0 },
         isLoading: false,
         error: null,
       });

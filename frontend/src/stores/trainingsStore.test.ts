@@ -340,14 +340,24 @@ describe('trainingsStore', () => {
     };
 
     it('should fetch single training successfully', async () => {
+      // Pre-set the training in the list and as selectedTraining
+      const existingTraining = { ...mockTraining, progress: 0 };
+      useTrainingsStore.setState({
+        trainings: [existingTraining],
+        selectedTraining: existingTraining,
+      });
+
       mockedAxios.get.mockResolvedValueOnce({
-        data: mockTraining,
+        data: mockTraining, // Updated training with progress: 45.5
       });
 
       const { fetchTraining } = useTrainingsStore.getState();
       await fetchTraining('train_123');
 
       const state = useTrainingsStore.getState();
+      // Should update training in list
+      expect(state.trainings[0]).toEqual(mockTraining);
+      // Should update selectedTraining since it was already selected
       expect(state.selectedTraining).toEqual(mockTraining);
       expect(state.isLoading).toBe(false);
       expect(state.error).toBeNull();
@@ -777,7 +787,7 @@ describe('trainingsStore', () => {
 
       const state = useTrainingsStore.getState();
       expect(state.config.hidden_dim).toBe(768);
-      expect(state.config.learning_rate).toBe(0.0003);
+      expect(state.config.learning_rate).toBe(0.0001);
       expect(state.config.architecture_type).toBe(SAEArchitectureType.STANDARD);
     });
 

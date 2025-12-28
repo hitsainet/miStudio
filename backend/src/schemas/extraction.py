@@ -76,6 +76,14 @@ class ExtractionConfigRequest(BaseModel):
         description="Minimum activation frequency to keep a feature (0-0.1). Features firing less often are filtered as 'dead neurons'. Default 0.001 = 0.1%"
     )
 
+    # NLP Analysis configuration
+    # Auto-NLP triggers NLP analysis automatically when extraction completes
+    # This pre-computes POS tagging, NER, context patterns for feature labels
+    auto_nlp: bool = Field(
+        default=True,
+        description="Automatically start NLP analysis after extraction completes (default: True)"
+    )
+
     # NOTE: Labeling configuration has been removed from extraction
     # Features are created unlabeled and can be labeled separately via LabelingService
     # This allows re-labeling without re-extraction
@@ -118,6 +126,12 @@ class ExtractionStatusResponse(BaseModel):
     # Context window configuration
     context_prefix_tokens: Optional[int] = 25
     context_suffix_tokens: Optional[int] = 25
+
+    # NLP configuration
+    auto_nlp: Optional[bool] = Field(
+        default=True,
+        description="Whether NLP was/will be auto-triggered after extraction"
+    )
 
     # NLP Processing status (separate from feature extraction)
     nlp_status: Optional[str] = Field(

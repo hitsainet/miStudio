@@ -33,25 +33,26 @@ export const ExtractionsPanel: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [showStartModal, setShowStartModal] = useState(false);
 
-  // Get IDs of active extractions (queued, extracting, or finalizing) for WebSocket subscriptions
-  const activeExtractionIds = useMemo(() => {
-    return allExtractions
-      .filter(e => e.status === 'queued' || e.status === 'extracting' || e.status === 'finalizing')
-      .map(e => e.id);
+  // Get IDs of all extractions for WebSocket subscriptions
+  // We subscribe to ALL extractions (not just active ones) to receive deletion notifications
+  // for completed/failed extractions as well
+  const allExtractionIds = useMemo(() => {
+    return allExtractions.map(e => e.id);
   }, [allExtractions]);
 
-  // Subscribe to WebSocket updates for active extractions
-  useExtractionWebSocket(activeExtractionIds);
+  // Subscribe to WebSocket updates for all extractions (progress updates + deletion events)
+  useExtractionWebSocket(allExtractionIds);
 
-  // Get IDs of extractions with NLP processing for WebSocket subscriptions
-  const nlpProcessingExtractionIds = useMemo(() => {
+  // Get IDs of extractions with NLP pending or processing for WebSocket subscriptions
+  // Include 'pending' to catch updates when NLP starts after auto-trigger
+  const nlpActiveExtractionIds = useMemo(() => {
     return allExtractions
-      .filter(e => e.nlp_status === 'processing')
+      .filter(e => e.nlp_status === 'pending' || e.nlp_status === 'processing')
       .map(e => e.id);
   }, [allExtractions]);
 
   // Subscribe to WebSocket updates for NLP processing
-  useNlpWebSocket(nlpProcessingExtractionIds);
+  useNlpWebSocket(nlpActiveExtractionIds);
 
   // Load trainings and extractions on mount
   useEffect(() => {
@@ -199,9 +200,17 @@ export const ExtractionsPanel: React.FC = () => {
                     }}
                     onDelete={async () => {
                       const sourceId = extraction.training_id || extraction.external_sae_id || '';
-                      await deleteExtraction(extraction.id, sourceId);
-                      // Refresh list after deletion
-                      fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);
+                      try {
+                        console.log(`[Extractions] Deleting extraction ${extraction.id}...`);
+                        await deleteExtraction(extraction.id, sourceId);
+                        console.log(`[Extractions] Extraction ${extraction.id} deleted successfully`);
+                        // Refresh list after deletion
+                        fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);
+                      } catch (error: any) {
+                        console.error(`[Extractions] Failed to delete extraction ${extraction.id}:`, error);
+                        // Error is already set in the store, but let's alert the user
+                        alert(`Failed to delete extraction: ${error?.message || 'Unknown error'}`);
+                      }
                     }}
                   />
                 ))}

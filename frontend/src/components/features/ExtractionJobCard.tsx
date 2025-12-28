@@ -93,6 +93,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
     fetchExtractionFeatures,
     toggleFavorite,
     setSearchFilters,
+    updateExtractionById,
   } = useFeaturesStore();
 
   // Get trainings store methods and state
@@ -363,7 +364,9 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
     try {
       await triggerNlpAnalysis(extraction.id);
-      // The WebSocket will update nlp_status on the extraction
+      // Optimistically update the store to trigger WebSocket subscription
+      // The WebSocket will then provide real-time progress updates
+      updateExtractionById(extraction.id, { nlp_status: 'processing', nlp_progress: 0 });
     } catch (error: any) {
       console.error('Failed to trigger NLP analysis:', error);
       setNlpError(error.message || 'Failed to start NLP analysis');
@@ -384,7 +387,9 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
     try {
       await cancelNlpAnalysis(extraction.id);
-      // The task will check for cancellation at the next batch boundary
+      // Optimistically update the store to reflect cancelled status
+      // Backend immediately sets status to cancelled, no need to wait for Celery task
+      updateExtractionById(extraction.id, { nlp_status: 'cancelled' });
     } catch (error: any) {
       console.error('Failed to cancel NLP analysis:', error);
       setNlpError(error.message || 'Failed to cancel NLP analysis');
@@ -408,6 +413,8 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       await resetNlpAnalysis(extraction.id, { clear_feature_analysis: false });
       // Then trigger analysis - it will skip already processed features
       await triggerNlpAnalysis(extraction.id, { force_reprocess: false });
+      // Optimistically update the store to trigger WebSocket subscription
+      updateExtractionById(extraction.id, { nlp_status: 'processing' });
     } catch (error: any) {
       console.error('Failed to resume NLP analysis:', error);
       setNlpError(error.message || 'Failed to resume NLP analysis');
@@ -431,6 +438,8 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       await resetNlpAnalysis(extraction.id, { clear_feature_analysis: true });
       // Then trigger fresh analysis
       await triggerNlpAnalysis(extraction.id, { force_reprocess: true });
+      // Optimistically update the store to trigger WebSocket subscription
+      updateExtractionById(extraction.id, { nlp_status: 'processing', nlp_progress: 0 });
     } catch (error: any) {
       console.error('Failed to restart NLP analysis:', error);
       setNlpError(error.message || 'Failed to restart NLP analysis');
@@ -926,8 +935,13 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             <button
               type="button"
               onClick={() => {
+                console.log(`[ExtractionJobCard] Delete button clicked for extraction ${extraction.id}`);
+                console.log(`[ExtractionJobCard] Extraction status: ${extraction.status}, NLP status: ${extraction.nlp_status}`);
                 if (window.confirm('Are you sure you want to delete this extraction?')) {
+                  console.log(`[ExtractionJobCard] User confirmed deletion`);
                   onDelete();
+                } else {
+                  console.log(`[ExtractionJobCard] User cancelled deletion`);
                 }
               }}
               className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}

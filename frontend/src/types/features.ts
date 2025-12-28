@@ -31,6 +31,8 @@ export interface ExtractionConfigRequest {
   vectorization_batch_size?: string | number;  // 'auto' or 1-256 (default: 'auto')
   soft_time_limit?: number;  // Soft time limit in seconds (default: 144000 = 40 hours)
   time_limit?: number;  // Hard time limit in seconds (default: 172800 = 48 hours)
+  // NLP configuration
+  auto_nlp?: boolean;  // Automatically start NLP analysis after extraction (default: true)
 }
 
 /**
@@ -77,6 +79,8 @@ export interface ExtractionStatusResponse {
   // Context window configuration
   context_prefix_tokens?: number;
   context_suffix_tokens?: number;
+  // NLP configuration
+  auto_nlp?: boolean;  // Whether NLP was/will be auto-triggered after extraction
   // NLP Processing status (separate from feature extraction)
   nlp_status?: NlpStatus;
   nlp_progress?: number | null;

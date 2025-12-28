@@ -46,7 +46,11 @@ export interface ExtractionTemplate {
   extraction_filter_enabled?: boolean;
   /** Filter mode: minimal, conservative, standard, or aggressive (default: 'standard') */
   extraction_filter_mode?: 'minimal' | 'conservative' | 'standard' | 'aggressive';
-  /** Additional JSON metadata */
+  /**
+   * Additional JSON metadata.
+   * Supported fields:
+   * - auto_nlp: boolean - Whether to auto-run NLP analysis after extraction (default: true)
+   */
   extra_metadata?: Record<string, any>;
   /** Creation timestamp */
   created_at: string;

@@ -138,8 +138,21 @@ def analyze_features_nlp_task(
 
             # Process features in batches
             for batch_start in range(0, total_features, batch_size):
-                # Check for cancellation at the start of each batch
-                db.refresh(extraction_job)
+                # Check for cancellation or deletion at the start of each batch
+                try:
+                    db.refresh(extraction_job)
+                except Exception as refresh_error:
+                    # Extraction was likely deleted while we were processing
+                    logger.warning(f"Extraction {extraction_job_id} may have been deleted: {refresh_error}")
+                    return {
+                        "status": "aborted",
+                        "features_analyzed": analyzed_count,
+                        "cached_count": cached_count,
+                        "error_count": error_count,
+                        "total_features": total_features,
+                        "message": "Extraction was deleted during NLP processing"
+                    }
+
                 if extraction_job.nlp_status == "cancelled":
                     logger.info(f"NLP analysis cancelled for extraction {extraction_job_id}")
                     emit_nlp_analysis_progress(

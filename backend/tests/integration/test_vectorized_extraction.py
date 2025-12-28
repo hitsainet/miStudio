@@ -18,14 +18,14 @@ import time
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 
 # Fixtures are automatically loaded from tests/conftest.py
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_vectorized_extraction_small_dataset(async_db: Session):
+async def test_vectorized_extraction_small_dataset(async_session):
     """
     Integration test: Run vectorized extraction on small dataset.
 
@@ -38,10 +38,11 @@ async def test_vectorized_extraction_small_dataset(async_db: Session):
     from src.models.training import Training
     from src.services.extraction_service import ExtractionService
 
-    # Find a completed training with checkpoint
-    training = async_db.query(Training).filter(
-        Training.status == "completed"
-    ).first()
+    # Find a completed training with checkpoint (SQLAlchemy 2.0 async style)
+    result = await async_session.execute(
+        select(Training).filter(Training.status == "completed")
+    )
+    training = result.scalar_one_or_none()
 
     if not training:
         pytest.skip("No completed training found. Run a training first.")
@@ -54,7 +55,7 @@ async def test_vectorized_extraction_small_dataset(async_db: Session):
     print(f"{'='*60}\n")
 
     # Create extraction service
-    extraction_service = ExtractionService(async_db)
+    extraction_service = ExtractionService(async_session)
 
     # Configure extraction for small test
     config = {
@@ -99,7 +100,7 @@ async def test_vectorized_extraction_small_dataset(async_db: Session):
             elapsed += poll_interval
 
             # Refresh extraction job
-            await async_db.refresh(extraction_job)
+            await async_session.refresh(extraction_job)
 
             print(f"  [{elapsed}s] Status: {extraction_job.status}, "
                   f"Progress: {extraction_job.progress * 100:.1f}%")
@@ -124,11 +125,14 @@ async def test_vectorized_extraction_small_dataset(async_db: Session):
         print(f"Time per sample: {total_time/config['evaluation_samples']:.3f} seconds")
         print(f"{'='*60}\n")
 
-        # Verify features were created
+        # Verify features were created (SQLAlchemy 2.0 async style)
         from src.models.feature import Feature
-        feature_count = async_db.query(Feature).filter(
-            Feature.extraction_job_id == extraction_job.id
-        ).count()
+        result = await async_session.execute(
+            select(func.count()).select_from(Feature).filter(
+                Feature.extraction_job_id == extraction_job.id
+            )
+        )
+        feature_count = result.scalar()
 
         print(f"Features extracted: {feature_count}")
 

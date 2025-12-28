@@ -43,6 +43,9 @@ export interface ExtractionProgressEvent {
   heap_examples_count?: number;
   // Deletion-specific fields
   feature_count?: number;
+  // NLP auto-trigger fields (sent with extraction:completed when auto_nlp=true)
+  nlp_status?: string;  // 'pending' when NLP is about to start
+  nlp_progress?: number;
 }
 
 export interface ExtractionDeletedEvent {
@@ -103,12 +106,24 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
 
   const handleCompleted = useCallback((data: ExtractionProgressEvent) => {
     console.log('[Extraction WS] ✅ Extraction completed:', data);
-    updateExtractionById(data.extraction_id, {
+
+    // Build update object including NLP status if present (auto-NLP enabled)
+    const update: Record<string, unknown> = {
       status: 'completed',
       progress: 1.0,
       features_extracted: data.features_extracted,
       total_features: data.total_features,
-    });
+    };
+
+    // If auto-NLP is enabled, the backend sends nlp_status='pending' in the completion event
+    // This ensures frontend immediately knows NLP will start and can subscribe to updates
+    if (data.nlp_status !== undefined) {
+      update.nlp_status = data.nlp_status;
+      update.nlp_progress = data.nlp_progress || 0;
+      console.log('[Extraction WS] 🔬 NLP auto-triggered, status:', data.nlp_status);
+    }
+
+    updateExtractionById(data.extraction_id, update);
     // Refresh to get final statistics
     fetchAllExtractions();
   }, [updateExtractionById, fetchAllExtractions]);

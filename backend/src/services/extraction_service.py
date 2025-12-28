@@ -30,7 +30,7 @@ from src.models.dataset import Dataset
 from src.models.dataset_tokenization import DatasetTokenization, TokenizationStatus
 from src.models.external_sae import ExternalSAE, SAEStatus
 from src.core.database import get_db
-from src.workers.websocket_emitter import emit_training_progress, emit_extraction_job_progress
+from src.workers.websocket_emitter import emit_training_progress, emit_extraction_job_progress, emit_extraction_deleted
 from src.core.config import settings
 from src.services.resource_config import ResourceConfig
 from src.utils.auto_labeling import auto_label_feature
@@ -776,10 +776,16 @@ class ExtractionService:
                     f"Cannot delete active extraction job. Please wait or cancel it first."
                 )
 
+        # Count features before deletion for WebSocket emit
+        from sqlalchemy import delete as sql_delete, func
+
+        feature_count_result = await self.db.execute(
+            select(func.count(Feature.id)).where(Feature.extraction_job_id == extraction_id)
+        )
+        feature_count = feature_count_result.scalar() or 0
+
         # Delete features (CASCADE will automatically delete feature_activations)
         # No need to manually delete activations - foreign key has ON DELETE CASCADE
-        from sqlalchemy import delete as sql_delete
-
         await self.db.execute(
             sql_delete(Feature).where(Feature.extraction_job_id == extraction_id)
         )
@@ -790,7 +796,10 @@ class ExtractionService:
         )
 
         await self.db.commit()
-        logger.info(f"Deleted extraction job {extraction_id} and associated features")
+        logger.info(f"Deleted extraction job {extraction_id} and {feature_count} associated features")
+
+        # Emit WebSocket notification for frontend
+        emit_extraction_deleted(extraction_id, feature_count)
 
     async def update_extraction_status(
         self,
@@ -907,23 +916,37 @@ class ExtractionService:
 
             # Emit appropriate event based on status
             if status == ExtractionStatus.COMPLETED.value:
+                # Check if auto_nlp is enabled BEFORE emitting completion event
+                # This allows frontend to know NLP will start and subscribe to updates
+                auto_nlp = extraction_job.config.get("auto_nlp", True) if extraction_job.config else True
+                if auto_nlp:
+                    # Set nlp_status to 'pending' so frontend knows NLP is about to start
+                    extraction_job.nlp_status = "pending"
+                    extraction_job.nlp_progress = 0.0
+                    self.db.commit()  # Sync version - no await
+                    event_data["nlp_status"] = "pending"
+                    event_data["nlp_progress"] = 0.0
+
                 emit_progress(
                     channel=f"extraction/{extraction_id}",
                     event="extraction:completed",
                     data=event_data
                 )
 
-                # Queue NLP analysis task for completed extraction
-                try:
-                    from ..workers.nlp_analysis_tasks import analyze_features_nlp_task
-                    analyze_features_nlp_task.delay(
-                        extraction_job_id=extraction_id,
-                        feature_ids=None,  # Analyze all features
-                        batch_size=100
-                    )
-                    logger.info(f"Queued NLP analysis task for extraction {extraction_id}")
-                except Exception as nlp_err:
-                    logger.warning(f"Failed to queue NLP analysis for extraction {extraction_id}: {nlp_err}")
+                # Queue NLP analysis task if auto_nlp is enabled
+                if auto_nlp:
+                    try:
+                        from ..workers.nlp_analysis_tasks import analyze_features_nlp_task
+                        analyze_features_nlp_task.delay(
+                            extraction_job_id=extraction_id,
+                            feature_ids=None,  # Analyze all features
+                            batch_size=100
+                        )
+                        logger.info(f"Queued NLP analysis task for extraction {extraction_id} (auto_nlp=True)")
+                    except Exception as nlp_err:
+                        logger.warning(f"Failed to queue NLP analysis for extraction {extraction_id}: {nlp_err}")
+                else:
+                    logger.info(f"Skipping NLP analysis for extraction {extraction_id} (auto_nlp=False)")
 
             elif status == ExtractionStatus.FAILED.value:
                 event_data["error_message"] = error_message

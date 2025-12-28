@@ -89,6 +89,9 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   // Dead neuron filtering
   const [minActivationFrequency, setMinActivationFrequency] = useState(0.001);
 
+  // NLP processing
+  const [autoNlp, setAutoNlp] = useState(true);
+
   // UI state
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -188,6 +191,10 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         setFilterStopWords(true);
       }
     }
+    // Apply auto_nlp setting from extra_metadata (defaults to true if not specified)
+    if (template.extra_metadata?.auto_nlp !== undefined) {
+      setAutoNlp(template.extra_metadata.auto_nlp);
+    }
   };
 
   /**
@@ -210,6 +217,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         context_prefix_tokens: contextPrefixTokens,
         context_suffix_tokens: contextSuffixTokens,
         min_activation_frequency: minActivationFrequency,
+        auto_nlp: autoNlp,
       };
 
       if (sourceType === 'training') {
@@ -701,6 +709,24 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       </label>
                     </div>
                   )}
+                </div>
+
+                {/* NLP Processing Configuration */}
+                <div className="bg-slate-900 rounded-lg border border-slate-700 p-4">
+                  <label className="flex items-center gap-3 text-sm text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoNlp}
+                      onChange={(e) => setAutoNlp(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="font-medium">Auto-run NLP Analysis</span>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Automatically compute POS tags, NER, patterns, and clusters for feature labels
+                      </p>
+                    </div>
+                  </label>
                 </div>
 
                 {/* Error Message */}

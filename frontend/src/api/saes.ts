@@ -193,6 +193,7 @@ export interface SAEExtractionConfig {
   context_prefix_tokens?: number;
   context_suffix_tokens?: number;
   min_activation_frequency?: number;
+  auto_nlp?: boolean;  // Automatically run NLP analysis after extraction (default: true)
 }
 
 /**

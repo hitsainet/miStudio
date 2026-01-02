@@ -391,14 +391,16 @@ start_steering_worker() {
 
     echo -n "Starting Celery steering worker..."
 
-    # Start steering worker with dedicated queue and aggressive recycling
+    # Start steering worker with dedicated queue and AGGRESSIVE recycling
+    # --max-tasks-per-child=1: Recycle worker after EVERY task to free GPU memory
+    # This prevents orphaned GPU memory from accumulating across tasks
     nohup celery -A src.core.celery_app worker \
         -Q steering \
         -c 1 \
         --pool=solo \
         --loglevel=info \
         --hostname="steering@%h" \
-        --max-tasks-per-child=50 \
+        --max-tasks-per-child=1 \
         --pidfile="$STEERING_PID_FILE" \
         > "$STEERING_LOG" 2>&1 &
 
@@ -445,6 +447,21 @@ cmd_stop() {
 
     # Clean up schedule file
     rm -f "$BEAT_SCHEDULE_FILE"* 2>/dev/null
+
+    # Kill any remaining celery processes (including children)
+    local remaining=$(pgrep -f "celery.*worker" 2>/dev/null | wc -l)
+    if [ "$remaining" -gt 0 ]; then
+        echo -n "Killing $remaining remaining celery processes..."
+        pkill -9 -f "celery.*worker" 2>/dev/null || true
+        sleep 2
+        echo -e " ${GREEN}done${NC}"
+    fi
+
+    # Check for zombies
+    local zombie_count=$(ps aux | grep -E '\[celery\].*<defunct>' | grep -v grep | wc -l)
+    if [ "$zombie_count" -gt 0 ]; then
+        echo -e "${YELLOW}WARNING: $zombie_count zombie process(es) remain. Reboot may be required to free GPU memory.${NC}"
+    fi
 }
 
 cmd_restart() {
@@ -614,6 +631,34 @@ cmd_watchdog() {
                     else
                         log_msg "ERROR: Failed to restart worker after memory pressure"
                     fi
+                fi
+            fi
+
+            # Check and restart steering worker if needed
+            steering_running=false
+            is_running "$STEERING_PID_FILE" && steering_running=true
+            if [ "$steering_running" = "false" ]; then
+                log_msg "Steering worker down, restarting..."
+
+                sleep 2
+                start_steering_worker >> "$WATCHDOG_LOG" 2>&1
+
+                if is_running "$STEERING_PID_FILE"; then
+                    log_msg "Steering worker restarted successfully"
+                else
+                    log_msg "ERROR: Failed to restart steering worker"
+                fi
+            fi
+
+            # Check for zombie processes (defunct) related to celery
+            zombie_count=$(ps aux | grep -E '\[celery\].*<defunct>' | grep -v grep | wc -l)
+            if [ "$zombie_count" -gt 0 ]; then
+                log_msg "WARNING: Found $zombie_count zombie celery process(es) - orphaned GPU memory likely"
+                # Check GPU memory for orphaned allocations
+                local gpu_used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)
+                local gpu_procs=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -v "No running" | wc -l)
+                if [ "$gpu_used" -gt 1000 ] && [ "$gpu_procs" -eq 0 ]; then
+                    log_msg "CRITICAL: ${gpu_used}MiB GPU memory orphaned (no active processes) - reboot may be required"
                 fi
             fi
 

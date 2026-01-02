@@ -60,7 +60,8 @@ if command -v nvidia-smi &> /dev/null; then
     # Check for zombie processes holding GPU memory
     gpu_mem_used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)
     gpu_procs=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -v "No running" | wc -l)
-    zombie_count=$(ps aux 2>/dev/null | grep -E '\[.*\].*<defunct>' | wc -l)
+    # Count actual zombie processes by checking process state (Z = zombie)
+    zombie_count=$(ps aux 2>/dev/null | awk '$8 ~ /^Z/' | wc -l)
 
     # Check for orphaned GPU memory (memory used but no processes)
     if [ "$gpu_mem_used" -gt 500 ] && [ "$gpu_procs" -eq 0 ]; then

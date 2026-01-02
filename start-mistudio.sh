@@ -53,6 +53,70 @@ wait_for_service() {
     return 1
 }
 
+# Step 0: Check CUDA health before starting anything
+echo ""
+echo "Step 0: Checking CUDA/GPU health..."
+if command -v nvidia-smi &> /dev/null; then
+    # Check for zombie processes holding GPU memory
+    gpu_mem_used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)
+    gpu_procs=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -v "No running" | wc -l)
+    zombie_count=$(ps aux 2>/dev/null | grep -E '\[.*\].*<defunct>' | wc -l)
+
+    # Check for orphaned GPU memory (memory used but no processes)
+    if [ "$gpu_mem_used" -gt 500 ] && [ "$gpu_procs" -eq 0 ]; then
+        echo -e "${RED}✗ CRITICAL: ${gpu_mem_used}MiB GPU memory orphaned with no active processes${NC}"
+        echo -e "${RED}  CUDA driver may be corrupted. Reboot required.${NC}"
+        echo ""
+        read -p "Continue anyway? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Exiting. Please reboot to clear GPU state."
+            exit 1
+        fi
+    elif [ "$zombie_count" -gt 0 ]; then
+        echo -e "${YELLOW}⚠ WARNING: Found $zombie_count zombie process(es)${NC}"
+        echo -e "${YELLOW}  GPU may have orphaned memory. Consider rebooting.${NC}"
+    else
+        echo -e "${GREEN}✓${NC} GPU health OK (${gpu_mem_used}MiB used, $gpu_procs active processes)"
+    fi
+
+    # Quick CUDA sanity check using Python
+    cd "$PROJECT_ROOT/backend"
+    if [ -f "venv/bin/python" ]; then
+        cuda_check=$(venv/bin/python -c "
+import torch
+try:
+    if torch.cuda.is_available():
+        count = torch.cuda.device_count()
+        print(f'OK:{count}')
+    else:
+        print('NO_CUDA')
+except Exception as e:
+    print(f'ERROR:{e}')
+" 2>&1)
+
+        if [[ "$cuda_check" == OK:* ]]; then
+            device_count="${cuda_check#OK:}"
+            echo -e "${GREEN}✓${NC} CUDA initialized successfully ($device_count GPU(s) available)"
+        elif [[ "$cuda_check" == "NO_CUDA" ]]; then
+            echo -e "${YELLOW}⚠${NC} CUDA not available - will use CPU"
+        elif [[ "$cuda_check" == ERROR:* ]]; then
+            echo -e "${RED}✗ CUDA initialization failed: ${cuda_check#ERROR:}${NC}"
+            echo -e "${RED}  CUDA driver is corrupted. Reboot required.${NC}"
+            echo ""
+            read -p "Continue anyway (will use CPU)? (y/N) " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Exiting. Please reboot to clear GPU state."
+                exit 1
+            fi
+        fi
+    fi
+    cd "$PROJECT_ROOT"
+else
+    echo -e "${YELLOW}⚠${NC} nvidia-smi not found - GPU support unavailable"
+fi
+
 echo ""
 echo "Step 1: Checking /etc/hosts for domain..."
 if ! grep -q "$DOMAIN" /etc/hosts; then

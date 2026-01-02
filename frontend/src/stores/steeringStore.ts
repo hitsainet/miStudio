@@ -32,7 +32,7 @@ import {
 } from '../types/steering';
 import { SAE } from '../types/sae';
 import * as steeringApi from '../api/steering';
-import type { ClearCacheResponse, SteeringTaskResponse } from '../api/steering';
+import type { SteeringTaskResponse } from '../api/steering';
 
 // Maximum number of features that can be selected
 const MAX_SELECTED_FEATURES = 4;
@@ -161,11 +161,6 @@ interface SteeringState {
   setError: (error: string | null) => void;
   clearError: () => void;
 
-  // Actions - Cache Management
-  clearModelCache: () => Promise<ClearCacheResponse>;
-  isUnloadingCache: boolean;
-  lastCacheResult: ClearCacheResponse | null;
-
   // Actions - State Recovery (after page refresh)
   recoverActiveTask: () => Promise<void>;
   _hasHydrated: boolean;
@@ -202,8 +197,6 @@ export const useSteeringStore = create<SteeringState>()(
         hasMore: false,
       },
       error: null,
-      isUnloadingCache: false,
-      lastCacheResult: null,
       _hasHydrated: false,
 
       // Select an SAE for steering
@@ -1123,20 +1116,6 @@ export const useSteeringStore = create<SteeringState>()(
       // Clear error
       clearError: () => {
         set({ error: null });
-      },
-
-      // Clear model cache
-      clearModelCache: async () => {
-        set({ isUnloadingCache: true, error: null, lastCacheResult: null });
-        try {
-          const result = await steeringApi.clearSteeringCache();
-          set({ isUnloadingCache: false, lastCacheResult: result });
-          return result;
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to clear cache';
-          set({ error: errorMessage, isUnloadingCache: false });
-          throw error;
-        }
       },
 
       // Hydration tracking for persistence

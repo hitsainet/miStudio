@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power, Check, Info, StopCircle, RotateCcw, History, ChevronDown } from 'lucide-react';
+import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, StopCircle, History, ChevronDown } from 'lucide-react';
 import { useSteeringStore, selectCanGenerate, selectCanGenerateBatch } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { usePromptTemplatesStore } from '../../stores/promptTemplatesStore';
@@ -25,16 +25,12 @@ import { ComparisonPreview } from '../steering/ComparisonPreview';
 import { ComparisonResults } from '../steering/ComparisonResults';
 import { PromptListEditor } from '../steering/PromptListEditor';
 import { COMPONENTS } from '../../config/brand';
-import { restartBackend } from '../../api/steering';
 import { useSteeringWebSocket } from '../../hooks/useSteeringWebSocket';
 import type { SteeringProgressEvent, SteeringCompletedEvent, SteeringFailedEvent } from '../../hooks/useSteeringWebSocket';
 
 export function SteeringPanel() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [cacheMessage, setCacheMessage] = useState<{ text: string; type: 'success' | 'info' | 'warning' } | null>(null);
-  const [needsRestart, setNeedsRestart] = useState(false);
-  const [isRestarting, setIsRestarting] = useState(false);
   const [showRecentDropdown, setShowRecentDropdown] = useState(false);
   const [recoveryTaskId, setRecoveryTaskId] = useState('');
   const [isRecovering, setIsRecovering] = useState(false);
@@ -50,7 +46,6 @@ export function SteeringPanel() {
     currentComparison,
     batchState,
     error,
-    isUnloadingCache,
     addPrompt,
     removePrompt,
     updatePrompt,
@@ -62,7 +57,6 @@ export function SteeringPanel() {
     abortBatch,
     clearBatchResults,
     clearError,
-    clearModelCache,
     handleAsyncProgress,
     handleAsyncCompleted,
     handleAsyncFailed,
@@ -146,47 +140,6 @@ export function SteeringPanel() {
 
   const handleSaveExperiment = () => {
     setShowSaveModal(true);
-  };
-
-  const handleClearVRAM = async () => {
-    setCacheMessage(null);
-    setNeedsRestart(false);
-    try {
-      const result = await clearModelCache();
-      if (result.needs_restart) {
-        setCacheMessage({ text: result.message, type: 'warning' });
-        setNeedsRestart(true);
-        // Don't auto-dismiss if restart is needed
-      } else if (result.was_already_clear) {
-        setCacheMessage({ text: result.message, type: 'info' });
-        setTimeout(() => setCacheMessage(null), 5000);
-      } else {
-        setCacheMessage({ text: result.message, type: 'success' });
-        setTimeout(() => setCacheMessage(null), 5000);
-      }
-    } catch (error) {
-      console.error('[SteeringPanel] Failed to clear VRAM:', error);
-    }
-  };
-
-  const handleRestartBackend = async () => {
-    setIsRestarting(true);
-    setCacheMessage({ text: 'Restarting backend...', type: 'info' });
-    try {
-      await restartBackend();
-      // Backend will restart - show message for user
-      setCacheMessage({ text: 'Backend restarting. Page will reconnect automatically.', type: 'info' });
-      setNeedsRestart(false);
-    } catch (error) {
-      // Expected - backend shuts down before responding
-      setCacheMessage({ text: 'Backend restarting. Page will reconnect automatically.', type: 'info' });
-      setNeedsRestart(false);
-    }
-    // Reset after a delay
-    setTimeout(() => {
-      setIsRestarting(false);
-      setCacheMessage(null);
-    }, 10000);
   };
 
   // Template handlers
@@ -336,65 +289,6 @@ export function SteeringPanel() {
                   )}
                 </div>
               )}
-              {/* Feedback message */}
-              {cacheMessage && (
-                <div
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${
-                    cacheMessage.type === 'success'
-                      ? 'bg-emerald-500/10 text-emerald-400'
-                      : cacheMessage.type === 'warning'
-                      ? 'bg-amber-500/10 text-amber-400'
-                      : 'bg-blue-500/10 text-blue-400'
-                  }`}
-                >
-                  {cacheMessage.type === 'success' ? (
-                    <Check className="w-4 h-4" />
-                  ) : cacheMessage.type === 'warning' ? (
-                    <AlertCircle className="w-4 h-4" />
-                  ) : (
-                    <Info className="w-4 h-4" />
-                  )}
-                  {cacheMessage.text}
-                </div>
-              )}
-              {needsRestart && (
-                <button
-                  onClick={handleRestartBackend}
-                  disabled={isRestarting}
-                  className={`px-3 py-2 flex items-center gap-2 text-sm ${COMPONENTS.button.ghost} text-red-400 hover:text-red-300 hover:bg-red-500/10 disabled:opacity-50`}
-                  title="Restart backend to clear orphaned GPU memory"
-                >
-                  {isRestarting ? (
-                    <>
-                      <Loader className="w-4 h-4 animate-spin" />
-                      Restarting...
-                    </>
-                  ) : (
-                    <>
-                      <RotateCcw className="w-4 h-4" />
-                      Restart Backend
-                    </>
-                  )}
-                </button>
-              )}
-              <button
-                onClick={handleClearVRAM}
-                disabled={isUnloadingCache || isGenerating || isRestarting}
-                className={`px-3 py-2 flex items-center gap-2 text-sm ${COMPONENTS.button.ghost} text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 disabled:opacity-50`}
-                title="Clear GPU VRAM by unloading models and SAEs"
-              >
-                {isUnloadingCache ? (
-                  <>
-                    <Loader className="w-4 h-4 animate-spin" />
-                    Clearing...
-                  </>
-                ) : (
-                  <>
-                    <Power className="w-4 h-4" />
-                    Clear VRAM
-                  </>
-                )}
-              </button>
             </div>
           </div>
 

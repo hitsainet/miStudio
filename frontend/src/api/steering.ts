@@ -172,16 +172,6 @@ export async function clearSteeringCache(): Promise<ClearCacheResponse> {
 }
 
 /**
- * Restart the backend service to clear orphaned GPU memory.
- * Docker will automatically restart the container.
- */
-export async function restartBackend(): Promise<{ message: string; status: string }> {
-  return fetchAPI<{ message: string; status: string }>('/system/restart', {
-    method: 'POST',
-  });
-}
-
-/**
  * Unload a specific model from the steering cache.
  */
 export async function unloadModel(modelId: string): Promise<{ message: string }> {

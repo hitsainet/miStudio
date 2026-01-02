@@ -475,7 +475,14 @@ export const useSteeringStore = create<SteeringState>()(
       // Generate comparison (uses first prompt for single-prompt mode)
       // Now uses async Celery-based API with WebSocket progress updates
       generateComparison: async (includeUnsteered = true, computeMetrics = false) => {
-        const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams } = get();
+        const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams, isGenerating } = get();
+
+        // Guard against double submission (can happen with fast double-click before state updates)
+        if (isGenerating) {
+          console.log('[SteeringStore] Already generating, ignoring duplicate call');
+          return { task_id: '', task_type: 'compare', status: 'ignored', websocket_channel: '', message: 'Already generating' } as SteeringTaskResponse;
+        }
+
         const prompt = prompts[0] || '';
 
         if (!selectedSAE) {
@@ -704,7 +711,13 @@ export const useSteeringStore = create<SteeringState>()(
 
       // Generate batch comparison (iterates through all prompts)
       generateBatchComparison: async (includeUnsteered = true, computeMetrics = false) => {
-        const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams } = get();
+        const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams, isGenerating, batchState } = get();
+
+        // Guard against double submission
+        if (isGenerating || batchState?.isRunning) {
+          console.log('[SteeringStore] Already generating batch, ignoring duplicate call');
+          return;
+        }
 
         // Filter to only non-empty prompts
         const validPrompts = prompts.filter((p) => p.trim().length > 0);

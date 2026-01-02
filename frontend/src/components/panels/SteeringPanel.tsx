@@ -201,7 +201,7 @@ export function SteeringPanel() {
                 Steer model outputs by adjusting feature activations during generation
               </p>
             </div>
-            {/* Recent comparisons & Clear VRAM */}
+            {/* Recent comparisons */}
             <div className="flex items-center gap-3">
               {/* Recent Comparisons Dropdown - always visible when not generating */}
               {!isGenerating && (

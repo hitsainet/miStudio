@@ -146,49 +146,6 @@ export async function getComparisonStatus(
   );
 }
 
-/**
- * Response from clearing the steering cache.
- */
-export interface ClearCacheResponse {
-  models_unloaded: number;
-  saes_unloaded: number;
-  stray_objects_found: number;
-  vram_before_gb: number;
-  vram_after_gb: number;
-  vram_freed_gb: number;
-  was_already_clear: boolean;
-  needs_restart: boolean;
-  message: string;
-}
-
-/**
- * Clear all cached models and SAEs from the steering service.
- * Use this to free GPU memory after steering operations.
- */
-export async function clearSteeringCache(): Promise<ClearCacheResponse> {
-  return fetchAPI<ClearCacheResponse>('/steering/cache/clear', {
-    method: 'POST',
-  });
-}
-
-/**
- * Unload a specific model from the steering cache.
- */
-export async function unloadModel(modelId: string): Promise<{ message: string }> {
-  return fetchAPI<{ message: string }>(`/steering/cache/model/${encodeURIComponent(modelId)}`, {
-    method: 'DELETE',
-  });
-}
-
-/**
- * Unload a specific SAE from the steering cache.
- */
-export async function unloadSAE(saeId: string): Promise<{ message: string }> {
-  return fetchAPI<{ message: string }>(`/steering/cache/sae/${encodeURIComponent(saeId)}`, {
-    method: 'DELETE',
-  });
-}
-
 // ============================================================================
 // Async Steering API (Celery-based with WebSocket progress)
 // ============================================================================

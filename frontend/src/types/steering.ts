@@ -64,6 +64,7 @@ export const FEATURE_COLOR_ORDER: FeatureColor[] = ['teal', 'blue', 'purple', 'a
  */
 export interface SelectedFeature {
   instance_id: string; // Unique identifier for this selection instance (allows duplicates of same feature)
+  comparison_id?: string; // Links to the comparison job this instance was used in (set when comparison runs)
   feature_idx: number;
   layer: number;
   strength: number; // Raw coefficient (Neuronpedia-compatible: 0.07 subtle, 80 strong)

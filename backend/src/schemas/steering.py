@@ -18,6 +18,14 @@ from pydantic import BaseModel, Field, field_validator
 class SelectedFeature(BaseModel):
     """Schema for a feature selected for steering."""
 
+    instance_id: Optional[str] = Field(
+        None,
+        description="Unique identifier for this selection instance (allows duplicates of same feature)"
+    )
+    comparison_id: Optional[str] = Field(
+        None,
+        description="Links to the comparison job this instance was used in"
+    )
     feature_idx: int = Field(..., ge=0, description="Feature index in the SAE")
     layer: int = Field(..., ge=0, description="Target layer for steering (L0, L1, etc.)")
     strength: float = Field(

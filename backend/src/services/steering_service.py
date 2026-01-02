@@ -1379,7 +1379,20 @@ class SteeringService:
 
             # Use all selected features - duplicates with different strengths are intentional
             # (e.g., same feature at +50 and -50 for A/B comparison)
-            unique_features = request.selected_features
+            # Inject comparison_id into each feature for tracking which job they belong to
+            unique_features = [
+                SelectedFeature(
+                    instance_id=f.instance_id,
+                    comparison_id=comparison_id,
+                    feature_idx=f.feature_idx,
+                    layer=f.layer,
+                    strength=f.strength,
+                    additional_strengths=f.additional_strengths,
+                    label=f.label,
+                    color=f.color,
+                )
+                for f in request.selected_features
+            ]
 
             feature_configs = [
                 FeatureSteeringConfig(

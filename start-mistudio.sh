@@ -79,6 +79,39 @@ if command -v nvidia-smi &> /dev/null; then
         echo -e "${YELLOW}  GPU may have orphaned memory. Consider rebooting.${NC}"
     else
         echo -e "${GREEN}✓${NC} GPU health OK (${gpu_mem_used}MiB used, $gpu_procs active processes)"
+        # Show what's using GPU memory if anything
+        if [ "$gpu_procs" -gt 0 ]; then
+            echo "  GPU processes:"
+            # Get unique PIDs with total memory across all GPUs
+            nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader 2>/dev/null | \
+            awk -F',' '{
+                pid=$1; gsub(/^ +| +$/, "", pid);
+                mem=$2; gsub(/^ +| +$|MiB/, "", mem);
+                total[pid] += mem
+            } END {
+                for (pid in total) print pid, total[pid]"MiB"
+            }' | while read pid mem; do
+                # Get process description from cmdline
+                if [ -f "/proc/$pid/cmdline" ]; then
+                    cmdline=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
+                    # Identify known miStudio processes
+                    if echo "$cmdline" | grep -q "steering"; then
+                        desc="Celery Steering Worker"
+                    elif echo "$cmdline" | grep -q "celery"; then
+                        desc="Celery Worker"
+                    elif echo "$cmdline" | grep -q "uvicorn"; then
+                        desc="FastAPI Backend"
+                    elif echo "$cmdline" | grep -q "ollama"; then
+                        desc="Ollama LLM Server"
+                    else
+                        desc=$(echo "$cmdline" | cut -c1-50)
+                    fi
+                else
+                    desc="(process ended)"
+                fi
+                echo -e "    PID $pid: ${mem} - ${desc}"
+            done
+        fi
     fi
 
     # Quick CUDA sanity check using Python

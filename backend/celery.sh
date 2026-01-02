@@ -23,11 +23,13 @@ cd "$SCRIPT_DIR"
 
 # PID file locations
 WORKER_PID_FILE="/tmp/mistudio-celery-worker.pid"
+STEERING_PID_FILE="/tmp/mistudio-celery-steering.pid"
 BEAT_PID_FILE="/tmp/mistudio-celery-beat.pid"
 BEAT_SCHEDULE_FILE="/tmp/mistudio-celerybeat-schedule"
 
 # Log file locations
 WORKER_LOG="/tmp/celery-worker.log"
+STEERING_LOG="/tmp/celery-steering.log"
 BEAT_LOG="/tmp/celery-beat.log"
 
 # Queues configuration
@@ -364,6 +366,60 @@ start_beat() {
     fi
 }
 
+# Start Celery steering worker (dedicated GPU worker for steering operations)
+#
+# This worker runs in a separate process from the main worker because:
+# 1. Steering tasks have long timeouts (150s soft, 180s hard)
+# 2. Needs aggressive worker recycling (--max-tasks-per-child=50)
+# 3. Must not block other tasks (training, extraction, etc.)
+# 4. Process isolation: crashes don't affect main worker
+#
+# With solo pool, each worker runs one task at a time sequentially.
+# This prevents GPU memory contention and allows SIGKILL to work properly.
+#
+start_steering_worker() {
+    if is_running "$STEERING_PID_FILE"; then
+        local pid=$(get_pid "$STEERING_PID_FILE")
+        echo -e "${YELLOW}Steering worker already running (PID: $pid)${NC}"
+        return 0
+    fi
+
+    ensure_venv
+
+    # Clean up stale PID file
+    rm -f "$STEERING_PID_FILE" 2>/dev/null
+
+    echo -n "Starting Celery steering worker..."
+
+    # Start steering worker with dedicated queue and aggressive recycling
+    nohup celery -A src.core.celery_app worker \
+        -Q steering \
+        -c 1 \
+        --pool=solo \
+        --loglevel=info \
+        --hostname="steering@%h" \
+        --max-tasks-per-child=50 \
+        --pidfile="$STEERING_PID_FILE" \
+        > "$STEERING_LOG" 2>&1 &
+
+    # Wait for PID file to be created
+    local count=0
+    while [ ! -f "$STEERING_PID_FILE" ] && [ $count -lt 10 ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+
+    if is_running "$STEERING_PID_FILE"; then
+        local pid=$(get_pid "$STEERING_PID_FILE")
+        echo -e " ${GREEN}started (PID: $pid)${NC}"
+        return 0
+    else
+        echo -e " ${RED}failed${NC}"
+        echo "Check logs: $STEERING_LOG"
+        return 1
+    fi
+}
+
 # Command handlers
 cmd_start() {
     echo "Starting Celery services..."
@@ -375,6 +431,7 @@ cmd_start() {
     fi
 
     start_worker
+    start_steering_worker
     start_beat
     echo ""
     cmd_status
@@ -383,6 +440,7 @@ cmd_start() {
 cmd_stop() {
     echo "Stopping Celery services..."
     stop_process "Beat" "$BEAT_PID_FILE" 5
+    stop_process "Steering Worker" "$STEERING_PID_FILE" 15
     stop_process "Worker" "$WORKER_PID_FILE" 15
 
     # Clean up schedule file
@@ -403,19 +461,26 @@ cmd_status() {
     if is_running "$WORKER_PID_FILE"; then
         local pid=$(get_pid "$WORKER_PID_FILE")
         if is_worker_healthy; then
-            echo -e "Worker: ${GREEN}running${NC} (PID: $pid)"
+            echo -e "Worker:   ${GREEN}running${NC} (PID: $pid)"
         else
-            echo -e "Worker: ${YELLOW}running but unhealthy${NC} (PID: $pid)"
+            echo -e "Worker:   ${YELLOW}running but unhealthy${NC} (PID: $pid)"
         fi
     else
-        echo -e "Worker: ${RED}stopped${NC}"
+        echo -e "Worker:   ${RED}stopped${NC}"
+    fi
+
+    if is_running "$STEERING_PID_FILE"; then
+        local pid=$(get_pid "$STEERING_PID_FILE")
+        echo -e "Steering: ${GREEN}running${NC} (PID: $pid)"
+    else
+        echo -e "Steering: ${RED}stopped${NC}"
     fi
 
     if is_running "$BEAT_PID_FILE"; then
         local pid=$(get_pid "$BEAT_PID_FILE")
-        echo -e "Beat:   ${GREEN}running${NC} (PID: $pid)"
+        echo -e "Beat:     ${GREEN}running${NC} (PID: $pid)"
     else
-        echo -e "Beat:   ${RED}stopped${NC}"
+        echo -e "Beat:     ${RED}stopped${NC}"
     fi
 
     if is_running "$WATCHDOG_PID_FILE"; then
@@ -459,8 +524,9 @@ cmd_status() {
 
     echo ""
     echo "Logs:"
-    echo "  Worker: $WORKER_LOG"
-    echo "  Beat:   $BEAT_LOG"
+    echo "  Worker:   $WORKER_LOG"
+    echo "  Steering: $STEERING_LOG"
+    echo "  Beat:     $BEAT_LOG"
     echo "  Watchdog: $WATCHDOG_LOG"
 }
 

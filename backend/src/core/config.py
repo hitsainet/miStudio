@@ -124,6 +124,14 @@ class Settings(BaseSettings):
         default=5, ge=1, le=60, description="Extraction progress WebSocket emission interval in seconds"
     )
 
+    # Steering Configuration
+    steering_timeout_seconds: int = Field(
+        default=120,
+        ge=30,
+        le=600,
+        description="Timeout for steering generation requests in seconds (default 120s, max 10 minutes)"
+    )
+
     # Token and Feature Filtering Configuration
     # Stage 1: Tokenization-time filtering (conservative, permanent)
     tokenization_filter_enabled: bool = Field(

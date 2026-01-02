@@ -251,6 +251,8 @@ export interface SteeringExperimentSaveRequest {
   description?: string;
   comparison_id: string;
   tags?: string[];
+  // Include the full result since comparisons are ephemeral (stored in Redis with TTL)
+  result: SteeringComparisonResponse;
 }
 
 /**

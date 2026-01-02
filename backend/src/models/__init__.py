@@ -23,6 +23,7 @@ from .feature_analysis_cache import FeatureAnalysisCache, AnalysisType
 from .external_sae import ExternalSAE, SAESource, SAEStatus, SAEFormat
 from .neuronpedia_export import NeuronpediaExportJob, ExportStatus
 from .feature_dashboard import FeatureDashboardData
+from .steering_experiment import SteeringExperiment
 
 __all__ = [
     "Dataset",
@@ -59,4 +60,5 @@ __all__ = [
     "NeuronpediaExportJob",
     "ExportStatus",
     "FeatureDashboardData",
+    "SteeringExperiment",
 ]

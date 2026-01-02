@@ -509,27 +509,29 @@ async def tokenize_dataset(
             from sqlalchemy import select
             from ....models.dataset_tokenization import DatasetTokenization, TokenizationStatus
 
-            logger.info(f"Checking for existing tokenization on dataset {dataset_id} for model {request.model_id}")
+            logger.info(f"Checking for existing tokenization on dataset {dataset_id} for model {request.model_id} with max_length {request.max_length}")
 
-            # Query for existing tokenization with this model_id
+            # Query for existing tokenization with this model_id AND max_length
+            # Different max_lengths are treated as separate tokenizations
             result = await db.execute(
                 select(DatasetTokenization)
                 .where(
                     DatasetTokenization.dataset_id == dataset_id,
-                    DatasetTokenization.model_id == request.model_id
+                    DatasetTokenization.model_id == request.model_id,
+                    DatasetTokenization.max_length == request.max_length
                 )
             )
             existing_tokenization = result.scalar_one_or_none()
 
             if existing_tokenization:
-                logger.info(f"Found existing tokenization for model {request.model_id}, status: {existing_tokenization.status}")
+                logger.info(f"Found existing tokenization for model {request.model_id} (max_length={request.max_length}), status: {existing_tokenization.status}")
 
                 # If currently processing, return 409 conflict
                 if existing_tokenization.status == TokenizationStatus.PROCESSING:
                     redis_client.delete(lock_key)  # Release lock
                     raise HTTPException(
                         status_code=409,
-                        detail=f"Tokenization for model {request.model_id} is already in progress"
+                        detail=f"Tokenization for model {request.model_id} (max_length={request.max_length}) is already in progress"
                     )
 
                 # Clear only this specific tokenization (for retry or re-tokenize)
@@ -1182,10 +1184,10 @@ async def get_dataset_tokenization(
     return tokenization
 
 
-@router.delete("/{dataset_id}/tokenizations/{model_id}", status_code=204)
+@router.delete("/{dataset_id}/tokenizations/{tokenization_id}", status_code=204)
 async def delete_dataset_tokenization(
     dataset_id: UUID,
-    model_id: str,
+    tokenization_id: str,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1196,7 +1198,7 @@ async def delete_dataset_tokenization(
 
     Args:
         dataset_id: Dataset UUID
-        model_id: Model ID
+        tokenization_id: Tokenization ID (format: tok_{dataset_id}_{model_id}_{max_length})
         db: Database session
 
     Raises:
@@ -1206,12 +1208,12 @@ async def delete_dataset_tokenization(
     from sqlalchemy import select
     from ....models.dataset_tokenization import DatasetTokenization
 
-    # Query tokenization
+    # Query tokenization by ID
     result = await db.execute(
         select(DatasetTokenization)
         .where(
             DatasetTokenization.dataset_id == dataset_id,
-            DatasetTokenization.model_id == model_id
+            DatasetTokenization.id == tokenization_id
         )
     )
     tokenization = result.scalar_one_or_none()
@@ -1219,7 +1221,7 @@ async def delete_dataset_tokenization(
     if not tokenization:
         raise HTTPException(
             status_code=404,
-            detail=f"No tokenization found for dataset {dataset_id} with model {model_id}"
+            detail=f"Tokenization {tokenization_id} not found for dataset {dataset_id}"
         )
 
     # Prevent deletion of tokenization currently being processed
@@ -1278,10 +1280,10 @@ async def delete_dataset_tokenization(
     return None
 
 
-@router.post("/{dataset_id}/tokenizations/{model_id}/cancel", status_code=200)
+@router.post("/{dataset_id}/tokenizations/{tokenization_id}/cancel", status_code=200)
 async def cancel_dataset_tokenization(
     dataset_id: UUID,
-    model_id: str,
+    tokenization_id: str,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1294,7 +1296,7 @@ async def cancel_dataset_tokenization(
 
     Args:
         dataset_id: Dataset UUID
-        model_id: Model ID
+        tokenization_id: Tokenization ID (format: tok_{dataset_id}_{model_id}_{max_length})
         db: Database session
 
     Returns:
@@ -1308,12 +1310,12 @@ async def cancel_dataset_tokenization(
     from ....models.dataset_tokenization import DatasetTokenization, TokenizationStatus
     from celery import current_app
 
-    # Query tokenization
+    # Query tokenization by ID
     result = await db.execute(
         select(DatasetTokenization)
         .where(
             DatasetTokenization.dataset_id == dataset_id,
-            DatasetTokenization.model_id == model_id
+            DatasetTokenization.id == tokenization_id
         )
     )
     tokenization = result.scalar_one_or_none()
@@ -1321,7 +1323,7 @@ async def cancel_dataset_tokenization(
     if not tokenization:
         raise HTTPException(
             status_code=404,
-            detail=f"No tokenization found for dataset {dataset_id} with model {model_id}"
+            detail=f"Tokenization {tokenization_id} not found for dataset {dataset_id}"
         )
 
     # Check if tokenization is in a cancellable state

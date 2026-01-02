@@ -112,29 +112,74 @@ cd "$PROJECT_ROOT/backend"
 echo ""
 echo "Step 4: Starting Backend (FastAPI)..."
 cd "$PROJECT_ROOT/backend"
+
+# Clean up any existing backend process using PID file
+BACKEND_PID_FILE="/tmp/mistudio-backend.pid"
+if [ -f "$BACKEND_PID_FILE" ]; then
+    OLD_PID=$(cat "$BACKEND_PID_FILE" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        echo -e "${YELLOW}⚠${NC}  Stopping existing backend (PID: $OLD_PID)..."
+        # Kill the entire process group
+        kill -TERM -"$OLD_PID" 2>/dev/null || true
+        sleep 2
+        # Force kill if still running
+        kill -KILL -"$OLD_PID" 2>/dev/null || true
+        sleep 1
+    fi
+    rm -f "$BACKEND_PID_FILE"
+fi
+
+# Also check if port is in use by orphaned process
 if lsof -i :8000 > /dev/null 2>&1; then
-    echo -e "${YELLOW}⚠${NC}  Port 8000 already in use, stopping existing process..."
-    pkill -f "uvicorn src.main:app" || true
+    echo -e "${YELLOW}⚠${NC}  Port 8000 still in use, attempting cleanup..."
+    fuser -k 8000/tcp 2>/dev/null || true
     sleep 2
 fi
 
 source venv/bin/activate
-nohup uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload > /tmp/backend.log 2>&1 &
+
+# Start uvicorn in its own process group using setsid
+# This allows us to kill the entire process tree later
+setsid uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload > /tmp/backend.log 2>&1 &
+BACKEND_PID=$!
+echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
+
 wait_for_service "Backend" "curl -s http://localhost:8000/api/v1/datasets"
 echo "  Backend logs: /tmp/backend.log"
+echo "  Backend PID: $BACKEND_PID (saved to $BACKEND_PID_FILE)"
 
 echo ""
 echo "Step 5: Starting Frontend (Vite)..."
 cd "$PROJECT_ROOT/frontend"
+
+# Clean up any existing frontend process using PID file
+FRONTEND_PID_FILE="/tmp/mistudio-frontend.pid"
+if [ -f "$FRONTEND_PID_FILE" ]; then
+    OLD_PID=$(cat "$FRONTEND_PID_FILE" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        echo -e "${YELLOW}⚠${NC}  Stopping existing frontend (PID: $OLD_PID)..."
+        kill -TERM -"$OLD_PID" 2>/dev/null || true
+        sleep 2
+        kill -KILL -"$OLD_PID" 2>/dev/null || true
+        sleep 1
+    fi
+    rm -f "$FRONTEND_PID_FILE"
+fi
+
 if lsof -i :3000 > /dev/null 2>&1; then
-    echo -e "${YELLOW}⚠${NC}  Port 3000 already in use, stopping existing process..."
-    pkill -f "vite" || true
+    echo -e "${YELLOW}⚠${NC}  Port 3000 still in use, attempting cleanup..."
+    fuser -k 3000/tcp 2>/dev/null || true
     sleep 2
 fi
 
-nohup npm run dev > /tmp/frontend.log 2>&1 &
+# Start frontend in its own process group
+setsid npm run dev > /tmp/frontend.log 2>&1 &
+FRONTEND_PID=$!
+echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
+
 wait_for_service "Frontend" "curl -s http://localhost:3000"
 echo "  Frontend logs: /tmp/frontend.log"
+echo "  Frontend PID: $FRONTEND_PID (saved to $FRONTEND_PID_FILE)"
 
 echo ""
 echo "=================================="
@@ -146,9 +191,10 @@ check_service "Redis (Docker)" "docker exec mistudio-redis redis-cli ping"
 check_service "Nginx (Docker)" "docker exec mistudio-nginx nginx -t"
 check_service "Ollama (Docker)" "curl -s http://localhost:11434/api/tags"
 check_service "Celery Worker" "test -f /tmp/mistudio-celery-worker.pid && kill -0 \$(cat /tmp/mistudio-celery-worker.pid 2>/dev/null) 2>/dev/null"
+check_service "Celery Steering" "test -f /tmp/mistudio-celery-steering.pid && kill -0 \$(cat /tmp/mistudio-celery-steering.pid 2>/dev/null) 2>/dev/null"
 check_service "Celery Beat" "test -f /tmp/mistudio-celery-beat.pid && kill -0 \$(cat /tmp/mistudio-celery-beat.pid 2>/dev/null) 2>/dev/null"
-check_service "Backend (FastAPI)" "curl -s http://localhost:8000/api/v1/datasets"
-check_service "Frontend (Vite)" "curl -s http://localhost:3000"
+check_service "Backend (FastAPI)" "test -f /tmp/mistudio-backend.pid && kill -0 \$(cat /tmp/mistudio-backend.pid 2>/dev/null) 2>/dev/null && curl -s http://localhost:8000/api/v1/datasets"
+check_service "Frontend (Vite)" "test -f /tmp/mistudio-frontend.pid && kill -0 \$(cat /tmp/mistudio-frontend.pid 2>/dev/null) 2>/dev/null && curl -s http://localhost:3000"
 
 echo ""
 echo "=================================="
@@ -164,6 +210,7 @@ echo "Logs:"
 echo "  Backend: /tmp/backend.log"
 echo "  Frontend: /tmp/frontend.log"
 echo "  Celery Worker: /tmp/celery-worker.log"
+echo "  Celery Steering: /tmp/celery-steering.log"
 echo "  Celery Beat: /tmp/celery-beat.log"
 echo "  Ollama: docker logs mistudio-ollama"
 echo ""

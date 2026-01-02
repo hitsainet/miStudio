@@ -16,29 +16,59 @@ import {
 } from '../types/steering';
 import { fetchAPI, buildQueryString } from './client';
 
+// ============================================================================
+// Async Task Types (for Celery-based steering)
+// ============================================================================
+
 /**
- * Generate a steering comparison between baseline and steered outputs.
+ * Response from submitting an async steering task.
  */
-export async function generateComparison(
-  request: SteeringComparisonRequest
-): Promise<SteeringComparisonResponse> {
-  return fetchAPI<SteeringComparisonResponse>('/steering/compare', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  });
+export interface SteeringTaskResponse {
+  task_id: string;
+  task_type: 'compare' | 'sweep';
+  status: string;
+  websocket_channel: string;
+  message: string;
+  submitted_at: string;
 }
 
 /**
- * Run a strength sweep for a single feature.
+ * Status of an async steering task.
  */
-export async function runStrengthSweep(
-  request: SteeringStrengthSweepRequest
-): Promise<StrengthSweepResponse> {
-  return fetchAPI<StrengthSweepResponse>('/steering/sweep', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  });
+export interface SteeringTaskStatus {
+  task_id: string;
+  status: 'pending' | 'started' | 'progress' | 'success' | 'failure' | 'revoked';
+  percent: number;
+  message: string;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
 }
+
+/**
+ * Result of an async steering task.
+ */
+export interface SteeringResultResponse {
+  task_id: string;
+  status: SteeringTaskStatus;
+  result?: SteeringComparisonResponse | StrengthSweepResponse;
+}
+
+/**
+ * Response from cancelling a steering task.
+ */
+export interface SteeringCancelResponse {
+  task_id: string;
+  status: string;
+  message: string;
+}
+
+// NOTE: The sync generateComparison() function has been removed.
+// Use submitAsyncComparison() instead, which uses the Celery-based async API.
+// This prevents zombie GPU processes from blocking model.generate() calls.
+
+// NOTE: The sync runStrengthSweep() function has been removed.
+// Use submitAsyncSweep() instead, which uses the Celery-based async API.
 
 /**
  * Get list of saved steering experiments with optional filters.
@@ -165,6 +195,53 @@ export async function unloadModel(modelId: string): Promise<{ message: string }>
  */
 export async function unloadSAE(saeId: string): Promise<{ message: string }> {
   return fetchAPI<{ message: string }>(`/steering/cache/sae/${encodeURIComponent(saeId)}`, {
+    method: 'DELETE',
+  });
+}
+
+// ============================================================================
+// Async Steering API (Celery-based with WebSocket progress)
+// ============================================================================
+
+/**
+ * Submit an async steering comparison task.
+ * Returns immediately with task_id. Use WebSocket or polling for results.
+ */
+export async function submitAsyncComparison(
+  request: SteeringComparisonRequest
+): Promise<SteeringTaskResponse> {
+  return fetchAPI<SteeringTaskResponse>('/steering/async/compare', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Submit an async strength sweep task.
+ * Returns immediately with task_id. Use WebSocket or polling for results.
+ */
+export async function submitAsyncSweep(
+  request: SteeringStrengthSweepRequest
+): Promise<SteeringTaskResponse> {
+  return fetchAPI<SteeringTaskResponse>('/steering/async/sweep', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Get the result of an async steering task.
+ * Returns status and result (if completed).
+ */
+export async function getTaskResult(taskId: string): Promise<SteeringResultResponse> {
+  return fetchAPI<SteeringResultResponse>(`/steering/async/result/${taskId}`);
+}
+
+/**
+ * Cancel a pending or running steering task.
+ */
+export async function cancelTask(taskId: string): Promise<SteeringCancelResponse> {
+  return fetchAPI<SteeringCancelResponse>(`/steering/async/task/${taskId}`, {
     method: 'DELETE',
   });
 }

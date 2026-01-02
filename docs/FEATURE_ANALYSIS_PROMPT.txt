@@ -1,0 +1,15 @@
+<system>
+You are an expert at Mechanistic Interpretability.
+You are aggressively pursuing a commercially practical understanding of features from a combination of their primary activation tokens and their context tokens. 
+
+The activations from this feature are in <activations_and_context_sample>. 
+</system>
+
+<user>
+Please analyze the data, hypothesize about what the feature meaning is, and create 5 prompts used in steering this feature by clamping it and increasing the strength of the activation, and decreasing it to test your hypothesis. Assume each prompt will be test with 4 increasingly stronger strengths, and 4 increasingly weaker (negative) strengths. Don't explain the completion prompts. Just create a simple list, no bullets, no delimiters, no quotes. 
+</user>
+
+
+<activations_and_context_sample>
+
+</activations_and_context_sample>

@@ -97,6 +97,7 @@ export interface DatasetTokenization {
   id: string;
   dataset_id: string;
   model_id: string;
+  max_length: number;
   tokenized_path?: string;
   tokenizer_repo_id: string;
   vocab_size?: number;

@@ -258,6 +258,7 @@ class DatasetTokenizationResponse(BaseModel):
     id: str = Field(..., description="Unique tokenization identifier")
     dataset_id: UUID = Field(..., description="Parent dataset ID")
     model_id: str = Field(..., description="Model whose tokenizer was used")
+    max_length: int = Field(512, description="Maximum sequence length used for tokenization")
     tokenized_path: Optional[str] = Field(None, description="Path to tokenized dataset files")
     tokenizer_repo_id: str = Field(..., description="HuggingFace tokenizer repository ID")
     vocab_size: Optional[int] = Field(None, description="Vocabulary size for this tokenization")

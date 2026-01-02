@@ -680,6 +680,21 @@ class LabelingService:
                     override_msg = f" (job override)" if job_max_examples is not None else ""
                     logger.info(f"Using template: {template.name} (type: {template.template_type}, K={max_examples}{override_msg})")
 
+            # Provide default template_config if no template was specified or found
+            if template_config is None:
+                template_config = {
+                    'template_type': 'mistudio_context',
+                    'max_examples': max_examples,
+                    'include_prefix': True,
+                    'include_suffix': True,
+                    'prime_token_marker': '>>>',
+                    'include_logit_effects': False,
+                    'top_promoted_tokens_count': 10,
+                    'top_suppressed_tokens_count': 10,
+                    'is_detection_template': False
+                }
+                logger.info(f"No template specified - using default mistudio_context (K={max_examples})")
+
             # Retrieve activation examples using efficient SQL batching
             # For NLP analysis, we need ALL examples (up to 100)
             # For display in LLM prompt, we only show top max_examples (default 10)

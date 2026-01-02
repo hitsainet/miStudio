@@ -44,8 +44,8 @@ interface DatasetsState {
   // Tokenization actions
   fetchTokenizations: (datasetId: string) => Promise<void>;
   createTokenization: (datasetId: string, modelId: string, params: any) => Promise<void>;
-  deleteTokenization: (datasetId: string, modelId: string) => Promise<void>;
-  cancelTokenization: (datasetId: string, modelId: string) => Promise<void>;
+  deleteTokenization: (datasetId: string, tokenizationId: string) => Promise<void>;
+  cancelTokenization: (datasetId: string, tokenizationId: string) => Promise<void>;
   updateTokenizationProgress: (datasetId: string, tokenizationId: string, progress: DatasetTokenizationProgress) => void;
 }
 
@@ -304,10 +304,10 @@ export const useDatasetsStore = create<DatasetsState>()(
       },
 
       // Delete a tokenization
-      deleteTokenization: async (datasetId: string, modelId: string) => {
+      deleteTokenization: async (datasetId: string, tokenizationId: string) => {
         set({ loading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenizations/${modelId}`, {
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenizations/${tokenizationId}`, {
             method: 'DELETE',
           });
 
@@ -319,7 +319,7 @@ export const useDatasetsStore = create<DatasetsState>()(
           set((state) => ({
             tokenizations: {
               ...state.tokenizations,
-              [datasetId]: (state.tokenizations[datasetId] || []).filter((t) => t.model_id !== modelId),
+              [datasetId]: (state.tokenizations[datasetId] || []).filter((t) => t.id !== tokenizationId),
             },
             loading: false,
           }));
@@ -331,10 +331,10 @@ export const useDatasetsStore = create<DatasetsState>()(
       },
 
       // Cancel a tokenization
-      cancelTokenization: async (datasetId: string, modelId: string) => {
+      cancelTokenization: async (datasetId: string, tokenizationId: string) => {
         set({ loading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenizations/${modelId}/cancel`, {
+          const response = await fetch(`${API_BASE_URL}/api/v1/datasets/${datasetId}/tokenizations/${tokenizationId}/cancel`, {
             method: 'POST',
           });
 

@@ -1204,6 +1204,107 @@ def emit_extraction_job_progress(
     return emit_progress(channel, "extraction:progress", data)
 
 
+# ============================================================================
+# Steering Emission Functions
+# ============================================================================
+
+
+def emit_steering_progress(
+    task_id: str,
+    percent: int,
+    message: str,
+    current_feature: Optional[int] = None,
+    current_strength: Optional[float] = None,
+    result: Optional[Dict[str, Any]] = None,
+    error: Optional[str] = None,
+) -> bool:
+    """
+    Emit steering progress via WebSocket.
+
+    This function emits progress updates for steering comparison and sweep tasks,
+    allowing the frontend to display real-time progress during generation.
+
+    Args:
+        task_id: Celery task ID
+        percent: Progress percentage (0-100, or -1 for failure)
+        message: Human-readable status message
+        current_feature: Optional current feature index being processed
+        current_strength: Optional current steering strength being applied
+        result: Optional result dict (included on completion)
+        error: Optional error message (included on failure)
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        steering/{task_id}
+
+    Event Types:
+        - steering:progress - Task in progress (percent 0-99)
+        - steering:completed - Task completed successfully (percent 100)
+        - steering:failed - Task failed (percent -1)
+
+    Examples:
+        >>> # Progress update
+        >>> emit_steering_progress(
+        ...     task_id="abc-123",
+        ...     percent=50,
+        ...     message="Generating feature 5 @ strength 100",
+        ...     current_feature=5,
+        ...     current_strength=100.0
+        ... )
+        True
+
+        >>> # Completion with result
+        >>> emit_steering_progress(
+        ...     task_id="abc-123",
+        ...     percent=100,
+        ...     message="Complete",
+        ...     result={"unsteered_output": "...", "steered_outputs": [...]}
+        ... )
+        True
+
+        >>> # Failure with error
+        >>> emit_steering_progress(
+        ...     task_id="abc-123",
+        ...     percent=-1,
+        ...     message="Failed: CUDA out of memory",
+        ...     error="CUDA out of memory. Try reducing max_new_tokens."
+        ... )
+        True
+    """
+    from datetime import datetime
+
+    channel = f"steering/{task_id}"
+
+    # Determine event type based on progress
+    if percent < 0:
+        event = "steering:failed"
+    elif percent >= 100:
+        event = "steering:completed"
+    else:
+        event = "steering:progress"
+
+    data = {
+        "task_id": task_id,
+        "percent": percent,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
+    # Add optional fields if provided
+    if current_feature is not None:
+        data["current_feature"] = current_feature
+    if current_strength is not None:
+        data["current_strength"] = current_strength
+    if result is not None:
+        data["result"] = result
+    if error is not None:
+        data["error"] = error
+
+    return emit_progress(channel, event, data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -1233,4 +1334,6 @@ __all__ = [
     "emit_sae_extraction_progress",
     # Neuronpedia export functions
     "emit_export_progress",
+    # Steering functions
+    "emit_steering_progress",
 ]

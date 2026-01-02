@@ -152,7 +152,7 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
       status: 'deleting',  // 'deleting' is now a valid ExtractionStatus
       deletion_progress: data.progress,
       deletion_features_deleted: data.features_deleted,
-      deletion_total_features: data.total_features,
+      deletion_total_features: data.total_features ?? undefined,  // Convert null to undefined
       status_message: data.message,
     });
   }, [updateExtractionById]);

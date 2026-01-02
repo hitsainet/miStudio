@@ -273,6 +273,8 @@ class SteeringExperimentSaveRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=2000, description="Experiment description")
     comparison_id: str = Field(..., description="Comparison ID to save")
     tags: List[str] = Field(default_factory=list, description="Tags for categorization")
+    # Include the full result since comparisons are ephemeral (stored in Redis with TTL)
+    result: Optional[Dict[str, Any]] = Field(None, description="Full SteeringComparisonResponse to save")
 
 
 class SteeringExperimentResponse(BaseModel):
@@ -340,3 +342,65 @@ class SteeringEffectAnalysis(BaseModel):
         default_factory=list,
         description="Top unintended feature activation changes"
     )
+
+
+# ============================================================================
+# Async Task Schemas (for Celery-based steering)
+# ============================================================================
+
+class SteeringTaskResponse(BaseModel):
+    """
+    Schema for async steering task submission response.
+
+    Returned when a steering task is submitted to the Celery queue.
+    The client should then subscribe to WebSocket channel steering/{task_id}
+    for progress updates, or poll the /steering/result/{task_id} endpoint.
+    """
+
+    task_id: str = Field(..., description="Celery task ID for tracking")
+    task_type: Literal["compare", "sweep"] = Field(..., description="Type of steering task")
+    status: str = Field("pending", description="Initial task status (pending)")
+    websocket_channel: str = Field(..., description="WebSocket channel to subscribe for progress updates")
+    message: str = Field(..., description="Human-readable status message")
+    submitted_at: datetime = Field(..., description="Task submission timestamp")
+
+
+class SteeringTaskStatus(BaseModel):
+    """
+    Schema for steering task status.
+
+    Used when polling for task status or when included in result response.
+    """
+
+    task_id: str = Field(..., description="Celery task ID")
+    status: Literal["pending", "started", "progress", "success", "failure", "revoked"] = Field(
+        ..., description="Current task status"
+    )
+    percent: int = Field(0, ge=-1, le=100, description="Progress percentage (0-100, -1 for error)")
+    message: str = Field("", description="Human-readable status message")
+    started_at: Optional[datetime] = Field(None, description="When task started processing")
+    completed_at: Optional[datetime] = Field(None, description="When task completed")
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+
+class SteeringResultResponse(BaseModel):
+    """
+    Schema for async steering task result response.
+
+    Contains the task status and, if completed, the actual result.
+    """
+
+    task_id: str = Field(..., description="Celery task ID")
+    status: SteeringTaskStatus = Field(..., description="Current task status")
+    result: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Task result (SteeringComparisonResponse or StrengthSweepResponse as dict)"
+    )
+
+
+class SteeringCancelResponse(BaseModel):
+    """Schema for steering task cancellation response."""
+
+    task_id: str = Field(..., description="Task ID that was cancelled")
+    status: str = Field(..., description="Result of cancellation (cancelled, not_found, already_complete)")
+    message: str = Field(..., description="Human-readable message")

@@ -44,14 +44,15 @@ class DatasetTokenization(Base):
     """
     DatasetTokenization model representing a specific tokenization of a dataset.
 
-    Each dataset can have multiple tokenizations - one for each model/tokenizer.
-    This enables reusing the same raw dataset with different models without
-    re-downloading or re-processing the raw data.
+    Each dataset can have multiple tokenizations - one for each model/tokenizer
+    and max_length combination. This enables reusing the same raw dataset with
+    different models and sequence lengths without re-downloading the raw data.
 
     Attributes:
-        id: Unique identifier (format: tok_{dataset_id}_{model_id})
+        id: Unique identifier (format: tok_{dataset_id}_{model_id}_{max_length})
         dataset_id: Foreign key to parent dataset
         model_id: Foreign key to model whose tokenizer was used
+        max_length: Maximum sequence length used for tokenization
         tokenized_path: Path to tokenized data (Arrow format)
         tokenizer_repo_id: HuggingFace tokenizer repo ID
         vocab_size: Vocabulary size for this tokenization
@@ -73,7 +74,7 @@ class DatasetTokenization(Base):
         String(255),
         primary_key=True,
         nullable=False,
-        comment="Unique tokenization identifier (format: tok_{dataset_id}_{model_id})",
+        comment="Unique tokenization identifier (format: tok_{dataset_id}_{model_id}_{max_length})",
     )
 
     # Foreign keys
@@ -90,6 +91,15 @@ class DatasetTokenization(Base):
         nullable=False,
         index=True,
         comment="Model whose tokenizer was used",
+    )
+
+    # Tokenization configuration
+    max_length = Column(
+        Integer,
+        nullable=False,
+        default=512,
+        server_default="512",
+        comment="Maximum sequence length used for tokenization",
     )
 
     # Tokenization metadata
@@ -187,8 +197,8 @@ class DatasetTokenization(Base):
 
     # Constraints and indexes
     __table_args__ = (
-        # Unique constraint: one tokenization per dataset-model pair
-        UniqueConstraint("dataset_id", "model_id", name="uq_dataset_model_tokenization"),
+        # Unique constraint: one tokenization per dataset-model-maxlength combination
+        UniqueConstraint("dataset_id", "model_id", "max_length", name="uq_dataset_model_maxlen_tokenization"),
         # Indexes for query optimization
         Index("idx_tokenizations_dataset_id", "dataset_id"),
         Index("idx_tokenizations_model_id", "model_id"),
@@ -215,6 +225,7 @@ class DatasetTokenization(Base):
             "id": self.id,
             "dataset_id": str(self.dataset_id),
             "model_id": self.model_id,
+            "max_length": self.max_length,
             "tokenized_path": self.tokenized_path,
             "tokenizer_repo_id": self.tokenizer_repo_id,
             "vocab_size": self.vocab_size,

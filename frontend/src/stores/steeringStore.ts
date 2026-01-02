@@ -13,7 +13,7 @@
  */
 
 import { create } from 'zustand';
-import { devtools } from 'zustand/middleware';
+import { devtools, persist } from 'zustand/middleware';
 import {
   SelectedFeature,
   GenerationParams,
@@ -32,17 +32,18 @@ import {
 } from '../types/steering';
 import { SAE } from '../types/sae';
 import * as steeringApi from '../api/steering';
-import type { ClearCacheResponse } from '../api/steering';
+import type { ClearCacheResponse, SteeringTaskResponse } from '../api/steering';
 
 // Maximum number of features that can be selected
 const MAX_SELECTED_FEATURES = 4;
 
-// Callback for subscribing to steering progress (set by WebSocket context)
-let subscribeToSteeringCallback: ((comparisonId: string) => void) | null = null;
-
-export function setSteeringSubscriptionCallback(callback: (comparisonId: string) => void) {
-  subscribeToSteeringCallback = callback;
-}
+// Module-level promise resolver for batch mode async coordination
+// When batch mode submits an async task, it stores the resolve/reject here
+// and waits for WebSocket events to resolve/reject the promise
+let pendingBatchResolver: {
+  resolve: (result: SteeringComparisonResponse) => void;
+  reject: (error: Error) => void;
+} | null = null;
 
 interface SteeringState {
   // Selected SAE
@@ -59,12 +60,21 @@ interface SteeringState {
   advancedParams: AdvancedGenerationParams | null;
   showAdvancedParams: boolean;
 
-  // Comparison state (single prompt - legacy)
+  // Comparison state (single prompt)
   isGenerating: boolean;
   comparisonId: string | null;
+  taskId: string | null;  // Celery task ID for async steering
   progress: number;
   progressMessage: string | null;
   currentComparison: SteeringComparisonResponse | null;
+
+  // Recent comparisons (persisted for reload)
+  recentComparisons: Array<{
+    id: string;
+    prompt: string;
+    timestamp: string;
+    result: SteeringComparisonResponse;
+  }>;
 
   // Batch processing state
   batchState: BatchState | null;
@@ -116,13 +126,21 @@ interface SteeringState {
   resetParams: () => void;
 
   // Actions - Comparison (single prompt)
-  generateComparison: (includeUnsteered?: boolean, computeMetrics?: boolean) => Promise<SteeringComparisonResponse>;
+  generateComparison: (includeUnsteered?: boolean, computeMetrics?: boolean) => Promise<SteeringTaskResponse>;
   abortComparison: () => Promise<void>;
   clearComparison: () => void;
+  loadRecentComparison: (id: string) => void;
+  recoverTaskResult: (taskId: string) => Promise<SteeringComparisonResponse>;
+  clearRecentComparisons: () => void;
+
+  // Actions - Async Task Handling (WebSocket callbacks)
+  handleAsyncProgress: (percent: number, message: string, currentFeature?: number, currentStrength?: number) => void;
+  handleAsyncCompleted: (result: SteeringComparisonResponse) => void;
+  handleAsyncFailed: (error: string) => void;
 
   // Actions - Batch Processing
   generateBatchComparison: (includeUnsteered?: boolean, computeMetrics?: boolean) => Promise<void>;
-  abortBatch: () => void;
+  abortBatch: () => Promise<void>;
   clearBatchResults: () => void;
 
   // Actions - Strength Sweep
@@ -147,11 +165,17 @@ interface SteeringState {
   clearModelCache: () => Promise<ClearCacheResponse>;
   isUnloadingCache: boolean;
   lastCacheResult: ClearCacheResponse | null;
+
+  // Actions - State Recovery (after page refresh)
+  recoverActiveTask: () => Promise<void>;
+  _hasHydrated: boolean;
+  setHasHydrated: (hydrated: boolean) => void;
 }
 
 export const useSteeringStore = create<SteeringState>()(
   devtools(
-    (set, get) => ({
+    persist(
+      (set, get) => ({
       // Initial state
       selectedSAE: null,
       selectedFeatures: [],
@@ -161,9 +185,11 @@ export const useSteeringStore = create<SteeringState>()(
       showAdvancedParams: false,
       isGenerating: false,
       comparisonId: null,
+      taskId: null,
       progress: 0,
       progressMessage: null,
       currentComparison: null,
+      recentComparisons: [],
       batchState: null,
       isSweeping: false,
       sweepResults: null,
@@ -178,6 +204,7 @@ export const useSteeringStore = create<SteeringState>()(
       error: null,
       isUnloadingCache: false,
       lastCacheResult: null,
+      _hasHydrated: false,
 
       // Select an SAE for steering
       selectSAE: (sae: SAE | null) => {
@@ -446,6 +473,7 @@ export const useSteeringStore = create<SteeringState>()(
       },
 
       // Generate comparison (uses first prompt for single-prompt mode)
+      // Now uses async Celery-based API with WebSocket progress updates
       generateComparison: async (includeUnsteered = true, computeMetrics = false) => {
         const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams } = get();
         const prompt = prompts[0] || '';
@@ -462,8 +490,10 @@ export const useSteeringStore = create<SteeringState>()(
 
         set({
           isGenerating: true,
+          taskId: null,
+          comparisonId: null,
           progress: 0,
-          progressMessage: 'Starting comparison...',
+          progressMessage: 'Submitting task...',
           error: null,
           batchState: null, // Clear any batch state for single prompt mode
         });
@@ -482,28 +512,28 @@ export const useSteeringStore = create<SteeringState>()(
             request.advanced_params = advancedParams;
           }
 
-          const response = await steeringApi.generateComparison(request);
+          // Submit async task - returns immediately with task_id
+          const taskResponse = await steeringApi.submitAsyncComparison(request);
 
-          // Subscribe to progress updates
-          if (subscribeToSteeringCallback && response.comparison_id) {
-            console.log('[SteeringStore] Subscribing to comparison progress:', response.comparison_id);
-            subscribeToSteeringCallback(response.comparison_id);
-          }
+          console.log('[SteeringStore] Async task submitted:', taskResponse.task_id);
 
+          // Store task ID for tracking
           set({
-            comparisonId: response.comparison_id,
-            currentComparison: response,
-            isGenerating: false,
-            progress: 100,
-            progressMessage: 'Comparison complete',
+            taskId: taskResponse.task_id,
+            progress: 5,
+            progressMessage: 'Task queued, waiting for worker...',
           });
 
-          return response;
+          // WebSocket hook will handle progress/completed/failed events
+          // via handleAsyncProgress, handleAsyncCompleted, handleAsyncFailed
+
+          return taskResponse;
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to generate comparison';
+          const errorMessage = error instanceof Error ? error.message : 'Failed to submit task';
           set({
             error: errorMessage,
             isGenerating: false,
+            taskId: null,
             progress: 0,
             progressMessage: null,
           });
@@ -511,21 +541,22 @@ export const useSteeringStore = create<SteeringState>()(
         }
       },
 
-      // Abort an in-progress comparison
+      // Abort an in-progress comparison (cancels Celery task)
       abortComparison: async () => {
-        const { comparisonId } = get();
-        if (!comparisonId) return;
+        const { taskId } = get();
+        if (!taskId) return;
 
         try {
-          await steeringApi.abortComparison(comparisonId);
+          const result = await steeringApi.cancelTask(taskId);
+          console.log('[SteeringStore] Task cancelled:', result);
           set({
             isGenerating: false,
+            taskId: null,
             progress: 0,
-            progressMessage: 'Comparison aborted',
-            comparisonId: null,
+            progressMessage: 'Comparison cancelled',
           });
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to abort comparison';
+          const errorMessage = error instanceof Error ? error.message : 'Failed to cancel task';
           set({ error: errorMessage });
         }
       },
@@ -535,6 +566,137 @@ export const useSteeringStore = create<SteeringState>()(
         set({
           currentComparison: null,
           comparisonId: null,
+          taskId: null,
+          progress: 0,
+          progressMessage: null,
+        });
+      },
+
+      // Load a recent comparison by ID
+      loadRecentComparison: (id: string) => {
+        const { recentComparisons } = get();
+        const recent = recentComparisons.find(r => r.id === id);
+        if (recent) {
+          set({
+            currentComparison: recent.result,
+            comparisonId: recent.id,
+            isGenerating: false,
+            taskId: null,
+            progress: 100,
+            progressMessage: 'Loaded from recent',
+            batchState: null,
+          });
+        }
+      },
+
+      // Recover a comparison result from Redis by task ID and add to recent
+      recoverTaskResult: async (taskId: string) => {
+        try {
+          console.log('[SteeringStore] Recovering task result:', taskId);
+          const response = await steeringApi.getTaskResult(taskId);
+
+          if (response.status.status === 'success' && response.result) {
+            const result = response.result as SteeringComparisonResponse;
+            const { recentComparisons } = get();
+
+            // Add to recent comparisons
+            const newRecent = {
+              id: result.comparison_id,
+              prompt: result.prompt,
+              timestamp: result.created_at || new Date().toISOString(),
+              result,
+            };
+            const updatedRecent = [newRecent, ...recentComparisons.filter(r => r.id !== result.comparison_id)].slice(0, 10);
+
+            set({
+              currentComparison: result,
+              comparisonId: result.comparison_id,
+              recentComparisons: updatedRecent,
+              isGenerating: false,
+              taskId: null,
+              progress: 100,
+              progressMessage: 'Recovered from task',
+            });
+
+            console.log('[SteeringStore] Task result recovered and added to recent');
+            return result;
+          } else {
+            throw new Error(response.status.error || 'Task not completed or no result');
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to recover task';
+          console.error('[SteeringStore] Failed to recover task:', errorMessage);
+          set({ error: errorMessage });
+          throw error;
+        }
+      },
+
+      // Clear all recent comparisons
+      clearRecentComparisons: () => {
+        set({ recentComparisons: [] });
+      },
+
+      // Handle async progress updates from WebSocket
+      handleAsyncProgress: (percent: number, message: string, _currentFeature?: number, _currentStrength?: number) => {
+        console.log('[SteeringStore] Async progress:', percent, message);
+        set({
+          progress: percent,
+          progressMessage: message,
+        });
+      },
+
+      // Handle async completion from WebSocket
+      handleAsyncCompleted: (result: SteeringComparisonResponse) => {
+        console.log('[SteeringStore] Async completed with result');
+        const { batchState, recentComparisons } = get();
+
+        // Save to recent comparisons (keep last 10)
+        const newRecent = {
+          id: result.comparison_id,
+          prompt: result.prompt,
+          timestamp: result.created_at || new Date().toISOString(),
+          result,
+        };
+        const updatedRecent = [newRecent, ...recentComparisons.filter(r => r.id !== result.comparison_id)].slice(0, 10);
+
+        // If in batch mode, resolve the pending promise instead of updating single-prompt state
+        if (batchState?.isRunning && pendingBatchResolver) {
+          console.log('[SteeringStore] Resolving batch promise with result');
+          pendingBatchResolver.resolve(result);
+          pendingBatchResolver = null;
+          // Still save to recent even in batch mode
+          set({ recentComparisons: updatedRecent });
+          return;
+        }
+
+        // Single prompt mode - update state directly
+        set({
+          isGenerating: false,
+          comparisonId: result.comparison_id,
+          currentComparison: result,
+          progress: 100,
+          progressMessage: 'Comparison complete',
+          recentComparisons: updatedRecent,
+        });
+      },
+
+      // Handle async failure from WebSocket
+      handleAsyncFailed: (error: string) => {
+        console.log('[SteeringStore] Async failed:', error);
+        const { batchState } = get();
+
+        // If in batch mode, reject the pending promise instead of updating single-prompt state
+        if (batchState?.isRunning && pendingBatchResolver) {
+          console.log('[SteeringStore] Rejecting batch promise with error:', error);
+          pendingBatchResolver.reject(new Error(error));
+          pendingBatchResolver = null;
+          return;
+        }
+
+        // Single prompt mode - update state directly
+        set({
+          isGenerating: false,
+          error: error,
           progress: 0,
           progressMessage: null,
         });
@@ -625,7 +787,34 @@ export const useSteeringStore = create<SteeringState>()(
               request.advanced_params = advancedParams;
             }
 
-            const response = await steeringApi.generateComparison(request);
+            // Submit async task to Celery worker
+            const taskResponse = await steeringApi.submitAsyncComparison(request);
+            console.log(`[SteeringStore] Batch prompt ${i + 1}: async task submitted:`, taskResponse.task_id);
+
+            // Store the task ID for this batch item
+            set({ taskId: taskResponse.task_id });
+
+            // Give React time to re-render and WebSocket hook to subscribe to the new channel
+            // This prevents a race condition where we wait for events before subscribing
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Create a promise that will be resolved by WebSocket events
+            // handleAsyncCompleted/handleAsyncFailed will resolve/reject this
+            // Add a timeout of 5 minutes per prompt to avoid hanging forever
+            const PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
+            const response = await Promise.race([
+              new Promise<SteeringComparisonResponse>((resolve, reject) => {
+                pendingBatchResolver = { resolve, reject };
+              }),
+              new Promise<never>((_, reject) => {
+                setTimeout(() => {
+                  pendingBatchResolver = null;
+                  reject(new Error(`Timeout: generation took longer than ${PROMPT_TIMEOUT_MS / 1000}s`));
+                }, PROMPT_TIMEOUT_MS);
+              }),
+            ]);
+
+            console.log(`[SteeringStore] Batch prompt ${i + 1}: completed via WebSocket`);
 
             // Mark this prompt as completed
             set((state) => ({
@@ -640,6 +829,10 @@ export const useSteeringStore = create<SteeringState>()(
             }));
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to generate';
+            console.log(`[SteeringStore] Batch prompt ${i + 1}: failed:`, errorMessage);
+
+            // Clear the pending resolver if task submission failed
+            pendingBatchResolver = null;
 
             // Mark this prompt as failed but continue with others
             set((state) => ({
@@ -666,13 +859,40 @@ export const useSteeringStore = create<SteeringState>()(
         }));
       },
 
-      // Abort batch processing
-      abortBatch: () => {
+      // Abort batch processing (cancels current Celery task and stops processing)
+      abortBatch: async () => {
+        const { taskId } = get();
+
+        // Set aborted flag first to prevent next prompt from starting
         set((state) => ({
           batchState: state.batchState
             ? { ...state.batchState, aborted: true }
             : null,
         }));
+
+        // Reject the pending batch promise if any
+        if (pendingBatchResolver) {
+          console.log('[SteeringStore] Rejecting batch promise due to abort');
+          pendingBatchResolver.reject(new Error('Batch aborted by user'));
+          pendingBatchResolver = null;
+        }
+
+        // Cancel the current Celery task if any
+        if (taskId) {
+          try {
+            console.log('[SteeringStore] Cancelling Celery task:', taskId);
+            await steeringApi.cancelTask(taskId);
+          } catch (error) {
+            console.warn('[SteeringStore] Failed to cancel task:', error);
+          }
+        }
+
+        set({
+          isGenerating: false,
+          taskId: null,
+          progress: 0,
+          progressMessage: 'Batch aborted',
+        });
       },
 
       // Clear batch results
@@ -684,7 +904,7 @@ export const useSteeringStore = create<SteeringState>()(
         });
       },
 
-      // Run strength sweep (uses first prompt)
+      // Run strength sweep (uses first prompt) - now uses async Celery-based API
       runStrengthSweep: async (featureIdx: number, layer: number, strengthValues: number[]) => {
         const { selectedSAE, prompts, generationParams } = get();
         const prompt = prompts[0] || '';
@@ -700,6 +920,7 @@ export const useSteeringStore = create<SteeringState>()(
           isSweeping: true,
           sweepResults: null,
           error: null,
+          taskId: null,
         });
 
         try {
@@ -712,19 +933,45 @@ export const useSteeringStore = create<SteeringState>()(
             generation_params: generationParams,
           };
 
-          const response = await steeringApi.runStrengthSweep(request);
+          // Submit async task to Celery worker
+          const taskResponse = await steeringApi.submitAsyncSweep(request);
+          console.log('[SteeringStore] Sweep async task submitted:', taskResponse.task_id);
 
-          set({
-            sweepResults: response,
-            isSweeping: false,
-          });
+          set({ taskId: taskResponse.task_id });
 
-          return response;
+          // Give React time to re-render and WebSocket hook to subscribe
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          // Wait for WebSocket completion (sweep results come via handleAsyncCompleted)
+          // For sweep, we'll use a simpler polling approach since it returns different type
+          const SWEEP_TIMEOUT_MS = 5 * 60 * 1000;
+          const startTime = Date.now();
+
+          while (Date.now() - startTime < SWEEP_TIMEOUT_MS) {
+            // Poll for result
+            const result = await steeringApi.getTaskResult(taskResponse.task_id);
+            if (result.status.status === 'success' && result.result) {
+              const sweepResult = result.result as StrengthSweepResponse;
+              set({
+                sweepResults: sweepResult,
+                isSweeping: false,
+                taskId: null,
+              });
+              return sweepResult;
+            } else if (result.status.status === 'failure') {
+              throw new Error(result.status.error || 'Sweep failed');
+            }
+            // Wait before next poll
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
+          throw new Error(`Sweep timed out after ${SWEEP_TIMEOUT_MS / 1000}s`);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to run strength sweep';
           set({
             error: errorMessage,
             isSweeping: false,
+            taskId: null,
           });
           throw error;
         }
@@ -774,9 +1021,12 @@ export const useSteeringStore = create<SteeringState>()(
 
       // Save current comparison as experiment
       saveExperiment: async (name: string, description?: string, tags?: string[]) => {
-        const { comparisonId } = get();
+        const { comparisonId, currentComparison } = get();
         if (!comparisonId) {
           throw new Error('No comparison to save');
+        }
+        if (!currentComparison) {
+          throw new Error('No comparison result to save');
         }
 
         try {
@@ -785,6 +1035,7 @@ export const useSteeringStore = create<SteeringState>()(
             description,
             comparison_id: comparisonId,
             tags,
+            result: currentComparison,
           });
 
           set((state) => ({
@@ -874,7 +1125,144 @@ export const useSteeringStore = create<SteeringState>()(
           throw error;
         }
       },
-    }),
+
+      // Hydration tracking for persistence
+      setHasHydrated: (hydrated: boolean) => {
+        set({ _hasHydrated: hydrated });
+      },
+
+      // Recover active task after page refresh
+      recoverActiveTask: async () => {
+        const { taskId, batchState, isGenerating, recentComparisons } = get();
+
+        // If no task ID at all, nothing to recover
+        if (!taskId) {
+          console.log('[SteeringStore] No task ID to recover');
+          return;
+        }
+
+        // Check if we already have this task in recent comparisons
+        // If so, no need to recover from backend
+        const alreadyInRecent = recentComparisons.some(r => r.id.includes(taskId.substring(0, 8)));
+        if (alreadyInRecent && !isGenerating) {
+          console.log('[SteeringStore] Task already in recent comparisons');
+          return;
+        }
+
+        // If task was generating OR we have a taskId but empty recents, try to recover
+        if (!isGenerating && recentComparisons.length > 0) {
+          console.log('[SteeringStore] Not generating and have recents, skipping recovery');
+          return;
+        }
+
+        console.log('[SteeringStore] Recovering active task:', taskId);
+
+        try {
+          // Check task status from backend
+          const result = await steeringApi.getTaskResult(taskId);
+          console.log('[SteeringStore] Task status:', result.status.status);
+
+          if (result.status.status === 'success' && result.result) {
+            // Task completed while we were away - load results
+            console.log('[SteeringStore] Task completed - loading results');
+            const comparison = result.result as SteeringComparisonResponse;
+
+            // Add to recent comparisons for persistence
+            const { recentComparisons: currentRecent } = get();
+            const newRecent = {
+              id: comparison.comparison_id,
+              prompt: comparison.prompt,
+              timestamp: comparison.created_at || new Date().toISOString(),
+              result: comparison,
+            };
+            const updatedRecent = [newRecent, ...currentRecent.filter(r => r.id !== comparison.comparison_id)].slice(0, 10);
+
+            if (batchState) {
+              // In batch mode - update the current result
+              set((state) => ({
+                isGenerating: false,
+                progress: 100,
+                progressMessage: 'Recovered completed result',
+                recentComparisons: updatedRecent,
+                batchState: state.batchState
+                  ? {
+                      ...state.batchState,
+                      isRunning: false,
+                      results: state.batchState.results.map((r, idx) =>
+                        idx === state.batchState!.currentIndex
+                          ? { ...r, status: 'completed', comparison }
+                          : r
+                      ),
+                    }
+                  : null,
+              }));
+            } else {
+              // Single prompt mode
+              set({
+                isGenerating: false,
+                currentComparison: comparison,
+                comparisonId: comparison.comparison_id,
+                progress: 100,
+                progressMessage: 'Recovered completed result',
+                recentComparisons: updatedRecent,
+              });
+            }
+          } else if (result.status.status === 'failure') {
+            // Task failed while we were away
+            console.log('[SteeringStore] Task failed:', result.status.error);
+            set({
+              isGenerating: false,
+              error: result.status.error || 'Task failed',
+              progress: 0,
+              progressMessage: null,
+            });
+          } else {
+            // Task still running - WebSocket hook will handle progress
+            console.log('[SteeringStore] Task still running - WebSocket will take over');
+            set({
+              progress: result.status.percent || 0,
+              progressMessage: result.status.message || 'Reconnected to running task...',
+            });
+          }
+        } catch (error) {
+          console.error('[SteeringStore] Failed to recover task:', error);
+          // Clear stale task state
+          set({
+            isGenerating: false,
+            taskId: null,
+            progress: 0,
+            progressMessage: null,
+            error: 'Failed to recover task - it may have expired',
+          });
+        }
+      },
+      }),
+      {
+        name: 'miStudio-steering',
+        // Only persist essential state for recovery
+        partialize: (state) => ({
+          // Active task state (for recovery after refresh)
+          taskId: state.taskId,
+          isGenerating: state.isGenerating,
+          batchState: state.batchState,
+          progress: state.progress,
+          progressMessage: state.progressMessage,
+          // Configuration state (so user doesn't lose their setup)
+          selectedSAE: state.selectedSAE,
+          selectedFeatures: state.selectedFeatures,
+          prompts: state.prompts,
+          generationParams: state.generationParams,
+          advancedParams: state.advancedParams,
+          showAdvancedParams: state.showAdvancedParams,
+          // Recent comparisons (for loading past results)
+          recentComparisons: state.recentComparisons,
+        }),
+        onRehydrateStorage: () => (state) => {
+          state?.setHasHydrated(true);
+          console.log('[SteeringStore] State hydrated from localStorage');
+        },
+      }
+    ),
     {
       name: 'SteeringStore',
     }

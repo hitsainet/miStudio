@@ -13,8 +13,8 @@
  * - Save experiments for later reference
  */
 
-import { useEffect, useState } from 'react';
-import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power, Check, Info, StopCircle, RotateCcw } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, Power, Check, Info, StopCircle, RotateCcw, History, ChevronDown } from 'lucide-react';
 import { useSteeringStore, selectCanGenerate, selectCanGenerateBatch } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { usePromptTemplatesStore } from '../../stores/promptTemplatesStore';
@@ -26,6 +26,8 @@ import { ComparisonResults } from '../steering/ComparisonResults';
 import { PromptListEditor } from '../steering/PromptListEditor';
 import { COMPONENTS } from '../../config/brand';
 import { restartBackend } from '../../api/steering';
+import { useSteeringWebSocket } from '../../hooks/useSteeringWebSocket';
+import type { SteeringProgressEvent, SteeringCompletedEvent, SteeringFailedEvent } from '../../hooks/useSteeringWebSocket';
 
 export function SteeringPanel() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -33,12 +35,16 @@ export function SteeringPanel() {
   const [cacheMessage, setCacheMessage] = useState<{ text: string; type: 'success' | 'info' | 'warning' } | null>(null);
   const [needsRestart, setNeedsRestart] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [showRecentDropdown, setShowRecentDropdown] = useState(false);
+  const [recoveryTaskId, setRecoveryTaskId] = useState('');
+  const [isRecovering, setIsRecovering] = useState(false);
 
   const {
     selectedSAE,
     selectedFeatures,
     prompts,
     isGenerating,
+    taskId,
     progress,
     progressMessage,
     currentComparison,
@@ -52,10 +58,19 @@ export function SteeringPanel() {
     replacePromptWithMultiple,
     generateComparison,
     generateBatchComparison,
+    abortComparison,
     abortBatch,
     clearBatchResults,
     clearError,
     clearModelCache,
+    handleAsyncProgress,
+    handleAsyncCompleted,
+    handleAsyncFailed,
+    recoverActiveTask,
+    recoverTaskResult,
+    _hasHydrated,
+    recentComparisons,
+    loadRecentComparison,
   } = useSteeringStore();
 
   const { saes, fetchSAEs } = useSAEsStore();
@@ -73,6 +88,34 @@ export function SteeringPanel() {
     fetchSAEs();
   }, [fetchSAEs]);
 
+  // Recover active task after page refresh (when state has hydrated)
+  useEffect(() => {
+    if (_hasHydrated) {
+      console.log('[SteeringPanel] State hydrated, checking for active task...');
+      recoverActiveTask();
+    }
+  }, [_hasHydrated, recoverActiveTask]);
+
+  // WebSocket callbacks for async steering task
+  const onSteeringProgress = useCallback((data: SteeringProgressEvent) => {
+    handleAsyncProgress(data.percent, data.message, data.current_feature, data.current_strength);
+  }, [handleAsyncProgress]);
+
+  const onSteeringCompleted = useCallback((data: SteeringCompletedEvent) => {
+    handleAsyncCompleted(data.result);
+  }, [handleAsyncCompleted]);
+
+  const onSteeringFailed = useCallback((data: SteeringFailedEvent) => {
+    handleAsyncFailed(data.error);
+  }, [handleAsyncFailed]);
+
+  // Subscribe to WebSocket updates for async steering tasks
+  useSteeringWebSocket(taskId, {
+    onProgress: onSteeringProgress,
+    onCompleted: onSteeringCompleted,
+    onFailed: onSteeringFailed,
+  });
+
   const handleGenerate = async () => {
     try {
       if (isBatchMode) {
@@ -85,8 +128,20 @@ export function SteeringPanel() {
     }
   };
 
-  const handleStopBatch = () => {
-    abortBatch();
+  const handleStopBatch = async () => {
+    try {
+      await abortBatch();
+    } catch (error) {
+      console.error('[SteeringPanel] Failed to stop batch:', error);
+    }
+  };
+
+  const handleStopSingle = async () => {
+    try {
+      await abortComparison();
+    } catch (error) {
+      console.error('[SteeringPanel] Failed to stop task:', error);
+    }
   };
 
   const handleSaveExperiment = () => {
@@ -193,8 +248,94 @@ export function SteeringPanel() {
                 Steer model outputs by adjusting feature activations during generation
               </p>
             </div>
-            {/* Clear VRAM button - always visible */}
+            {/* Recent comparisons & Clear VRAM */}
             <div className="flex items-center gap-3">
+              {/* Recent Comparisons Dropdown - always visible when not generating */}
+              {!isGenerating && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowRecentDropdown(!showRecentDropdown)}
+                    className={`px-3 py-2 flex items-center gap-2 text-sm ${COMPONENTS.button.ghost} ${recentComparisons.length > 0 ? 'text-slate-300 hover:text-slate-100' : 'text-slate-500 hover:text-slate-400'}`}
+                  >
+                    <History className="w-4 h-4" />
+                    Recent {recentComparisons.length > 0 && `(${recentComparisons.length})`}
+                    <ChevronDown className={`w-4 h-4 transition-transform ${showRecentDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showRecentDropdown && (
+                    <>
+                      {/* Backdrop to close dropdown */}
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setShowRecentDropdown(false)}
+                      />
+                      {/* Dropdown menu */}
+                      <div className="absolute right-0 top-full mt-1 w-80 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                        <div className="px-3 py-2 border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+                          Recent Comparisons
+                        </div>
+                        <div className="max-h-64 overflow-y-auto">
+                          {recentComparisons.length === 0 ? (
+                            <div className="px-3 py-4 text-sm text-slate-500">
+                              <div className="text-center mb-3">
+                                No recent comparisons yet.
+                              </div>
+                              <div className="border-t border-slate-700 pt-3">
+                                <div className="text-xs text-slate-400 mb-2">Recover by Task ID:</div>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={recoveryTaskId}
+                                    onChange={(e) => setRecoveryTaskId(e.target.value)}
+                                    placeholder="Task ID..."
+                                    className="flex-1 px-2 py-1 text-xs bg-slate-900 border border-slate-600 rounded text-slate-200 placeholder-slate-500"
+                                  />
+                                  <button
+                                    onClick={async () => {
+                                      if (!recoveryTaskId.trim()) return;
+                                      setIsRecovering(true);
+                                      try {
+                                        await recoverTaskResult(recoveryTaskId.trim());
+                                        setRecoveryTaskId('');
+                                        setShowRecentDropdown(false);
+                                      } catch (err) {
+                                        // Error is set in store
+                                      } finally {
+                                        setIsRecovering(false);
+                                      }
+                                    }}
+                                    disabled={isRecovering || !recoveryTaskId.trim()}
+                                    className="px-2 py-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded disabled:opacity-50"
+                                  >
+                                    {isRecovering ? '...' : 'Load'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            recentComparisons.map((recent) => (
+                              <button
+                                key={recent.id}
+                                onClick={() => {
+                                  loadRecentComparison(recent.id);
+                                  setShowRecentDropdown(false);
+                                }}
+                                className="w-full px-3 py-2 text-left hover:bg-slate-700/50 transition-colors border-b border-slate-700/50 last:border-b-0"
+                              >
+                                <div className="text-sm text-slate-200 truncate">
+                                  {recent.prompt.length > 50 ? recent.prompt.slice(0, 50) + '...' : recent.prompt}
+                                </div>
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  {new Date(recent.timestamp).toLocaleString()}
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               {/* Feedback message */}
               {cacheMessage && (
                 <div
@@ -323,6 +464,7 @@ export function SteeringPanel() {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Stop button for batch mode */}
                     {isGenerating && batchState?.isRunning && (
                       <button
                         onClick={handleStopBatch}
@@ -330,6 +472,16 @@ export function SteeringPanel() {
                       >
                         <StopCircle className="w-4 h-4" />
                         Stop Batch
+                      </button>
+                    )}
+                    {/* Stop button for single-prompt mode (async task) */}
+                    {isGenerating && !batchState && taskId && (
+                      <button
+                        onClick={handleStopSingle}
+                        className={`px-4 py-2 flex items-center gap-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors`}
+                      >
+                        <StopCircle className="w-4 h-4" />
+                        Cancel
                       </button>
                     )}
                     <button

@@ -552,10 +552,24 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
   },
 
   /**
-   * Clear selected feature.
+   * Clear selected feature and clean up GPU memory from analysis.
+   * Calls the backend cleanup endpoint to free any GPU memory
+   * allocated by logit lens or other analysis operations.
    */
   clearSelectedFeature: () => {
     set({ selectedFeature: null, featureExamples: [] });
+
+    // Fire-and-forget cleanup call - don't block UI
+    axios.post('/api/v1/analysis/cleanup')
+      .then((response) => {
+        if (response.data.vram_freed_gb > 0) {
+          console.log(`[Analysis Cleanup] Freed ${response.data.vram_freed_gb} GB VRAM`);
+        }
+      })
+      .catch((error) => {
+        // Log but don't fail - cleanup is best-effort
+        console.warn('[Analysis Cleanup] Failed:', error.message);
+      });
   },
 
   /**

@@ -81,6 +81,7 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
   const { models, fetchModels } = useModelsStore();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState('');
+  const [maxLength, setMaxLength] = useState(512);
   const [isCreating, setIsCreating] = useState(false);
 
   // Filtering configuration state
@@ -104,20 +105,20 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
     fetchModels();
   }, [datasetId, fetchTokenizations, fetchModels]);
 
-  const handleDelete = async (modelId: string, tokenizerName: string) => {
-    if (window.confirm(`Delete tokenization with ${tokenizerName}?`)) {
+  const handleDelete = async (tokenizationId: string, tokenizerName: string, maxLength: number) => {
+    if (window.confirm(`Delete tokenization ${tokenizerName} (${maxLength} tokens)?`)) {
       try {
-        await deleteTokenization(datasetId, modelId);
+        await deleteTokenization(datasetId, tokenizationId);
       } catch (error) {
         console.error('Failed to delete tokenization:', error);
       }
     }
   };
 
-  const handleCancel = async (modelId: string, tokenizerName: string) => {
-    if (window.confirm(`Cancel tokenization with ${tokenizerName}?`)) {
+  const handleCancel = async (tokenizationId: string, tokenizerName: string, maxLength: number) => {
+    if (window.confirm(`Cancel tokenization ${tokenizerName} (${maxLength} tokens)?`)) {
       try {
-        await cancelTokenization(datasetId, modelId);
+        await cancelTokenization(datasetId, tokenizationId);
       } catch (error) {
         console.error('Failed to cancel tokenization:', error);
       }
@@ -130,7 +131,7 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
     setIsCreating(true);
     try {
       await createTokenization(datasetId, selectedModelId, {
-        max_length: 512,
+        max_length: maxLength,
         stride: 0,
         padding: 'max_length',
         truncation: 'longest_first',
@@ -146,6 +147,7 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
       });
       setShowCreateForm(false);
       setSelectedModelId('');
+      setMaxLength(512);
       // Reset filter settings
       setFilterEnabled(false);
       setFilterMode('conservative');
@@ -187,9 +189,8 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
     }
   };
 
-  const availableModels = models.filter(
-    (model) => !datasetTokenizations.some((t) => t.model_id === model.id)
-  );
+  // All models are available - same model can have multiple tokenizations with different max_lengths
+  const availableModels = models;
 
   return (
     <div className="space-y-4">
@@ -227,6 +228,21 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs text-slate-400">Max Sequence Length</label>
+            <input
+              type="number"
+              value={maxLength}
+              onChange={(e) => setMaxLength(Math.max(1, Math.min(8192, parseInt(e.target.value) || 512)))}
+              min={1}
+              max={8192}
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-100 text-sm"
+            />
+            <p className="text-xs text-slate-500">
+              Maximum tokens per sample (1-8192). Common values: 128, 256, 512, 1024, 2048
+            </p>
           </div>
 
           {/* Filtering Settings Section */}
@@ -421,6 +437,9 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                     <span className="text-sm font-medium text-slate-100 truncate">
                       {tokenization.tokenizer_repo_id}
                     </span>
+                    <span className="text-xs text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
+                      {tokenization.max_length || 512} tokens
+                    </span>
                   </div>
                   <div className={`inline-flex items-center gap-1.5 mt-1.5 px-2 py-0.5 border rounded text-xs ${getStatusColor(tokenization.status)}`}>
                     {tokenization.status.toUpperCase()}
@@ -430,7 +449,7 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                 {/* Action buttons */}
                 {(tokenization.status === TokenizationStatus.READY || tokenization.status === TokenizationStatus.ERROR) && (
                   <button
-                    onClick={() => handleDelete(tokenization.model_id, tokenization.tokenizer_repo_id)}
+                    onClick={() => handleDelete(tokenization.id, tokenization.tokenizer_repo_id, tokenization.max_length || 512)}
                     className={`${COMPONENTS.button.ghost} p-1.5`}
                     title="Delete tokenization"
                   >
@@ -439,7 +458,7 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
                 )}
                 {(tokenization.status === TokenizationStatus.PROCESSING || tokenization.status === TokenizationStatus.QUEUED) && (
                   <button
-                    onClick={() => handleCancel(tokenization.model_id, tokenization.tokenizer_repo_id)}
+                    onClick={() => handleCancel(tokenization.id, tokenization.tokenizer_repo_id, tokenization.max_length || 512)}
                     className={`${COMPONENTS.button.ghost} p-1.5 text-red-400 hover:text-red-300`}
                     title="Cancel tokenization"
                   >
@@ -450,7 +469,13 @@ export function TokenizationsList({ datasetId }: TokenizationsListProps) {
 
               {/* Stats */}
               {tokenization.status === TokenizationStatus.READY && (
-                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-700/50">
+                <div className="grid grid-cols-4 gap-3 pt-2 border-t border-slate-700/50">
+                  <div>
+                    <p className="text-xs text-slate-500">Max Length</p>
+                    <p className="text-sm text-slate-300 font-medium">
+                      {tokenization.max_length?.toLocaleString() || '512'}
+                    </p>
+                  </div>
                   <div>
                     <p className="text-xs text-slate-500">Vocab Size</p>
                     <p className="text-sm text-slate-300 font-medium">

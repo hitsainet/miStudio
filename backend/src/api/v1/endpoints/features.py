@@ -739,6 +739,70 @@ async def get_ablation(
     return result
 
 
+@router.post(
+    "/analysis/cleanup",
+    status_code=status.HTTP_200_OK,
+    summary="Clean up GPU memory from analysis operations"
+)
+async def cleanup_analysis_gpu():
+    """
+    Clean up GPU memory used by analysis operations (logit lens, etc.).
+
+    Call this endpoint when closing the feature detail modal to free
+    GPU memory that may still be allocated from model loading.
+
+    Returns:
+        Dict with cleanup status and memory freed
+    """
+    import torch
+    import gc
+
+    result = {
+        "cleaned": False,
+        "vram_before_gb": 0.0,
+        "vram_after_gb": 0.0,
+        "vram_freed_gb": 0.0,
+    }
+
+    try:
+        if torch.cuda.is_available():
+            # Get memory before cleanup
+            result["vram_before_gb"] = round(
+                torch.cuda.memory_allocated() / (1024**3), 2
+            )
+
+            # Force garbage collection first
+            gc.collect()
+
+            # Clear PyTorch CUDA cache
+            torch.cuda.empty_cache()
+
+            # Synchronize to ensure cleanup is complete
+            torch.cuda.synchronize()
+
+            # Get memory after cleanup
+            result["vram_after_gb"] = round(
+                torch.cuda.memory_allocated() / (1024**3), 2
+            )
+            result["vram_freed_gb"] = round(
+                result["vram_before_gb"] - result["vram_after_gb"], 2
+            )
+            result["cleaned"] = True
+
+            logger.info(
+                f"Analysis GPU cleanup: freed {result['vram_freed_gb']} GB "
+                f"({result['vram_before_gb']} -> {result['vram_after_gb']} GB)"
+            )
+        else:
+            result["message"] = "CUDA not available"
+
+    except Exception as e:
+        logger.error(f"Error during analysis GPU cleanup: {e}")
+        result["error"] = str(e)
+
+    return result
+
+
 # =============================================================================
 # NLP Analysis Endpoints
 # =============================================================================

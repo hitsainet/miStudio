@@ -17,9 +17,12 @@ import atexit
 import gc
 import logging
 import math
+import os
 import signal
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -130,6 +133,115 @@ except Exception as e:
 # This runs on normal exit, sys.exit(), and unhandled exceptions
 atexit.register(_emergency_gpu_cleanup)
 logger.info("[atexit] Registered emergency GPU cleanup on exit")
+
+
+# =============================================================================
+# GENERATION WATCHDOG
+# =============================================================================
+# Monitors generation time and forcefully terminates if stuck
+# This prevents zombie processes from holding GPU memory
+
+class GenerationWatchdog:
+    """
+    Watchdog that monitors generation time and forcefully terminates if stuck.
+
+    When model.generate() hangs (common with certain model/hook combinations),
+    the async timeout can't interrupt the blocking call. This watchdog runs in
+    a separate thread and will forcefully terminate the process if generation
+    exceeds the hard timeout.
+
+    This is aggressive but necessary to prevent zombie processes from holding
+    GPU memory indefinitely.
+    """
+
+    def __init__(self, hard_timeout: float = 90.0):
+        """
+        Initialize watchdog.
+
+        Args:
+            hard_timeout: Seconds before forceful termination (default 90s)
+        """
+        self.hard_timeout = hard_timeout
+        self._generation_start: Optional[float] = None
+        self._generation_active = False
+        self._lock = threading.Lock()
+        self._watchdog_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+
+    def start_generation(self):
+        """Mark that generation has started."""
+        with self._lock:
+            self._generation_start = time.time()
+            self._generation_active = True
+            logger.debug(f"[Watchdog] Generation started, timeout in {self.hard_timeout}s")
+
+    def end_generation(self):
+        """Mark that generation has completed."""
+        with self._lock:
+            elapsed = time.time() - self._generation_start if self._generation_start else 0
+            self._generation_active = False
+            self._generation_start = None
+            logger.debug(f"[Watchdog] Generation completed in {elapsed:.1f}s")
+
+    def _watchdog_loop(self):
+        """Watchdog thread loop - monitors for stuck generations."""
+        while not self._stop_event.wait(timeout=5.0):  # Check every 5 seconds
+            with self._lock:
+                if self._generation_active and self._generation_start:
+                    elapsed = time.time() - self._generation_start
+                    if elapsed > self.hard_timeout:
+                        logger.error(
+                            f"[Watchdog] Generation exceeded hard timeout ({elapsed:.1f}s > {self.hard_timeout}s). "
+                            f"Forcefully terminating to prevent zombie process."
+                        )
+                        # Clean up GPU first
+                        try:
+                            _emergency_gpu_cleanup()
+                        except:
+                            pass
+                        # Forcefully terminate - let supervisor restart
+                        logger.error("[Watchdog] Calling os._exit(1) to terminate process")
+                        os._exit(1)
+                    elif elapsed > self.hard_timeout * 0.75:
+                        logger.warning(
+                            f"[Watchdog] Generation taking long ({elapsed:.1f}s), "
+                            f"will terminate at {self.hard_timeout}s"
+                        )
+
+    def start(self):
+        """Start the watchdog thread."""
+        if self._watchdog_thread is None or not self._watchdog_thread.is_alive():
+            self._stop_event.clear()
+            self._watchdog_thread = threading.Thread(
+                target=self._watchdog_loop,
+                daemon=True,
+                name="SteeringWatchdog"
+            )
+            self._watchdog_thread.start()
+            logger.info(f"[Watchdog] Started with {self.hard_timeout}s hard timeout")
+
+    def stop(self):
+        """Stop the watchdog thread."""
+        self._stop_event.set()
+        if self._watchdog_thread:
+            self._watchdog_thread.join(timeout=2.0)
+            logger.info("[Watchdog] Stopped")
+
+
+# Global watchdog instance
+_generation_watchdog: Optional[GenerationWatchdog] = None
+
+
+def get_generation_watchdog() -> GenerationWatchdog:
+    """Get or create the global generation watchdog."""
+    global _generation_watchdog
+    if _generation_watchdog is None:
+        from ..core.config import settings
+        # Use steering timeout as base, add 30 seconds buffer for hard kill
+        hard_timeout = settings.steering_timeout_seconds + 30
+        _generation_watchdog = GenerationWatchdog(hard_timeout=hard_timeout)
+        _generation_watchdog.start()
+    return _generation_watchdog
 
 
 @dataclass
@@ -573,7 +685,24 @@ class SteeringService:
             logger.warning("Could not find transformer layers to clear hooks from")
             return 0
 
-        # Clear forward hooks from each layer
+        # Clear forward hooks from each layer - comprehensive list of submodules
+        # that might have hooks attached
+        all_submodule_names = [
+            # Attention components
+            "self_attn", "attn", "attention",
+            "q_proj", "k_proj", "v_proj", "o_proj",
+            "query", "key", "value", "dense",
+            "rotary_emb", "pos_emb",
+            # MLP components
+            "mlp", "feed_forward", "ffn",
+            "gate_proj", "up_proj", "down_proj",
+            "fc1", "fc2", "dense_h_to_4h", "dense_4h_to_h",
+            # LayerNorm components
+            "input_layernorm", "post_attention_layernorm",
+            "ln_1", "ln_2", "layer_norm", "final_layer_norm",
+            "pre_feedforward_layernorm", "post_feedforward_layernorm",
+        ]
+
         for layer_idx, layer in enumerate(layers_module):
             # Clear hooks on the layer module itself
             if hasattr(layer, "_forward_hooks") and layer._forward_hooks:
@@ -581,9 +710,8 @@ class SteeringService:
                 layer._forward_hooks.clear()
                 hooks_cleared += count
 
-            # Also check common submodules that might have hooks
-            for submodule_name in ["self_attn", "attn", "mlp", "feed_forward",
-                                    "post_attention_layernorm", "ln_2"]:
+            # Clear hooks on all possible submodules
+            for submodule_name in all_submodule_names:
                 if hasattr(layer, submodule_name):
                     submodule = getattr(layer, submodule_name)
                     if hasattr(submodule, "_forward_hooks") and submodule._forward_hooks:
@@ -598,6 +726,66 @@ class SteeringService:
             )
 
         return hooks_cleared
+
+    def _reset_model_state(self, model: PreTrainedModel) -> None:
+        """
+        Reset all internal model state to ensure clean generation.
+
+        CRITICAL: This ensures prior prompts have NO influence on subsequent generations.
+        Must be called before EVERY generation to guarantee context isolation.
+
+        Clears:
+        - KV cache (past_key_values)
+        - Static cache (for Gemma-2 and similar)
+        - Internal cache buffers
+        - Any other mutable state
+
+        Args:
+            model: The transformer model to reset
+        """
+        # 1. Clear any past_key_values attribute
+        if hasattr(model, "past_key_values"):
+            model.past_key_values = None
+
+        # 2. Reset static cache for models that use it (Gemma-2, etc.)
+        if hasattr(model, "_cache"):
+            model._cache = None
+
+        # 3. Call model's reset_cache method if available (transformers >= 4.38)
+        if hasattr(model, "_reset_cache"):
+            try:
+                model._reset_cache()
+                logger.debug("[Model State] Called model._reset_cache()")
+            except Exception as e:
+                logger.debug(f"[Model State] _reset_cache() not applicable: {e}")
+
+        # 4. For models with HybridCache or StaticCache
+        if hasattr(model, "model") and hasattr(model.model, "_cache"):
+            model.model._cache = None
+
+        # 5. Clear cache on config level
+        if hasattr(model, "config"):
+            # Ensure we don't accidentally enable caching
+            if hasattr(model.config, "use_cache"):
+                # Note: Don't persist this, just check it
+                pass
+
+        # 6. For Gemma-2 specific: clear the sliding window cache
+        if hasattr(model, "model"):
+            inner_model = model.model
+            if hasattr(inner_model, "layers"):
+                for layer in inner_model.layers:
+                    # Clear any layer-level cache
+                    if hasattr(layer, "_cache"):
+                        layer._cache = None
+                    if hasattr(layer, "self_attn"):
+                        attn = layer.self_attn
+                        if hasattr(attn, "_cache"):
+                            attn._cache = None
+                        if hasattr(attn, "past_key_value"):
+                            attn.past_key_value = None
+
+        logger.debug("[Model State] Model state reset for clean generation")
 
     def _get_target_module(
         self,
@@ -857,6 +1045,10 @@ class SteeringService:
         """
         Generate text using the model.
 
+        CRITICAL: This method resets ALL model state before generation to ensure
+        prior prompts have NO influence on the output. Each call is guaranteed
+        to start with a clean slate.
+
         Args:
             model: The transformer model
             tokenizer: The tokenizer
@@ -870,7 +1062,11 @@ class SteeringService:
         """
         start_time = time.time()
 
-        # Tokenize
+        # CRITICAL: Reset ALL model state BEFORE generation
+        # This ensures prior prompts have absolutely NO influence on this generation
+        self._reset_model_state(model)
+
+        # Tokenize - fresh tokenization of ONLY the current prompt
         inputs = tokenizer(
             prompt,
             return_tensors="pt",
@@ -888,6 +1084,8 @@ class SteeringService:
             "pad_token_id": tokenizer.pad_token_id,
             "eos_token_id": tokenizer.eos_token_id,
             "repetition_penalty": 1.15,  # Default to prevent degenerate repetition
+            # CRITICAL: Explicitly pass None to ensure no stale KV cache is used
+            "past_key_values": None,
         }
 
         # Disable cache if requested (needed for Gemma-2 with forward hooks)
@@ -915,12 +1113,20 @@ class SteeringService:
                 if additional_eos:
                     gen_kwargs["eos_token_id"] = [tokenizer.eos_token_id] + additional_eos
 
-        # Generate
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                **gen_kwargs,
-            )
+        # Generate with clean state
+        # Use watchdog to monitor for hung generation
+        watchdog = get_generation_watchdog()
+        watchdog.start_generation()
+
+        try:
+            with torch.no_grad():
+                outputs = model.generate(
+                    **inputs,
+                    **gen_kwargs,
+                )
+        finally:
+            # Always mark generation as complete (even on error)
+            watchdog.end_generation()
 
         # Decode (only new tokens)
         input_len = inputs["input_ids"].shape[1]
@@ -929,6 +1135,9 @@ class SteeringService:
 
         generation_time_ms = int((time.time() - start_time) * 1000)
         token_count = len(generated_ids)
+
+        # CRITICAL: Reset state again after generation to ensure clean slate for next call
+        self._reset_model_state(model)
 
         return generated_text, token_count, generation_time_ms
 
@@ -1117,6 +1326,8 @@ class SteeringService:
         sae_d_model: Optional[int] = None,
         sae_n_features: Optional[int] = None,
         sae_architecture: Optional[str] = None,
+        # Progress callback for Celery tasks
+        progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> SteeringComparisonResponse:
         """
         Generate a steering comparison with steered and unsteered outputs.
@@ -1138,8 +1349,14 @@ class SteeringService:
         comparison_id = f"cmp_{uuid4().hex[:12]}"
         model = None  # Track for cleanup
 
+        # Helper for progress emission
+        def emit_progress(percent: int, message: str):
+            if progress_callback:
+                progress_callback(percent, message)
+
         try:
             # Load SAE and model
+            emit_progress(5, "Loading SAE...")
             sae = await self.load_sae(
                 sae_path,
                 request.sae_id,
@@ -1148,12 +1365,17 @@ class SteeringService:
                 n_features=sae_n_features,
                 architecture=sae_architecture,
             )
+            emit_progress(15, "Loading model...")
             model, tokenizer = await self.load_model(model_id, model_path)
 
             # CRITICAL: Clear any stale hooks from previous requests that may have timed out
             # This ensures unsteered baseline is truly unsteered and not contaminated
             # by steering hooks from a previous request that didn't clean up properly
             self._clear_all_model_hooks(model)
+
+            # CRITICAL: Reset all model state to ensure NO context from prior prompts
+            # This guarantees each generation starts with a completely clean slate
+            self._reset_model_state(model)
 
             # Use all selected features - duplicates with different strengths are intentional
             # (e.g., same feature at +50 and -50 for A/B comparison)
@@ -1175,6 +1397,7 @@ class SteeringService:
             unsteered_text = None
 
             if request.include_unsteered:
+                emit_progress(20, "Generating unsteered baseline...")
                 # Disable KV cache for consistency with steered generation
                 # Some models (e.g., Gemma-2) behave differently with/without cache
                 text, token_count, gen_time = await self._generate_text(
@@ -1204,6 +1427,7 @@ class SteeringService:
             )
 
             if has_multi_strength:
+                emit_progress(25, "Generating multi-strength outputs...")
                 # Multi-strength mode: generate at multiple strengths per feature
                 steered_multi_outputs = await self._generate_multi_strength_outputs(
                     model=model,
@@ -1212,6 +1436,7 @@ class SteeringService:
                     request=request,
                     unique_features=unique_features,
                     unsteered_text=unsteered_text,
+                    progress_callback=progress_callback,
                 )
 
                 # Build metrics summary for multi-strength mode
@@ -1241,9 +1466,22 @@ class SteeringService:
                 )
 
             # Single-strength mode: one output per feature (existing behavior)
+            emit_progress(25, "Generating steered outputs...")
             steered_outputs = []
+            total_features = len(unique_features)
 
-            for feature in unique_features:
+            for feature_idx, feature in enumerate(unique_features):
+                # Calculate progress: 25% to 90% range for generation loop
+                loop_progress = 25 + int((feature_idx / total_features) * 65)
+                emit_progress(loop_progress, f"Generating feature {feature_idx + 1}/{total_features}...")
+                # CRITICAL: Clear stale hooks BEFORE registering new ones
+                # This prevents hook accumulation from previous iterations
+                self._clear_all_model_hooks(model)
+
+                # CRITICAL: Reset model state BEFORE each feature iteration
+                # This guarantees NO context from prior prompt/feature affects this generation
+                self._reset_model_state(model)
+
                 # Create config for just this feature
                 single_feature_config = [
                     FeatureSteeringConfig(
@@ -1254,7 +1492,7 @@ class SteeringService:
                     )
                 ]
 
-                # Register steering hooks for this single feature
+                # Register steering hooks for this single feature (now on clean model)
                 handles = self._register_steering_hooks(model, sae, single_feature_config)
 
                 try:
@@ -1285,9 +1523,21 @@ class SteeringService:
                     ))
 
                 finally:
-                    # Clean up hooks before next feature
+                    # Clean up hooks
                     for handle in handles:
                         handle.remove()
+
+                    # CRITICAL: Reset state after generation completes or errors
+                    # This ensures clean slate for next iteration even if error occurred
+                    self._reset_model_state(model)
+
+                    # Clear GPU cache between features to prevent memory fragmentation
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                logger.debug(
+                    f"[Single-Strength] Completed feature {feature_idx + 1}/{len(unique_features)}"
+                )
 
             # Build metrics summary
             metrics_summary = None
@@ -1334,6 +1584,7 @@ class SteeringService:
         request: SteeringComparisonRequest,
         unique_features: List[SelectedFeature],
         unsteered_text: Optional[str],
+        progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> List[SteeredOutputMulti]:
         """
         Generate outputs for each feature at multiple strength values.
@@ -1341,6 +1592,16 @@ class SteeringService:
         For each feature that has additional_strengths, generates text at:
         - The primary strength
         - Each additional strength
+
+        CRITICAL: This method ensures complete context isolation between:
+        - Different features (outer loop)
+        - Different strengths within a feature (inner loop)
+
+        Each generation starts with:
+        1. All stale hooks cleared
+        2. Model state fully reset (KV cache, internal buffers)
+        3. Fresh hook registration
+        4. GPU cache cleared
 
         Args:
             model: The transformer model
@@ -1353,9 +1614,26 @@ class SteeringService:
         Returns:
             List of SteeredOutputMulti, one per feature with multi-strength results
         """
-        results = []
+        # Helper for progress emission
+        def emit_progress(percent: int, message: str):
+            if progress_callback:
+                progress_callback(percent, message)
 
-        for feature in unique_features:
+        results = []
+        total_features = len(unique_features)
+        # Calculate total generations for progress tracking
+        total_generations = sum(
+            1 + len(f.additional_strengths or [])
+            for f in unique_features
+        )
+        generation_count = 0
+
+        for feature_idx, feature in enumerate(unique_features):
+            # CRITICAL: Reset model state at START of each feature iteration
+            # This ensures no state leakage from previous feature's generations
+            self._reset_model_state(model)
+            self._clear_all_model_hooks(model)
+
             # Collect all strengths to test for this feature
             all_strengths = [feature.strength]  # Primary first
             if feature.additional_strengths:
@@ -1372,7 +1650,23 @@ class SteeringService:
             # Generate for each strength
             strength_results: List[MultiStrengthResult] = []
 
-            for strength in all_strengths:
+            for strength_idx, strength in enumerate(all_strengths):
+                # Calculate progress: 25% to 90% range
+                generation_count += 1
+                loop_progress = 25 + int((generation_count / total_generations) * 65)
+                emit_progress(
+                    loop_progress,
+                    f"Feature {feature_idx + 1}/{total_features} @ strength {strength:.1f}"
+                )
+
+                # CRITICAL: Clear any stale hooks BEFORE registering new ones
+                # This prevents hook accumulation from previous iterations
+                self._clear_all_model_hooks(model)
+
+                # CRITICAL: Reset model state BEFORE each strength iteration
+                # This guarantees NO context from prior prompt/strength affects this generation
+                self._reset_model_state(model)
+
                 # Create feature config with this strength
                 single_feature_config = [
                     FeatureSteeringConfig(
@@ -1384,7 +1678,7 @@ class SteeringService:
                     )
                 ]
 
-                # Register steering hooks
+                # Register steering hooks (now on clean model)
                 handles = self._register_steering_hooks(model, sae, single_feature_config)
 
                 try:
@@ -1413,9 +1707,22 @@ class SteeringService:
                     ))
 
                 finally:
-                    # Clean up hooks before next strength
+                    # Clean up hooks
                     for handle in handles:
                         handle.remove()
+
+                    # CRITICAL: Reset state after generation completes or errors
+                    # This ensures clean slate for next iteration even if error occurred
+                    self._reset_model_state(model)
+
+                    # Clear GPU cache between iterations to prevent memory fragmentation
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                logger.debug(
+                    f"[Multi-Strength] Completed strength {strength_idx + 1}/{len(all_strengths)} "
+                    f"for feature {feature.feature_idx}"
+                )
 
             # Find primary result (matches original strength)
             primary_idx = all_strengths.index(feature.strength)
@@ -1427,6 +1734,10 @@ class SteeringService:
                 primary_result=primary_result,
                 additional_results=additional_results,
             ))
+
+            # Clear GPU cache between features
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         return results
 
@@ -1441,6 +1752,8 @@ class SteeringService:
         sae_d_model: Optional[int] = None,
         sae_n_features: Optional[int] = None,
         sae_architecture: Optional[str] = None,
+        # Progress callback for Celery tasks
+        progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> StrengthSweepResponse:
         """
         Generate a strength sweep testing multiple steering strengths.
@@ -1462,8 +1775,14 @@ class SteeringService:
         sweep_id = f"sweep_{uuid4().hex[:12]}"
         model = None  # Track for cleanup
 
+        # Helper for progress emission
+        def emit_progress(percent: int, message: str):
+            if progress_callback:
+                progress_callback(percent, message)
+
         try:
             # Load SAE and model
+            emit_progress(5, "Loading SAE...")
             sae = await self.load_sae(
                 sae_path,
                 request.sae_id,
@@ -1472,12 +1791,17 @@ class SteeringService:
                 n_features=sae_n_features,
                 architecture=sae_architecture,
             )
+            emit_progress(15, "Loading model...")
             model, tokenizer = await self.load_model(model_id, model_path)
 
             # CRITICAL: Clear any stale hooks from previous requests that may have timed out
             # This ensures unsteered baseline is truly unsteered
             self._clear_all_model_hooks(model)
 
+            # CRITICAL: Reset all model state to ensure NO context from prior prompts
+            self._reset_model_state(model)
+
+            emit_progress(20, "Generating unsteered baseline...")
             # Generate unsteered baseline
             # Disable KV cache for consistency - some models behave differently with/without cache
             text, token_count, gen_time = await self._generate_text(
@@ -1497,9 +1821,23 @@ class SteeringService:
             )
 
             # Generate for each strength value
+            emit_progress(25, "Starting strength sweep...")
             results = []
+            total_strengths = len(request.strength_values)
 
-            for strength in request.strength_values:
+            for strength_idx, strength in enumerate(request.strength_values):
+                # Calculate progress: 25% to 90% range
+                loop_progress = 25 + int((strength_idx / total_strengths) * 65)
+                emit_progress(loop_progress, f"Testing strength {strength_idx + 1}/{total_strengths}: {strength:.1f}")
+
+                # CRITICAL: Clear stale hooks BEFORE registering new ones
+                # This prevents hook accumulation from previous iterations
+                self._clear_all_model_hooks(model)
+
+                # CRITICAL: Reset model state BEFORE each strength iteration
+                # This guarantees NO context from prior prompt/strength affects this generation
+                self._reset_model_state(model)
+
                 # Create feature config
                 feature_config = FeatureSteeringConfig(
                     feature_idx=request.feature_idx,
@@ -1507,7 +1845,7 @@ class SteeringService:
                     strength=strength,
                 )
 
-                # Register hook
+                # Register hook (now on clean model)
                 handles = self._register_steering_hooks(model, sae, [feature_config])
 
                 try:
@@ -1532,8 +1870,21 @@ class SteeringService:
                     ))
 
                 finally:
+                    # Clean up hooks
                     for handle in handles:
                         handle.remove()
+
+                    # CRITICAL: Reset state after generation completes or errors
+                    # This ensures clean slate for next iteration even if error occurred
+                    self._reset_model_state(model)
+
+                    # Clear GPU cache between iterations to prevent memory fragmentation
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                logger.debug(
+                    f"[Strength Sweep] Completed strength {strength_idx + 1}/{len(request.strength_values)}"
+                )
 
             total_time_ms = int((time.time() - start_time) * 1000)
 
@@ -1781,6 +2132,124 @@ class SteeringService:
                 pass
 
         return count
+
+
+    # =========================================================================
+    # SYNCHRONOUS WRAPPERS FOR CELERY TASKS
+    # =========================================================================
+
+    def generate_comparison_sync(
+        self,
+        request_dict: Dict[str, Any],
+        sae_path: str,
+        model_id: str,
+        model_path: Optional[str] = None,
+        sae_layer: Optional[int] = None,
+        sae_d_model: Optional[int] = None,
+        sae_n_features: Optional[int] = None,
+        sae_architecture: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Synchronous wrapper for generate_comparison.
+
+        Used by Celery tasks where async is not needed. Converts request dict
+        to Pydantic model and runs the async method synchronously.
+
+        Args:
+            request_dict: Serialized SteeringComparisonRequest as dict
+            sae_path: Path to SAE weights file
+            model_id: Model identifier for HuggingFace loading
+            model_path: Optional local path to model weights
+            sae_layer: SAE layer index
+            sae_d_model: SAE model dimension
+            sae_n_features: Number of SAE features
+            sae_architecture: SAE architecture type
+            progress_callback: Optional callback for progress updates (percent, message)
+
+        Returns:
+            Dict representation of SteeringComparisonResponse
+        """
+        # Convert request_dict back to Pydantic model
+        request = SteeringComparisonRequest(**request_dict)
+
+        # Run the async method synchronously
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                self.generate_comparison(
+                    request=request,
+                    sae_path=Path(sae_path),
+                    model_id=model_id,
+                    model_path=model_path,
+                    sae_layer=sae_layer,
+                    sae_d_model=sae_d_model,
+                    sae_n_features=sae_n_features,
+                    sae_architecture=sae_architecture,
+                    progress_callback=progress_callback,
+                )
+            )
+            # Convert Pydantic model to dict for JSON serialization
+            return result.model_dump(mode="json")
+        finally:
+            loop.close()
+
+    def generate_strength_sweep_sync(
+        self,
+        request_dict: Dict[str, Any],
+        sae_path: str,
+        model_id: str,
+        model_path: Optional[str] = None,
+        sae_layer: Optional[int] = None,
+        sae_d_model: Optional[int] = None,
+        sae_n_features: Optional[int] = None,
+        sae_architecture: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Synchronous wrapper for generate_strength_sweep.
+
+        Used by Celery tasks where async is not needed.
+
+        Args:
+            request_dict: Serialized SteeringStrengthSweepRequest as dict
+            sae_path: Path to SAE weights file
+            model_id: Model identifier for HuggingFace loading
+            model_path: Optional local path to model weights
+            sae_layer: SAE layer index
+            sae_d_model: SAE model dimension
+            sae_n_features: Number of SAE features
+            sae_architecture: SAE architecture type
+            progress_callback: Optional callback for progress updates (percent, message)
+
+        Returns:
+            Dict representation of StrengthSweepResponse
+        """
+        # Convert request_dict back to Pydantic model
+        request = SteeringStrengthSweepRequest(**request_dict)
+
+        # Run the async method synchronously
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                self.generate_strength_sweep(
+                    request=request,
+                    sae_path=Path(sae_path),
+                    model_id=model_id,
+                    model_path=model_path,
+                    sae_layer=sae_layer,
+                    sae_d_model=sae_d_model,
+                    sae_n_features=sae_n_features,
+                    sae_architecture=sae_architecture,
+                    progress_callback=progress_callback,
+                )
+            )
+            # Convert Pydantic model to dict for JSON serialization
+            return result.model_dump(mode="json")
+        finally:
+            loop.close()
 
 
 # Global service instance

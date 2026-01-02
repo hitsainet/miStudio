@@ -458,8 +458,9 @@ def tokenize_dataset_task(
     try:
         dataset_uuid = UUID(dataset_id)
 
-        # Create tokenization ID: tok_{dataset_id}_{model_id}
-        tokenization_id = f"tok_{str(dataset_uuid).replace('-', '')}_{model_id}"
+        # Create tokenization ID: tok_{dataset_id}_{model_id}_{max_length}
+        # Include max_length in ID to allow multiple tokenizations per dataset+model
+        tokenization_id = f"tok_{str(dataset_uuid).replace('-', '')}_{model_id}_{max_length}"
 
         # Track start time for progress estimates
         start_time = time.time()
@@ -519,6 +520,7 @@ def tokenize_dataset_task(
                     id=tokenization_id,
                     dataset_id=dataset_uuid,
                     model_id=model_id,
+                    max_length=max_length,
                     tokenizer_repo_id=tokenizer_name,
                     status=TokenizationStatus.QUEUED,
                     progress=0.0,
@@ -526,7 +528,7 @@ def tokenize_dataset_task(
                 )
                 db.add(tokenization_obj)
                 db.commit()
-                print(f"Created new tokenization record: {tokenization_id}")
+                print(f"Created new tokenization record: {tokenization_id} (max_length={max_length})")
 
         # Update status to processing (both tokenization and parent dataset)
         with self.get_db() as db:

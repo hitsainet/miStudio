@@ -160,6 +160,18 @@ celery_app.conf.update(
         "neuronpedia.compute_dashboard_data": {
             "queue": "processing",
         },
+
+        # Steering operations: GPU bound, dedicated queue for isolation
+        # Steering runs in a dedicated worker with --max-tasks-per-child for memory cleanup
+        "src.workers.steering_tasks.*": {
+            "queue": "steering",
+        },
+        "steering.compare": {
+            "queue": "steering",
+        },
+        "steering.sweep": {
+            "queue": "steering",
+        },
     },
 
     # Task priority queues (higher priority = processed first)
@@ -271,6 +283,7 @@ celery_app.autodiscover_tasks(
         "src.workers.sae_tasks",
         "src.workers.neuronpedia_tasks",
         "src.workers.nlp_analysis_tasks",
+        "src.workers.steering_tasks",  # Steering operations in dedicated GPU worker
     ],
     force=True,
 )
@@ -434,6 +447,7 @@ def get_queue_lengths() -> dict:
         "training",
         "extraction",
         "sae",
+        "steering",
         "low_priority",
     ]
 

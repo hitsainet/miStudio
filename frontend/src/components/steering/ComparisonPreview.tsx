@@ -46,7 +46,7 @@ export function ComparisonPreview({
 
           return (
             <div
-              key={`${feature.feature_idx}-${feature.layer}`}
+              key={feature.instance_id}
               className={`flex items-center gap-2 px-3 py-2 ${colors.light} border ${colors.border}/30 rounded-lg`}
             >
               <div className={`w-2.5 h-2.5 rounded-full ${colors.bg}`} />

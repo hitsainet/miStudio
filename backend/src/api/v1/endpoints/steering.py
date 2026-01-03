@@ -333,35 +333,39 @@ async def enter_steering_mode():
     backend_dir = settings.data_dir.parent  # /home/x-sean/app/miStudio/backend
 
     try:
+        # Use Popen to start worker in background without waiting
+        # This avoids timeout issues with subprocess.run
         start_cmd = (
             f"cd {backend_dir} && source venv/bin/activate && "
-            f"nohup celery -A src.core.celery_app worker "
+            f"celery -A src.core.celery_app worker "
             f"-Q steering -c 1 --pool=solo --loglevel=info "
             f'--hostname="steering@%h" --max-tasks-per-child=1 '
-            f'--pidfile="{PID_FILE}" > "{STEERING_LOG}" 2>&1 &'
+            f'--pidfile="{PID_FILE}" > "{STEERING_LOG}" 2>&1'
         )
 
-        subprocess.run(
+        # Start process in background - Popen returns immediately
+        process = subprocess.Popen(
             start_cmd,
             shell=True,
             executable="/bin/bash",
-            timeout=10,
-            capture_output=True
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,  # Detach from parent
         )
 
-        # Wait for worker to start
-        await asyncio.sleep(3)
-
-        # Verify worker started
-        is_running, pid = _is_steering_worker_running()
-        if is_running:
-            result["success"] = True
-            result["message"] = f"Entered steering mode (worker PID: {pid})"
-            result["worker_pid"] = pid
-            logger.info(f"Started steering worker PID {pid}")
+        # Wait for worker to initialize and create PID file
+        for i in range(10):  # Try for 10 seconds
+            await asyncio.sleep(1)
+            is_running, pid = _is_steering_worker_running()
+            if is_running:
+                result["success"] = True
+                result["message"] = f"Entered steering mode (worker PID: {pid})"
+                result["worker_pid"] = pid
+                logger.info(f"Started steering worker PID {pid}")
+                break
         else:
-            result["message"] = "Failed to start steering worker - check logs"
-            logger.error("Steering worker failed to start")
+            result["message"] = "Failed to start steering worker within 10s - check logs"
+            logger.error("Steering worker failed to start within timeout")
 
     except Exception as e:
         logger.error(f"Failed to start steering worker: {e}")

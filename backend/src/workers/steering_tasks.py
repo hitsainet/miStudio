@@ -88,6 +88,42 @@ def steering_compare_task(
     logger.info(f"[Steering Task {task_id}] Starting steering comparison")
 
     try:
+        # CRITICAL: Check for zombie processes holding GPU memory
+        # This is a common issue when previous tasks were killed unexpectedly
+        try:
+            import subprocess
+            gpu_apps = subprocess.run(
+                ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5
+            )
+            if gpu_apps.returncode == 0 and gpu_apps.stdout.strip():
+                # Check if any process holding GPU memory is a zombie
+                import os
+                for line in gpu_apps.stdout.strip().split("\n"):
+                    if line.strip():
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            pid = int(parts[0].strip())
+                            mem_mb = int(parts[1].strip())
+                            # Check if this PID is a zombie
+                            try:
+                                with open(f"/proc/{pid}/status", "r") as f:
+                                    status = f.read()
+                                    if "State:\tZ" in status:
+                                        raise RuntimeError(
+                                            f"Zombie process {pid} is holding {mem_mb}MB GPU memory. "
+                                            f"A system reboot is required to free this memory. "
+                                            f"Steering cannot proceed until GPU memory is available."
+                                        )
+                            except FileNotFoundError:
+                                pass  # Process doesn't exist, nvidia-smi data may be stale
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[Steering Task {task_id}] nvidia-smi timeout during zombie check")
+        except RuntimeError:
+            raise  # Re-raise zombie detection errors
+        except Exception as e:
+            logger.warning(f"[Steering Task {task_id}] Zombie check failed: {e}")
+
         # CRITICAL: Clear GPU state at task start to prevent orphan context issues
         # This ensures we start with a clean GPU regardless of previous task state
         try:
@@ -271,6 +307,38 @@ def steering_sweep_task(
     logger.info(f"[Sweep Task {task_id}] Starting strength sweep")
 
     try:
+        # CRITICAL: Check for zombie processes holding GPU memory
+        try:
+            import subprocess
+            gpu_apps = subprocess.run(
+                ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5
+            )
+            if gpu_apps.returncode == 0 and gpu_apps.stdout.strip():
+                import os
+                for line in gpu_apps.stdout.strip().split("\n"):
+                    if line.strip():
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            pid = int(parts[0].strip())
+                            mem_mb = int(parts[1].strip())
+                            try:
+                                with open(f"/proc/{pid}/status", "r") as f:
+                                    status = f.read()
+                                    if "State:\tZ" in status:
+                                        raise RuntimeError(
+                                            f"Zombie process {pid} is holding {mem_mb}MB GPU memory. "
+                                            f"A system reboot is required to free this memory."
+                                        )
+                            except FileNotFoundError:
+                                pass
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[Sweep Task {task_id}] nvidia-smi timeout during zombie check")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning(f"[Sweep Task {task_id}] Zombie check failed: {e}")
+
         # CRITICAL: Clear GPU state at task start to prevent orphan context issues
         try:
             import torch

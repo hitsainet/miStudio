@@ -607,6 +607,22 @@ class SteeringService:
         if cache_key in self._loaded_models and not force_reload:
             return self._loaded_models[cache_key]
 
+        # If force_reload and model exists in cache, clean it up first
+        if force_reload and cache_key in self._loaded_models:
+            logger.info(f"[Force Reload] Cleaning up existing model {model_id}")
+            try:
+                old_model, _ = self._loaded_models.pop(cache_key)
+                # Clear hooks before cleanup
+                self._clear_all_model_hooks(old_model)
+                # Move to CPU and delete
+                old_model.cpu()
+                del old_model
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception as e:
+                logger.warning(f"[Force Reload] Cleanup error: {e}")
+
         logger.info(f"Loading model {model_id}")
 
         # Determine path
@@ -635,6 +651,18 @@ class SteeringService:
             tokenizer.pad_token = tokenizer.eos_token
 
         # Load model
+        # CRITICAL: Check GPU memory BEFORE loading to avoid silent CPU fallback
+        if self._device == "cuda" and torch.cuda.is_available():
+            gpu_free_mb = torch.cuda.mem_get_info()[0] / 1024**2
+            # Rough estimate: need at least 2GB free for small models
+            if gpu_free_mb < 2000:
+                raise RuntimeError(
+                    f"Insufficient GPU memory for model loading. "
+                    f"Available: {gpu_free_mb:.0f}MB, Required: ~2000MB minimum. "
+                    f"Another process may be holding GPU memory (check for zombie processes)."
+                )
+            logger.info(f"[GPU Memory] {gpu_free_mb:.0f}MB free before model load")
+
         model = AutoModelForCausalLM.from_pretrained(
             load_path,
             torch_dtype=torch.float16 if self._device == "cuda" else torch.float32,
@@ -646,6 +674,21 @@ class SteeringService:
             model.to(self._device)
 
         model.eval()
+
+        # CRITICAL: Verify model is actually on GPU after loading
+        # device_map="auto" can silently place model on CPU if GPU memory is low
+        if self._device == "cuda":
+            try:
+                first_param = next(model.parameters())
+                if first_param.device.type != "cuda":
+                    raise RuntimeError(
+                        f"Model failed to load on GPU (found on {first_param.device}). "
+                        f"This usually means GPU memory is insufficient or held by another process. "
+                        f"Check for zombie processes with: nvidia-smi --query-compute-apps=pid --format=csv"
+                    )
+                logger.info(f"[GPU Verification] Model confirmed on {first_param.device}")
+            except StopIteration:
+                logger.warning("[GPU Verification] Model has no parameters to verify device")
 
         self._loaded_models[cache_key] = (model, tokenizer)
         logger.info(f"Loaded model {model_id}")
@@ -1401,7 +1444,10 @@ class SteeringService:
                 architecture=sae_architecture,
             )
             emit_progress(15, "Loading model...")
-            model, tokenizer = await self.load_model(model_id, model_path)
+            # CRITICAL: Always force reload the model to avoid corruption from cached state
+            # With --pool=solo, the worker doesn't restart between tasks, so cached models
+            # can have corrupted state (hooks, KV cache, internal buffers) from prior tasks
+            model, tokenizer = await self.load_model(model_id, model_path, force_reload=True)
 
             # CRITICAL: Clear any stale hooks from previous requests that may have timed out
             # This ensures unsteered baseline is truly unsteered and not contaminated
@@ -1846,7 +1892,8 @@ class SteeringService:
                 architecture=sae_architecture,
             )
             emit_progress(15, "Loading model...")
-            model, tokenizer = await self.load_model(model_id, model_path)
+            # CRITICAL: Always force reload the model to avoid corruption from cached state
+            model, tokenizer = await self.load_model(model_id, model_path, force_reload=True)
 
             # CRITICAL: Clear any stale hooks from previous requests that may have timed out
             # This ensures unsteered baseline is truly unsteered

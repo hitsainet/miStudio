@@ -458,7 +458,9 @@ cmd_start() {
     fi
 
     start_worker
-    start_steering_worker
+    # NOTE: Steering worker is NOT auto-started
+    # It starts on-demand when user clicks "Start Steering" in the UI
+    # This prevents GPU memory being held when steering is not in use
     start_beat
     echo ""
     cmd_status
@@ -536,7 +538,8 @@ cmd_status() {
         local pid=$(get_pid "$STEERING_PID_FILE")
         echo -e "Steering: ${GREEN}running${NC} (PID: $pid)"
     else
-        echo -e "Steering: ${RED}stopped${NC}"
+        # Steering is on-demand, so not running is normal (yellow, not red)
+        echo -e "Steering: ${YELLOW}not running${NC} (use './celery.sh start steering' to enable)"
     fi
 
     if is_running "$BEAT_PID_FILE"; then
@@ -680,21 +683,9 @@ cmd_watchdog() {
                 fi
             fi
 
-            # Check and restart steering worker if needed
-            steering_running=false
-            is_running "$STEERING_PID_FILE" && steering_running=true
-            if [ "$steering_running" = "false" ]; then
-                log_msg "Steering worker down, restarting..."
-
-                sleep 2
-                start_steering_worker >> "$WATCHDOG_LOG" 2>&1
-
-                if is_running "$STEERING_PID_FILE"; then
-                    log_msg "Steering worker restarted successfully"
-                else
-                    log_msg "ERROR: Failed to restart steering worker"
-                fi
-            fi
+            # NOTE: Steering worker is NOT auto-restarted by watchdog
+            # It is started on-demand via the UI "Start Steering" button
+            # This prevents GPU memory being held when steering is not in use
 
             # Check for zombie processes (defunct) related to celery
             zombie_count=$(ps aux | grep -E '\[celery\].*<defunct>' | grep -v grep | wc -l)

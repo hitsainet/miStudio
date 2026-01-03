@@ -469,6 +469,21 @@ class SteeringService:
         if sae_id in self._loaded_saes and not force_reload:
             return self._loaded_saes[sae_id]
 
+        # If force_reload and SAE exists in cache, clean it up first
+        if force_reload and sae_id in self._loaded_saes:
+            logger.info(f"[Force Reload] Cleaning up existing SAE {sae_id}")
+            try:
+                old_sae = self._loaded_saes.pop(sae_id)
+                # Move SAE model to CPU and delete
+                if hasattr(old_sae.model, 'cpu'):
+                    old_sae.model.cpu()
+                del old_sae
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception as e:
+                logger.warning(f"[Force Reload] SAE cleanup error: {e}")
+
         logger.info(f"Loading SAE from {sae_path}")
 
         # Load SAE weights and config using auto-detect
@@ -1435,9 +1450,11 @@ class SteeringService:
         try:
             # Load SAE and model
             emit_progress(5, "Loading SAE...")
+            # CRITICAL: Force reload SAE to avoid corruption from cached state
             sae = await self.load_sae(
                 sae_path,
                 request.sae_id,
+                force_reload=True,
                 layer=sae_layer,
                 d_model=sae_d_model,
                 n_features=sae_n_features,
@@ -1883,9 +1900,11 @@ class SteeringService:
         try:
             # Load SAE and model
             emit_progress(5, "Loading SAE...")
+            # CRITICAL: Force reload SAE to avoid corruption from cached state
             sae = await self.load_sae(
                 sae_path,
                 request.sae_id,
+                force_reload=True,
                 layer=sae_layer,
                 d_model=sae_d_model,
                 n_features=sae_n_features,

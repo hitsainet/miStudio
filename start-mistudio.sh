@@ -289,7 +289,12 @@ check_service "Redis (Docker)" "docker exec mistudio-redis redis-cli ping"
 check_service "Nginx (Docker)" "docker exec mistudio-nginx nginx -t"
 check_service "Ollama (Docker)" "curl -s http://localhost:11434/api/tags"
 check_service "Celery Worker" "test -f /tmp/mistudio-celery-worker.pid && kill -0 \$(cat /tmp/mistudio-celery-worker.pid 2>/dev/null) 2>/dev/null"
-check_service "Celery Steering" "test -f /tmp/mistudio-celery-steering.pid && kill -0 \$(cat /tmp/mistudio-celery-steering.pid 2>/dev/null) 2>/dev/null"
+# Steering is on-demand - show status but don't treat as error if not running
+if test -f /tmp/mistudio-celery-steering.pid && kill -0 $(cat /tmp/mistudio-celery-steering.pid 2>/dev/null) 2>/dev/null; then
+    echo -e "${GREEN}✓${NC} Celery Steering is running"
+else
+    echo -e "${YELLOW}○${NC} Celery Steering is off (starts on-demand via UI)"
+fi
 check_service "Celery Beat" "test -f /tmp/mistudio-celery-beat.pid && kill -0 \$(cat /tmp/mistudio-celery-beat.pid 2>/dev/null) 2>/dev/null"
 check_service "Backend (FastAPI)" "test -f /tmp/mistudio-backend.pid && kill -0 \$(cat /tmp/mistudio-backend.pid 2>/dev/null) 2>/dev/null && curl -s http://localhost:8000/api/v1/datasets"
 check_service "Frontend (Vite)" "test -f /tmp/mistudio-frontend.pid && kill -0 \$(cat /tmp/mistudio-frontend.pid 2>/dev/null) 2>/dev/null && curl -s http://localhost:3000"

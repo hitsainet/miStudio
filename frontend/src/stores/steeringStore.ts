@@ -37,13 +37,115 @@ import type { SteeringTaskResponse } from '../api/steering';
 // Maximum number of features that can be selected
 const MAX_SELECTED_FEATURES = 4;
 
-// Module-level promise resolver for batch mode async coordination
-// When batch mode submits an async task, it stores the resolve/reject here
-// and waits for WebSocket events to resolve/reject the promise
-let pendingBatchResolver: {
+// Batch coordination state for async promise resolution
+// This coordinates between generateBatchComparison (creates promise) and
+// handleAsyncCompleted/handleAsyncFailed (resolves/rejects promise)
+interface BatchResolver {
   resolve: (result: SteeringComparisonResponse) => void;
   reject: (error: Error) => void;
-} | null = null;
+  taskId: string;  // Track which task this resolver is for
+  timeoutId: ReturnType<typeof setTimeout>;  // Cleanup timeout reference
+  createdAt: number;  // For debugging stale resolvers
+}
+
+let pendingBatchResolver: BatchResolver | null = null;
+
+/**
+ * Cleanup the pending batch resolver safely.
+ * Clears the timeout and nulls the resolver.
+ */
+function cleanupBatchResolver(): void {
+  if (pendingBatchResolver) {
+    clearTimeout(pendingBatchResolver.timeoutId);
+    pendingBatchResolver = null;
+  }
+}
+
+/**
+ * Create a batch resolver for a specific task.
+ * Includes automatic timeout cleanup to prevent memory leaks.
+ */
+function createBatchResolver(
+  taskId: string,
+  timeoutMs: number,
+  onTimeout: () => void
+): Promise<SteeringComparisonResponse> {
+  // Clean up any existing resolver first
+  cleanupBatchResolver();
+
+  return new Promise<SteeringComparisonResponse>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      if (pendingBatchResolver?.taskId === taskId) {
+        console.log(`[SteeringStore] Batch resolver timeout for task ${taskId}`);
+        pendingBatchResolver = null;
+        onTimeout();
+        reject(new Error(`Timeout: generation took longer than ${timeoutMs / 1000}s`));
+      }
+    }, timeoutMs);
+
+    pendingBatchResolver = {
+      resolve,
+      reject,
+      taskId,
+      timeoutId,
+      createdAt: Date.now(),
+    };
+  });
+}
+
+// Sweep resolver for WebSocket-based sweep coordination
+// Similar pattern to batch resolver but for StrengthSweepResponse
+interface SweepResolver {
+  resolve: (result: StrengthSweepResponse) => void;
+  reject: (error: Error) => void;
+  taskId: string;
+  timeoutId: ReturnType<typeof setTimeout>;
+  createdAt: number;
+}
+
+let pendingSweepResolver: SweepResolver | null = null;
+
+/**
+ * Cleanup the pending sweep resolver safely.
+ */
+function cleanupSweepResolver(): void {
+  if (pendingSweepResolver) {
+    clearTimeout(pendingSweepResolver.timeoutId);
+    pendingSweepResolver = null;
+  }
+}
+
+/**
+ * Create a sweep resolver for a specific task.
+ * Includes automatic timeout cleanup to prevent memory leaks.
+ */
+function createSweepResolver(
+  taskId: string,
+  timeoutMs: number,
+  onTimeout: () => void
+): Promise<StrengthSweepResponse> {
+  // Clean up any existing resolver first
+  cleanupSweepResolver();
+
+  return new Promise<StrengthSweepResponse>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      if (pendingSweepResolver?.taskId === taskId) {
+        console.log(`[SteeringStore] Sweep resolver timeout for task ${taskId}`);
+        pendingSweepResolver = null;
+        onTimeout();
+        reject(new Error(`Timeout: sweep took longer than ${timeoutMs / 1000}s`));
+      }
+    }, timeoutMs);
+
+    pendingSweepResolver = {
+      resolve,
+      reject,
+      taskId,
+      timeoutId,
+      createdAt: Date.now(),
+    };
+  });
+}
 
 interface SteeringState {
   // Selected SAE
@@ -135,7 +237,7 @@ interface SteeringState {
 
   // Actions - Async Task Handling (WebSocket callbacks)
   handleAsyncProgress: (percent: number, message: string, currentFeature?: number, currentStrength?: number) => void;
-  handleAsyncCompleted: (result: SteeringComparisonResponse) => void;
+  handleAsyncCompleted: (result: SteeringComparisonResponse | StrengthSweepResponse) => void;
   handleAsyncFailed: (error: string) => void;
 
   // Actions - Batch Processing
@@ -160,6 +262,9 @@ interface SteeringState {
   // Actions - Error Handling
   setError: (error: string | null) => void;
   clearError: () => void;
+
+  // Actions - Full Reset
+  resetSession: () => void;
 
   // Actions - State Recovery (after page refresh)
   recoverActiveTask: () => Promise<void>;
@@ -646,50 +751,87 @@ export const useSteeringStore = create<SteeringState>()(
       },
 
       // Handle async completion from WebSocket
-      handleAsyncCompleted: (result: SteeringComparisonResponse) => {
-        console.log('[SteeringStore] Async completed with result');
-        const { batchState, recentComparisons } = get();
+      // This handles both comparison and sweep results
+      handleAsyncCompleted: (result: SteeringComparisonResponse | StrengthSweepResponse) => {
+        const { batchState, recentComparisons, taskId, isSweeping } = get();
+        console.log('[SteeringStore] Async completed:', {
+          resultTaskId: 'comparison_id' in result ? result.comparison_id : ('sweep_id' in result ? result.sweep_id : 'unknown'),
+          storeTaskId: taskId,
+          batchIsRunning: batchState?.isRunning,
+          hasBatchResolver: !!pendingBatchResolver,
+          batchResolverTaskId: pendingBatchResolver?.taskId,
+          isSweeping,
+        });
 
-        // Save to recent comparisons (keep last 10)
-        const newRecent = {
-          id: result.comparison_id,
-          prompt: result.prompt,
-          timestamp: result.created_at || new Date().toISOString(),
-          result,
-        };
-        const updatedRecent = [newRecent, ...recentComparisons.filter(r => r.id !== result.comparison_id)].slice(0, 10);
+        // Check if this is a sweep result (has sweep_id field)
+        const isSweepResult = 'sweep_id' in result;
 
-        // If in batch mode, resolve the pending promise instead of updating single-prompt state
-        if (batchState?.isRunning && pendingBatchResolver) {
-          console.log('[SteeringStore] Resolving batch promise with result');
-          pendingBatchResolver.resolve(result);
-          pendingBatchResolver = null;
-          // Still save to recent even in batch mode
-          set({ recentComparisons: updatedRecent });
+        // If in sweep mode with a pending resolver for this task, resolve it
+        if (isSweeping && pendingSweepResolver && pendingSweepResolver.taskId === taskId && isSweepResult) {
+          console.log(`[SteeringStore] Resolving sweep promise for task ${taskId}`);
+          const resolver = pendingSweepResolver;
+          cleanupSweepResolver();
+          resolver.resolve(result as StrengthSweepResponse);
           return;
         }
 
-        // Single prompt mode - update state directly
-        set({
-          isGenerating: false,
-          comparisonId: result.comparison_id,
-          currentComparison: result,
-          progress: 100,
-          progressMessage: 'Comparison complete',
-          recentComparisons: updatedRecent,
-        });
+        // Cast to comparison result for remaining logic
+        const comparisonResult = result as SteeringComparisonResponse;
+
+        // Save to recent comparisons (keep last 10) - only for comparison results
+        if (!isSweepResult) {
+          const newRecent = {
+            id: comparisonResult.comparison_id,
+            prompt: comparisonResult.prompt,
+            timestamp: comparisonResult.created_at || new Date().toISOString(),
+            result: comparisonResult,
+          };
+          const updatedRecent = [newRecent, ...recentComparisons.filter(r => r.id !== comparisonResult.comparison_id)].slice(0, 10);
+
+          // If in batch mode with a pending resolver for this task, resolve the promise
+          if (batchState?.isRunning && pendingBatchResolver && pendingBatchResolver.taskId === taskId) {
+            console.log(`[SteeringStore] Resolving batch promise for task ${taskId}`);
+            const resolver = pendingBatchResolver;
+            cleanupBatchResolver();  // Clear timeout and null resolver before resolving
+            resolver.resolve(comparisonResult);
+            // Still save to recent even in batch mode
+            set({ recentComparisons: updatedRecent });
+            return;
+          }
+
+          // Single prompt mode - update state directly
+          set({
+            isGenerating: false,
+            comparisonId: comparisonResult.comparison_id,
+            currentComparison: comparisonResult,
+            progress: 100,
+            progressMessage: 'Comparison complete',
+            recentComparisons: updatedRecent,
+          });
+        }
       },
 
       // Handle async failure from WebSocket
+      // This handles both comparison and sweep failures
       handleAsyncFailed: (error: string) => {
         console.log('[SteeringStore] Async failed:', error);
-        const { batchState } = get();
+        const { batchState, taskId, isSweeping } = get();
 
-        // If in batch mode, reject the pending promise instead of updating single-prompt state
-        if (batchState?.isRunning && pendingBatchResolver) {
-          console.log('[SteeringStore] Rejecting batch promise with error:', error);
-          pendingBatchResolver.reject(new Error(error));
-          pendingBatchResolver = null;
+        // If in sweep mode with a pending resolver for this task, reject it
+        if (isSweeping && pendingSweepResolver && pendingSweepResolver.taskId === taskId) {
+          console.log(`[SteeringStore] Rejecting sweep promise for task ${taskId}:`, error);
+          const resolver = pendingSweepResolver;
+          cleanupSweepResolver();
+          resolver.reject(new Error(error));
+          return;
+        }
+
+        // If in batch mode with a pending resolver for this task, reject the promise
+        if (batchState?.isRunning && pendingBatchResolver && pendingBatchResolver.taskId === taskId) {
+          console.log(`[SteeringStore] Rejecting batch promise for task ${taskId}:`, error);
+          const resolver = pendingBatchResolver;
+          cleanupBatchResolver();  // Clear timeout and null resolver before rejecting
+          resolver.reject(new Error(error));
           return;
         }
 
@@ -748,11 +890,14 @@ export const useSteeringStore = create<SteeringState>()(
         });
 
         // Process each prompt sequentially
+        console.log(`[SteeringStore] Starting batch with ${validPrompts.length} prompts`);
         for (let i = 0; i < validPrompts.length; i++) {
+          console.log(`[SteeringStore] Batch loop iteration ${i + 1}/${validPrompts.length}`);
           const currentBatch = get().batchState;
 
           // Check if aborted
           if (currentBatch?.aborted) {
+            console.log(`[SteeringStore] Batch aborted at iteration ${i + 1}`);
             set((state) => ({
               isGenerating: false,
               batchState: state.batchState
@@ -797,30 +942,29 @@ export const useSteeringStore = create<SteeringState>()(
             const taskResponse = await steeringApi.submitAsyncComparison(request);
             console.log(`[SteeringStore] Batch prompt ${i + 1}: async task submitted:`, taskResponse.task_id);
 
-            // Store the task ID for this batch item
+            // Store the task ID for this batch item - this triggers WebSocket subscription
             set({ taskId: taskResponse.task_id });
 
-            // Give React time to re-render and WebSocket hook to subscribe to the new channel
-            // This prevents a race condition where we wait for events before subscribing
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Brief delay to ensure React re-renders and WebSocket hook subscribes
+            // The hook watches taskId and subscribes when it changes
+            await new Promise(resolve => setTimeout(resolve, 50));
 
             // Create a promise that will be resolved by WebSocket events
             // handleAsyncCompleted/handleAsyncFailed will resolve/reject this
-            // Add a timeout of 5 minutes per prompt to avoid hanging forever
+            // Includes automatic timeout cleanup to prevent memory leaks
             const PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
-            const response = await Promise.race([
-              new Promise<SteeringComparisonResponse>((resolve, reject) => {
-                pendingBatchResolver = { resolve, reject };
-              }),
-              new Promise<never>((_, reject) => {
-                setTimeout(() => {
-                  pendingBatchResolver = null;
-                  reject(new Error(`Timeout: generation took longer than ${PROMPT_TIMEOUT_MS / 1000}s`));
-                }, PROMPT_TIMEOUT_MS);
-              }),
-            ]);
+            console.log(`[SteeringStore] Batch prompt ${i + 1}: creating resolver for task ${taskResponse.task_id}`);
+            const response = await createBatchResolver(
+              taskResponse.task_id,
+              PROMPT_TIMEOUT_MS,
+              () => {
+                // Timeout callback - cancel the Celery task
+                console.log(`[SteeringStore] Batch prompt ${i + 1}: TIMEOUT for task ${taskResponse.task_id}`);
+                steeringApi.cancelTask(taskResponse.task_id).catch(() => {});
+              }
+            );
 
-            console.log(`[SteeringStore] Batch prompt ${i + 1}: completed via WebSocket`);
+            console.log(`[SteeringStore] Batch prompt ${i + 1}: resolver returned, updating state`);
 
             // Mark this prompt as completed
             set((state) => ({
@@ -833,12 +977,13 @@ export const useSteeringStore = create<SteeringState>()(
                   }
                 : null,
             }));
+            console.log(`[SteeringStore] Batch prompt ${i + 1}: iteration complete, continuing to next`);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to generate';
             console.log(`[SteeringStore] Batch prompt ${i + 1}: failed:`, errorMessage);
 
-            // Clear the pending resolver if task submission failed
-            pendingBatchResolver = null;
+            // Clean up the pending resolver properly (clears timeout)
+            cleanupBatchResolver();
 
             // Mark this prompt as failed but continue with others
             set((state) => ({
@@ -851,10 +996,15 @@ export const useSteeringStore = create<SteeringState>()(
                   }
                 : null,
             }));
+            console.log(`[SteeringStore] Batch prompt ${i + 1}: marked as failed, continuing to next`);
           }
+          console.log(`[SteeringStore] Batch iteration ${i + 1} end, looping...`);
         }
 
-        // Batch complete
+        // Batch complete - ensure resolver is cleaned up
+        console.log(`[SteeringStore] Batch loop finished, cleaning up`);
+        cleanupBatchResolver();
+
         set((state) => ({
           isGenerating: false,
           progress: 100,
@@ -863,6 +1013,7 @@ export const useSteeringStore = create<SteeringState>()(
             ? { ...state.batchState, isRunning: false }
             : null,
         }));
+        console.log(`[SteeringStore] Batch complete!`);
       },
 
       // Abort batch processing (cancels current Celery task and stops processing)
@@ -876,11 +1027,12 @@ export const useSteeringStore = create<SteeringState>()(
             : null,
         }));
 
-        // Reject the pending batch promise if any
+        // Reject the pending batch promise if any, with proper cleanup
         if (pendingBatchResolver) {
           console.log('[SteeringStore] Rejecting batch promise due to abort');
-          pendingBatchResolver.reject(new Error('Batch aborted by user'));
-          pendingBatchResolver = null;
+          const resolver = pendingBatchResolver;
+          cleanupBatchResolver();  // Clear timeout and null resolver before rejecting
+          resolver.reject(new Error('Batch aborted by user'));
         }
 
         // Cancel the current Celery task if any
@@ -945,35 +1097,38 @@ export const useSteeringStore = create<SteeringState>()(
 
           set({ taskId: taskResponse.task_id });
 
-          // Give React time to re-render and WebSocket hook to subscribe
-          await new Promise(resolve => setTimeout(resolve, 100));
+          // Brief delay to ensure React re-renders and WebSocket hook subscribes
+          await new Promise(resolve => setTimeout(resolve, 50));
 
-          // Wait for WebSocket completion (sweep results come via handleAsyncCompleted)
-          // For sweep, we'll use a simpler polling approach since it returns different type
+          // Create sweep resolver - WebSocket events will resolve/reject this
+          // handleAsyncCompleted/handleAsyncFailed handle sweep via the resolver
           const SWEEP_TIMEOUT_MS = 5 * 60 * 1000;
-          const startTime = Date.now();
-
-          while (Date.now() - startTime < SWEEP_TIMEOUT_MS) {
-            // Poll for result
-            const result = await steeringApi.getTaskResult(taskResponse.task_id);
-            if (result.status.status === 'success' && result.result) {
-              const sweepResult = result.result as StrengthSweepResponse;
-              set({
-                sweepResults: sweepResult,
-                isSweeping: false,
-                taskId: null,
-              });
-              return sweepResult;
-            } else if (result.status.status === 'failure') {
-              throw new Error(result.status.error || 'Sweep failed');
+          const sweepResult = await createSweepResolver(
+            taskResponse.task_id,
+            SWEEP_TIMEOUT_MS,
+            () => {
+              // Timeout callback - cancel the Celery task
+              steeringApi.cancelTask(taskResponse.task_id).catch(() => {});
             }
-            // Wait before next poll
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
+          );
 
-          throw new Error(`Sweep timed out after ${SWEEP_TIMEOUT_MS / 1000}s`);
+          console.log('[SteeringStore] Sweep completed via WebSocket');
+
+          // Update state with results
+          set({
+            sweepResults: sweepResult,
+            isSweeping: false,
+            taskId: null,
+          });
+
+          return sweepResult;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to run strength sweep';
+          console.log('[SteeringStore] Sweep failed:', errorMessage);
+
+          // Clean up sweep resolver properly
+          cleanupSweepResolver();
+
           set({
             error: errorMessage,
             isSweeping: false,
@@ -1116,6 +1271,60 @@ export const useSteeringStore = create<SteeringState>()(
       // Clear error
       clearError: () => {
         set({ error: null });
+      },
+
+      // Two-tier reset: First click clears results, second click clears everything
+      // Track last reset time to detect double-click
+      resetSession: () => {
+        const now = Date.now();
+        const lastReset = (window as unknown as { _steeringLastReset?: number })._steeringLastReset || 0;
+        const timeSinceLastReset = now - lastReset;
+
+        // If clicked within 3 seconds, do full reset
+        if (timeSinceLastReset < 3000 && lastReset > 0) {
+          // Full reset - clear everything including localStorage
+          localStorage.removeItem('miStudio-steering');
+
+          set({
+            selectedSAE: null,
+            selectedFeatures: [],
+            prompts: [''],
+            generationParams: { ...DEFAULT_GENERATION_PARAMS },
+            advancedParams: null,
+            showAdvancedParams: false,
+            isGenerating: false,
+            comparisonId: null,
+            taskId: null,
+            progress: 0,
+            progressMessage: null,
+            currentComparison: null,
+            recentComparisons: [],
+            batchState: null,
+            isSweeping: false,
+            sweepResults: null,
+            error: null,
+          });
+
+          (window as unknown as { _steeringLastReset?: number })._steeringLastReset = 0;
+          console.log('[SteeringStore] FULL session reset complete (second click)');
+        } else {
+          // First click - only clear results, keep config
+          set({
+            isGenerating: false,
+            comparisonId: null,
+            taskId: null,
+            progress: 0,
+            progressMessage: null,
+            currentComparison: null,
+            batchState: null,
+            isSweeping: false,
+            sweepResults: null,
+            error: null,
+          });
+
+          (window as unknown as { _steeringLastReset?: number })._steeringLastReset = now;
+          console.log('[SteeringStore] Results reset (first click) - click again within 3s to reset all');
+        }
       },
 
       // Hydration tracking for persistence

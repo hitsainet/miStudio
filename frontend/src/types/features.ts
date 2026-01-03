@@ -189,6 +189,12 @@ export interface FeatureSearchRequest {
   is_favorite?: boolean | null;
   limit?: number;
   offset?: number;
+  // Range filters for activation frequency (0-100 percentage)
+  min_activation_freq?: number | null;
+  max_activation_freq?: number | null;
+  // Range filters for max activation value
+  min_max_activation?: number | null;
+  max_max_activation?: number | null;
 }
 
 /**

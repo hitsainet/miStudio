@@ -6,20 +6,18 @@
 ## Current Analysis
 
 ### Code Quality Assessment
-**Last Reviewed:** 2025-11-06
-**Overall Quality:** EXCELLENT (UI compression work shows exemplary quality)
+**Last Reviewed:** 2026-01-02
+**Overall Quality:** EXCELLENT (Steering Celery implementation well-architected)
 
 **Standards Compliance:**
 - [x] Coding conventions followed consistently (snake_case backend, camelCase frontend)
 - [x] Error handling implemented properly (comprehensive retry logic)
-- [ ] Security best practices applied (WebSocket lacks authentication)
 - [x] Performance considerations addressed (WebSocket > polling)
 - [x] Code is maintainable and readable (clear separation of concerns)
 
 **Quality Metrics:**
 - **Code Consistency:** EXCELLENT (10/10) - UI compression patterns highly systematic
 - **Error Handling:** COMPREHENSIVE (9/10)
-- **Security Score:** 7/10 (needs WebSocket auth, subscription limits)
 - **Performance Score:** 9/10 (improved with smaller DOM elements)
 
 **Recent Quality Improvements (2025-11-06):**
@@ -43,51 +41,66 @@
 - [ ] Edge cases covered in tests (WebSocket reliability not tested)
 
 ### Current Issues
-**Blocking Issues:**
-1. WebSocket lacks authentication/authorization - security vulnerability
-2. No subscription limits - resource exhaustion risk
-
 **Critical Issues:**
 1. Test coverage at 40% - insufficient for production deployment
-2. Error tracebacks stored/sent to frontend - information disclosure risk
-3. No WebSocket reliability testing (reconnection, message ordering)
+2. pendingBatchResolver module-level state leak risk in steeringStore
+3. No unit tests for steeringStore core functions
 
-**New Issues from UI Compression (2025-11-06):**
+**New Issues from Steering Review (2026-01-02):**
+1. ⚠️ pendingBatchResolver module-level state leak risk (P0)
+2. ⚠️ No unit tests for steeringStore core functions (P0)
+3. ⚠️ Sweep uses polling instead of WebSocket (inconsistent pattern) (P1)
+4. ⚠️ 100ms sleep race condition in batch WebSocket subscription (P2)
+5. ⚠️ Error messages truncated to 100 chars (debugging difficulty) (P2)
+
+**ROOT CAUSE IDENTIFIED (2026-01-03): Steering Worker Hang**
+- **Problem:** With `--pool=solo`, Celery's `--max-tasks-per-child=1` is IGNORED
+- **Effect:** Worker process never recycles, global state accumulates:
+  - Cached models/SAEs in service singleton never cleared
+  - PyTorch hook references accumulate
+  - CUDA memory fragmentation builds up
+  - After 5-6 tasks: critical corruption → HANG
+- **Fix Applied:** Complete state reset in `finally` block of steering tasks:
+  1. Unload ALL cached models/SAEs from service
+  2. Clear PyTorch hooks from all model layers
+  3. Reset watchdog thread state
+  4. Multiple GC passes + CUDA sync/empty_cache
+  5. Added to both `steering_compare_task` and `steering_sweep_task`
+
+**Previous Issues (UI Compression 2025-11-06):**
 1. ⚠️ No visual regression testing for UI changes (P1)
 2. ⚠️ No accessibility testing for reduced text sizes (P1)
 3. ⚠️ No performance benchmarks for render time improvements (P2)
 
 **Quality Improvements:**
-1. **Add visual regression testing (NEW P1):** Percy or Chromatic for UI components
-2. **Add accessibility testing (NEW P1):** axe-core audit, WCAG 2.1 AA compliance
-3. **Add performance benchmarks (NEW P2):** Lighthouse CI for render performance
+1. **Fix pendingBatchResolver leak (P0):** Add cleanup in abortBatch, add timeout
+2. **Add steeringStore unit tests (P0):** Test double-submission guard, batch abort, recovery
+3. **Migrate sweep to WebSocket (P1):** Align with comparison pattern
 4. Expand test coverage to 70% unit, 50% integration
-5. Add WebSocket authentication middleware
-6. Implement per-client subscription limits (max 50 channels)
-7. Sanitize error tracebacks before storing/transmitting
-8. Add integration tests for error recovery flows
-9. Implement TrainingMetric archival strategy (prevent unbounded growth)
+5. Add integration tests for steering workflow
+6. Add visual regression testing: Percy or Chromatic for UI components
+7. Add accessibility testing: axe-core audit, WCAG 2.1 AA compliance
 
 ### Session Context
-**Current Review Scope:** UI compression and enhancement work (completed 2025-11-06)
+**Current Review Scope:** Steering multi-prompt capability (reviewed 2026-01-02)
 **Quality Gates Status:**
-- ✅ PASSING: Code quality, consistency, maintainability
-- ⚠️ PENDING: Visual regression testing, accessibility audit
-- ❌ FAILING: Test coverage (40% vs 70% target), security (WebSocket auth)
+- ✅ PASSING: Code quality, consistency, maintainability, Celery isolation
+- ⚠️ PENDING: Unit tests for steeringStore, sweep WebSocket migration
+- ❌ FAILING: Test coverage (40% vs 70% target), pendingBatchResolver cleanup
 
 **Last Review Findings:**
-- Code quality EXCELLENT (systematic, consistent, clean)
-- No functional regressions detected
+- Steering architecture EXCELLENT (Celery isolation, SIGKILL timeout, worker recycling)
+- Module-level pendingBatchResolver poses memory leak risk
+- Sweep inconsistently uses polling vs WebSocket
+- No unit tests for critical steering store functions
 - Needs visual regression testing infrastructure
 - Needs accessibility compliance verification
 
 **Next QA Actions:**
-1. **Add visual regression testing (P1):** Setup Percy/Chromatic for UI components
-2. **Run accessibility audit (P1):** axe-core scan, screen reader testing
-3. Implement WebSocket authentication (P0)
-4. Add unit tests for progress calculation functions (P0)
-5. Add integration tests for WebSocket emission flows (P1)
-6. Review and sanitize error message handling (P1) 
+1. **Fix pendingBatchResolver leak (P0):** Add cleanup, timeout, move to store state
+2. **Add steeringStore unit tests (P0):** Test double-submission, batch abort, recovery
+3. **Migrate sweep to WebSocket (P1):** Align with comparison pattern for consistency
+4. Add integration tests for steering workflow (P1)
 
 ---
 

@@ -20,6 +20,21 @@ import {
   getLabelingPromptTemplateUsageCount
 } from '../../api/labelingPromptTemplates';
 
+/**
+ * Template variables available for insertion into labeling prompts.
+ * These are substituted by the backend labeling service when generating prompts.
+ */
+const TEMPLATE_VARIABLES = [
+  { value: '{examples_block}', label: 'Examples Block', description: 'Activation examples with << >> markers around prime tokens' },
+  { value: '{tokens_table}', label: 'Tokens Table', description: 'NLP token frequency table (token → count)' },
+  { value: '{analysis_block}', label: 'Analysis Block', description: 'NLP statistical analysis summary' },
+  { value: '{feature_id}', label: 'Feature ID', description: 'The feature/neuron ID' },
+  { value: '{neuron_index}', label: 'Neuron Index', description: 'Neuron index number' },
+  { value: '{layer_name}', label: 'Layer Name', description: 'Layer name' },
+  { value: '{top_boosted_tokens}', label: 'Top Boosted', description: 'Logit lens - tokens boosted by feature' },
+  { value: '{top_suppressed_tokens}', label: 'Top Suppressed', description: 'Logit lens - tokens suppressed by feature' },
+];
+
 type TabType = 'all' | 'create';
 
 export function LabelingPromptTemplatesPanel() {
@@ -73,6 +88,16 @@ export function LabelingPromptTemplatesPanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
   const [previewTemplate, setPreviewTemplate] = useState<LabelingPromptTemplate | null>(null);
+
+  // Template variable insertion state
+  const [selectedVariable, setSelectedVariable] = useState<string>('');
+  const [activeTextField, setActiveTextField] = useState<'system' | 'user' | null>(null);
+  const [cursorPosition, setCursorPosition] = useState<number>(0);
+  const systemMessageRef = useRef<HTMLTextAreaElement>(null);
+  const userPromptRef = useRef<HTMLTextAreaElement>(null);
+  // Refs for edit modal textareas
+  const editSystemMessageRef = useRef<HTMLTextAreaElement>(null);
+  const editUserPromptRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch templates on mount
   useEffect(() => {
@@ -219,6 +244,46 @@ export function LabelingPromptTemplatesPanel() {
     } catch (err) {
       showNotification('error', err instanceof Error ? err.message : 'Failed to clone template');
     }
+  };
+
+  // Insert template variable at cursor position
+  const insertVariable = () => {
+    if (!selectedVariable || !activeTextField) return;
+
+    // Determine which refs to use based on whether we're in edit modal
+    const systemRef = showEditModal ? editSystemMessageRef : systemMessageRef;
+    const userRef = showEditModal ? editUserPromptRef : userPromptRef;
+    const ref = activeTextField === 'system' ? systemRef : userRef;
+    const field = activeTextField === 'system' ? 'system_message' : 'user_prompt_template';
+    const currentValue = formData[field] || '';
+    const pos = cursorPosition ?? currentValue.length;
+
+    const newValue = currentValue.slice(0, pos) + selectedVariable + currentValue.slice(pos);
+    setFormData({ ...formData, [field]: newValue });
+
+    // Restore focus and set cursor after inserted variable
+    setTimeout(() => {
+      if (ref.current) {
+        ref.current.focus();
+        const newPos = pos + selectedVariable.length;
+        ref.current.setSelectionRange(newPos, newPos);
+        setCursorPosition(newPos);
+      }
+    }, 0);
+
+    // Reset selected variable
+    setSelectedVariable('');
+  };
+
+  // Handle textarea focus - track which field is active
+  const handleTextareaFocus = (field: 'system' | 'user') => {
+    setActiveTextField(field);
+  };
+
+  // Handle textarea selection/click - track cursor position
+  const handleTextareaSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const target = e.target as HTMLTextAreaElement;
+    setCursorPosition(target.selectionStart);
   };
 
   // Handle export templates
@@ -569,8 +634,12 @@ export function LabelingPromptTemplatesPanel() {
                 System Message *
               </label>
               <textarea
+                ref={systemMessageRef}
                 value={formData.system_message}
                 onChange={(e) => setFormData({ ...formData, system_message: e.target.value })}
+                onFocus={() => handleTextareaFocus('system')}
+                onSelect={handleTextareaSelect}
+                onClick={handleTextareaSelect}
                 rows={3}
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:border-emerald-500 font-mono text-sm"
                 required
@@ -582,12 +651,42 @@ export function LabelingPromptTemplatesPanel() {
                 User Prompt Template * (must include <code className="text-emerald-400">{'{tokens_table}'}</code>)
               </label>
               <textarea
+                ref={userPromptRef}
                 value={formData.user_prompt_template}
                 onChange={(e) => setFormData({ ...formData, user_prompt_template: e.target.value })}
+                onFocus={() => handleTextareaFocus('user')}
+                onSelect={handleTextareaSelect}
+                onClick={handleTextareaSelect}
                 rows={8}
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 focus:outline-none focus:border-emerald-500 font-mono text-sm"
                 required
               />
+              {/* Template Variable Insertion */}
+              <div className="flex items-center gap-3 mt-2">
+                <select
+                  value={selectedVariable}
+                  onChange={(e) => setSelectedVariable(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">Select variable to insert...</option>
+                  {TEMPLATE_VARIABLES.map((v) => (
+                    <option key={v.value} value={v.value} title={v.description}>
+                      {v.label} - {v.value}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={insertVariable}
+                  disabled={!selectedVariable || !activeTextField}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
+                >
+                  Insert
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Click in a text field above, then select a variable and click Insert
+              </p>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
@@ -611,7 +710,7 @@ export function LabelingPromptTemplatesPanel() {
                 </label>
                 <input
                   type="number"
-                  step="100"
+                  step="1"
                   min={LabelingPromptTemplateConstraints.max_tokens.min}
                   max={LabelingPromptTemplateConstraints.max_tokens.max}
                   value={formData.max_tokens}
@@ -709,8 +808,12 @@ export function LabelingPromptTemplatesPanel() {
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">System Message</label>
                 <textarea
+                  ref={editSystemMessageRef}
                   value={formData.system_message}
                   onChange={(e) => setFormData({ ...formData, system_message: e.target.value })}
+                  onFocus={() => handleTextareaFocus('system')}
+                  onSelect={handleTextareaSelect}
+                  onClick={handleTextareaSelect}
                   rows={3}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-100 font-mono text-sm"
                 />
@@ -718,11 +821,41 @@ export function LabelingPromptTemplatesPanel() {
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">User Prompt Template</label>
                 <textarea
+                  ref={editUserPromptRef}
                   value={formData.user_prompt_template}
                   onChange={(e) => setFormData({ ...formData, user_prompt_template: e.target.value })}
+                  onFocus={() => handleTextareaFocus('user')}
+                  onSelect={handleTextareaSelect}
+                  onClick={handleTextareaSelect}
                   rows={8}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-100 font-mono text-sm"
                 />
+                {/* Template Variable Insertion */}
+                <div className="flex items-center gap-3 mt-2">
+                  <select
+                    value={selectedVariable}
+                    onChange={(e) => setSelectedVariable(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="">Select variable to insert...</option>
+                    {TEMPLATE_VARIABLES.map((v) => (
+                      <option key={v.value} value={v.value} title={v.description}>
+                        {v.label} - {v.value}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={insertVariable}
+                    disabled={!selectedVariable || !activeTextField}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-sm rounded transition-colors"
+                  >
+                    Insert
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Click in a text field above, then select a variable and click Insert
+                </p>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -741,7 +874,7 @@ export function LabelingPromptTemplatesPanel() {
                   <label className="block text-sm font-medium text-slate-300 mb-2">Max Tokens</label>
                   <input
                     type="number"
-                    step="100"
+                    step="1"
                     min="10"
                     max="9999"
                     value={formData.max_tokens}

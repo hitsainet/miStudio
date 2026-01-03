@@ -353,6 +353,10 @@ async def list_extraction_features(
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Page offset"),
+    min_activation_freq: float = Query(None, ge=0, le=100, description="Minimum activation frequency (0-100)"),
+    max_activation_freq: float = Query(None, ge=0, le=100, description="Maximum activation frequency (0-100)"),
+    min_max_activation: float = Query(None, ge=0, description="Minimum max activation value"),
+    max_max_activation: float = Query(None, ge=0, description="Maximum max activation value"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -366,6 +370,10 @@ async def list_extraction_features(
         is_favorite: Filter by favorite status (None = all)
         limit: Maximum number of results (1-500)
         offset: Number of results to skip
+        min_activation_freq: Minimum activation frequency filter (0-100)
+        max_activation_freq: Maximum activation frequency filter (0-100)
+        min_max_activation: Minimum max activation value filter
+        max_max_activation: Maximum max activation value filter
 
     Returns:
         FeatureListResponse with features, pagination info, and statistics
@@ -379,7 +387,11 @@ async def list_extraction_features(
         sort_order=sort_order,
         is_favorite=is_favorite,
         limit=limit,
-        offset=offset
+        offset=offset,
+        min_activation_freq=min_activation_freq,
+        max_activation_freq=max_activation_freq,
+        min_max_activation=min_max_activation,
+        max_max_activation=max_max_activation
     )
 
     return await feature_service.list_features_by_extraction(extraction_id, search_params)

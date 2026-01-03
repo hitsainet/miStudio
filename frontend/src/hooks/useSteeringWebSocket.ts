@@ -22,7 +22,7 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useWebSocketContext } from '../contexts/WebSocketContext';
-import type { SteeringComparisonResponse } from '../types/steering';
+import type { SteeringComparisonResponse, StrengthSweepResponse } from '../types/steering';
 
 /**
  * Progress event data from steering worker.
@@ -37,12 +37,13 @@ export interface SteeringProgressEvent {
 
 /**
  * Completed event data from steering worker.
+ * Result can be either a comparison or sweep response.
  */
 export interface SteeringCompletedEvent {
   task_id: string;
   percent: number;
   message: string;
-  result: SteeringComparisonResponse;
+  result: SteeringComparisonResponse | StrengthSweepResponse;
 }
 
 /**

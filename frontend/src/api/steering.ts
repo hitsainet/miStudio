@@ -192,3 +192,94 @@ export async function cancelTask(taskId: string): Promise<SteeringCancelResponse
     method: 'DELETE',
   });
 }
+
+// ============================================================================
+// GPU Memory Management
+// ============================================================================
+
+/**
+ * Response from GPU cleanup operation.
+ */
+export interface SteeringCleanupResponse {
+  message: string;
+  task_id: string;
+  success?: boolean;
+  models_unloaded?: number;
+  saes_unloaded?: number;
+  memory_freed_gb?: number;
+  error?: string;
+}
+
+/**
+ * Release GPU memory held by the steering worker.
+ * Unloads all cached models and SAEs from VRAM.
+ */
+export async function cleanupGPU(): Promise<SteeringCleanupResponse> {
+  return fetchAPI<SteeringCleanupResponse>('/steering/cleanup', {
+    method: 'POST',
+  });
+}
+
+// ============================================================================
+// Steering Mode Control
+// ============================================================================
+
+/**
+ * Response from mode status check.
+ */
+export interface SteeringModeStatusResponse {
+  active: boolean;
+  worker_pid: number | null;
+  gpu_memory_mb: number | null;
+}
+
+/**
+ * Response from enter steering mode operation.
+ */
+export interface EnterSteeringModeResponse {
+  success: boolean;
+  message: string;
+  worker_pid: number | null;
+  already_active: boolean;
+}
+
+/**
+ * Response from exit steering mode operation.
+ */
+export interface ExitSteeringModeResponse {
+  success: boolean;
+  message: string;
+  killed_pid: number | null;
+  gpu_memory_before: number | null;
+  gpu_memory_after: number | null;
+  gpu_memory_freed_mb: number;
+  already_inactive: boolean;
+}
+
+/**
+ * Get current steering mode status.
+ * Returns whether steering mode is active (worker running).
+ */
+export async function getSteeringModeStatus(): Promise<SteeringModeStatusResponse> {
+  return fetchAPI<SteeringModeStatusResponse>('/steering/mode');
+}
+
+/**
+ * Enter steering mode by starting the steering worker.
+ * Worker will load models on first use and keep them cached.
+ */
+export async function enterSteeringMode(): Promise<EnterSteeringModeResponse> {
+  return fetchAPI<EnterSteeringModeResponse>('/steering/enter-mode', {
+    method: 'POST',
+  });
+}
+
+/**
+ * Exit steering mode by killing the steering worker.
+ * Releases ALL GPU memory. Steering will be unavailable until enter-mode is called.
+ */
+export async function exitSteeringMode(): Promise<ExitSteeringModeResponse> {
+  return fetchAPI<ExitSteeringModeResponse>('/steering/exit-mode', {
+    method: 'POST',
+  });
+}

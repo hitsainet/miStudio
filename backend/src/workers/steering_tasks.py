@@ -15,7 +15,7 @@ Worker configuration (via celery.sh):
         -Q steering \
         --pool=solo \
         --concurrency=1 \
-        --max-tasks-per-child=50 \
+        --max-tasks-per-child=1 \
         --loglevel=info \
         --hostname=steering@%h
 """
@@ -88,6 +88,20 @@ def steering_compare_task(
     logger.info(f"[Steering Task {task_id}] Starting steering comparison")
 
     try:
+        # CRITICAL: Clear GPU state at task start to prevent orphan context issues
+        # This ensures we start with a clean GPU regardless of previous task state
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                # Force garbage collection to release any lingering tensors
+                import gc
+                gc.collect()
+                logger.info(f"[Steering Task {task_id}] GPU cache cleared at task start")
+        except Exception as e:
+            logger.warning(f"[Steering Task {task_id}] Failed to clear GPU cache: {e}")
+
         # Emit initial progress
         emit_steering_progress(task_id, 0, "Initializing...")
 
@@ -149,13 +163,65 @@ def steering_compare_task(
 
     except Exception as e:
         logger.exception(f"[Steering Task {task_id}] Failed: {e}")
+        error_str = str(e)
         emit_steering_progress(
             task_id=task_id,
             percent=-1,
-            message=f"Failed: {str(e)[:100]}",
-            error=str(e),
+            message=f"Failed: {error_str[:200]}" if len(error_str) > 200 else f"Failed: {error_str}",
+            error=error_str,  # Full error preserved for frontend error display
         )
         raise
+
+    finally:
+        # =================================================================
+        # Cleanup: Clear hooks and reset state (keep model cached)
+        # =================================================================
+        # IMPORTANT: Do NOT unload models - models loaded with device_map="auto"
+        # use accelerate hooks, and unloading them corrupts state.
+        # Instead: clear hooks, reset model state, clean GPU cache.
+        # =================================================================
+        try:
+            import torch
+            import gc
+
+            # 1. Clear hooks from cached models (but keep them loaded)
+            try:
+                from ..services.steering_service import get_steering_service
+                service = get_steering_service()
+
+                hooks_cleared = 0
+                for mid, (model, _) in list(service._loaded_models.items()):
+                    try:
+                        cleared = service._clear_all_model_hooks(model)
+                        hooks_cleared += cleared
+                        service._reset_model_state(model)
+                    except Exception:
+                        pass
+
+                if hooks_cleared > 0:
+                    logger.info(f"[Steering Task {task_id}] Cleared {hooks_cleared} hooks")
+            except Exception as e:
+                logger.warning(f"[Steering Task {task_id}] Hook cleanup failed: {e}")
+
+            # 2. Reset watchdog state
+            try:
+                from ..services.steering_service import _generation_watchdog
+                if _generation_watchdog is not None:
+                    _generation_watchdog._generation_active = False
+                    _generation_watchdog._generation_start = None
+            except Exception:
+                pass
+
+            # 3. GC and GPU cleanup
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+
+            logger.info(f"[Steering Task {task_id}] Cleanup finished")
+
+        except Exception as cleanup_error:
+            logger.warning(f"[Steering Task {task_id}] Cleanup failed: {cleanup_error}")
 
 
 @celery_app.task(
@@ -205,6 +271,18 @@ def steering_sweep_task(
     logger.info(f"[Sweep Task {task_id}] Starting strength sweep")
 
     try:
+        # CRITICAL: Clear GPU state at task start to prevent orphan context issues
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                import gc
+                gc.collect()
+                logger.info(f"[Sweep Task {task_id}] GPU cache cleared at task start")
+        except Exception as e:
+            logger.warning(f"[Sweep Task {task_id}] Failed to clear GPU cache: {e}")
+
         emit_steering_progress(task_id, 0, "Initializing sweep...")
 
         from ..services.steering_service import get_steering_service
@@ -257,10 +335,125 @@ def steering_sweep_task(
 
     except Exception as e:
         logger.exception(f"[Sweep Task {task_id}] Failed: {e}")
+        error_str = str(e)
         emit_steering_progress(
             task_id=task_id,
             percent=-1,
-            message=f"Failed: {str(e)[:100]}",
-            error=str(e),
+            message=f"Failed: {error_str[:200]}" if len(error_str) > 200 else f"Failed: {error_str}",
+            error=error_str,  # Full error preserved for frontend error display
         )
         raise
+
+    finally:
+        # =================================================================
+        # Cleanup: Clear hooks and reset state (keep model cached)
+        # =================================================================
+        try:
+            import torch
+            import gc
+
+            try:
+                from ..services.steering_service import get_steering_service, _generation_watchdog
+                service = get_steering_service()
+
+                hooks_cleared = 0
+                for mid, (model, _) in list(service._loaded_models.items()):
+                    try:
+                        cleared = service._clear_all_model_hooks(model)
+                        hooks_cleared += cleared
+                        service._reset_model_state(model)
+                    except Exception:
+                        pass
+
+                if hooks_cleared > 0:
+                    logger.info(f"[Sweep Task {task_id}] Cleared {hooks_cleared} hooks")
+            except Exception as e:
+                logger.warning(f"[Sweep Task {task_id}] Hook cleanup failed: {e}")
+
+            try:
+                from ..services.steering_service import _generation_watchdog
+                if _generation_watchdog is not None:
+                    _generation_watchdog._generation_active = False
+                    _generation_watchdog._generation_start = None
+            except Exception:
+                pass
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+
+            logger.info(f"[Sweep Task {task_id}] Cleanup finished")
+
+        except Exception as cleanup_error:
+            logger.warning(f"[Sweep Task {task_id}] Cleanup failed: {cleanup_error}")
+
+
+@celery_app.task(
+    bind=True,
+    name="steering.cleanup",
+    queue="steering",
+    soft_time_limit=30,
+    time_limit=60,
+)
+def cleanup_steering_gpu(self) -> Dict[str, Any]:
+    """
+    Release GPU memory held by the steering worker.
+
+    This task runs on the steering queue and unloads all cached models
+    and SAEs from GPU memory. Use this when done with steering to free
+    VRAM for other tasks.
+
+    Returns:
+        Dict with counts of unloaded models and SAEs, plus memory stats.
+    """
+    import torch
+    from ..services.steering_service import get_steering_service
+
+    task_id = self.request.id
+    logger.info(f"[Cleanup Task {task_id}] Starting GPU memory cleanup")
+
+    try:
+        service = get_steering_service()
+
+        # Get memory before cleanup
+        if torch.cuda.is_available():
+            memory_before = torch.cuda.memory_allocated() / 1024**3
+        else:
+            memory_before = 0
+
+        # Unload all models and SAEs
+        result = service.unload_all()
+
+        # Get memory after cleanup
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            memory_after = torch.cuda.memory_allocated() / 1024**3
+        else:
+            memory_after = 0
+
+        memory_freed = memory_before - memory_after
+
+        logger.info(
+            f"[Cleanup Task {task_id}] Complete: "
+            f"unloaded {result['models_unloaded']} models, "
+            f"{result['saes_unloaded']} SAEs, "
+            f"freed {memory_freed:.2f}GB VRAM"
+        )
+
+        return {
+            "success": True,
+            "models_unloaded": result["models_unloaded"],
+            "saes_unloaded": result["saes_unloaded"],
+            "memory_freed_gb": round(memory_freed, 2),
+        }
+
+    except Exception as e:
+        logger.exception(f"[Cleanup Task {task_id}] Failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "models_unloaded": 0,
+            "saes_unloaded": 0,
+            "memory_freed_gb": 0,
+        }

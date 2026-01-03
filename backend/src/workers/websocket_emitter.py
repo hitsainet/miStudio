@@ -39,7 +39,8 @@ def emit_progress(
     channel: str,
     event: str,
     data: Dict[str, Any],
-    timeout: float = 1.0,
+    timeout: float = 5.0,
+    retries: int = 0,
 ) -> bool:
     """
     Emit progress update via WebSocket through HTTP callback.
@@ -52,7 +53,8 @@ def emit_progress(
         channel: WebSocket channel to emit to (e.g., "datasets/{id}/progress")
         event: Event type (e.g., "progress", "completed", "error")
         data: Event data payload (must be JSON-serializable)
-        timeout: Request timeout in seconds (default: 1.0)
+        timeout: Request timeout in seconds (default: 5.0)
+        retries: Number of retry attempts for failed requests (default: 0)
 
     Returns:
         True if emission succeeded, False otherwise
@@ -72,50 +74,60 @@ def emit_progress(
         ... )
         True
     """
-    try:
-        # Use configured WebSocket emit URL (supports both local and Docker deployments)
-        api_url = settings.websocket_emit_url
+    import time
 
-        # DEBUG: Print to see if function is called
-        print(f"[EMIT DEBUG] Attempting to emit {event} to {channel}")
+    # Use configured WebSocket emit URL (supports both local and Docker deployments)
+    api_url = settings.websocket_emit_url
 
-        # Prepare payload
-        payload = {
-            "channel": channel,
-            "event": event,
-            "data": data,
-        }
+    # Prepare payload
+    payload = {
+        "channel": channel,
+        "event": event,
+        "data": data,
+    }
 
-        # Send HTTP POST request to internal emission endpoint
-        with httpx.Client() as client:
-            response = client.post(
-                api_url,
-                json=payload,
-                timeout=timeout,
-            )
-
-            # Log result
-            if response.status_code == 200:
-                print(f"[EMIT DEBUG] Success: {event} to {channel}")
-                logger.debug(f"WebSocket emit: {event} to {channel} - Success")
-                return True
-            else:
-                print(f"[EMIT DEBUG] Failed with status {response.status_code}: {event} to {channel}")
-                logger.warning(
-                    f"WebSocket emit: {event} to {channel} - "
-                    f"Failed with status {response.status_code}"
+    # Retry loop
+    max_attempts = 1 + retries
+    for attempt in range(max_attempts):
+        try:
+            # Send HTTP POST request to internal emission endpoint
+            with httpx.Client() as client:
+                response = client.post(
+                    api_url,
+                    json=payload,
+                    timeout=timeout,
                 )
+
+                # Log result
+                if response.status_code == 200:
+                    if attempt > 0:
+                        logger.info(f"WebSocket emit: {event} to {channel} - Success on retry {attempt}")
+                    else:
+                        logger.debug(f"WebSocket emit: {event} to {channel} - Success")
+                    return True
+                else:
+                    logger.warning(
+                        f"WebSocket emit: {event} to {channel} - "
+                        f"Failed with status {response.status_code}"
+                    )
+                    # Don't retry on non-timeout failures
+                    return False
+
+        except httpx.TimeoutException:
+            if attempt < max_attempts - 1:
+                # Exponential backoff: 0.5s, 1s, 2s...
+                backoff = 0.5 * (2 ** attempt)
+                logger.warning(f"WebSocket emit timeout: {event} to {channel}, retrying in {backoff}s...")
+                time.sleep(backoff)
+            else:
+                logger.warning(f"WebSocket emit timeout: {event} to {channel} (all {max_attempts} attempts failed)")
                 return False
 
-    except httpx.TimeoutException:
-        print(f"[EMIT DEBUG] Timeout: {event} to {channel}")
-        logger.warning(f"WebSocket emit timeout: {event} to {channel}")
-        return False
+        except Exception as e:
+            logger.error(f"Failed to emit WebSocket event: {e}", exc_info=True)
+            return False
 
-    except Exception as e:
-        print(f"[EMIT DEBUG] Exception: {e}")
-        logger.error(f"Failed to emit WebSocket event: {e}", exc_info=True)
-        return False
+    return False
 
 
 def emit_dataset_progress(
@@ -1302,7 +1314,13 @@ def emit_steering_progress(
     if error is not None:
         data["error"] = error
 
-    return emit_progress(channel, event, data)
+    # For critical events (completed/failed), use retries to ensure delivery
+    # These events carry the final result - losing them breaks the frontend
+    if event in ("steering:completed", "steering:failed"):
+        return emit_progress(channel, event, data, timeout=10.0, retries=3)
+    else:
+        # Progress events are less critical - if one fails, the next will come
+        return emit_progress(channel, event, data)
 
 
 # Export public API

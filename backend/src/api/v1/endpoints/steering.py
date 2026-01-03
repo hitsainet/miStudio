@@ -189,6 +189,280 @@ async def reset_steering_resilience():
     }
 
 
+@router.post("/cleanup")
+async def cleanup_steering_gpu():
+    """
+    Release GPU memory held by the steering worker.
+
+    Submits a cleanup task to the steering Celery worker that unloads
+    all cached models and SAEs from GPU memory. Use this when done
+    with steering to free VRAM for other tasks.
+
+    Returns:
+        Dict with task_id for tracking and immediate acknowledgment.
+    """
+    from ....workers.steering_tasks import cleanup_steering_gpu as cleanup_task
+
+    # Submit cleanup task to steering queue
+    result = cleanup_task.delay()
+
+    # Wait briefly for result (cleanup is fast)
+    try:
+        cleanup_result = result.get(timeout=30)
+        return {
+            "message": "GPU memory released",
+            "task_id": result.id,
+            **cleanup_result,
+        }
+    except Exception as e:
+        return {
+            "message": "Cleanup task submitted but result pending",
+            "task_id": result.id,
+            "error": str(e),
+        }
+
+
+# =============================================================================
+# STEERING MODE CONTROL
+# =============================================================================
+# These endpoints control whether steering mode is active.
+# IN mode: Worker running, model loaded on GPU, can execute tasks.
+# OUT of mode: No worker, no model, GPU free, tasks disabled.
+
+PID_FILE = "/tmp/mistudio-celery-steering.pid"
+STEERING_LOG = "/tmp/celery-steering.log"
+
+
+def _get_gpu_memory_mb() -> Optional[int]:
+    """Get current GPU memory usage in MB."""
+    import subprocess
+    try:
+        gpu_output = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        if gpu_output.returncode == 0:
+            return int(gpu_output.stdout.strip().split("\n")[0])
+    except Exception:
+        pass
+    return None
+
+
+def _is_steering_worker_running() -> tuple[bool, Optional[int]]:
+    """Check if steering worker is running. Returns (is_running, pid)."""
+    import os
+    import signal
+
+    # Check PID file
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE, "r") as f:
+                pid = int(f.read().strip())
+            # Check if process is actually running
+            os.kill(pid, 0)  # Signal 0 just checks if process exists
+            return True, pid
+        except (ProcessLookupError, ValueError, OSError):
+            # Process not running or invalid PID
+            pass
+
+    # Also check by process name pattern
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "steering@"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pid = int(result.stdout.strip().split("\n")[0])
+            return True, pid
+    except Exception:
+        pass
+
+    return False, None
+
+
+@router.get("/mode")
+async def get_steering_mode_status():
+    """
+    Get current steering mode status.
+
+    Returns whether steering mode is active (worker running) and GPU memory usage.
+    """
+    is_active, pid = _is_steering_worker_running()
+    gpu_memory = _get_gpu_memory_mb()
+
+    return {
+        "active": is_active,
+        "worker_pid": pid,
+        "gpu_memory_mb": gpu_memory,
+    }
+
+
+@router.post("/enter-mode")
+async def enter_steering_mode():
+    """
+    Enter steering mode by starting the steering worker.
+
+    Starts a dedicated Celery worker for steering operations. The worker will
+    load models on first use and keep them cached for fast subsequent generations.
+
+    Returns:
+        Dict with status of the enter operation.
+    """
+    import subprocess
+    import os
+
+    # Check if already in steering mode
+    is_active, existing_pid = _is_steering_worker_running()
+    if is_active:
+        return {
+            "success": True,
+            "message": f"Already in steering mode (worker PID: {existing_pid})",
+            "worker_pid": existing_pid,
+            "already_active": True,
+        }
+
+    result = {
+        "success": False,
+        "message": "",
+        "worker_pid": None,
+        "already_active": False,
+    }
+
+    # Start new steering worker
+    backend_dir = settings.data_dir.parent  # /home/x-sean/app/miStudio/backend
+
+    try:
+        start_cmd = (
+            f"cd {backend_dir} && source venv/bin/activate && "
+            f"nohup celery -A src.core.celery_app worker "
+            f"-Q steering -c 1 --pool=solo --loglevel=info "
+            f'--hostname="steering@%h" --max-tasks-per-child=1 '
+            f'--pidfile="{PID_FILE}" > "{STEERING_LOG}" 2>&1 &'
+        )
+
+        subprocess.run(
+            start_cmd,
+            shell=True,
+            executable="/bin/bash",
+            timeout=10,
+            capture_output=True
+        )
+
+        # Wait for worker to start
+        await asyncio.sleep(3)
+
+        # Verify worker started
+        is_running, pid = _is_steering_worker_running()
+        if is_running:
+            result["success"] = True
+            result["message"] = f"Entered steering mode (worker PID: {pid})"
+            result["worker_pid"] = pid
+            logger.info(f"Started steering worker PID {pid}")
+        else:
+            result["message"] = "Failed to start steering worker - check logs"
+            logger.error("Steering worker failed to start")
+
+    except Exception as e:
+        logger.error(f"Failed to start steering worker: {e}")
+        result["message"] = f"Failed to start worker: {e}"
+
+    return result
+
+
+@router.post("/exit-mode")
+async def exit_steering_mode():
+    """
+    Exit steering mode by killing the steering worker.
+
+    This forcefully terminates the steering worker process, releasing ALL
+    GPU memory held by steering operations. Steering will be unavailable
+    until enter-mode is called again.
+
+    Returns:
+        Dict with status of the exit operation.
+    """
+    import subprocess
+    import os
+    import signal
+
+    # Check if already out of steering mode
+    is_active, existing_pid = _is_steering_worker_running()
+    if not is_active:
+        return {
+            "success": True,
+            "message": "Already out of steering mode",
+            "killed_pid": None,
+            "gpu_memory_freed_mb": 0,
+            "already_inactive": True,
+        }
+
+    result = {
+        "success": False,
+        "message": "",
+        "killed_pid": None,
+        "gpu_memory_before": _get_gpu_memory_mb(),
+        "gpu_memory_after": None,
+        "gpu_memory_freed_mb": 0,
+        "already_inactive": False,
+    }
+
+    # Kill the steering worker
+    killed = False
+
+    # Kill by PID if we have it
+    if existing_pid:
+        try:
+            os.kill(existing_pid, signal.SIGKILL)
+            killed = True
+            result["killed_pid"] = existing_pid
+            logger.info(f"Killed steering worker PID {existing_pid}")
+        except ProcessLookupError:
+            logger.info(f"Process {existing_pid} not found (already dead)")
+            killed = True
+        except Exception as e:
+            logger.warning(f"Could not kill PID {existing_pid}: {e}")
+
+    # Also kill by pattern to catch any orphans
+    try:
+        subprocess.run(
+            ["pkill", "-9", "-f", "steering@"],
+            timeout=5, capture_output=True
+        )
+        killed = True
+    except Exception:
+        pass
+
+    # Clean up PID file
+    try:
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
+    except Exception:
+        pass
+
+    # Wait for process to fully terminate and GPU to release
+    await asyncio.sleep(3)
+
+    # Get GPU memory after
+    result["gpu_memory_after"] = _get_gpu_memory_mb()
+
+    # Calculate memory freed
+    if result["gpu_memory_before"] and result["gpu_memory_after"]:
+        freed = result["gpu_memory_before"] - result["gpu_memory_after"]
+        result["gpu_memory_freed_mb"] = freed
+
+    # Verify we're out of steering mode
+    is_still_active, _ = _is_steering_worker_running()
+    if not is_still_active:
+        result["success"] = True
+        freed_msg = f" - Freed {result['gpu_memory_freed_mb']}MB" if result["gpu_memory_freed_mb"] > 0 else ""
+        result["message"] = f"Exited steering mode{freed_msg}"
+    else:
+        result["message"] = "Worker may still be running - try again"
+
+    return result
+
+
 # =============================================================================
 # ASYNC CELERY-BASED ENDPOINTS
 # =============================================================================

@@ -95,6 +95,19 @@ class FeatureService:
         if search_params.is_favorite is not None:
             query = query.where(Feature.is_favorite == search_params.is_favorite)
 
+        # Apply activation frequency range filter
+        # Note: UI uses percentages (0-100) but DB stores decimals (0-1), so divide by 100
+        if search_params.min_activation_freq is not None:
+            query = query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            query = query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter
+        if search_params.min_max_activation is not None:
+            query = query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            query = query.where(Feature.max_activation <= search_params.max_max_activation)
+
         # Get total count before pagination
         count_query = select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
         if search_params.search:
@@ -117,6 +130,19 @@ class FeatureService:
             )
         if search_params.is_favorite is not None:
             count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
+
+        # Apply activation frequency range filter to count query
+        # Note: UI uses percentages (0-100) but DB stores decimals (0-1), so divide by 100
+        if search_params.min_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter to count query
+        if search_params.min_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation <= search_params.max_max_activation)
 
         total_result = await self.db.execute(count_query)
         total = total_result.scalar_one()
@@ -296,6 +322,19 @@ class FeatureService:
         if search_params.is_favorite is not None:
             query = query.where(Feature.is_favorite == search_params.is_favorite)
 
+        # Apply activation frequency range filter
+        # Note: UI uses percentages (0-100) but DB stores decimals (0-1), so divide by 100
+        if search_params.min_activation_freq is not None:
+            query = query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            query = query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter
+        if search_params.min_max_activation is not None:
+            query = query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            query = query.where(Feature.max_activation <= search_params.max_max_activation)
+
         # Get total count before pagination
         count_query = select(func.count()).select_from(Feature).where(Feature.extraction_job_id == extraction_job_id)
         if search_params.search:
@@ -318,6 +357,19 @@ class FeatureService:
             )
         if search_params.is_favorite is not None:
             count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
+
+        # Apply activation frequency range filter to count query
+        # Note: UI uses percentages (0-100) but DB stores decimals (0-1), so divide by 100
+        if search_params.min_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter to count query
+        if search_params.min_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation <= search_params.max_max_activation)
 
         total_result = await self.db.execute(count_query)
         total = total_result.scalar_one()

@@ -41,6 +41,12 @@ LONG_RUNNING_THRESHOLD_SECONDS = 300
 # Threshold for critical warning (30 minutes)
 CRITICAL_THRESHOLD_SECONDS = 1800
 
+# Threshold for automatic kill (10 minutes for steering tasks)
+KILL_THRESHOLD_SECONDS = 600
+
+# Enable automatic killing of stuck processes
+ENABLE_AUTO_KILL = True
+
 
 def get_gpu_processes() -> List[GPUProcessInfo]:
     """
@@ -152,6 +158,56 @@ def get_process_cpu_percent(pid: int) -> Optional[float]:
     return None
 
 
+def kill_stuck_process(pid: int, name: str, reason: str) -> bool:
+    """
+    Kill a stuck process holding GPU memory.
+
+    Args:
+        pid: Process ID to kill
+        name: Process name (for logging)
+        reason: Reason for killing (for logging)
+
+    Returns:
+        True if killed successfully, False otherwise
+    """
+    import os
+    import signal
+
+    try:
+        logger.warning(
+            f"[GPU Watchdog] KILLING stuck process: PID={pid}, Name={name}, Reason={reason}"
+        )
+
+        # First try SIGTERM
+        os.kill(pid, signal.SIGTERM)
+
+        # Wait briefly for graceful shutdown
+        import time
+        time.sleep(2)
+
+        # Check if still alive
+        try:
+            os.kill(pid, 0)  # Signal 0 just checks if process exists
+            # Still alive, use SIGKILL
+            logger.warning(f"[GPU Watchdog] SIGTERM ignored, sending SIGKILL to PID={pid}")
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # Process already dead
+
+        logger.warning(f"[GPU Watchdog] Successfully killed PID={pid}")
+        return True
+
+    except ProcessLookupError:
+        logger.info(f"[GPU Watchdog] Process {pid} already dead")
+        return True
+    except PermissionError:
+        logger.error(f"[GPU Watchdog] Permission denied killing PID={pid}")
+        return False
+    except Exception as e:
+        logger.error(f"[GPU Watchdog] Failed to kill PID={pid}: {e}")
+        return False
+
+
 @shared_task(
     name="gpu_watchdog",
     bind=True,
@@ -197,6 +253,7 @@ def gpu_watchdog_task(self):
         warnings = []
         critical = []
         zombies = []
+        killed = []
 
         for proc in processes:
             # Check for zombies
@@ -208,6 +265,26 @@ def gpu_watchdog_task(self):
                     f"Duration={proc.duration_seconds:.0f}s"
                 )
                 continue
+
+            # Check for processes that exceed kill threshold
+            if ENABLE_AUTO_KILL and proc.duration_seconds >= KILL_THRESHOLD_SECONDS:
+                cpu_percent = get_process_cpu_percent(proc.pid)
+
+                # Only kill if it looks stuck (high CPU but no GPU utilization)
+                # or if it's been running way too long
+                should_kill = (
+                    proc.duration_seconds >= KILL_THRESHOLD_SECONDS * 2 or  # 20 min = always kill
+                    (cpu_percent is not None and cpu_percent > 50)  # High CPU with no progress = stuck
+                )
+
+                if should_kill:
+                    if kill_stuck_process(
+                        proc.pid,
+                        proc.name,
+                        f"Exceeded {KILL_THRESHOLD_SECONDS}s threshold, CPU={cpu_percent}%"
+                    ):
+                        killed.append(proc)
+                    continue
 
             # Check for long-running processes
             if proc.duration_seconds >= CRITICAL_THRESHOLD_SECONDS:
@@ -235,6 +312,7 @@ def gpu_watchdog_task(self):
             "warnings": len(warnings),
             "critical": len(critical),
             "zombies": len(zombies),
+            "killed": len(killed),
             "total_memory_mib": sum(p.memory_mib for p in processes),
         }
 

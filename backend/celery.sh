@@ -220,6 +220,7 @@ get_pid() {
 }
 
 # Stop a process gracefully using PID file
+# Uses SIGTERM and waits for children to be reaped before returning
 stop_process() {
     local name=$1
     local pid_file=$2
@@ -232,24 +233,48 @@ stop_process() {
     fi
 
     local pid=$(get_pid "$pid_file")
-    echo -n "Stopping $name (PID: $pid)..."
+    local pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+    echo -n "Stopping $name (PID: $pid, PGID: $pgid)..."
 
     # Send SIGTERM for graceful shutdown
     kill "$pid" 2>/dev/null
 
-    # Wait for process to exit
+    # Wait for process AND its children to exit (prevents zombies)
     local count=0
-    while kill -0 "$pid" 2>/dev/null && [ $count -lt $timeout ]; do
-        echo -n "."
+    while [ $count -lt $timeout ]; do
+        # Check if main process is still running
+        if ! kill -0 "$pid" 2>/dev/null; then
+            # Main process stopped, now wait for any children in same process group
+            if [ -n "$pgid" ]; then
+                local children=$(pgrep -g "$pgid" 2>/dev/null | wc -l)
+                if [ "$children" -eq 0 ]; then
+                    break  # All children reaped
+                fi
+                echo -n "c"  # Waiting for children
+            else
+                break
+            fi
+        else
+            echo -n "."
+        fi
         sleep 1
         count=$((count + 1))
     done
 
-    # Force kill if still running
+    # If still running after timeout, try SIGTERM on process group first
     if kill -0 "$pid" 2>/dev/null; then
-        echo -n " forcing..."
+        echo -n " (SIGTERM to group)..."
+        if [ -n "$pgid" ]; then
+            kill -TERM -"$pgid" 2>/dev/null || true
+        fi
+        sleep 3
+    fi
+
+    # Only SIGKILL as absolute last resort
+    if kill -0 "$pid" 2>/dev/null; then
+        echo -n " (SIGKILL)..."
         kill -9 "$pid" 2>/dev/null
-        sleep 1
+        sleep 2
     fi
 
     # Clean up PID file
@@ -441,19 +466,40 @@ cmd_start() {
 
 cmd_stop() {
     echo "Stopping Celery services..."
+    # Increase timeout for steering worker to allow GPU cleanup
     stop_process "Beat" "$BEAT_PID_FILE" 5
-    stop_process "Steering Worker" "$STEERING_PID_FILE" 15
+    stop_process "Steering Worker" "$STEERING_PID_FILE" 20
     stop_process "Worker" "$WORKER_PID_FILE" 15
 
     # Clean up schedule file
     rm -f "$BEAT_SCHEDULE_FILE"* 2>/dev/null
 
-    # Kill any remaining celery processes (including children)
+    # Handle any remaining celery processes GRACEFULLY (no SIGKILL)
+    # This prevents zombie creation by allowing processes to clean up
     local remaining=$(pgrep -f "celery.*worker" 2>/dev/null | wc -l)
     if [ "$remaining" -gt 0 ]; then
-        echo -n "Killing $remaining remaining celery processes..."
-        pkill -9 -f "celery.*worker" 2>/dev/null || true
-        sleep 2
+        echo -n "Sending SIGTERM to $remaining remaining celery processes..."
+        pkill -TERM -f "celery.*worker" 2>/dev/null || true
+
+        # Wait up to 10 seconds for graceful shutdown
+        local count=0
+        while [ $count -lt 10 ]; do
+            remaining=$(pgrep -f "celery.*worker" 2>/dev/null | wc -l)
+            if [ "$remaining" -eq 0 ]; then
+                break
+            fi
+            echo -n "."
+            sleep 1
+            count=$((count + 1))
+        done
+
+        # Only SIGKILL if absolutely necessary after 10s wait
+        remaining=$(pgrep -f "celery.*worker" 2>/dev/null | wc -l)
+        if [ "$remaining" -gt 0 ]; then
+            echo -n " (forcing $remaining)..."
+            pkill -9 -f "celery.*worker" 2>/dev/null || true
+            sleep 2
+        fi
         echo -e " ${GREEN}done${NC}"
     fi
 

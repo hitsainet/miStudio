@@ -50,6 +50,15 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   const [searchDebounceTimer, setSearchDebounceTimer] = useState<number | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
 
+  // Range filter state (local inputs with debounced API calls)
+  const [rangeFilterInputs, setRangeFilterInputs] = useState({
+    min_activation_freq: '',
+    max_activation_freq: '',
+    min_max_activation: '',
+    max_max_activation: '',
+  });
+  const [rangeDebounceTimer, setRangeDebounceTimer] = useState<number | null>(null);
+
   // Sort state (client-side sorting)
   type SortColumn = 'id' | 'label' | 'category' | 'description' | 'activation_frequency' | 'max_activation' | 'is_favorite';
   const [sortColumn, setSortColumn] = useState<SortColumn>('id');
@@ -543,6 +552,64 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   };
 
   /**
+   * Handle range filter input change with debouncing.
+   */
+  const handleRangeFilterChange = (field: keyof typeof rangeFilterInputs, value: string) => {
+    // Update local input state immediately
+    setRangeFilterInputs(prev => ({ ...prev, [field]: value }));
+
+    // Clear existing timer
+    if (rangeDebounceTimer) {
+      clearTimeout(rangeDebounceTimer);
+    }
+
+    // Set new timer for 500ms debounce
+    const timer = window.setTimeout(() => {
+      const numValue = value === '' ? null : parseFloat(value);
+      const newFilters: FeatureSearchRequest = {
+        ...filters,
+        [field]: numValue,
+        offset: 0, // Reset pagination
+      };
+      setSearchFilters(extraction.id, newFilters);
+      fetchExtractionFeatures(extraction.id, newFilters);
+    }, 500);
+
+    setRangeDebounceTimer(timer);
+  };
+
+  /**
+   * Clear all range filters.
+   */
+  const handleClearRangeFilters = () => {
+    setRangeFilterInputs({
+      min_activation_freq: '',
+      max_activation_freq: '',
+      min_max_activation: '',
+      max_max_activation: '',
+    });
+
+    const newFilters: FeatureSearchRequest = {
+      ...filters,
+      min_activation_freq: null,
+      max_activation_freq: null,
+      min_max_activation: null,
+      max_max_activation: null,
+      offset: 0,
+    };
+    setSearchFilters(extraction.id, newFilters);
+    fetchExtractionFeatures(extraction.id, newFilters);
+  };
+
+  /**
+   * Check if any range filters are active.
+   */
+  const hasActiveRangeFilters = filters.min_activation_freq != null ||
+    filters.max_activation_freq != null ||
+    filters.min_max_activation != null ||
+    filters.max_max_activation != null;
+
+  /**
    * Handle favorite toggle for a feature.
    */
   const handleToggleFavorite = async (featureId: string, currentFavorite: boolean, event: React.MouseEvent) => {
@@ -965,6 +1032,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       {/* Progress Bar for Active Extractions */}
       {isActive && extraction.progress !== null && extraction.progress !== undefined && (
         <div className="mb-4 space-y-3">
+          {/* Progress info row */}
           <div className="flex items-center justify-between text-sm mb-2">
             <span className="text-slate-600 dark:text-slate-400">
               {extraction.status_message
@@ -978,6 +1046,18 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             <span className="text-emerald-400 font-medium">
               {progress.toFixed(1)}%
             </span>
+          </div>
+          {/* Elapsed time and ETA row */}
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-1.5 text-blue-400">
+              <Clock className="w-4 h-4" />
+              <span>Elapsed: {getElapsedTime()}</span>
+            </div>
+            {extraction.eta_seconds !== undefined && extraction.eta_seconds > 0 && (
+              <div className="text-purple-400">
+                ETA: {formatEta(extraction.eta_seconds)}
+              </div>
+            )}
           </div>
           <div className={COMPONENTS.progress.container}>
             <div
@@ -1451,6 +1531,71 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
                 <Layers className="w-4 h-4" />
               )}
             </button>
+          </div>
+
+          {/* Range Filters */}
+          <div className="flex flex-wrap items-center gap-4 mb-3 p-2 bg-slate-800/50 rounded border border-slate-700/50">
+            {/* Activation Frequency Range */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 whitespace-nowrap">Act. Freq:</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                placeholder="Min"
+                value={rangeFilterInputs.min_activation_freq}
+                onChange={(e) => handleRangeFilterChange('min_activation_freq', e.target.value)}
+                className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-100 text-xs focus:outline-none focus:border-emerald-500"
+              />
+              <span className="text-slate-500">-</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                placeholder="Max"
+                value={rangeFilterInputs.max_activation_freq}
+                onChange={(e) => handleRangeFilterChange('max_activation_freq', e.target.value)}
+                className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-100 text-xs focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {/* Max Activation Range */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 whitespace-nowrap">Max Act:</span>
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                placeholder="Min"
+                value={rangeFilterInputs.min_max_activation}
+                onChange={(e) => handleRangeFilterChange('min_max_activation', e.target.value)}
+                className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-100 text-xs focus:outline-none focus:border-emerald-500"
+              />
+              <span className="text-slate-500">-</span>
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                placeholder="Max"
+                value={rangeFilterInputs.max_max_activation}
+                onChange={(e) => handleRangeFilterChange('max_max_activation', e.target.value)}
+                className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-100 text-xs focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {/* Clear Filters Button */}
+            {hasActiveRangeFilters && (
+              <button
+                type="button"
+                onClick={handleClearRangeFilters}
+                className="px-2 py-1 text-xs text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+                title="Clear range filters"
+              >
+                Clear
+              </button>
+            )}
           </div>
 
           {/* Top Navigation Controls */}

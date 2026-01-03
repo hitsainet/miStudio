@@ -13,8 +13,10 @@
  * - Save experiments for later reference
  */
 
-import { useEffect, useState, useCallback } from 'react';
-import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, StopCircle, History, ChevronDown } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, StopCircle, History, ChevronDown, RotateCcw, Power, PowerOff } from 'lucide-react';
+import { getTaskResult } from '../../api/steering';
+import { getSteeringModeStatus, enterSteeringMode, exitSteeringMode } from '../../api/steering';
 import { useSteeringStore, selectCanGenerate, selectCanGenerateBatch } from '../../stores/steeringStore';
 import { useSAEsStore } from '../../stores/saesStore';
 import { usePromptTemplatesStore } from '../../stores/promptTemplatesStore';
@@ -34,6 +36,13 @@ export function SteeringPanel() {
   const [showRecentDropdown, setShowRecentDropdown] = useState(false);
   const [recoveryTaskId, setRecoveryTaskId] = useState('');
   const [isRecovering, setIsRecovering] = useState(false);
+  // Steering mode state
+  const [steeringModeActive, setSteeringModeActive] = useState<boolean | null>(null); // null = loading
+  const [isTogglingMode, setIsTogglingMode] = useState(false);
+  const [modeMessage, setModeMessage] = useState<string | null>(null);
+
+  // Track last WebSocket event time for fallback polling
+  const lastWsEventTimeRef = useRef<number>(0);
 
   const {
     selectedSAE,
@@ -65,6 +74,7 @@ export function SteeringPanel() {
     _hasHydrated,
     recentComparisons,
     loadRecentComparison,
+    resetSession,
   } = useSteeringStore();
 
   const { saes, fetchSAEs } = useSAEsStore();
@@ -92,14 +102,17 @@ export function SteeringPanel() {
 
   // WebSocket callbacks for async steering task
   const onSteeringProgress = useCallback((data: SteeringProgressEvent) => {
+    lastWsEventTimeRef.current = Date.now();
     handleAsyncProgress(data.percent, data.message, data.current_feature, data.current_strength);
   }, [handleAsyncProgress]);
 
   const onSteeringCompleted = useCallback((data: SteeringCompletedEvent) => {
+    lastWsEventTimeRef.current = Date.now();
     handleAsyncCompleted(data.result);
   }, [handleAsyncCompleted]);
 
   const onSteeringFailed = useCallback((data: SteeringFailedEvent) => {
+    lastWsEventTimeRef.current = Date.now();
     handleAsyncFailed(data.error);
   }, [handleAsyncFailed]);
 
@@ -109,6 +122,56 @@ export function SteeringPanel() {
     onCompleted: onSteeringCompleted,
     onFailed: onSteeringFailed,
   });
+
+  // Fallback polling: If no WebSocket events received for 15 seconds while task is active,
+  // poll the result endpoint to check if the task completed (WebSocket might have failed)
+  useEffect(() => {
+    if (!taskId || !isGenerating) {
+      return;
+    }
+
+    // Reset last event time when a new task starts
+    lastWsEventTimeRef.current = Date.now();
+
+    const POLL_INTERVAL_MS = 5000; // Check every 5 seconds
+    const WS_TIMEOUT_MS = 15000; // Consider WebSocket dead after 15 seconds of no events
+
+    const pollFallback = async () => {
+      const timeSinceLastEvent = Date.now() - lastWsEventTimeRef.current;
+
+      // Only poll if we haven't received a WebSocket event in a while
+      if (timeSinceLastEvent < WS_TIMEOUT_MS) {
+        return;
+      }
+
+      console.log(`[SteeringPanel] Fallback polling: ${timeSinceLastEvent}ms since last WS event`);
+
+      try {
+        const result = await getTaskResult(taskId);
+
+        if (result.status.status === 'success' && result.result) {
+          console.log('[SteeringPanel] Fallback poll found completed result!');
+          // @ts-expect-error - result type is union, but we know it's complete
+          handleAsyncCompleted(result.result);
+        } else if (result.status.status === 'failure') {
+          console.log('[SteeringPanel] Fallback poll found failed task');
+          handleAsyncFailed(result.status.error || 'Task failed');
+        } else {
+          // Task still running - update the last event time to prevent constant polling
+          console.log('[SteeringPanel] Fallback poll: task still running');
+          // Don't update lastWsEventTimeRef - we want to keep polling if WS is truly dead
+        }
+      } catch (error) {
+        console.warn('[SteeringPanel] Fallback poll error:', error);
+      }
+    };
+
+    const intervalId = setInterval(pollFallback, POLL_INTERVAL_MS);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [taskId, isGenerating, handleAsyncCompleted, handleAsyncFailed]);
 
   const handleGenerate = async () => {
     try {
@@ -135,6 +198,63 @@ export function SteeringPanel() {
       await abortComparison();
     } catch (error) {
       console.error('[SteeringPanel] Failed to stop task:', error);
+    }
+  };
+
+  // Check steering mode status on mount and periodically
+  const checkModeStatus = useCallback(async () => {
+    try {
+      const status = await getSteeringModeStatus();
+      setSteeringModeActive(status.active);
+    } catch (error) {
+      console.error('[SteeringPanel] Failed to check mode status:', error);
+      setSteeringModeActive(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkModeStatus();
+    // Check every 10 seconds
+    const interval = setInterval(checkModeStatus, 10000);
+    return () => clearInterval(interval);
+  }, [checkModeStatus]);
+
+  const handleToggleSteeringMode = async () => {
+    setIsTogglingMode(true);
+    setModeMessage(null);
+    try {
+      if (steeringModeActive) {
+        // Exit mode
+        const result = await exitSteeringMode();
+        if (result.success) {
+          setSteeringModeActive(false);
+          const freedMsg = result.gpu_memory_freed_mb > 0
+            ? ` - Freed ${result.gpu_memory_freed_mb}MB GPU`
+            : '';
+          setModeMessage(`Steering OFF${freedMsg}`);
+          // Reset session when exiting
+          resetSession();
+        } else {
+          setModeMessage(result.message || 'Failed to exit');
+        }
+      } else {
+        // Enter mode
+        const result = await enterSteeringMode();
+        if (result.success) {
+          setSteeringModeActive(true);
+          setModeMessage('Steering ON');
+        } else {
+          setModeMessage(result.message || 'Failed to enter');
+        }
+      }
+      // Clear message after 3 seconds
+      setTimeout(() => setModeMessage(null), 3000);
+    } catch (error) {
+      console.error('[SteeringPanel] Toggle mode failed:', error);
+      setModeMessage('Toggle failed');
+      setTimeout(() => setModeMessage(null), 3000);
+    } finally {
+      setIsTogglingMode(false);
     }
   };
 
@@ -289,6 +409,37 @@ export function SteeringPanel() {
                   )}
                 </div>
               )}
+              {/* Steering Mode Toggle - Shows ACTION (what clicking will do) */}
+              <button
+                onClick={handleToggleSteeringMode}
+                disabled={isTogglingMode || steeringModeActive === null}
+                className={`px-4 py-2 flex items-center gap-2 text-sm font-medium rounded-lg border transition-all ${
+                  modeMessage
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
+                    : steeringModeActive
+                    ? 'border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                    : 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                } disabled:opacity-50`}
+                title={steeringModeActive ? 'Stop steering and release GPU memory' : 'Start steering worker on GPU'}
+              >
+                {isTogglingMode ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : steeringModeActive ? (
+                  <PowerOff className="w-4 h-4" />
+                ) : (
+                  <Power className="w-4 h-4" />
+                )}
+                {modeMessage || (steeringModeActive === null ? 'Checking...' : steeringModeActive ? 'Stop Steering' : 'Start Steering')}
+              </button>
+              {/* Reset Session Button - ALWAYS visible to escape stuck state */}
+              <button
+                onClick={resetSession}
+                className={`px-3 py-2 flex items-center gap-2 text-sm ${COMPONENTS.button.ghost} text-slate-400 hover:text-slate-200`}
+                title="Reset steering session (clear all state)"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reset
+              </button>
             </div>
           </div>
 
@@ -302,6 +453,19 @@ export function SteeringPanel() {
               <button onClick={clearError} className="text-red-400 hover:text-red-300">
                 Dismiss
               </button>
+            </div>
+          )}
+
+          {/* Steering mode OFF warning */}
+          {steeringModeActive === false && (
+            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <PowerOff className="w-5 h-5 text-slate-500" />
+                <div>
+                  <span className="text-slate-300 font-medium">Steering Mode is OFF</span>
+                  <span className="text-slate-500 ml-2">— GPU is free. Click "Start Steering" to begin.</span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -380,13 +544,19 @@ export function SteeringPanel() {
                     )}
                     <button
                       onClick={handleGenerate}
-                      disabled={(!canGenerate && !canGenerateBatch) || isGenerating}
+                      disabled={(!canGenerate && !canGenerateBatch) || isGenerating || !steeringModeActive}
                       className={`px-6 py-2 flex items-center gap-2 ${COMPONENTS.button.primary} disabled:opacity-50 disabled:cursor-not-allowed`}
+                      title={!steeringModeActive ? 'Enter steering mode first' : undefined}
                     >
                       {isGenerating ? (
                         <>
                           <Loader className="w-4 h-4 animate-spin" />
                           {batchState ? `Processing ${batchState.currentIndex + 1}/${batchState.totalPrompts}...` : 'Generating...'}
+                        </>
+                      ) : !steeringModeActive ? (
+                        <>
+                          <PowerOff className="w-4 h-4" />
+                          Start Steering First
                         </>
                       ) : (
                         <>

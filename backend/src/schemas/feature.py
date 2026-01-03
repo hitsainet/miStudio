@@ -47,6 +47,32 @@ class FeatureSearchRequest(BaseModel):
         description="Number of results to skip for pagination"
     )
 
+    # Range filters for activation frequency (0-100 percentage)
+    min_activation_freq: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Minimum activation frequency filter (0-100)"
+    )
+    max_activation_freq: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Maximum activation frequency filter (0-100)"
+    )
+
+    # Range filters for max activation value
+    min_max_activation: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Minimum max activation value filter"
+    )
+    max_max_activation: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Maximum max activation value filter"
+    )
+
     @field_validator("search")
     @classmethod
     def sanitize_search_query(cls, v: Optional[str]) -> Optional[str]:

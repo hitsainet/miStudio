@@ -652,6 +652,31 @@ class SteeringService:
 
         return model, tokenizer
 
+    def _ensure_model_on_gpu(self, model: PreTrainedModel) -> None:
+        """
+        Verify and ensure model is on GPU after operations.
+
+        Sometimes models can drift to CPU under memory pressure or due to
+        automatic device placement. This ensures the model stays on the
+        intended device for optimal performance.
+        """
+        if not torch.cuda.is_available() or self._device == "cpu":
+            return
+
+        # Check if any parameter is on CPU when it shouldn't be
+        try:
+            first_param = next(model.parameters())
+            if first_param.device.type == "cpu":
+                logger.warning(
+                    f"[Model Device] Model found on CPU, moving back to {self._device}"
+                )
+                model.to(self._device)
+                logger.info(f"[Model Device] Model restored to {self._device}")
+        except StopIteration:
+            pass  # No parameters to check
+        except Exception as e:
+            logger.warning(f"[Model Device] Could not verify device: {e}")
+
     def _clear_all_model_hooks(self, model: PreTrainedModel) -> int:
         """
         Clear all forward hooks from transformer layer modules.
@@ -1119,11 +1144,21 @@ class SteeringService:
         watchdog.start_generation()
 
         try:
+            # CRITICAL: Synchronize CUDA before generation to ensure clean state
+            # This prevents hung operations from prior calls affecting this one
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
                     **gen_kwargs,
                 )
+
+            # CRITICAL: Synchronize after generation to ensure completion
+            # This prevents async CUDA ops from causing issues in subsequent calls
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
         finally:
             # Always mark generation as complete (even on error)
             watchdog.end_generation()
@@ -1587,6 +1622,12 @@ class SteeringService:
             if model is not None:
                 self._clear_all_model_hooks(model)
             self.cleanup_gpu(model)
+
+            # CRITICAL: Ensure model stays on GPU for subsequent requests
+            # Memory pressure during generation can sometimes cause drift to CPU
+            if model is not None:
+                self._ensure_model_on_gpu(model)
+
             logger.info("[Steering] GPU cleanup completed")
 
     async def _generate_multi_strength_outputs(
@@ -1924,6 +1965,12 @@ class SteeringService:
             if model is not None:
                 self._clear_all_model_hooks(model)
             self.cleanup_gpu(model)
+
+            # CRITICAL: Ensure model stays on GPU for subsequent requests
+            # Memory pressure during generation can sometimes cause drift to CPU
+            if model is not None:
+                self._ensure_model_on_gpu(model)
+
             logger.info("[Strength Sweep] GPU cleanup completed")
 
     def unload_sae(self, sae_id: str) -> bool:

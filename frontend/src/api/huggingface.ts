@@ -125,6 +125,7 @@ export interface ModelInfo {
  *
  * @param repoId - Dataset repository ID (e.g., "openwebtext", "squad")
  * @param config - Optional configuration/subset name
+ * @param accessToken - Optional HuggingFace access token for gated datasets
  * @returns Dataset metadata including splits, features, sizes
  * @throws Error if the request fails or dataset is not found
  *
@@ -136,7 +137,8 @@ export interface ModelInfo {
  */
 export async function getDatasetInfo(
   repoId: string,
-  config?: string
+  config?: string,
+  accessToken?: string
 ): Promise<DatasetInfo> {
   const params = new URLSearchParams({ dataset: repoId });
   if (config) {
@@ -145,7 +147,12 @@ export async function getDatasetInfo(
 
   const url = `${HF_DATASETS_SERVER_API}/info?${params.toString()}`;
 
-  const response = await fetch(url);
+  const headers: HeadersInit = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     throw new Error(`Failed to fetch dataset info: ${response.statusText}`);
   }

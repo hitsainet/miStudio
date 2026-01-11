@@ -78,6 +78,7 @@ export const useDatasetsStore = create<DatasetsState>()(
       // Download dataset from HuggingFace
       downloadDataset: async (repoId: string, accessToken?: string, split?: string, config?: string) => {
         console.log('[Store] downloadDataset called for repo:', repoId);
+        console.log('[Store] accessToken length:', accessToken ? accessToken.length : 0, 'provided:', !!accessToken);
         set({ loading: true, error: null });
         try {
           const body: Record<string, string | undefined> = {

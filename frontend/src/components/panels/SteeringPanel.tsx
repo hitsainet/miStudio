@@ -151,7 +151,6 @@ export function SteeringPanel() {
 
         if (result.status.status === 'success' && result.result) {
           console.log('[SteeringPanel] Fallback poll found completed result!');
-          // @ts-expect-error - result type is union, but we know it's complete
           handleAsyncCompleted(result.result);
         } else if (result.status.status === 'failure') {
           console.log('[SteeringPanel] Fallback poll found failed task');

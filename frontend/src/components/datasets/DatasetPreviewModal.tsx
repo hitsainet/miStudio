@@ -16,6 +16,7 @@ import { getDatasetInfo, formatBytes, DatasetInfo } from '../../api/huggingface'
 interface DatasetPreviewModalProps {
   repoId: string;
   config?: string;
+  accessToken?: string;
   onClose: () => void;
   onSelectSplit?: (split: string) => void;
   onDownloadAll?: () => void;
@@ -24,6 +25,7 @@ interface DatasetPreviewModalProps {
 export function DatasetPreviewModal({
   repoId,
   config,
+  accessToken,
   onClose,
   onSelectSplit,
   onDownloadAll,
@@ -35,13 +37,13 @@ export function DatasetPreviewModal({
 
   useEffect(() => {
     fetchDatasetInfo();
-  }, [repoId, config]);
+  }, [repoId, config, accessToken]);
 
   const fetchDatasetInfo = async () => {
     try {
       setLoading(true);
       setError(null);
-      const info = await getDatasetInfo(repoId, config);
+      const info = await getDatasetInfo(repoId, config, accessToken);
       console.log('[DatasetPreviewModal] Received dataset info:', info);
       setDatasetInfo(info);
     } catch (err) {

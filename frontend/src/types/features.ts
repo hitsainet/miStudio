@@ -19,6 +19,7 @@ export type LabelSource = 'auto' | 'user';
  * Extraction configuration request.
  */
 export interface ExtractionConfigRequest {
+  layer_index?: number | null;  // Layer index for multi-layer trainings (optional)
   evaluation_samples: number;  // 1,000 - 100,000
   top_k_examples: number;      // 10 - 1,000
   // Token filtering configuration (matches labeling filter structure)
@@ -59,6 +60,7 @@ export interface ExtractionStatusResponse {
   model_name: string | null;
   dataset_name: string | null;
   sae_name: string | null;  // For external SAE sources
+  layer_index: number | null;  // Layer index for multi-layer trainings
   status: ExtractionStatus;
   progress: number | null;
   features_extracted: number | null;

@@ -67,6 +67,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [selectedTrainingId, setSelectedTrainingId] = useState<string>(preSelectedTraining?.id || '');
   const [selectedSAEId, setSelectedSAEId] = useState<string>(preSelectedSAE?.id || '');
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
+  const [selectedLayerIndex, setSelectedLayerIndex] = useState<number | null>(null);
 
   // Extraction config
   const [evaluationSamples, setEvaluationSamples] = useState(10000);
@@ -134,6 +135,19 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   // Get selected entities
   const selectedTraining = completedTrainings.find(t => t.id === selectedTrainingId);
   const selectedSAE = readySAEs.find(s => s.id === selectedSAEId);
+
+  // Get available layers for multi-layer trainings
+  const trainingLayers = selectedTraining?.hyperparameters?.training_layers || [];
+  const hasMultipleLayers = trainingLayers.length > 1;
+
+  // Auto-select first layer when training changes
+  useEffect(() => {
+    if (selectedTrainingId && trainingLayers.length > 0) {
+      setSelectedLayerIndex(trainingLayers[0]);
+    } else {
+      setSelectedLayerIndex(null);
+    }
+  }, [selectedTrainingId, JSON.stringify(trainingLayers)]);
 
   // Look up human-readable names from stores (training only has IDs, not names)
   const getDatasetName = (datasetId: string) => {
@@ -224,7 +238,12 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         if (!selectedTrainingId) {
           throw new Error('Please select a training');
         }
-        await startExtraction(selectedTrainingId, config as any);
+        // Include layer_index for multi-layer trainings
+        const trainingConfig = {
+          ...config,
+          layer_index: selectedLayerIndex,
+        };
+        await startExtraction(selectedTrainingId, trainingConfig as any);
       } else {
         if (!selectedSAEId) {
           throw new Error('Please select an SAE');
@@ -452,10 +471,14 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       >
                         <option value="">-- Select a training --</option>
                         {completedTrainings.map((training) => {
-                          // Format: Model | L{layer} | Architecture | Features | L0 | training_id
+                          // Format: Model | L{layers} | Architecture | Features | L0 | training_id
                           const modelName = getModelName(training.model_id);
                           const hp = training.hyperparameters || {};
-                          const layer = hp.training_layers?.[0] != null ? `L${hp.training_layers[0]}` : 'L?';
+                          // Show all layers for multi-layer trainings
+                          const layers = hp.training_layers;
+                          const layerStr = layers?.length > 1
+                            ? `L${layers.join(',')}`
+                            : layers?.[0] != null ? `L${layers[0]}` : 'L?';
                           const arch = hp.architecture_type || 'standard';
                           const features = hp.latent_dim
                             ? hp.latent_dim >= 1000 ? `${(hp.latent_dim / 1000).toFixed(1)}K` : hp.latent_dim
@@ -463,7 +486,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                           const l0 = hp.target_l0 != null
                             ? `L0: ${(hp.target_l0 * 100).toFixed(1)}%`
                             : '';
-                          const parts = [modelName, layer, arch, features];
+                          const parts = [modelName, layerStr, arch, features];
                           if (l0) parts.push(l0);
                           parts.push(training.id.slice(0, 12));
                           return (
@@ -480,6 +503,27 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       )}
                     </div>
 
+                    {/* Layer Selection (only for multi-layer trainings) */}
+                    {hasMultipleLayers && (
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">Select Layer</label>
+                        <select
+                          value={selectedLayerIndex ?? ''}
+                          onChange={(e) => setSelectedLayerIndex(Number(e.target.value))}
+                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                        >
+                          {trainingLayers.map((layerIdx: number) => (
+                            <option key={layerIdx} value={layerIdx}>
+                              Layer {layerIdx}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-slate-500 mt-1">
+                          This training has {trainingLayers.length} layers: {trainingLayers.join(', ')}
+                        </p>
+                      </div>
+                    )}
+
                     {/* Selected Training Info */}
                     {selectedTraining && (
                       <div className="p-3 bg-slate-800/30 border border-slate-700 rounded text-sm">
@@ -490,6 +534,12 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                           <span className="text-slate-200">{getDatasetName(selectedTraining.dataset_id)}</span>
                           <span>Latent Dim:</span>
                           <span className="text-slate-200">{selectedTraining.hyperparameters?.latent_dim?.toLocaleString() ?? 'Unknown'}</span>
+                          {hasMultipleLayers && selectedLayerIndex !== null && (
+                            <>
+                              <span>Extracting Layer:</span>
+                              <span className="text-emerald-400 font-medium">Layer {selectedLayerIndex}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}

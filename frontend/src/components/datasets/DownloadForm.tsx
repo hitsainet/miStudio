@@ -249,6 +249,7 @@ export function DownloadForm({ onDownload, className = '' }: DownloadFormProps) 
         <DatasetPreviewModal
           repoId={hfRepo}
           config={config || undefined}
+          accessToken={accessToken || undefined}
           onClose={() => setShowPreview(false)}
           onSelectSplit={handleSelectSplit}
           onDownloadAll={handleDownloadAll}

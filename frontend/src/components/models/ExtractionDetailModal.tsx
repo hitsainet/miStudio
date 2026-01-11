@@ -6,10 +6,12 @@
  * - Layer-by-layer breakdown
  * - Activation ranges and sparsity
  * - Dataset and configuration info
+ * - Real-time progress tracking via WebSocket (reads from modelsStore)
  */
 
-import { Activity, Calendar, Layers, Database, HardDrive, TrendingUp, BarChart3 } from 'lucide-react';
+import { Activity, Calendar, Layers, Database, HardDrive, TrendingUp, BarChart3, Loader2 } from 'lucide-react';
 import { Extraction } from './ExtractionListModal';
+import { useModelsStore } from '../../stores/modelsStore';
 
 interface ExtractionDetailModalProps {
   extraction: Extraction;
@@ -22,6 +24,21 @@ export function ExtractionDetailModal({
   onClose,
   onBack
 }: ExtractionDetailModalProps) {
+  // Read live progress from modelsStore for real-time updates via WebSocket
+  const models = useModelsStore((state) => state.models);
+  const model = models.find((m) => m.id === extraction.model_id);
+
+  // Check if this extraction is currently active (has live progress data)
+  const isActiveExtraction = model?.extraction_id === extraction.extraction_id;
+  const liveProgress = isActiveExtraction ? model?.extraction_progress : undefined;
+  const liveStatus = isActiveExtraction ? model?.extraction_status : undefined;
+  const liveMessage = isActiveExtraction ? model?.extraction_message : undefined;
+
+  // Determine effective status and progress (live data takes precedence)
+  const effectiveStatus = liveStatus || extraction.status;
+  const effectiveProgress = liveProgress ?? extraction.progress ?? 0;
+  const isInProgress = ['extracting', 'processing', 'saving', 'pending'].includes(effectiveStatus.toLowerCase());
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString();
   };
@@ -32,14 +49,25 @@ export function ExtractionDetailModal({
 
   const getStatusBadge = (status: string) => {
     const baseClasses = 'px-3 py-1 rounded text-sm font-medium';
+    const statusLower = status.toLowerCase();
 
-    switch (status.toLowerCase()) {
+    switch (statusLower) {
       case 'completed':
         return <span className={`${baseClasses} bg-emerald-900/30 text-emerald-400`}>Completed</span>;
       case 'failed':
         return <span className={`${baseClasses} bg-red-900/30 text-red-400`}>Failed</span>;
       case 'cancelled':
         return <span className={`${baseClasses} bg-yellow-900/30 text-yellow-400`}>Cancelled</span>;
+      case 'extracting':
+      case 'processing':
+      case 'saving':
+      case 'pending':
+        return (
+          <span className={`${baseClasses} bg-blue-900/30 text-blue-400 flex items-center gap-2`}>
+            <Loader2 className="w-3 h-3 animate-spin" />
+            {status.charAt(0).toUpperCase() + status.slice(1)}
+          </span>
+        );
       default:
         return <span className={`${baseClasses} bg-blue-900/30 text-blue-400`}>{status}</span>;
     }
@@ -63,10 +91,10 @@ export function ExtractionDetailModal({
               <h2 className="text-xl font-mono text-slate-100 truncate">
                 {extraction.extraction_id}
               </h2>
-              {getStatusBadge(extraction.status)}
+              {getStatusBadge(effectiveStatus)}
             </div>
             <p className="text-sm text-slate-400">
-              Detailed extraction statistics and configuration
+              {isInProgress ? 'Extraction in progress...' : 'Detailed extraction statistics and configuration'}
             </p>
           </div>
           <div className="flex items-center gap-2 ml-4">
@@ -92,6 +120,35 @@ export function ExtractionDetailModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Progress Section (shown when extraction is in progress) */}
+          {isInProgress && (
+            <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                  <span className="text-blue-400 font-medium">
+                    {liveMessage || `${effectiveStatus.charAt(0).toUpperCase() + effectiveStatus.slice(1)}...`}
+                  </span>
+                </div>
+                <span className="text-blue-300 font-mono text-sm">
+                  {effectiveProgress.toFixed(1)}%
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-blue-500 to-emerald-500 h-3 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${Math.min(effectiveProgress, 100)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-2 text-xs text-slate-400">
+                <span>Started: {formatDate(extraction.created_at)}</span>
+                {extraction.max_samples && (
+                  <span>Target: {extraction.max_samples.toLocaleString()} samples</span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Overview Section */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700">

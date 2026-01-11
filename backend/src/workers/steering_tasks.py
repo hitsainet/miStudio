@@ -259,6 +259,10 @@ def steering_compare_task(
         except Exception as cleanup_error:
             logger.warning(f"[Steering Task {task_id}] Cleanup failed: {cleanup_error}")
 
+        # NOTE: Worker restart is handled by the API, not here.
+        # The API kills any existing worker before starting a new one,
+        # ensuring each task gets a fresh Python/CUDA environment.
+
 
 @celery_app.task(
     bind=True,
@@ -455,6 +459,10 @@ def steering_sweep_task(
 
         except Exception as cleanup_error:
             logger.warning(f"[Sweep Task {task_id}] Cleanup failed: {cleanup_error}")
+
+        # NOTE: Worker restart is handled by the API, not here.
+        # The API kills any existing worker before starting a new one,
+        # ensuring each task gets a fresh Python/CUDA environment.
 
 
 @celery_app.task(

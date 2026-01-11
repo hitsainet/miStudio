@@ -281,6 +281,87 @@ def _is_steering_worker_running() -> tuple[bool, Optional[int]]:
     return False, None
 
 
+async def _ensure_steering_worker_running() -> tuple[bool, Optional[int]]:
+    """
+    Ensure a FRESH steering worker is running.
+
+    Returns (success, pid) - success=True if worker is running,
+    pid is the worker PID if known.
+
+    IMPORTANT: This function ALWAYS kills any existing worker before starting
+    a new one. This ensures each task gets a completely fresh Python/CUDA
+    environment, avoiding state corruption issues with --pool=solo.
+    """
+    import subprocess
+    import os
+    import signal
+
+    # ALWAYS kill existing worker to ensure fresh state
+    is_active, existing_pid = _is_steering_worker_running()
+    if is_active and existing_pid:
+        logger.info(f"Killing existing steering worker PID {existing_pid} for fresh start")
+        try:
+            os.kill(existing_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # Already dead
+        except Exception as e:
+            logger.warning(f"Could not kill worker {existing_pid}: {e}")
+
+        # Also kill by pattern to catch orphans
+        try:
+            subprocess.run(["pkill", "-9", "-f", "steering@"], timeout=5, capture_output=True)
+        except Exception:
+            pass
+
+        # Wait for process to fully terminate
+        await asyncio.sleep(1)
+
+    # Clean up stale PID file
+    if os.path.exists(PID_FILE):
+        try:
+            os.remove(PID_FILE)
+        except Exception:
+            pass
+
+    # Start new steering worker
+    backend_dir = settings.data_dir.parent  # /home/x-sean/app/miStudio/backend
+
+    try:
+        # CUDA_VISIBLE_DEVICES=0 restricts to first GPU only
+        start_cmd = (
+            f"cd {backend_dir} && source venv/bin/activate && "
+            f"CUDA_VISIBLE_DEVICES=0 celery -A src.core.celery_app worker "
+            f"-Q steering -c 1 --pool=solo --loglevel=info "
+            f'--hostname="steering@%h" --max-tasks-per-child=1 '
+            f'--pidfile="{PID_FILE}" > "{STEERING_LOG}" 2>&1'
+        )
+
+        # Start process in background
+        subprocess.Popen(
+            start_cmd,
+            shell=True,
+            executable="/bin/bash",
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        # Wait for worker to initialize
+        for i in range(10):  # Try for 10 seconds
+            await asyncio.sleep(1)
+            is_running, pid = _is_steering_worker_running()
+            if is_running:
+                logger.info(f"Auto-started steering worker PID {pid}")
+                return True, pid
+
+        logger.error("Failed to auto-start steering worker within 10s")
+        return False, None
+
+    except Exception as e:
+        logger.error(f"Failed to auto-start steering worker: {e}")
+        return False, None
+
+
 @router.get("/mode")
 async def get_steering_mode_status():
     """
@@ -335,9 +416,10 @@ async def enter_steering_mode():
     try:
         # Use Popen to start worker in background without waiting
         # This avoids timeout issues with subprocess.run
+        # CUDA_VISIBLE_DEVICES=0 restricts to first GPU only
         start_cmd = (
             f"cd {backend_dir} && source venv/bin/activate && "
-            f"celery -A src.core.celery_app worker "
+            f"CUDA_VISIBLE_DEVICES=0 celery -A src.core.celery_app worker "
             f"-Q steering -c 1 --pool=solo --loglevel=info "
             f'--hostname="steering@%h" --max-tasks-per-child=1 '
             f'--pidfile="{PID_FILE}" > "{STEERING_LOG}" 2>&1'
@@ -494,6 +576,10 @@ async def submit_async_steering_comparison(
     2. Or poll GET /steering/async/result/{task_id}
 
     Rate limited to 5 requests per minute per client.
+
+    NOTE: The steering worker automatically exits after each task to ensure
+    a fresh Python/CUDA environment. This endpoint auto-starts the worker
+    if it's not running.
     """
     from datetime import datetime
     from ....workers.steering_tasks import steering_compare_task
@@ -506,6 +592,14 @@ async def submit_async_steering_comparison(
             429,
             f"Rate limit exceeded. Try again in {retry_after} seconds.",
             headers={"Retry-After": str(retry_after)},
+        )
+
+    # Ensure steering worker is running (it exits after each task)
+    worker_ok, worker_pid = await _ensure_steering_worker_running()
+    if not worker_ok:
+        raise HTTPException(
+            503,
+            "Steering worker failed to start. Check server logs for details.",
         )
 
     # Get SAE from database
@@ -592,6 +686,10 @@ async def submit_async_strength_sweep(
     Submit an async strength sweep task.
 
     Similar to /async/compare but for strength sweeps.
+
+    NOTE: The steering worker automatically exits after each task to ensure
+    a fresh Python/CUDA environment. This endpoint auto-starts the worker
+    if it's not running.
     """
     from datetime import datetime
     from ....workers.steering_tasks import steering_sweep_task
@@ -604,6 +702,14 @@ async def submit_async_strength_sweep(
             429,
             f"Rate limit exceeded. Try again in {retry_after} seconds.",
             headers={"Retry-After": str(retry_after)},
+        )
+
+    # Ensure steering worker is running (it exits after each task)
+    worker_ok, worker_pid = await _ensure_steering_worker_running()
+    if not worker_ok:
+        raise HTTPException(
+            503,
+            "Steering worker failed to start. Check server logs for details.",
         )
 
     # Get SAE from database

@@ -20,6 +20,8 @@ from ....schemas.model import (
     ModelResponse,
     ModelListResponse,
     ModelDownloadRequest,
+    ModelRedownloadRequest,
+    ModelRedownloadResponse,
     ActivationExtractionRequest,
     ExtractionCancelResponse,
     ExtractionRetryRequest,
@@ -88,6 +90,120 @@ async def download_model(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to initiate model download: {str(e)}"
+        )
+
+
+@router.post("/{model_id}/redownload", response_model=ModelRedownloadResponse, status_code=202)
+async def redownload_model(
+    model_id: str,
+    request: ModelRedownloadRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Re-download a model with different quantization.
+
+    This endpoint allows changing a model's quantization without losing references
+    from trainings and tokenizations. It:
+    1. Deletes existing model files from disk
+    2. Updates the model record with new quantization and DOWNLOADING status
+    3. Queues a new download job with the requested quantization
+
+    Args:
+        model_id: Model ID to re-download
+        request: Re-download request with new quantization
+        db: Database session
+
+    Returns:
+        Re-download confirmation with old/new quantization
+
+    Raises:
+        HTTPException: If model not found, not ready, or already downloading
+    """
+    import shutil
+    from pathlib import Path
+
+    # Get model
+    model = await ModelService.get_model(db, model_id)
+
+    if not model:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_id}' not found"
+        )
+
+    # Check if model is in a re-downloadable state (must be READY or ERROR)
+    if model.status not in [ModelStatus.READY, ModelStatus.ERROR]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model_id}' cannot be re-downloaded (status: {model.status.value}). "
+                   f"Only models with status READY or ERROR can be re-downloaded."
+        )
+
+    # Must have repo_id to re-download
+    if not model.repo_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model_id}' cannot be re-downloaded: no repo_id stored"
+        )
+
+    old_quantization = model.quantization.value
+    new_quantization = request.quantization.value
+
+    try:
+        # Delete existing model files
+        if model.file_path:
+            file_path = Path(model.file_path)
+            if file_path.exists():
+                logger.info(f"Deleting existing model files: {file_path}")
+                shutil.rmtree(file_path)
+
+        if model.quantized_path:
+            quantized_path = Path(model.quantized_path)
+            if quantized_path.exists():
+                logger.info(f"Deleting existing quantized files: {quantized_path}")
+                shutil.rmtree(quantized_path)
+
+        # Update model record
+        from ....models.model import Model
+
+        # Direct database update for status and quantization
+        model.status = ModelStatus.DOWNLOADING
+        model.quantization = request.quantization
+        model.progress = 0.0
+        model.error_message = None
+        await db.commit()
+        await db.refresh(model)
+
+        # Queue download job with Celery
+        download_and_load_model.delay(
+            model_id=model.id,
+            repo_id=model.repo_id,
+            quantization=new_quantization,
+            access_token=request.access_token,
+            trust_remote_code=request.trust_remote_code
+        )
+
+        logger.info(
+            f"Initiated re-download for model {model_id}: "
+            f"{old_quantization} -> {new_quantization}"
+        )
+
+        return ModelRedownloadResponse(
+            model_id=model_id,
+            repo_id=model.repo_id,
+            old_quantization=old_quantization,
+            new_quantization=new_quantization,
+            status="downloading",
+            message=f"Re-downloading model with {new_quantization} quantization"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to initiate re-download for model {model_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initiate model re-download: {str(e)}"
         )
 
 

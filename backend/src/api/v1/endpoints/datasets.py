@@ -373,6 +373,12 @@ async def download_dataset(
     Raises:
         HTTPException: If dataset already exists or download fails
     """
+    # Debug: Log token presence (using print for visibility)
+    token_provided = bool(request.access_token and request.access_token.strip())
+    token_length = len(request.access_token) if request.access_token else 0
+    print(f"[DATASET DOWNLOAD API] repo={request.repo_id}, token_provided={token_provided}, token_length={token_length}")
+    logger.info(f"[Dataset Download] repo={request.repo_id}, token_provided={token_provided}, token_length={token_length}")
+
     # Check if dataset already exists
     existing = await DatasetService.get_dataset_by_repo_id(db, request.repo_id)
     if existing:

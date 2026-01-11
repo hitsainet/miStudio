@@ -121,6 +121,16 @@ def download_dataset_task(
     Returns:
         dict: Download result with dataset path and statistics
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Debug: Log token presence in celery task
+    token_provided = bool(access_token and access_token.strip())
+    logger.info(f"[Dataset Task] Starting download: repo={repo_id}, token_provided={token_provided}, "
+                f"token_length={len(access_token) if access_token else 0}")
+    print(f"[Dataset Task] Starting download: repo={repo_id}, token_provided={token_provided}, "
+          f"token_length={len(access_token) if access_token else 0}")
+
     try:
         dataset_uuid = UUID(dataset_id)
 
@@ -317,8 +327,28 @@ def download_dataset_task(
         }
 
     except Exception as e:
-        # Handle errors
-        error_message = f"Download failed: {str(e)}"
+        # Handle errors with better messages for common issues
+        error_str = str(e)
+
+        # Detect gated repository errors (401 Unauthorized)
+        if "401" in error_str or "Unauthorized" in error_str or "gated" in error_str.lower():
+            error_message = (
+                f"Access denied for {repo_id}. This dataset requires you to accept its license agreement "
+                f"on HuggingFace's website first. Visit https://huggingface.co/datasets/{repo_id} and click "
+                f"'Agree and access repository', then retry with your token."
+            )
+        # Detect invalid token
+        elif "Invalid token" in error_str or "Invalid credentials" in error_str:
+            error_message = (
+                f"Invalid HuggingFace token. Please check your token at https://huggingface.co/settings/tokens "
+                f"and ensure it has 'read' permissions."
+            )
+        # Detect repository not found
+        elif "404" in error_str or "not found" in error_str.lower():
+            error_message = f"Dataset '{repo_id}' not found. Please check the repository ID is correct."
+        else:
+            error_message = f"Download failed: {error_str}"
+
         print(f"Dataset download error: {error_message}")
 
         with self.get_db() as db:
@@ -674,22 +704,91 @@ def tokenize_dataset_task(
 
         schema_info = TokenizationService.analyze_dataset_schema(dataset)
 
+        # Log schema information (detailed for debugging)
+        print(f"Dataset schema analysis:")
+        print(f"  Available text columns: {schema_info['text_columns']}")
+        print(f"  List/sequence columns: {schema_info.get('list_columns', [])}")
+        print(f"  Conversation columns detected: {len(schema_info.get('conversation_columns', []))}")
+        print(f"  Requires preprocessing: {schema_info.get('requires_preprocessing', False)}")
+        print(f"  All columns: {schema_info['all_columns']}")
+        print(f"  Column types: {schema_info['column_info']}")
+
+        # Log any warnings from schema analysis
+        for warning in schema_info.get('warnings', []):
+            print(f"  [WARNING] {warning}")
+            logger.warning(f"Schema analysis warning: {warning}")
+
+        # Log suggestions
+        for suggestion in schema_info.get('suggestions', []):
+            print(f"  [SUGGESTION] {suggestion}")
+
         # Validate that we have a text column to tokenize
         if not schema_info['recommended_column']:
             raise ValueError(
                 f"No suitable text column found in dataset. "
                 f"Available columns: {schema_info['all_columns']}. "
                 f"Column types: {schema_info['column_info']}. "
-                f"Please ensure the dataset has at least one string-type column."
+                f"Please ensure the dataset has at least one string-type column "
+                f"or a conversation column with recognized format (OpenAI, ShareGPT, etc.)."
             )
 
-        text_column = schema_info['recommended_column']
+        # Handle conversation datasets that need preprocessing
+        if schema_info.get('requires_preprocessing') and schema_info.get('preprocessing_config'):
+            preprocessing_config = schema_info['preprocessing_config']
 
-        # Log schema information
-        print(f"Dataset schema analysis:")
-        print(f"  Available text columns: {schema_info['text_columns']}")
-        print(f"  Selected column: {text_column}")
-        print(f"  All columns: {schema_info['all_columns']}")
+            print(f"Dataset requires conversation preprocessing:")
+            print(f"  Source column: {preprocessing_config['source_column']}")
+            print(f"  Format: {preprocessing_config['format']}")
+            print(f"  Text key: {preprocessing_config['text_key']}")
+            print(f"  Role key: {preprocessing_config['role_key']}")
+
+            # Update task state
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'current': 35,
+                    'total': 100,
+                    'percent': 35.0,
+                    'status': f"Preprocessing conversations from '{preprocessing_config['source_column']}'..."
+                }
+            )
+
+            with self.get_db() as db:
+                tokenization_obj = db.query(DatasetTokenization).filter_by(id=tokenization_id).first()
+                if tokenization_obj:
+                    tokenization_obj.progress = 35.0
+                    db.commit()
+
+            # Create progress callback for preprocessing
+            def preprocessing_progress(pct, msg):
+                print(f"[PREPROCESS] {msg} ({pct:.1f}%)")
+                emit_tokenization_progress(
+                    dataset_id=dataset_id,
+                    tokenization_id=tokenization_id,
+                    progress=30.0 + (pct / 100.0 * 10.0),  # Map 0-100% to 30-40%
+                    stage="preprocessing",
+                    samples_processed=0,
+                    total_samples=len(dataset),
+                    started_at=started_at,
+                    elapsed_seconds=time.time() - start_time,
+                )
+
+            # Preprocess the dataset to extract text from conversations
+            dataset = TokenizationService.preprocess_conversation_dataset(
+                dataset=dataset,
+                preprocessing_config=preprocessing_config,
+                progress_callback=preprocessing_progress,
+            )
+
+            # After preprocessing, use the output column for tokenization
+            text_column = preprocessing_config.get('output_column', 'text')
+            print(f"Preprocessing complete. Using '{text_column}' column for tokenization.")
+
+        else:
+            # No preprocessing needed - use recommended column directly
+            text_column = schema_info['recommended_column']
+
+        print(f"Final text column for tokenization: {text_column}")
         print(f"  Is multi-column: {schema_info['is_multi_column']}")
 
         # Update Celery task state: Starting tokenization

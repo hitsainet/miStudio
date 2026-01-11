@@ -101,6 +101,29 @@ class ModelDownloadRequest(BaseModel):
         return v
 
 
+class ModelRedownloadRequest(BaseModel):
+    """Schema for re-downloading a model with different quantization.
+
+    This allows updating a model's quantization without losing references
+    from trainings and tokenizations.
+    """
+
+    quantization: QuantizationFormat = Field(..., description="New quantization format")
+    access_token: Optional[str] = Field(None, description="HuggingFace access token for gated models")
+    trust_remote_code: bool = Field(False, description="Trust remote code in model repository")
+
+
+class ModelRedownloadResponse(BaseModel):
+    """Response schema for model re-download initiation."""
+
+    model_id: str = Field(..., description="Model ID")
+    repo_id: str = Field(..., description="HuggingFace repository ID")
+    old_quantization: str = Field(..., description="Previous quantization format")
+    new_quantization: str = Field(..., description="New quantization format being downloaded")
+    status: str = Field(..., description="Current status (downloading)")
+    message: str = Field(..., description="Status message")
+
+
 class ActivationExtractionRequest(BaseModel):
     """Schema for activation extraction request."""
 

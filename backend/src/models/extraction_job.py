@@ -55,6 +55,9 @@ class ExtractionJob(Base):
     config = Column(JSONB, nullable=False)
     # Contains: {evaluation_samples: int, top_k_examples: int}
 
+    # Layer selection for multi-layer trainings
+    layer_index = Column(Integer, nullable=True)  # Layer index (e.g., 10, 17, 24)
+
     # Token filtering configuration (per-job) - matches labeling filter structure
     # These filters control which tokens are stored in FeatureActivation records during extraction
     filter_special = Column(Boolean, nullable=False, default=True, server_default='true')  # Filter special tokens (<s>, </s>, etc.)

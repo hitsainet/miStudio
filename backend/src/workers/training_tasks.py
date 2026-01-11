@@ -1062,10 +1062,7 @@ def train_sae_task(
                     }
                 )
 
-                # Use first layer's checkpoint path for database record
-                checkpoint_path = checkpoint_paths[training_layers[0]]
-
-                # Create checkpoint record (using aggregated metrics)
+                # Create checkpoint record for EACH layer (multi-layer support)
                 with self.get_db() as db:
                     from ..models.checkpoint import Checkpoint
                     from uuid import uuid4
@@ -1082,35 +1079,44 @@ def train_sae_task(
                         for ckpt in prev_best:
                             ckpt.is_best = False
 
-                    checkpoint_id = f"ckpt_{uuid4().hex[:8]}"
-                    checkpoint = Checkpoint(
-                        id=checkpoint_id,
-                        training_id=training_id,
-                        step=step,
-                        loss=avg_loss,
-                        l0_sparsity=avg_sparsity,
-                        storage_path=checkpoint_path,
-                        is_best=is_best,
-                        extra_metadata={
-                            'num_layers': num_layers,
-                            'training_layers': training_layers,
-                            'layer_losses': {str(k): v for k, v in layer_losses.items()},
-                        },
-                    )
-                    db.add(checkpoint)
+                    # Create a checkpoint record for each layer
+                    for layer_idx in training_layers:
+                        checkpoint_path = checkpoint_paths[layer_idx]
+                        layer_loss = layer_losses.get(layer_idx, avg_loss)
+                        layer_sparsity = layer_sparsities.get(layer_idx, avg_sparsity)
+
+                        checkpoint_id = f"ckpt_{uuid4().hex[:8]}"
+                        checkpoint = Checkpoint(
+                            id=checkpoint_id,
+                            training_id=training_id,
+                            step=step,
+                            loss=layer_loss,
+                            l0_sparsity=layer_sparsity,
+                            storage_path=checkpoint_path,
+                            is_best=is_best,
+                            extra_metadata={
+                                'layer_idx': layer_idx,
+                                'num_layers': num_layers,
+                                'training_layers': training_layers,
+                                'avg_loss': avg_loss,
+                                'avg_sparsity': avg_sparsity,
+                            },
+                        )
+                        db.add(checkpoint)
+
+                        logger.info(f"Checkpoint saved: {checkpoint_id} layer={layer_idx} (is_best={is_best})")
+
                     db.commit()
 
-                    logger.info(f"Checkpoint saved: {checkpoint_id} (is_best={is_best})")
-
-                    # Emit checkpoint:created WebSocket event
+                    # Emit checkpoint:created WebSocket event (use first layer for backward compat)
                     from ..workers.websocket_emitter import emit_checkpoint_created
                     emit_checkpoint_created(
                         training_id=training_id,
-                        checkpoint_id=checkpoint_id,
+                        checkpoint_id=checkpoint_id,  # Last created checkpoint ID
                         step=step,
                         loss=avg_loss,
                         is_best=is_best,
-                        storage_path=checkpoint_path,
+                        storage_path=checkpoint_paths[training_layers[0]],
                     )
 
                 logger.info(f"Saved checkpoint at step {step} (best={is_best})")

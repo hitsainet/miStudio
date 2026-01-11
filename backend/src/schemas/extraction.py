@@ -18,6 +18,14 @@ class ExtractionConfigRequest(BaseModel):
     """
     model_config = ConfigDict(from_attributes=True)
 
+    # Layer selection for multi-layer trainings
+    layer_index: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Layer index to extract from (for multi-layer trainings). If not specified, uses the first available layer."
+    )
+
     evaluation_samples: int = Field(
         default=10000,
         ge=1000,
@@ -104,6 +112,7 @@ class ExtractionStatusResponse(BaseModel):
     model_name: Optional[str] = None
     dataset_name: Optional[str] = None
     sae_name: Optional[str] = None  # Name of external SAE (when applicable)
+    layer_index: Optional[int] = None  # Layer index for multi-layer trainings
     status: str
     progress: Optional[float] = None
     features_extracted: Optional[int] = None

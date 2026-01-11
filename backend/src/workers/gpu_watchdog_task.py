@@ -35,17 +35,22 @@ class GPUProcessInfo:
 # Track when we first saw each process using GPU
 _process_first_seen: Dict[int, datetime] = {}
 
-# Threshold for warning about long-running processes (5 minutes)
-LONG_RUNNING_THRESHOLD_SECONDS = 300
+# Threshold for warning about long-running processes (30 minutes)
+# Training and extraction tasks legitimately run for hours
+LONG_RUNNING_THRESHOLD_SECONDS = 1800
 
-# Threshold for critical warning (30 minutes)
-CRITICAL_THRESHOLD_SECONDS = 1800
+# Threshold for critical warning (2 hours)
+# Only warn if a process has been using GPU for very long
+CRITICAL_THRESHOLD_SECONDS = 7200
 
-# Threshold for automatic kill (10 minutes for steering tasks)
-KILL_THRESHOLD_SECONDS = 600
+# Threshold for automatic kill (4 hours)
+# Only kill truly stuck processes after very long time
+# Note: Training jobs can run for 10+ hours, so we set this very high
+KILL_THRESHOLD_SECONDS = 14400  # 4 hours
 
 # Enable automatic killing of stuck processes
-ENABLE_AUTO_KILL = True
+# Disabled by default - only kill zombies, not long-running legitimate tasks
+ENABLE_AUTO_KILL = False
 
 
 def get_gpu_processes() -> List[GPUProcessInfo]:
@@ -267,21 +272,23 @@ def gpu_watchdog_task(self):
                 continue
 
             # Check for processes that exceed kill threshold
+            # Only kill processes that appear truly stuck (near-zero CPU for extended periods)
             if ENABLE_AUTO_KILL and proc.duration_seconds >= KILL_THRESHOLD_SECONDS:
                 cpu_percent = get_process_cpu_percent(proc.pid)
 
-                # Only kill if it looks stuck (high CPU but no GPU utilization)
-                # or if it's been running way too long
-                should_kill = (
-                    proc.duration_seconds >= KILL_THRESHOLD_SECONDS * 2 or  # 20 min = always kill
-                    (cpu_percent is not None and cpu_percent > 50)  # High CPU with no progress = stuck
+                # Only kill if it looks truly stuck:
+                # - Very low CPU (< 1%) indicates a frozen/stuck process
+                # - High CPU means the process is actively working, don't kill
+                # - None means we couldn't get CPU info, err on side of not killing
+                is_truly_stuck = (
+                    cpu_percent is not None and cpu_percent < 1.0
                 )
 
-                if should_kill:
+                if is_truly_stuck:
                     if kill_stuck_process(
                         proc.pid,
                         proc.name,
-                        f"Exceeded {KILL_THRESHOLD_SECONDS}s threshold, CPU={cpu_percent}%"
+                        f"Exceeded {KILL_THRESHOLD_SECONDS}s threshold with near-zero CPU={cpu_percent}%"
                     ):
                         killed.append(proc)
                     continue

@@ -2,17 +2,28 @@
 Tokenization service for dataset processing.
 
 This module provides services for tokenizing datasets using HuggingFace tokenizers.
+It includes intelligent schema detection for various dataset formats including
+conversation datasets (OpenAI, ShareGPT, LMSYS, etc.).
 """
 
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple, Callable
 import numpy as np
-from datasets import load_from_disk, Dataset as HFDataset
+from datasets import load_from_disk, Dataset as HFDataset, Sequence, Value
 from transformers import AutoTokenizer
 
 from ..core.config import settings
 from ..utils.text_cleaning import TextCleaner, get_standard_cleaner
+from ..utils.conversation_formats import (
+    ConversationFormat,
+    ConversationColumnInfo,
+    SchemaAnalysisResult,
+    detect_conversation_format,
+    analyze_column_for_conversation,
+    create_conversation_preprocessor,
+    get_format_recommendations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +200,9 @@ class TokenizationService:
         """
         Analyze the schema of a dataset to identify text columns and structure.
 
+        This method detects both simple text columns and complex conversation
+        formats (OpenAI, ShareGPT, LMSYS, etc.).
+
         Args:
             dataset: HuggingFace dataset to analyze
 
@@ -198,41 +212,298 @@ class TokenizationService:
                 - column_info: Dict mapping column names to their types
                 - recommended_column: Best column to use for tokenization
                 - is_multi_column: Whether dataset has multiple text columns
+                - conversation_columns: List of detected conversation column info
+                - requires_preprocessing: Whether preprocessing is needed
+                - preprocessing_config: Suggested preprocessing configuration
+                - warnings: List of warning messages
+                - suggestions: List of user-facing suggestions
         """
         text_columns = []
+        list_columns = []
         column_info = {}
+        conversation_columns = []
+        warnings = []
+        suggestions = []
 
         # Analyze each column's feature type
         for col_name, feature in dataset.features.items():
-            dtype = feature.dtype if hasattr(feature, 'dtype') else 'unknown'
-            column_info[col_name] = str(dtype)
+            # Get the dtype - handle different feature types
+            if hasattr(feature, 'dtype'):
+                dtype = feature.dtype
+                column_info[col_name] = str(dtype)
 
-            # Identify string/text columns
-            if dtype == 'string':
-                text_columns.append(col_name)
+                # Identify string/text columns
+                if dtype == 'string':
+                    text_columns.append(col_name)
 
-        # Determine recommended column based on common patterns
+            elif isinstance(feature, Sequence):
+                # This is a list/sequence column - could be conversation data
+                column_info[col_name] = f"Sequence({feature.feature})"
+                list_columns.append(col_name)
+
+            elif str(type(feature).__name__) == 'list':
+                # Alternative way lists are represented
+                column_info[col_name] = "list"
+                list_columns.append(col_name)
+
+            else:
+                # Unknown type - record it
+                column_info[col_name] = str(type(feature).__name__)
+
+        # Analyze list columns for conversation formats
+        logger.info(f"Found {len(list_columns)} list/sequence columns to analyze for conversation formats")
+        for col_name in list_columns:
+            try:
+                conv_info = analyze_column_for_conversation(dataset, col_name, num_samples=10)
+                if conv_info.format != ConversationFormat.NOT_CONVERSATION:
+                    conversation_columns.append(conv_info)
+                    logger.info(
+                        f"Detected conversation format in '{col_name}': {conv_info.format.value} "
+                        f"(confidence: {conv_info.confidence:.0%})"
+                    )
+            except Exception as e:
+                logger.warning(f"Error analyzing column {col_name} for conversation format: {e}")
+
+        # Determine recommended column based on priority:
+        # 1. High-confidence conversation columns (need preprocessing)
+        # 2. Standard text columns with common names
+        # 3. Any text column
+        # 4. Any conversation column (even low confidence)
+
         recommended_column = None
-        if 'text' in text_columns:
-            # Prefer 'text' column if it exists (most common)
-            recommended_column = 'text'
-        elif 'content' in text_columns:
-            # Second preference: 'content'
-            recommended_column = 'content'
-        elif 'chosen' in text_columns:
-            # For RLHF datasets, prefer 'chosen' over 'rejected'
-            recommended_column = 'chosen'
+        requires_preprocessing = False
+        preprocessing_config = None
+
+        # Priority 1: High-confidence conversation columns
+        high_confidence_convs = [c for c in conversation_columns if c.confidence >= 0.7]
+        if high_confidence_convs:
+            # Prefer columns named 'conversation', 'messages', 'chat'
+            priority_names = ['conversation', 'messages', 'chat', 'dialog', 'dialogue']
+            best_conv = None
+            for name in priority_names:
+                for conv in high_confidence_convs:
+                    if conv.column_name.lower() == name:
+                        best_conv = conv
+                        break
+                if best_conv:
+                    break
+
+            if not best_conv:
+                # Use highest confidence conversation column
+                best_conv = max(high_confidence_convs, key=lambda x: x.confidence)
+
+            recommended_column = best_conv.column_name
+            requires_preprocessing = True
+            preprocessing_config = {
+                "type": "conversation",
+                "source_column": best_conv.column_name,
+                "format": best_conv.format.value,
+                "text_key": best_conv.text_key,
+                "role_key": best_conv.role_key,
+                "include_roles": True,
+                "output_column": "text",
+            }
+
+            suggestions.append(
+                f"Detected {best_conv.format.value} conversation format in '{best_conv.column_name}'. "
+                f"Text will be automatically extracted from conversations."
+            )
+            if best_conv.sample_roles:
+                suggestions.append(f"Detected roles: {', '.join(best_conv.sample_roles)}")
+            if best_conv.avg_turns > 0:
+                suggestions.append(f"Average conversation length: {best_conv.avg_turns:.1f} turns")
+
+        # Priority 2 & 3: Standard text columns
         elif text_columns:
-            # Otherwise, use first available text column
-            recommended_column = text_columns[0]
+            if 'text' in text_columns:
+                recommended_column = 'text'
+            elif 'content' in text_columns:
+                recommended_column = 'content'
+            elif 'chosen' in text_columns:
+                recommended_column = 'chosen'
+                suggestions.append(
+                    "Detected RLHF-style dataset with 'chosen' column. "
+                    "Using 'chosen' responses for tokenization."
+                )
+            else:
+                recommended_column = text_columns[0]
+
+        # Priority 4: Any conversation column (fallback)
+        elif conversation_columns:
+            best_conv = max(conversation_columns, key=lambda x: x.confidence)
+            recommended_column = best_conv.column_name
+            requires_preprocessing = True
+            preprocessing_config = {
+                "type": "conversation",
+                "source_column": best_conv.column_name,
+                "format": best_conv.format.value,
+                "text_key": best_conv.text_key,
+                "role_key": best_conv.role_key,
+                "include_roles": True,
+                "output_column": "text",
+            }
+            warnings.append(
+                f"Using conversation column '{best_conv.column_name}' with low confidence "
+                f"({best_conv.confidence:.0%}). Please verify the extraction results."
+            )
+
+        # Generate warnings if no suitable columns found
+        if not recommended_column:
+            warnings.append(
+                "No suitable text or conversation columns detected! "
+                f"Available columns: {', '.join(dataset.column_names)}"
+            )
+            # Check if there are list columns that weren't recognized
+            if list_columns:
+                warnings.append(
+                    f"Found list columns {list_columns} but couldn't detect conversation format. "
+                    "Please manually inspect the data structure."
+                )
+
+        # Warn about potential ID columns being selected
+        if recommended_column and not requires_preprocessing:
+            # Check if the recommended column might be an ID column
+            id_indicators = ['id', 'uuid', 'guid', 'key', 'idx', 'index']
+            if any(ind in recommended_column.lower() for ind in id_indicators):
+                warnings.append(
+                    f"WARNING: Selected column '{recommended_column}' may contain IDs rather than text content. "
+                    "Please verify this is the correct column for tokenization."
+                )
+
+        # Convert conversation column info to serializable format
+        conversation_columns_serialized = []
+        for conv in conversation_columns:
+            conversation_columns_serialized.append({
+                "column_name": conv.column_name,
+                "format": conv.format.value,
+                "confidence": conv.confidence,
+                "sample_roles": conv.sample_roles,
+                "avg_turns": conv.avg_turns,
+                "text_key": conv.text_key,
+                "role_key": conv.role_key,
+                "description": conv.description,
+                "extraction_hint": conv.extraction_hint,
+            })
 
         return {
             'text_columns': text_columns,
+            'list_columns': list_columns,
             'column_info': column_info,
             'recommended_column': recommended_column,
             'is_multi_column': len(text_columns) > 1,
             'all_columns': list(dataset.column_names),
+            'conversation_columns': conversation_columns_serialized,
+            'requires_preprocessing': requires_preprocessing,
+            'preprocessing_config': preprocessing_config,
+            'warnings': warnings,
+            'suggestions': suggestions,
         }
+
+    @staticmethod
+    def preprocess_conversation_dataset(
+        dataset: HFDataset,
+        preprocessing_config: Dict[str, Any],
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        batch_size: int = 1000,
+        num_proc: Optional[int] = None,
+    ) -> HFDataset:
+        """
+        Preprocess a conversation dataset by extracting text from conversations.
+
+        This method flattens conversation data into a single text column that can
+        then be tokenized normally.
+
+        Args:
+            dataset: HuggingFace dataset with conversation column
+            preprocessing_config: Configuration from analyze_dataset_schema
+            progress_callback: Optional callback for progress updates
+            batch_size: Batch size for processing
+            num_proc: Number of processes (None = auto)
+
+        Returns:
+            Preprocessed dataset with 'text' column containing flattened conversations
+        """
+        source_column = preprocessing_config.get("source_column")
+        format_str = preprocessing_config.get("format", "openai")
+        text_key = preprocessing_config.get("text_key", "content")
+        role_key = preprocessing_config.get("role_key", "role")
+        include_roles = preprocessing_config.get("include_roles", True)
+        output_column = preprocessing_config.get("output_column", "text")
+
+        # Map format string to enum
+        format_mapping = {
+            "openai": ConversationFormat.OPENAI,
+            "sharegpt": ConversationFormat.SHAREGPT,
+            "simple_list": ConversationFormat.SIMPLE_LIST,
+        }
+        conv_format = format_mapping.get(format_str, ConversationFormat.OPENAI)
+
+        logger.info(
+            f"Preprocessing conversation dataset: column='{source_column}', "
+            f"format={conv_format.value}, include_roles={include_roles}"
+        )
+
+        if progress_callback:
+            progress_callback(5.0, f"Preprocessing conversations from '{source_column}'...")
+
+        # Default role mappings for normalization
+        role_mapping = {
+            "human": "user",
+            "gpt": "assistant",
+            "bot": "assistant",
+            "ai": "assistant",
+            "model": "assistant",
+        }
+
+        # Role template for formatting
+        role_template = "<|{role}|>\n{content}\n"
+
+        def extract_text_batch(examples):
+            """Extract text from a batch of conversations."""
+            from ..utils.conversation_formats import extract_text_from_conversation
+
+            texts = []
+            conversations = examples[source_column]
+
+            for conv in conversations:
+                text = extract_text_from_conversation(
+                    conversation=conv,
+                    format=conv_format,
+                    include_roles=include_roles,
+                    role_template=role_template,
+                    join_separator="\n",
+                    role_mapping=role_mapping,
+                )
+                texts.append(text)
+
+            return {output_column: texts}
+
+        # Auto-detect number of processes
+        if num_proc is None:
+            import os
+            num_proc = max(1, os.cpu_count() // 2)
+
+        # Process the dataset
+        total_samples = len(dataset)
+        logger.info(f"Extracting text from {total_samples:,} conversations using {num_proc} process(es)")
+
+        preprocessed_dataset = dataset.map(
+            extract_text_batch,
+            batched=True,
+            batch_size=batch_size,
+            num_proc=num_proc,
+            desc="Extracting conversation text",
+        )
+
+        if progress_callback:
+            progress_callback(35.0, f"Preprocessed {total_samples:,} conversations")
+
+        # Log sample of extracted text for verification
+        if len(preprocessed_dataset) > 0:
+            sample_text = preprocessed_dataset[0][output_column][:500]
+            logger.info(f"Sample extracted text (first 500 chars): {sample_text}")
+
+        return preprocessed_dataset
 
     @staticmethod
     def load_tokenizer(tokenizer_name: str, use_fast: bool = True, cache_dir: str = None):

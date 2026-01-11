@@ -281,6 +281,16 @@ class TrainingService:
         import asyncio
         await asyncio.sleep(0.2)
 
+        # Helper to run emit in thread pool (prevents blocking async event loop)
+        async def emit_async(training_id: str, task: str, status: str, message: str, count: int = None):
+            """Run emit_deletion_progress in thread pool to avoid blocking async loop."""
+            try:
+                await asyncio.to_thread(emit_deletion_progress, training_id, task, status, message, count)
+            except Exception as e:
+                # Log but don't fail deletion on emit errors
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to emit deletion progress: {e}")
+
         # Capture training directory path before deletion
         # Training directory structure: /data/trainings/{training_id}/
         # checkpoint_dir is: /data/trainings/{training_id}/checkpoints/
@@ -293,7 +303,7 @@ class TrainingService:
 
         # Manual deletion with progress tracking
         # Step 1: Delete extraction jobs
-        emit_deletion_progress(training_id, "extractions", "in_progress", "Deleting extraction jobs...")
+        await emit_async(training_id, "extractions", "in_progress", "Deleting extraction jobs...")
         extraction_count_result = await db.execute(
             select(func.count()).select_from(ExtractionJob).where(ExtractionJob.training_id == training_id)
         )
@@ -304,12 +314,12 @@ class TrainingService:
                 {"training_id": training_id}
             )
             await db.commit()
-            emit_deletion_progress(training_id, "extractions", "completed", f"Deleted {extraction_count} extraction job(s)", extraction_count)
+            await emit_async(training_id, "extractions", "completed", f"Deleted {extraction_count} extraction job(s)", extraction_count)
         else:
-            emit_deletion_progress(training_id, "extractions", "completed", "No extraction jobs to delete")
+            await emit_async(training_id, "extractions", "completed", "No extraction jobs to delete")
 
         # Step 2: Delete checkpoints
-        emit_deletion_progress(training_id, "checkpoints", "in_progress", "Deleting checkpoints...")
+        await emit_async(training_id, "checkpoints", "in_progress", "Deleting checkpoints...")
         checkpoint_count_result = await db.execute(
             select(func.count()).select_from(Checkpoint).where(Checkpoint.training_id == training_id)
         )
@@ -320,12 +330,12 @@ class TrainingService:
                 {"training_id": training_id}
             )
             await db.commit()
-            emit_deletion_progress(training_id, "checkpoints", "completed", f"Deleted {checkpoint_count} checkpoint(s)", checkpoint_count)
+            await emit_async(training_id, "checkpoints", "completed", f"Deleted {checkpoint_count} checkpoint(s)", checkpoint_count)
         else:
-            emit_deletion_progress(training_id, "checkpoints", "completed", "No checkpoints to delete")
+            await emit_async(training_id, "checkpoints", "completed", "No checkpoints to delete")
 
         # Step 3: Delete training metrics
-        emit_deletion_progress(training_id, "metrics", "in_progress", "Deleting training metrics...")
+        await emit_async(training_id, "metrics", "in_progress", "Deleting training metrics...")
         metrics_count_result = await db.execute(
             select(func.count()).select_from(TrainingMetric).where(TrainingMetric.training_id == training_id)
         )
@@ -336,12 +346,12 @@ class TrainingService:
                 {"training_id": training_id}
             )
             await db.commit()
-            emit_deletion_progress(training_id, "metrics", "completed", f"Deleted {metrics_count} training metric(s)", metrics_count)
+            await emit_async(training_id, "metrics", "completed", f"Deleted {metrics_count} training metric(s)", metrics_count)
         else:
-            emit_deletion_progress(training_id, "metrics", "completed", "No training metrics to delete")
+            await emit_async(training_id, "metrics", "completed", "No training metrics to delete")
 
         # Step 4: Delete features (cascades to activations and analysis cache)
-        emit_deletion_progress(training_id, "features", "in_progress", "Deleting features...")
+        await emit_async(training_id, "features", "in_progress", "Deleting features...")
         from ..models.feature import Feature
         feature_count_result = await db.execute(
             select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
@@ -354,15 +364,15 @@ class TrainingService:
                 {"training_id": training_id}
             )
             await db.commit()
-            emit_deletion_progress(training_id, "features", "completed", f"Deleted {feature_count} feature(s)", feature_count)
+            await emit_async(training_id, "features", "completed", f"Deleted {feature_count} feature(s)", feature_count)
         else:
-            emit_deletion_progress(training_id, "features", "completed", "No features to delete")
+            await emit_async(training_id, "features", "completed", "No features to delete")
 
         # Step 5: Delete training database record
-        emit_deletion_progress(training_id, "database", "in_progress", "Removing training record...")
+        await emit_async(training_id, "database", "in_progress", "Removing training record...")
         await db.delete(db_training)
         await db.commit()
-        emit_deletion_progress(training_id, "database", "completed", "Removed training record")
+        await emit_async(training_id, "database", "completed", "Removed training record")
 
         return {
             "deleted": True,

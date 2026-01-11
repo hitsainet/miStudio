@@ -229,14 +229,97 @@ class ExtractionService:
         if training.status != TrainingStatus.COMPLETED.value:
             raise ValueError(f"Training {training_id} must be completed before extraction")
 
-        # Check if training has at least one checkpoint
-        checkpoint_result = await self.db.execute(
-            select(Checkpoint)
-            .where(Checkpoint.training_id == training_id)
-            .order_by(Checkpoint.step.desc())
-            .limit(1)
-        )
-        latest_checkpoint = checkpoint_result.scalar_one_or_none()
+        # Get layer_index from config (for multi-layer trainings)
+        layer_index = config.get("layer_index")
+
+        # Check if training has checkpoints for the specified layer
+        if layer_index is not None:
+            # Look for checkpoint with specific layer_index in extra_metadata
+            # First try to find by layer_idx in metadata
+            checkpoint_result = await self.db.execute(
+                select(Checkpoint)
+                .where(Checkpoint.training_id == training_id)
+                .order_by(Checkpoint.step.desc())
+            )
+            all_checkpoints = checkpoint_result.scalars().all()
+
+            # Filter checkpoints by layer_idx
+            layer_checkpoints = [
+                cp for cp in all_checkpoints
+                if cp.extra_metadata and cp.extra_metadata.get("layer_idx") == layer_index
+            ]
+
+            if not layer_checkpoints:
+                # Fallback: check if layer exists in the checkpoint path
+                layer_checkpoints = [
+                    cp for cp in all_checkpoints
+                    if f"/layer_{layer_index}/" in (cp.storage_path or "")
+                ]
+
+            if not layer_checkpoints and all_checkpoints:
+                # Fallback for legacy trainings: construct path from existing checkpoint
+                # This handles trainings where only one layer's checkpoint was stored in DB
+                # but all layers exist on disk
+                import re
+                import os
+
+                latest_cp = all_checkpoints[0]  # Already sorted by step desc
+                if latest_cp.storage_path:
+                    # Replace layer_XX with the requested layer
+                    constructed_path = re.sub(
+                        r"/layer_\d+/",
+                        f"/layer_{layer_index}/",
+                        latest_cp.storage_path
+                    )
+                    if os.path.exists(constructed_path):
+                        logger.info(
+                            f"Using legacy fallback: constructed path {constructed_path} "
+                            f"for layer {layer_index} (from checkpoint {latest_cp.id})"
+                        )
+                        # Create a synthetic checkpoint-like object for later use
+                        # We'll use the existing checkpoint but override the storage_path
+                        latest_cp._constructed_path = constructed_path
+                        layer_checkpoints = [latest_cp]
+
+            if not layer_checkpoints:
+                # Get available layers for error message
+                available_layers = set()
+                for cp in all_checkpoints:
+                    if cp.extra_metadata and "layer_idx" in cp.extra_metadata:
+                        available_layers.add(cp.extra_metadata["layer_idx"])
+                    elif cp.extra_metadata and "training_layers" in cp.extra_metadata:
+                        available_layers.update(cp.extra_metadata["training_layers"])
+
+                if available_layers:
+                    raise ValueError(
+                        f"Training {training_id} has no checkpoint for layer {layer_index}. "
+                        f"Available layers: {sorted(available_layers)}"
+                    )
+                else:
+                    raise ValueError(f"Training {training_id} has no checkpoint for layer {layer_index}")
+
+            latest_checkpoint = layer_checkpoints[0]  # Already sorted by step desc
+        else:
+            # No layer specified - get the latest checkpoint (any layer)
+            checkpoint_result = await self.db.execute(
+                select(Checkpoint)
+                .where(Checkpoint.training_id == training_id)
+                .order_by(Checkpoint.step.desc())
+                .limit(1)
+            )
+            latest_checkpoint = checkpoint_result.scalar_one_or_none()
+
+            # Extract layer_index from checkpoint metadata or path
+            if latest_checkpoint:
+                if latest_checkpoint.extra_metadata and "layer_idx" in latest_checkpoint.extra_metadata:
+                    layer_index = latest_checkpoint.extra_metadata["layer_idx"]
+                else:
+                    # Try to extract from path
+                    import re
+                    match = re.search(r"/layer_(\d+)/", latest_checkpoint.storage_path or "")
+                    if match:
+                        layer_index = int(match.group(1))
+
         if not latest_checkpoint:
             raise ValueError(f"Training {training_id} has no checkpoints")
 
@@ -249,6 +332,7 @@ class ExtractionService:
             training_id=training_id,
             status=ExtractionStatus.QUEUED,
             config=config,
+            layer_index=layer_index,  # Layer index for multi-layer trainings
             # Token filtering configuration (matches labeling filter structure)
             filter_special=config.get('filter_special', True),
             filter_single_char=config.get('filter_single_char', True),
@@ -520,6 +604,7 @@ class ExtractionService:
         return {
             "id": extraction_job.id,
             "training_id": extraction_job.training_id,
+            "layer_index": extraction_job.layer_index,  # Layer index for multi-layer trainings
             "status": extraction_job.status,
             "progress": extraction_job.progress,
             "features_extracted": features_extracted,
@@ -666,6 +751,7 @@ class ExtractionService:
                 "model_name": model_name,
                 "dataset_name": dataset_name,
                 "sae_name": sae_name,
+                "layer_index": extraction_job.layer_index,  # Layer index for multi-layer trainings
                 "status": extraction_job.status,
                 "progress": extraction_job.progress,
                 "features_extracted": features_extracted,
@@ -1036,10 +1122,65 @@ class ExtractionService:
             if not training:
                 raise ValueError(f"Training {training_id} not found")
 
-            # Check if training has at least one checkpoint
-            checkpoint = self.db.query(Checkpoint).filter(
-                Checkpoint.training_id == training_id
-            ).order_by(Checkpoint.step.desc()).first()
+            # Get layer_index from extraction_job (for multi-layer trainings)
+            layer_index = extraction_job.layer_index
+
+            # Find checkpoint for the specified layer (or any if not specified)
+            checkpoint_path_override = None  # Will be set if we need to construct path
+
+            if layer_index is not None:
+                # Look for checkpoint with specific layer in metadata or path
+                all_checkpoints = self.db.query(Checkpoint).filter(
+                    Checkpoint.training_id == training_id
+                ).order_by(Checkpoint.step.desc()).all()
+
+                # Filter by layer_idx in metadata
+                layer_checkpoints = [
+                    cp for cp in all_checkpoints
+                    if cp.extra_metadata and cp.extra_metadata.get("layer_idx") == layer_index
+                ]
+
+                if not layer_checkpoints:
+                    # Fallback: check path
+                    layer_checkpoints = [
+                        cp for cp in all_checkpoints
+                        if f"/layer_{layer_index}/" in (cp.storage_path or "")
+                    ]
+
+                if not layer_checkpoints and all_checkpoints:
+                    # Fallback for legacy trainings: construct path from existing checkpoint
+                    # This handles trainings where only one layer's checkpoint was stored in DB
+                    # but all layers exist on disk
+                    import re as re_module
+
+                    latest_cp = all_checkpoints[0]
+                    if latest_cp.storage_path:
+                        # Replace layer_XX with the requested layer
+                        constructed_path = re_module.sub(
+                            r"/layer_\d+/",
+                            f"/layer_{layer_index}/",
+                            latest_cp.storage_path
+                        )
+                        if os.path.exists(constructed_path):
+                            logger.info(
+                                f"Using legacy fallback: constructed path {constructed_path} "
+                                f"for layer {layer_index} (from checkpoint {latest_cp.id})"
+                            )
+                            checkpoint_path_override = constructed_path
+                            layer_checkpoints = [latest_cp]
+
+                if layer_checkpoints:
+                    checkpoint = layer_checkpoints[0]
+                else:
+                    checkpoint = all_checkpoints[0] if all_checkpoints else None
+                    logger.warning(
+                        f"No checkpoint found for layer {layer_index}, using latest checkpoint"
+                    )
+            else:
+                # No layer specified - get latest checkpoint
+                checkpoint = self.db.query(Checkpoint).filter(
+                    Checkpoint.training_id == training_id
+                ).order_by(Checkpoint.step.desc()).first()
 
             if not checkpoint:
                 raise ValueError(f"Training {training_id} has no checkpoints")
@@ -1121,7 +1262,9 @@ class ExtractionService:
             # Task 4.5: Load SAE checkpoint
             logger.info(f"Using latest checkpoint at step {checkpoint.step}")
 
-            logger.info(f"Loading SAE checkpoint from {checkpoint.storage_path}")
+            # Use the override path if we constructed one (for legacy multi-layer trainings)
+            actual_checkpoint_path = checkpoint_path_override or checkpoint.storage_path
+            logger.info(f"Loading SAE checkpoint from {actual_checkpoint_path}")
 
             # Initialize SAE model using factory to support all architectures
             hp = training.hyperparameters
@@ -1144,7 +1287,7 @@ class ExtractionService:
 
             # Load checkpoint weights (device already set at top of function)
             CheckpointService.load_checkpoint(
-                storage_path=checkpoint.storage_path,
+                storage_path=actual_checkpoint_path,
                 model=sae,
                 device=device
             )
@@ -1869,7 +2012,25 @@ class ExtractionService:
             return statistics
 
         except Exception as e:
-            logger.error(f"Feature extraction failed for training {training_id}: {e}", exc_info=True)
+            error_str = str(e)
+
+            # Check if this is a CUDA OOM error and provide helpful diagnostics
+            is_oom_error = "CUDA out of memory" in error_str or "OutOfMemoryError" in error_str
+
+            if is_oom_error:
+                # Build diagnostic information for OOM errors
+                local_vars = locals()
+                oom_diagnostics = self._build_oom_diagnostics(
+                    error_str=error_str,
+                    batch_size=local_vars.get('batch_size'),
+                    tokenization=local_vars.get('tokenization'),
+                    model_record=local_vars.get('model_record'),
+                    model_config=local_vars.get('model_config'),
+                )
+                error_str = oom_diagnostics
+                logger.error(f"Feature extraction OOM for training {training_id}:\n{oom_diagnostics}")
+            else:
+                logger.error(f"Feature extraction failed for training {training_id}: {e}", exc_info=True)
 
             # Aggressive cleanup of GPU and CPU memory on failure to prevent leaks
             if torch.cuda.is_available():
@@ -1894,7 +2055,7 @@ class ExtractionService:
             self.update_extraction_status_sync(
                 extraction_job.id,
                 ExtractionStatus.FAILED.value,
-                error_message=str(e)
+                error_message=error_str
             )
 
             # Emit WebSocket failure event to extraction channel
@@ -2432,7 +2593,25 @@ class ExtractionService:
             return statistics
 
         except Exception as e:
-            logger.error(f"Feature extraction failed for SAE {sae_id}: {e}", exc_info=True)
+            error_str = str(e)
+
+            # Check if this is a CUDA OOM error and provide helpful diagnostics
+            is_oom_error = "CUDA out of memory" in error_str or "OutOfMemoryError" in error_str
+
+            if is_oom_error:
+                # Build diagnostic information for OOM errors
+                local_vars = locals()
+                oom_diagnostics = self._build_oom_diagnostics(
+                    error_str=error_str,
+                    batch_size=local_vars.get('batch_size'),
+                    tokenization=local_vars.get('tokenization'),
+                    model_record=local_vars.get('model_record'),
+                    model_config=local_vars.get('model_config'),
+                )
+                error_str = oom_diagnostics
+                logger.error(f"Feature extraction OOM for SAE {sae_id}:\n{oom_diagnostics}")
+            else:
+                logger.error(f"Feature extraction failed for SAE {sae_id}: {e}", exc_info=True)
 
             if torch.cuda.is_available():
                 gc.collect()
@@ -2441,7 +2620,7 @@ class ExtractionService:
             self.update_extraction_status_sync(
                 extraction_job.id,
                 ExtractionStatus.FAILED.value,
-                error_message=str(e)
+                error_message=error_str
             )
 
             emit_progress(
@@ -2450,11 +2629,97 @@ class ExtractionService:
                 data={
                     "extraction_id": extraction_job.id,
                     "sae_id": sae_id,
-                    "error": str(e)
+                    "error": error_str
                 }
             )
 
             raise
+
+    def _build_oom_diagnostics(
+        self,
+        error_str: str,
+        batch_size: Optional[int] = None,
+        tokenization: Optional[Any] = None,
+        model_record: Optional[Any] = None,
+        model_config: Optional[Any] = None,
+    ) -> str:
+        """
+        Build a helpful diagnostic message for CUDA OOM errors.
+
+        This method provides users with:
+        - Current configuration causing the OOM
+        - Memory estimate breakdown
+        - Specific recommendations for fixing the issue
+
+        Args:
+            error_str: Original error message
+            batch_size: Current batch size
+            tokenization: DatasetTokenization record (has max_length)
+            model_record: Model database record
+            model_config: HuggingFace model config
+
+        Returns:
+            Formatted diagnostic string for display in UI
+        """
+        lines = ["CUDA Out of Memory Error"]
+        lines.append("=" * 50)
+        lines.append("")
+
+        # Current Configuration Section
+        lines.append("CURRENT CONFIGURATION:")
+        if batch_size:
+            lines.append(f"  • Batch size: {batch_size}")
+        if tokenization and hasattr(tokenization, 'max_length'):
+            lines.append(f"  • Sequence length: {tokenization.max_length} tokens")
+        if model_record:
+            lines.append(f"  • Model: {model_record.name or model_record.repo_id}")
+            lines.append(f"  • Quantization: {model_record.quantization}")
+        lines.append("")
+
+        # Memory Estimate Section
+        seq_len = tokenization.max_length if tokenization and hasattr(tokenization, 'max_length') else None
+        num_heads = getattr(model_config, 'num_attention_heads', None) if model_config else None
+        num_layers = getattr(model_config, 'num_hidden_layers', None) if model_config else None
+
+        if seq_len and batch_size and num_heads and num_layers:
+            # Attention memory: batch * heads * seq_len * seq_len * 4 bytes (FP32) per layer
+            attention_per_layer_gb = (batch_size * num_heads * seq_len * seq_len * 4) / (1024**3)
+            total_attention_gb = attention_per_layer_gb * num_layers
+            lines.append("MEMORY ESTIMATE (attention intermediates only):")
+            lines.append(f"  • Attention memory per layer: {attention_per_layer_gb:.2f} GB")
+            lines.append(f"  • Total attention memory ({num_layers} layers): {total_attention_gb:.2f} GB")
+            lines.append(f"  • Formula: batch({batch_size}) × heads({num_heads}) × seq²({seq_len}²) × 4 bytes")
+            lines.append("")
+
+        # Recommendations Section
+        lines.append("RECOMMENDATIONS:")
+        if seq_len and seq_len >= 1024:
+            recommended_seq = 512 if seq_len >= 2048 else seq_len // 2
+            lines.append(f"  1. Re-tokenize dataset with shorter max_length (try {recommended_seq})")
+            lines.append(f"     Attention memory scales with sequence_length² (quadratic)")
+        if batch_size and batch_size > 4:
+            recommended_batch = max(1, batch_size // 2)
+            lines.append(f"  2. Reduce batch_size to {recommended_batch}")
+            lines.append(f"     (Attention memory scales linearly with batch_size)")
+        if model_record and model_record.quantization == 'FP32':
+            lines.append("  3. Re-download model with FP16 quantization")
+            lines.append("     (Reduces model memory by ~50%)")
+        lines.append("")
+
+        # Quick Reference
+        lines.append("MEMORY SCALING QUICK REFERENCE:")
+        lines.append("  • seq_len 2048→1024: ~4× less attention memory")
+        lines.append("  • seq_len 1024→512:  ~4× less attention memory")
+        lines.append("  • batch_size 8→4:    ~2× less attention memory")
+        lines.append("")
+
+        # Original error (truncated)
+        lines.append("ORIGINAL ERROR:")
+        # Truncate long error messages
+        short_error = error_str[:200] + "..." if len(error_str) > 200 else error_str
+        lines.append(f"  {short_error}")
+
+        return "\n".join(lines)
 
     def calculate_interpretability_score(
         self,

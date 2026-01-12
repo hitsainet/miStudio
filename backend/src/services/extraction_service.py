@@ -48,6 +48,92 @@ from src.models.model import Model as ModelRecord, QuantizationFormat
 logger = logging.getLogger(__name__)
 
 
+def cleanup_gpu_memory(
+    models_to_cleanup: Optional[List[Any]] = None,
+    context: str = "unknown"
+) -> None:
+    """
+    Aggressively clean up GPU memory.
+
+    This function ensures GPU memory is released even if normal cleanup fails.
+    Should be called in finally blocks to guarantee cleanup on success or failure.
+
+    Args:
+        models_to_cleanup: Optional list of model objects to delete (will be moved to CPU first)
+        context: Description of calling context for logging
+    """
+    if not torch.cuda.is_available():
+        return
+
+    try:
+        initial_memory = torch.cuda.memory_allocated(0) / (1024**3)
+        logger.info(f"[GPU Cleanup - {context}] Starting cleanup. Memory before: {initial_memory:.2f}GB")
+
+        # Step 1: Move models to CPU and delete them
+        if models_to_cleanup:
+            for i, model in enumerate(models_to_cleanup):
+                if model is not None:
+                    try:
+                        # Try to move to CPU first (releases GPU tensors)
+                        if hasattr(model, 'cpu'):
+                            model.cpu()
+                        # Delete all parameters to release GPU memory
+                        if hasattr(model, 'parameters'):
+                            for param in model.parameters():
+                                param.data = torch.empty(0)
+                                if param.grad is not None:
+                                    param.grad = None
+                        # Delete all buffers
+                        if hasattr(model, 'buffers'):
+                            for buffer in model.buffers():
+                                buffer.data = torch.empty(0)
+                    except Exception as e:
+                        logger.warning(f"[GPU Cleanup - {context}] Error cleaning model {i}: {e}")
+
+        # Step 2: Force Python garbage collection (multiple rounds for circular refs)
+        for _ in range(3):
+            gc.collect()
+
+        # Step 3: Clean up CUDA IPC memory (shared memory between processes)
+        if hasattr(torch.cuda, 'ipc_collect'):
+            torch.cuda.ipc_collect()
+
+        # Step 4: Synchronize CUDA to ensure all operations complete
+        torch.cuda.synchronize()
+
+        # Step 5: Empty CUDA cache
+        torch.cuda.empty_cache()
+
+        # Step 6: Another round of garbage collection after cache clear
+        gc.collect()
+
+        # Step 7: Reset memory stats for cleaner tracking
+        torch.cuda.reset_peak_memory_stats()
+
+        final_memory = torch.cuda.memory_allocated(0) / (1024**3)
+        freed = initial_memory - final_memory
+        logger.info(
+            f"[GPU Cleanup - {context}] Cleanup complete. "
+            f"Memory after: {final_memory:.2f}GB, Freed: {freed:.2f}GB"
+        )
+
+        # Log warning if significant memory still allocated
+        if final_memory > 0.5:  # More than 500MB still allocated
+            logger.warning(
+                f"[GPU Cleanup - {context}] Warning: {final_memory:.2f}GB still allocated after cleanup. "
+                f"This may indicate a memory leak or uncollected references."
+            )
+
+    except Exception as e:
+        logger.error(f"[GPU Cleanup - {context}] Error during cleanup: {e}")
+        # Still try basic cleanup even if above failed
+        try:
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+
 def get_token_with_marker(tokenizer, token_id: int) -> str:
     """
     Get token string preserving BPE markers (Ġ, ▁, ##).
@@ -1101,6 +1187,13 @@ class ExtractionService:
             )
             return {}
 
+        # Initialize model references for cleanup in finally block
+        # These MUST be defined before try block to ensure finally can access them
+        base_model = None
+        sae = None
+        tokenizer = None
+        incremental_heap = None
+
         try:
             # Clear GPU memory before starting to avoid leaks from previous runs
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -2068,6 +2161,30 @@ class ExtractionService:
 
             raise
 
+        finally:
+            # CRITICAL: Always clean up GPU memory regardless of success or failure
+            # This prevents VRAM leaks that accumulate across extraction jobs
+            logger.info(f"[extract_features_for_training] Entering finally block for cleanup")
+            models_to_cleanup = []
+            if base_model is not None:
+                models_to_cleanup.append(base_model)
+            if sae is not None:
+                models_to_cleanup.append(sae)
+
+            cleanup_gpu_memory(
+                models_to_cleanup=models_to_cleanup if models_to_cleanup else None,
+                context=f"extract_features_for_training({training_id})"
+            )
+
+            # Also clean up large data structures
+            if incremental_heap is not None:
+                del incremental_heap
+            if tokenizer is not None:
+                del tokenizer
+
+            # Final garbage collection
+            gc.collect()
+
     def extract_features_for_sae(
         self,
         sae_id: str,
@@ -2109,6 +2226,13 @@ class ExtractionService:
         if extraction_job.status == ExtractionStatus.FAILED.value:
             logger.warning(f"Extraction {extraction_job.id} previously failed")
             return {}
+
+        # Initialize model references for cleanup in finally block
+        # These MUST be defined before try block to ensure finally can access them
+        base_model = None
+        sae = None
+        tokenizer = None
+        incremental_heap = None
 
         try:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -2634,6 +2758,30 @@ class ExtractionService:
             )
 
             raise
+
+        finally:
+            # CRITICAL: Always clean up GPU memory regardless of success or failure
+            # This prevents VRAM leaks that accumulate across extraction jobs
+            logger.info(f"[extract_features_for_sae] Entering finally block for cleanup")
+            models_to_cleanup = []
+            if base_model is not None:
+                models_to_cleanup.append(base_model)
+            if sae is not None:
+                models_to_cleanup.append(sae)
+
+            cleanup_gpu_memory(
+                models_to_cleanup=models_to_cleanup if models_to_cleanup else None,
+                context=f"extract_features_for_sae({sae_id})"
+            )
+
+            # Also clean up large data structures
+            if incremental_heap is not None:
+                del incremental_heap
+            if tokenizer is not None:
+                del tokenizer
+
+            # Final garbage collection
+            gc.collect()
 
     def _build_oom_diagnostics(
         self,

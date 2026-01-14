@@ -453,13 +453,41 @@ def train_sae_task(
 
             logger.info(f"Extraction metadata: {extraction_metadata['num_samples_processed']} samples")
 
+            # Determine hook type to use for loading activations
+            # Priority: 1) Explicit from hyperparameters, 2) Auto-detect from extraction
+            hook_type = hp.get('hook_type')
+
+            if hook_type is None:
+                # Auto-detect from extraction metadata
+                available_hook_types = extraction_metadata.get('hook_types', ['residual'])
+                # Prefer residual if available (most common for SAE training), otherwise use first available
+                if 'residual' in available_hook_types:
+                    hook_type = 'residual'
+                else:
+                    hook_type = available_hook_types[0]
+                logger.info(f"Auto-detected hook_type: '{hook_type}' from extraction metadata (available: {available_hook_types})")
+            else:
+                # Validate that requested hook_type is available in extraction
+                available_hook_types = extraction_metadata.get('hook_types', ['residual'])
+                if hook_type not in available_hook_types:
+                    raise ValueError(
+                        f"Requested hook_type '{hook_type}' not available in extraction. "
+                        f"Available hook types: {available_hook_types}. "
+                        f"Please re-extract activations with the desired hook type or choose from available types."
+                    )
+                logger.info(f"Using user-specified hook_type: '{hook_type}'")
+
             # Load activation files for each training layer
             for layer_idx in training_layers:
-                activation_file = extraction_path / f"layer_{layer_idx}_residual.npy"
+                activation_file = extraction_path / f"layer_{layer_idx}_{hook_type}.npy"
                 if not activation_file.exists():
+                    # List available files for better error message
+                    available_files = list(extraction_path.glob(f"layer_{layer_idx}_*.npy"))
+                    available_types = [f.stem.split('_')[-1] for f in available_files]
                     raise ValueError(
-                        f"Activation file not found for layer {layer_idx}: {activation_file}. "
-                        f"Available layers in extraction: {extraction_metadata['layer_indices']}"
+                        f"Activation file not found for layer {layer_idx} with hook_type '{hook_type}': {activation_file}. "
+                        f"Available hook types for layer {layer_idx}: {available_types}. "
+                        f"Available layers in extraction: {extraction_metadata.get('layer_indices', 'unknown')}"
                     )
 
                 logger.info(f"Loading layer {layer_idx} activations from {activation_file}")
@@ -592,7 +620,17 @@ def train_sae_task(
                 )
 
             architecture = model_record.architecture
-            hook_types = [HookType.RESIDUAL]  # Default to residual stream
+
+            # Determine hook type for on-the-fly extraction
+            # Use hook_type from hyperparameters if specified, otherwise default to residual
+            hook_type_str = hp.get('hook_type', 'residual')
+            hook_type_map = {
+                'residual': HookType.RESIDUAL,
+                'mlp': HookType.MLP,
+                'attention': HookType.ATTENTION,
+            }
+            hook_types = [hook_type_map.get(hook_type_str, HookType.RESIDUAL)]
+            logger.info(f"Using hook_type '{hook_type_str}' for on-the-fly activation extraction")
 
             num_samples = len(dataset)
             logger.info(f"Dataset: {num_samples} samples, Model: {model_record.repo_id}")

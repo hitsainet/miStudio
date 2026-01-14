@@ -40,6 +40,16 @@ class TrainingHyperparameters(BaseModel):
         description="List of layer indices to train SAEs on (e.g., [0, 6, 12])"
     )
 
+    # Hook type configuration (which activation to train on)
+    hook_type: Optional[Literal["residual", "mlp", "attention"]] = Field(
+        default=None,
+        description=(
+            "Activation hook type to use for training. Options: 'residual' (residual stream), "
+            "'mlp' (MLP layer output), 'attention' (attention layer output). "
+            "If None, auto-detects from extraction metadata (prefers residual if available)."
+        )
+    )
+
     # Sparsity
     l1_alpha: float = Field(
         ...,

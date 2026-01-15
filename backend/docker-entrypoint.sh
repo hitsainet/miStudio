@@ -95,12 +95,44 @@ init_data_directories() {
 # ==============================================================================
 # Database Migration
 # ==============================================================================
+# Migrations run automatically for API service to ensure schema is always current.
+# For worker/beat services, migrations are skipped by default to avoid race conditions.
+# Override with RUN_MIGRATIONS=true/false environment variable.
 run_migrations() {
-    if [ "$RUN_MIGRATIONS" = "true" ]; then
+    # Determine if migrations should run:
+    # - API service: runs migrations by default (unless RUN_MIGRATIONS=false)
+    # - Other services: skip migrations by default (unless RUN_MIGRATIONS=true)
+    local should_run="false"
+
+    if [ "$SERVICE_TYPE" = "api" ]; then
+        # API service runs migrations by default
+        if [ "$RUN_MIGRATIONS" != "false" ]; then
+            should_run="true"
+        fi
+    else
+        # Worker/beat services skip migrations by default
+        if [ "$RUN_MIGRATIONS" = "true" ]; then
+            should_run="true"
+        fi
+    fi
+
+    if [ "$should_run" = "true" ]; then
         log_info "Running database migrations..."
-        # Run as mistudio user
-        su -s /bin/bash mistudio -c "cd /app && alembic upgrade head"
-        log_info "Database migrations completed"
+        # Run as mistudio user, with error handling
+        if su -s /bin/bash mistudio -c "cd /app && alembic upgrade head"; then
+            log_info "Database migrations completed successfully"
+        else
+            log_error "Database migrations failed!"
+            # For API service, migration failure is fatal
+            if [ "$SERVICE_TYPE" = "api" ]; then
+                log_error "Cannot start API without successful migrations"
+                exit 1
+            else
+                log_warn "Continuing without migrations (worker/beat may encounter schema issues)"
+            fi
+        fi
+    else
+        log_info "Skipping database migrations (RUN_MIGRATIONS=${RUN_MIGRATIONS:-not set}, SERVICE_TYPE=${SERVICE_TYPE})"
     fi
 }
 

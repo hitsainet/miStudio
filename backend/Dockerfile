@@ -52,6 +52,11 @@ COPY requirements.txt .
 RUN python3.12 -m pip install --upgrade pip "setuptools>=78.1.1" "wheel>=0.38.1" \
     && python3.12 -m pip install -r requirements.txt
 
+# Pre-install spaCy model for NLP analysis
+# This prevents runtime download failures which crash Celery workers
+# (spacy.cli.download calls sys.exit(1) on failure, killing the worker process)
+RUN python3.12 -m spacy download en_core_web_sm
+
 # Copy application code
 COPY --chown=mistudio:mistudio . .
 

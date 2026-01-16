@@ -28,22 +28,55 @@ _nltk_initialized = False
 
 
 def _get_spacy_nlp():
-    """Lazy load spaCy model."""
+    """Lazy load spaCy model.
+
+    The model should be pre-installed in Docker via: python -m spacy download en_core_web_sm
+    If not available, attempts to download it at runtime using subprocess (safer than
+    spacy.cli.download which calls sys.exit(1) on failure, crashing Celery workers).
+    """
     global _spacy_nlp
     if _spacy_nlp is None:
         try:
             import spacy
-            # Try to load the model, download if not available
+            # Try to load the pre-installed model first
             try:
                 _spacy_nlp = spacy.load("en_core_web_sm")
+                logger.info("spaCy model en_core_web_sm loaded successfully")
             except OSError:
-                logger.info("Downloading spaCy model en_core_web_sm...")
-                from spacy.cli import download
-                download("en_core_web_sm")
-                _spacy_nlp = spacy.load("en_core_web_sm")
-            logger.info("spaCy model loaded successfully")
+                # Model not installed - try to download via subprocess
+                # Note: spacy.cli.download() calls sys.exit(1) on failure which crashes workers
+                # Using subprocess is safer as it won't kill the process on failure
+                logger.warning(
+                    "spaCy model en_core_web_sm not found. "
+                    "Attempting to download (should be pre-installed in Docker)..."
+                )
+                try:
+                    import subprocess
+                    import sys
+                    result = subprocess.run(
+                        [sys.executable, "-m", "spacy", "download", "en_core_web_sm"],
+                        capture_output=True,
+                        text=True,
+                        timeout=300  # 5 minute timeout
+                    )
+                    if result.returncode == 0:
+                        _spacy_nlp = spacy.load("en_core_web_sm")
+                        logger.info("spaCy model downloaded and loaded successfully")
+                    else:
+                        logger.error(
+                            f"Failed to download spaCy model: {result.stderr}\n"
+                            "NLP features will be limited. To fix, run: "
+                            "python -m spacy download en_core_web_sm"
+                        )
+                        _spacy_nlp = False  # Mark as unavailable
+                except subprocess.TimeoutExpired:
+                    logger.error("spaCy model download timed out. NLP features will be limited.")
+                    _spacy_nlp = False
+                except Exception as e:
+                    logger.error(f"Error downloading spaCy model: {e}. NLP features will be limited.")
+                    _spacy_nlp = False
         except ImportError:
-            logger.warning("spaCy not installed. Some NLP features will be limited.")
+            logger.warning("spaCy not installed. NLP features will be limited.")
             _spacy_nlp = False  # Mark as unavailable
     return _spacy_nlp if _spacy_nlp else None
 

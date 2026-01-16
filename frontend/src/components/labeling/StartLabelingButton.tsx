@@ -29,7 +29,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
   );
   const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [openaiCompatibleEndpoint, setOpenaiCompatibleEndpoint] = useState('http://mistudio.mcslab.io/ollama/v1');
+  const [openaiCompatibleEndpoint, setOpenaiCompatibleEndpoint] = useState('/ollama/v1');
   const [openaiCompatibleModel, setOpenaiCompatibleModel] = useState('gemma2:2b');
   const [localModel, setLocalModel] = useState('');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -330,7 +330,7 @@ export const StartLabelingButton: React.FC<StartLabelingButtonProps> = ({
                               setCompatibleModels([]);
                               setCompatibleModelsError(null);
                             }}
-                            placeholder="http://ollama.mcslab.io/v1"
+                            placeholder="/ollama/v1"
                             className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                           />
                           <button

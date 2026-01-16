@@ -62,7 +62,7 @@ export interface LabelingConfigRequest {
   /** OpenAI API key (optional, uses server default if not provided) */
   openai_api_key?: string;
 
-  /** OpenAI-compatible endpoint (e.g., http://ollama.mcslab.io) */
+  /** OpenAI-compatible endpoint (e.g., /ollama/v1 for local proxy) */
   openai_compatible_endpoint?: string;
 
   /** OpenAI-compatible model (e.g., llama3.2) */

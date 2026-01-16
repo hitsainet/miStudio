@@ -43,7 +43,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [evaluationSamples, setEvaluationSamples] = useState(10000);
   const [topKExamples, setTopKExamples] = useState(100);
   const [labelingMethod, setLabelingMethod] = useState<'pattern' | 'local' | 'openai'>('pattern');
-  const [ollamaEndpointUrl, setOllamaEndpointUrl] = useState<string>('http://mistudio.mcslab.io/ollama/');
+  const [ollamaEndpointUrl, setOllamaEndpointUrl] = useState<string>('/ollama/');
   const [localLabelingModel, setLocalLabelingModel] = useState<string>('gemma2:2b');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState<'gpt4-mini' | 'gpt4' | 'gpt35'>('gpt4-mini');
@@ -433,7 +433,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                             type="text"
                             value={ollamaEndpointUrl}
                             onChange={(e) => setOllamaEndpointUrl(e.target.value)}
-                            placeholder="http://mistudio.mcslab.io/ollama/"
+                            placeholder="/ollama/"
                             className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
                           />
                           <button

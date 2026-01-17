@@ -324,11 +324,13 @@ async def _ensure_steering_worker_running() -> tuple[bool, Optional[int]]:
             pass
 
     # Start new steering worker
-    backend_dir = settings.data_dir.parent  # /home/x-sean/app/miStudio/backend
+    # Use settings.backend_dir which defaults to /app in containers
+    # In development, set BACKEND_DIR env var to your backend path
+    backend_dir = settings.backend_dir
 
     try:
         # Check if running in container (no venv) or development (with venv)
-        venv_path = Path(backend_dir) / "venv" / "bin" / "activate"
+        venv_path = backend_dir / "venv" / "bin" / "activate"
         venv_activate = f"source {venv_path} && " if venv_path.exists() else ""
 
         # CUDA_VISIBLE_DEVICES=0 restricts to first GPU only
@@ -415,11 +417,13 @@ async def enter_steering_mode():
     }
 
     # Start new steering worker
-    backend_dir = settings.data_dir.parent  # /home/x-sean/app/miStudio/backend
+    # Use settings.backend_dir which defaults to /app in containers
+    # In development, set BACKEND_DIR env var to your backend path
+    backend_dir = settings.backend_dir
 
     try:
         # Check if running in container (no venv) or development (with venv)
-        venv_path = Path(backend_dir) / "venv" / "bin" / "activate"
+        venv_path = backend_dir / "venv" / "bin" / "activate"
         venv_activate = f"source {venv_path} && " if venv_path.exists() else ""
 
         # Use Popen to start worker in background without waiting

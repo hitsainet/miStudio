@@ -42,6 +42,9 @@ class Settings(BaseSettings):
 
     # Data Storage Paths
     data_dir: Path = Field(default=Path("/data"), description="Root data directory")
+    backend_dir: Path = Field(
+        default=Path("/app"), description="Backend application directory (where src/ lives)"
+    )
     hf_home: Path = Field(
         default=Path("/data/huggingface_cache"), description="HuggingFace cache directory"
     )

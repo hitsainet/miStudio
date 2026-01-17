@@ -84,6 +84,7 @@ ENV SERVICE_TYPE=api \
     API_PORT=8000 \
     LOG_LEVEL=INFO \
     DATA_DIR=/data \
+    BACKEND_DIR=/app \
     HF_HOME=/data/huggingface_cache \
     HF_CACHE_DIR=/data/huggingface_cache
 

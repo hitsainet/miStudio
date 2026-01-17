@@ -327,9 +327,13 @@ async def _ensure_steering_worker_running() -> tuple[bool, Optional[int]]:
     backend_dir = settings.data_dir.parent  # /home/x-sean/app/miStudio/backend
 
     try:
+        # Check if running in container (no venv) or development (with venv)
+        venv_path = Path(backend_dir) / "venv" / "bin" / "activate"
+        venv_activate = f"source {venv_path} && " if venv_path.exists() else ""
+
         # CUDA_VISIBLE_DEVICES=0 restricts to first GPU only
         start_cmd = (
-            f"cd {backend_dir} && source venv/bin/activate && "
+            f"cd {backend_dir} && {venv_activate}"
             f"CUDA_VISIBLE_DEVICES=0 celery -A src.core.celery_app worker "
             f"-Q steering -c 1 --pool=solo --loglevel=info "
             f'--hostname="steering@%h" --max-tasks-per-child=1 '
@@ -414,11 +418,15 @@ async def enter_steering_mode():
     backend_dir = settings.data_dir.parent  # /home/x-sean/app/miStudio/backend
 
     try:
+        # Check if running in container (no venv) or development (with venv)
+        venv_path = Path(backend_dir) / "venv" / "bin" / "activate"
+        venv_activate = f"source {venv_path} && " if venv_path.exists() else ""
+
         # Use Popen to start worker in background without waiting
         # This avoids timeout issues with subprocess.run
         # CUDA_VISIBLE_DEVICES=0 restricts to first GPU only
         start_cmd = (
-            f"cd {backend_dir} && source venv/bin/activate && "
+            f"cd {backend_dir} && {venv_activate}"
             f"CUDA_VISIBLE_DEVICES=0 celery -A src.core.celery_app worker "
             f"-Q steering -c 1 --pool=solo --loglevel=info "
             f'--hostname="steering@%h" --max-tasks-per-child=1 '

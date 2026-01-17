@@ -70,7 +70,7 @@ class TestTrainingServiceCreate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -83,7 +83,7 @@ class TestTrainingServiceCreate:
         assert training is not None
         assert training.id.startswith("train_")
         assert training.model_id == "m_test123"
-        assert training.dataset_id == "12345678-1234-5678-1234-567812345678"
+        assert training.dataset_ids == ["12345678-1234-5678-1234-567812345678"]
         assert training.status == TrainingStatus.PENDING.value
         assert training.progress == 0.0
         assert training.current_step == 0
@@ -105,7 +105,7 @@ class TestTrainingServiceCreate:
         # extraction_id is optional, test creating without it
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -127,7 +127,7 @@ class TestTrainingServiceCreate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -157,7 +157,7 @@ class TestTrainingServiceCreate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -195,7 +195,7 @@ class TestTrainingServiceGet:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -208,7 +208,7 @@ class TestTrainingServiceGet:
         assert fetched_training is not None
         assert fetched_training.id == created_training.id
         assert fetched_training.model_id == "m_test123"
-        assert fetched_training.dataset_id == "12345678-1234-5678-1234-567812345678"
+        assert fetched_training.dataset_ids == ["12345678-1234-5678-1234-567812345678"]
 
     async def test_get_training_not_found(self, async_session, test_model, test_dataset):
         """Test getting a non-existent training returns None."""
@@ -237,7 +237,7 @@ class TestTrainingServiceList:
             for i in range(3):
                 training_data = TrainingCreate(
                     model_id="m_test123",  # Use existing test_model fixture
-                    dataset_id="12345678-1234-5678-1234-567812345678",  # Use existing test_dataset fixture
+                    dataset_ids=["12345678-1234-5678-1234-567812345678"],  # Use existing test_dataset fixture
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -264,7 +264,7 @@ class TestTrainingServiceList:
             for i in range(2):
                 training_data = TrainingCreate(
                     model_id="m_test123",
-                    dataset_id="12345678-1234-5678-1234-567812345678",
+                    dataset_ids=["12345678-1234-5678-1234-567812345678"],
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -295,12 +295,12 @@ class TestTrainingServiceList:
             for i in range(2):
                 training_data = TrainingCreate(
                     model_id="m_test123",
-                    dataset_id="12345678-1234-5678-1234-567812345678",
+                    dataset_ids=["12345678-1234-5678-1234-567812345678"],
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
 
-        # Filter by dataset_id
+        # Filter by dataset_id (filters trainings containing this dataset in dataset_ids array)
         trainings, total = await TrainingService.list_trainings(
             async_session,
             dataset_id="12345678-1234-5678-1234-567812345678"
@@ -308,7 +308,7 @@ class TestTrainingServiceList:
 
         assert len(trainings) == 2
         assert total == 2
-        assert all(t.dataset_id == "12345678-1234-5678-1234-567812345678" for t in trainings)
+        assert all("12345678-1234-5678-1234-567812345678" in t.dataset_ids for t in trainings)
 
     async def test_list_trainings_filter_by_status(self, async_session, test_model, test_dataset):
         """Test filtering trainings by status."""
@@ -326,7 +326,7 @@ class TestTrainingServiceList:
             for i in range(3):
                 training_data = TrainingCreate(
                     model_id="m_test123",
-                    dataset_id="12345678-1234-5678-1234-567812345678",
+                    dataset_ids=["12345678-1234-5678-1234-567812345678"],
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -357,7 +357,7 @@ class TestTrainingServiceList:
             for i in range(5):
                 training_data = TrainingCreate(
                     model_id="m_test123",
-                    dataset_id="12345678-1234-5678-1234-567812345678",
+                    dataset_ids=["12345678-1234-5678-1234-567812345678"],
                     hyperparameters=hyperparameters,
                 )
                 await TrainingService.create_training(async_session, training_data)
@@ -403,7 +403,7 @@ class TestTrainingServiceList:
             for i in range(3):
                 training_data = TrainingCreate(
                     model_id="m_test123",  # Use existing test_model fixture
-                    dataset_id="12345678-1234-5678-1234-567812345678",
+                    dataset_ids=["12345678-1234-5678-1234-567812345678"],
                     hyperparameters=hyperparameters,
                 )
                 training = await TrainingService.create_training(async_session, training_data)
@@ -435,7 +435,7 @@ class TestTrainingServiceUpdate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -467,7 +467,7 @@ class TestTrainingServiceUpdate:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -520,7 +520,7 @@ class TestTrainingServiceDelete:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -564,7 +564,7 @@ class TestTrainingServiceWebSocketEvents:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -602,7 +602,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -645,7 +645,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -679,7 +679,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -705,7 +705,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -747,7 +747,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -773,7 +773,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -804,7 +804,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -832,7 +832,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -879,7 +879,7 @@ class TestTrainingServiceStateManagement:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -927,7 +927,7 @@ class TestTrainingServiceMetrics:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -965,7 +965,7 @@ class TestTrainingServiceMetrics:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -1003,7 +1003,7 @@ class TestTrainingServiceMetrics:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -1043,7 +1043,7 @@ class TestTrainingServiceMetrics:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -1083,7 +1083,7 @@ class TestTrainingServiceMetrics:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 
@@ -1124,7 +1124,7 @@ class TestTrainingServiceMetrics:
 
         training_data = TrainingCreate(
             model_id="m_test123",
-            dataset_id="12345678-1234-5678-1234-567812345678",
+            dataset_ids=["12345678-1234-5678-1234-567812345678"],
             hyperparameters=hyperparameters,
         )
 

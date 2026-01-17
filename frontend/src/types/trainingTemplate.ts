@@ -19,7 +19,9 @@ export interface TrainingTemplate {
   description?: string;
   /** Optional reference to specific model */
   model_id?: string | null;
-  /** Optional reference to specific dataset */
+  /** Dataset IDs for training (supports multiple) */
+  dataset_ids: string[];
+  /** Primary dataset ID (backward compat) */
   dataset_id?: string | null;
   /** SAE architecture type (standard/skip/transcoder) */
   encoder_type: string;
@@ -46,8 +48,8 @@ export interface TrainingTemplateCreate {
   description?: string;
   /** Optional reference to specific model */
   model_id?: string | null;
-  /** Optional reference to specific dataset */
-  dataset_id?: string | null;
+  /** Dataset IDs for training (supports multiple) */
+  dataset_ids: string[];
   /** SAE architecture type */
   encoder_type: SAEArchitectureType;
   /** Complete training hyperparameters */
@@ -69,8 +71,8 @@ export interface TrainingTemplateUpdate {
   description?: string;
   /** Optional reference to specific model */
   model_id?: string | null;
-  /** Optional reference to specific dataset */
-  dataset_id?: string | null;
+  /** Dataset IDs for training (supports multiple) */
+  dataset_ids?: string[];
   /** SAE architecture type */
   encoder_type?: SAEArchitectureType;
   /** Training hyperparameters */

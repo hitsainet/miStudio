@@ -112,7 +112,7 @@ export function TrainingTemplatesPanel() {
       name: `${template.name} (Copy)`,
       description: template.description,
       model_id: template.model_id,
-      dataset_id: template.dataset_id,
+      dataset_ids: template.dataset_ids || [],
       encoder_type: template.encoder_type as any,
       hyperparameters: { ...template.hyperparameters },
       is_favorite: false,

@@ -25,7 +25,7 @@ class TrainingTemplateCreate(TrainingTemplateBase):
     """Schema for creating a new training template."""
 
     model_id: Optional[str] = Field(None, description="Optional reference to specific model")
-    dataset_id: Optional[str] = Field(None, description="Optional reference to specific dataset")
+    dataset_ids: List[str] = Field(default_factory=list, description="Dataset IDs for training (supports multiple)")
     encoder_type: SAEArchitectureType = Field(..., description="SAE architecture type (standard/skip/transcoder)")
     hyperparameters: TrainingHyperparameters = Field(..., description="Complete training hyperparameters")
     is_favorite: bool = Field(False, description="Whether this template is marked as favorite")
@@ -53,7 +53,7 @@ class TrainingTemplateUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255, description="Template name")
     description: Optional[str] = Field(None, description="Template description")
     model_id: Optional[str] = Field(None, description="Optional reference to specific model")
-    dataset_id: Optional[str] = Field(None, description="Optional reference to specific dataset")
+    dataset_ids: Optional[List[str]] = Field(None, description="Dataset IDs for training (supports multiple)")
     encoder_type: Optional[SAEArchitectureType] = Field(None, description="SAE architecture type")
     hyperparameters: Optional[TrainingHyperparameters] = Field(None, description="Training hyperparameters")
     is_favorite: Optional[bool] = Field(None, description="Favorite status")
@@ -73,7 +73,8 @@ class TrainingTemplateResponse(TrainingTemplateBase):
 
     id: UUID = Field(..., description="Unique template identifier (UUID)")
     model_id: Optional[str] = Field(None, description="Optional reference to specific model")
-    dataset_id: Optional[str] = Field(None, description="Optional reference to specific dataset")
+    dataset_ids: List[str] = Field(default_factory=list, description="Dataset IDs for training")
+    dataset_id: Optional[str] = Field(None, description="Primary dataset ID (backward compat)")
     encoder_type: str = Field(..., description="SAE architecture type (standard/skip/transcoder)")
     hyperparameters: Dict[str, Any] = Field(..., description="Complete training hyperparameters")
     is_favorite: bool = Field(..., description="Whether this template is marked as favorite")

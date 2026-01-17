@@ -38,7 +38,8 @@ class TrainingTemplate(Base):
         nullable=True,
         index=True
     )
-    dataset_id = Column(String(255), nullable=True)  # No FK due to type mismatch
+    dataset_id = Column(String(255), nullable=True)  # Kept for backward compat
+    dataset_ids = Column(JSONB, nullable=False, default=list)  # Array of dataset IDs
 
     # SAE Architecture type
     encoder_type = Column(String(20), nullable=False, index=True)

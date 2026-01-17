@@ -16,7 +16,7 @@ import torch
 import torch.optim as optim
 from torch.cuda.amp import autocast, GradScaler
 from celery import Task
-from datasets import load_from_disk
+from datasets import load_from_disk, concatenate_datasets
 
 from .base_task import DatabaseTask
 from ..ml.sparse_autoencoder import create_sae, project_decoder_gradients, JumpReLUSAE
@@ -517,41 +517,66 @@ def train_sae_task(
             logger.info(f"Cached activations ready: {num_samples} samples across {len(training_layers)} layers (all on GPU)")
 
         else:
-            # Load dataset and base model for on-the-fly activation extraction
-            logger.info("Loading dataset and base model for activation extraction...")
-            with self.get_db() as db:
-                dataset_record = db.query(Dataset).filter(
-                    Dataset.id == training.dataset_id
-                ).first()
-                if not dataset_record:
-                    raise ValueError(f"Dataset {training.dataset_id} not found")
+            # Load dataset(s) and base model for on-the-fly activation extraction
+            # Supports multiple datasets via training.dataset_ids
+            dataset_ids = training.dataset_ids if training.dataset_ids else [training.dataset_id]
+            logger.info(f"Loading {len(dataset_ids)} dataset(s) and base model for activation extraction...")
 
+            datasets_to_concat = []
+            first_tokenization = None
+
+            with self.get_db() as db:
                 model_record = db.query(Model).filter(
                     Model.id == training.model_id
                 ).first()
                 if not model_record:
                     raise ValueError(f"Model {training.model_id} not found")
 
-                # Query the tokenization for this dataset + model combination
-                tokenization = db.query(DatasetTokenization).filter(
-                    DatasetTokenization.dataset_id == training.dataset_id,
-                    DatasetTokenization.model_id == training.model_id
-                ).first()
-                if not tokenization:
-                    raise ValueError(
-                        f"No tokenization found for dataset {training.dataset_id} with model {training.model_id}. "
-                        f"Please tokenize the dataset with this model first."
-                    )
-                if tokenization.status != TokenizationStatus.READY:
-                    raise ValueError(
-                        f"Tokenization for dataset {training.dataset_id} with model {training.model_id} "
-                        f"is not ready (status: {tokenization.status}). Please wait for tokenization to complete."
-                    )
+                # Load each dataset and its tokenization
+                for ds_id in dataset_ids:
+                    dataset_record = db.query(Dataset).filter(
+                        Dataset.id == ds_id
+                    ).first()
+                    if not dataset_record:
+                        raise ValueError(f"Dataset {ds_id} not found")
 
-            # Resolve relative path to absolute using data_dir setting
-            resolved_tokenized_path = str(settings.resolve_data_path(tokenization.tokenized_path))
-            logger.info(f"Loading dataset from {resolved_tokenized_path}")
-            dataset = load_from_disk(resolved_tokenized_path)
+                    # Query the tokenization for this dataset + model combination
+                    tokenization = db.query(DatasetTokenization).filter(
+                        DatasetTokenization.dataset_id == ds_id,
+                        DatasetTokenization.model_id == training.model_id
+                    ).first()
+                    if not tokenization:
+                        raise ValueError(
+                            f"No tokenization found for dataset {ds_id} with model {training.model_id}. "
+                            f"Please tokenize the dataset with this model first."
+                        )
+                    if tokenization.status != TokenizationStatus.READY:
+                        raise ValueError(
+                            f"Tokenization for dataset {ds_id} with model {training.model_id} "
+                            f"is not ready (status: {tokenization.status}). Please wait for tokenization to complete."
+                        )
+
+                    # Store first tokenization for vocab validation
+                    if first_tokenization is None:
+                        first_tokenization = tokenization
+
+                    # Load the tokenized dataset
+                    resolved_tokenized_path = str(settings.resolve_data_path(tokenization.tokenized_path))
+                    logger.info(f"Loading dataset {ds_id} from {resolved_tokenized_path}")
+                    ds = load_from_disk(resolved_tokenized_path)
+                    datasets_to_concat.append(ds)
+                    logger.info(f"  - {ds_id}: {len(ds)} samples")
+
+            # Concatenate datasets if multiple
+            if len(datasets_to_concat) == 1:
+                dataset = datasets_to_concat[0]
+            else:
+                logger.info(f"Concatenating {len(datasets_to_concat)} datasets...")
+                dataset = concatenate_datasets(datasets_to_concat)
+                logger.info(f"Combined dataset: {len(dataset)} total samples")
+
+            # Use first tokenization for vocab validation (all should match since same model)
+            tokenization = first_tokenization
 
             logger.info(f"Loading base model: {model_record.repo_id}")
             # Use local_files_only=True when model is already downloaded to avoid

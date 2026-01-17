@@ -111,7 +111,9 @@ export const TrainingPanel: React.FC = () => {
   // Generate default template name and description based on current config
   const generateTemplateDefaults = useMemo(() => {
     const model = models.find(m => m.id === config.model_id);
-    const dataset = datasets.find(d => d.id === config.dataset_id);
+    // Use first selected dataset for template naming
+    const firstDatasetId = config.dataset_ids?.[0];
+    const dataset = firstDatasetId ? datasets.find(d => d.id === firstDatasetId) : undefined;
 
     // Extract short model name (e.g., "microsoft/Phi-4-mini-instruct" -> "Phi-4-mini")
     const modelName = model?.name || 'Model';
@@ -375,13 +377,14 @@ export const TrainingPanel: React.FC = () => {
     }
   }, [config.hidden_dim, latentMultiplier]);
 
-  // Check for tokenizer/model vocabulary mismatch
-  const selectedDataset = datasets.find((d) => d.id === config.dataset_id);
+  // Check for tokenizer/model vocabulary mismatch (check first dataset)
+  const selectedDatasets = (config.dataset_ids || []).map(id => datasets.find(d => d.id === id)).filter(Boolean);
+  const firstSelectedDataset = selectedDatasets[0];
   const vocabMismatch = useMemo(() => {
-    if (!selectedModel || !selectedDataset) return null;
+    if (!selectedModel || !firstSelectedDataset) return null;
 
-    const datasetTokenizerName = selectedDataset.metadata?.tokenization?.tokenizer_name;
-    const datasetVocabSize = selectedDataset.metadata?.tokenization?.vocab_size;
+    const datasetTokenizerName = firstSelectedDataset.metadata?.tokenization?.tokenizer_name;
+    const datasetVocabSize = firstSelectedDataset.metadata?.tokenization?.vocab_size;
     const modelVocabSize = selectedModel.architecture_config?.vocab_size;
 
     if (!datasetVocabSize || !modelVocabSize) return null;
@@ -400,10 +403,10 @@ export const TrainingPanel: React.FC = () => {
     }
 
     return null;
-  }, [selectedModel, selectedDataset]);
+  }, [selectedModel, firstSelectedDataset]);
 
-  // Validation
-  const isFormValid = config.model_id && config.dataset_id && config.training_layers && config.training_layers.length > 0 && !vocabMismatch;
+  // Validation - require at least one dataset
+  const isFormValid = config.model_id && config.dataset_ids && config.dataset_ids.length > 0 && config.training_layers && config.training_layers.length > 0 && !vocabMismatch;
 
   // Selection handlers
   const handleToggleSelection = (trainingId: string) => {
@@ -505,8 +508,8 @@ export const TrainingPanel: React.FC = () => {
       return;
     }
 
-    if (!config.model_id || !config.dataset_id) {
-      setSaveTemplateError('Please select a model and dataset first');
+    if (!config.model_id || !config.dataset_ids || config.dataset_ids.length === 0) {
+      setSaveTemplateError('Please select a model and at least one dataset first');
       return;
     }
 
@@ -519,7 +522,7 @@ export const TrainingPanel: React.FC = () => {
         name: templateName.trim(),
         description: templateDescription.trim() || undefined,
         model_id: config.model_id,
-        dataset_id: config.dataset_id,
+        dataset_ids: config.dataset_ids,
         encoder_type: config.architecture_type as any,
         hyperparameters: {
           hidden_dim: config.hidden_dim,
@@ -564,12 +567,12 @@ export const TrainingPanel: React.FC = () => {
     if (!isFormValid) {
       console.error('[TrainingPanel] Form validation failed:', {
         model_id: config.model_id,
-        dataset_id: config.dataset_id,
+        dataset_ids: config.dataset_ids,
         hidden_dim: config.hidden_dim,
         latent_dim: config.latent_dim,
         isFormValid,
       });
-      alert('Please fill in all required fields (Model, Dataset, Hidden Dim, Latent Dim)');
+      alert('Please fill in all required fields (Model, at least one Dataset, Hidden Dim, Latent Dim)');
       return;
     }
 
@@ -578,7 +581,7 @@ export const TrainingPanel: React.FC = () => {
     try {
       const request: TrainingCreateRequest = {
         model_id: config.model_id,
-        dataset_id: config.dataset_id,
+        dataset_ids: config.dataset_ids,
         ...(config.extraction_id && config.extraction_id.trim() !== '' && { extraction_id: config.extraction_id }),
         hyperparameters: {
           hidden_dim: config.hidden_dim,
@@ -651,23 +654,66 @@ export const TrainingPanel: React.FC = () => {
 
           {/* Basic Configuration */}
           <div className="grid grid-cols-3 gap-4 mb-4">
-            {/* Dataset Selection - First in flow */}
+            {/* Dataset Selection - Multi-select for combining datasets */}
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Dataset
-              </label>
-              <select
-                value={config.dataset_id}
-                onChange={(e) => updateConfig({ dataset_id: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
-              >
-                <option value="">Select dataset...</option>
-                {readyDatasets.map((dataset) => (
-                  <option key={dataset.id} value={dataset.id}>
-                    {dataset.name}
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-slate-300">
+                  Datasets ({config.dataset_ids?.length || 0} selected)
+                </label>
+                {readyDatasets.length > 0 && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateConfig({ dataset_ids: readyDatasets.map(d => d.id) })}
+                      className={`px-3 py-1 text-xs ${COMPONENTS.button.secondary}`}
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateConfig({ dataset_ids: [] })}
+                      className={`px-3 py-1 text-xs ${COMPONENTS.button.secondary}`}
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+                )}
+              </div>
+              {readyDatasets.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {readyDatasets.map((dataset) => {
+                    const isSelected = config.dataset_ids?.includes(dataset.id) || false;
+                    return (
+                      <button
+                        key={dataset.id}
+                        type="button"
+                        onClick={() => {
+                          const currentDatasets = config.dataset_ids || [];
+                          if (isSelected) {
+                            updateConfig({
+                              dataset_ids: currentDatasets.filter((id) => id !== dataset.id),
+                            });
+                          } else {
+                            updateConfig({
+                              dataset_ids: [...currentDatasets, dataset.id],
+                            });
+                          }
+                        }}
+                        className={`px-3 py-2 text-sm text-left rounded transition-colors truncate ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                        title={dataset.name}
+                      >
+                        {dataset.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">No datasets ready for training</p>
+              )}
             </div>
 
             {/* Model Selection - Second in flow */}
@@ -819,11 +865,11 @@ export const TrainingPanel: React.FC = () => {
               </div>
             </div>
 
-            {/* Template Selector - Only show when model and dataset are selected */}
-            {config.model_id && config.dataset_id ? (
+            {/* Template Selector - Only show when model and datasets are selected */}
+            {config.model_id && config.dataset_ids && config.dataset_ids.length > 0 ? (
               <TemplateSelector
                 modelId={config.model_id}
-                datasetId={config.dataset_id}
+                datasetId={config.dataset_ids[0]}
                 onTemplateLoad={handleTemplateLoad}
               />
             ) : (
@@ -1474,7 +1520,7 @@ export const TrainingPanel: React.FC = () => {
                 setTemplateDescription(defaults.description);
                 setShowSaveTemplateModal(true);
               }}
-              disabled={!config.model_id || !config.dataset_id}
+              disabled={!config.model_id || !config.dataset_ids || config.dataset_ids.length === 0}
               className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-slate-100 disabled:text-slate-500 rounded-md transition-colors"
               title="Save current configuration as a template"
             >

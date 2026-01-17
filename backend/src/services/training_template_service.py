@@ -41,11 +41,14 @@ class TrainingTemplateService:
         # Convert hyperparameters to dict for JSONB storage
         hyperparameters_dict = template.hyperparameters.model_dump()
 
+        # dataset_id kept for backward compatibility (first dataset in list)
+        primary_dataset_id = template.dataset_ids[0] if template.dataset_ids else None
         db_template = TrainingTemplate(
             name=template.name,
             description=template.description,
             model_id=template.model_id,
-            dataset_id=template.dataset_id,
+            dataset_id=primary_dataset_id,  # Backward compat
+            dataset_ids=template.dataset_ids,  # New multi-dataset field
             encoder_type=template.encoder_type.value,
             hyperparameters=hyperparameters_dict,
             is_favorite=template.is_favorite,
@@ -301,7 +304,8 @@ class TrainingTemplateService:
                 "name": template.name,
                 "description": template.description,
                 "model_id": template.model_id,
-                "dataset_id": template.dataset_id,
+                "dataset_ids": template.dataset_ids,  # Multi-dataset support
+                "dataset_id": template.dataset_id,  # Backward compat
                 "encoder_type": template.encoder_type,
                 "hyperparameters": template.hyperparameters,
                 "is_favorite": template.is_favorite,
@@ -362,7 +366,7 @@ class TrainingTemplateService:
             if existing:
                 if overwrite_duplicates:
                     # Update existing template
-                    for field in ["description", "model_id", "dataset_id", "encoder_type", "hyperparameters", "is_favorite", "extra_metadata"]:
+                    for field in ["description", "model_id", "dataset_ids", "dataset_id", "encoder_type", "hyperparameters", "is_favorite", "extra_metadata"]:
                         if field in template_data:
                             setattr(existing, field, template_data[field])
                     updated_count += 1
@@ -370,12 +374,18 @@ class TrainingTemplateService:
                     skipped_count += 1
                     continue
             else:
+                # Handle backward compat: if dataset_ids not present, create from dataset_id
+                dataset_ids = template_data.get("dataset_ids")
+                if not dataset_ids and template_data.get("dataset_id"):
+                    dataset_ids = [template_data["dataset_id"]]
+
                 # Create new template
                 db_template = TrainingTemplate(
                     name=template_data["name"],
                     description=template_data.get("description"),
                     model_id=template_data.get("model_id"),
-                    dataset_id=template_data.get("dataset_id"),
+                    dataset_ids=dataset_ids or [],
+                    dataset_id=template_data.get("dataset_id"),  # Backward compat
                     encoder_type=template_data["encoder_type"],
                     hyperparameters=template_data["hyperparameters"],
                     is_favorite=template_data.get("is_favorite", False),

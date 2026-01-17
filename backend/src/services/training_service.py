@@ -10,8 +10,9 @@ from uuid import uuid4
 from datetime import datetime, UTC
 import asyncio
 
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, cast
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import JSONB
 
 from ..models.training import Training, TrainingStatus
 from ..models.training_metric import TrainingMetric
@@ -53,10 +54,13 @@ class TrainingService:
         hyperparameters_dict = training_data.hyperparameters.model_dump()
 
         # Create training record
+        # dataset_id is kept for backward compat (first dataset in list)
+        primary_dataset_id = training_data.dataset_ids[0] if training_data.dataset_ids else ""
         db_training = Training(
             id=training_id,
             model_id=training_data.model_id,
-            dataset_id=training_data.dataset_id,
+            dataset_id=primary_dataset_id,  # Backward compat
+            dataset_ids=training_data.dataset_ids,  # New multi-dataset field
             extraction_id=training_data.extraction_id,
             status=TrainingStatus.PENDING.value,
             progress=0.0,
@@ -76,7 +80,8 @@ class TrainingService:
             data={
                 "training_id": training_id,
                 "model_id": training_data.model_id,
-                "dataset_id": training_data.dataset_id,
+                "dataset_ids": training_data.dataset_ids,
+                "dataset_id": primary_dataset_id,  # Backward compat
                 "status": TrainingStatus.PENDING.value,
                 "total_steps": hyperparameters_dict['total_steps'],
             }
@@ -134,7 +139,9 @@ class TrainingService:
         if model_id:
             filters.append(Training.model_id == model_id)
         if dataset_id:
-            filters.append(Training.dataset_id == dataset_id)
+            # Check if dataset_id is contained in the dataset_ids JSONB array
+            # Uses @> operator: dataset_ids @> '["dataset_id"]'::jsonb
+            filters.append(Training.dataset_ids.contains([dataset_id]))
         if status:
             filters.append(Training.status == status.value)
 
@@ -177,7 +184,8 @@ class TrainingService:
         if model_id:
             base_filters.append(Training.model_id == model_id)
         if dataset_id:
-            base_filters.append(Training.dataset_id == dataset_id)
+            # Check if dataset_id is contained in the dataset_ids JSONB array
+            base_filters.append(Training.dataset_ids.contains([dataset_id]))
 
         # Count all trainings
         count_query = select(func.count()).select_from(Training)

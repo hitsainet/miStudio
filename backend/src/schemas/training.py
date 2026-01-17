@@ -154,7 +154,7 @@ class TrainingCreate(BaseModel):
     """Schema for creating a new training job."""
 
     model_id: str = Field(..., min_length=1, description="Model ID to train SAE on")
-    dataset_id: str = Field(..., min_length=1, description="Dataset ID for training data")
+    dataset_ids: List[str] = Field(..., min_length=1, description="Dataset IDs for training data (supports multiple datasets)")
     extraction_id: Optional[str] = Field(None, description="Activation extraction ID (if using pre-extracted activations)")
     hyperparameters: TrainingHyperparameters = Field(..., description="Training hyperparameters")
 
@@ -164,6 +164,14 @@ class TrainingCreate(BaseModel):
         """Validate model ID format."""
         if not v.startswith("m_"):
             raise ValueError("model_id must start with 'm_'")
+        return v
+
+    @field_validator("dataset_ids")
+    @classmethod
+    def validate_dataset_ids(cls, v: List[str]) -> List[str]:
+        """Validate dataset IDs are non-empty."""
+        if not v or len(v) == 0:
+            raise ValueError("At least one dataset_id is required")
         return v
 
     @field_validator("extraction_id")
@@ -194,7 +202,8 @@ class TrainingResponse(BaseModel):
 
     id: str = Field(..., description="Training job ID (format: train_{uuid})")
     model_id: str = Field(..., description="Model ID")
-    dataset_id: str = Field(..., description="Dataset ID")
+    dataset_ids: List[str] = Field(..., description="Dataset IDs for training")
+    dataset_id: str = Field(..., description="Primary dataset ID (first in list, for backward compat)")
     extraction_id: Optional[str] = Field(None, description="Extraction ID if using pre-extracted activations")
 
     status: TrainingStatus = Field(..., description="Current training status")
@@ -232,6 +241,7 @@ class TrainingResponse(BaseModel):
             "example": {
                 "id": "train_abc123",
                 "model_id": "m_model123",
+                "dataset_ids": ["ds_dataset456", "ds_dataset789"],
                 "dataset_id": "ds_dataset456",
                 "extraction_id": None,
                 "status": "running",

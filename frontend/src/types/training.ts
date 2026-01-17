@@ -129,7 +129,9 @@ export interface Training {
   id: string;
   /** Model ID being trained on */
   model_id: string;
-  /** Dataset ID for training data */
+  /** Dataset IDs for training data (supports multiple datasets) */
+  dataset_ids: string[];
+  /** Primary dataset ID (backward compat, first in dataset_ids) */
   dataset_id: string;
   /** Activation extraction ID (if using pre-extracted activations) */
   extraction_id?: string | null;
@@ -268,8 +270,8 @@ export interface Checkpoint {
 export interface TrainingCreateRequest {
   /** Model ID to train SAE on */
   model_id: string;
-  /** Dataset ID for training data */
-  dataset_id: string;
+  /** Dataset IDs for training data (supports multiple datasets) */
+  dataset_ids: string[];
   /** Activation extraction ID (optional) */
   extraction_id?: string;
   /** Training hyperparameters */

@@ -520,12 +520,12 @@ class TestTrainingCreateValidation:
 
         training = TrainingCreate(
             model_id="m_abc123",
-            dataset_id="ds_xyz789",
+            dataset_ids=["ds_xyz789"],
             hyperparameters=hp,
         )
 
         assert training.model_id == "m_abc123"
-        assert training.dataset_id == "ds_xyz789"
+        assert training.dataset_ids == ["ds_xyz789"]
         assert training.extraction_id is None
         assert training.hyperparameters == hp
 
@@ -543,7 +543,7 @@ class TestTrainingCreateValidation:
         with pytest.raises(ValidationError) as exc_info:
             TrainingCreate(
                 model_id="invalid_id",  # Missing 'm_' prefix
-                dataset_id="ds_xyz789",
+                dataset_ids=["ds_xyz789"],
                 hyperparameters=hp,
             )
 
@@ -565,15 +565,15 @@ class TestTrainingCreateValidation:
         with pytest.raises(ValidationError) as exc_info:
             TrainingCreate(
                 model_id="",  # Empty
-                dataset_id="ds_xyz789",
+                dataset_ids=["ds_xyz789"],
                 hyperparameters=hp,
             )
 
         error = exc_info.value.errors()[0]
         assert error['loc'] == ('model_id',)
 
-    def test_dataset_id_cannot_be_empty(self):
-        """Test that dataset_id cannot be empty."""
+    def test_dataset_ids_cannot_be_empty(self):
+        """Test that dataset_ids cannot be an empty list."""
         hp = TrainingHyperparameters(
             hidden_dim=768,
             latent_dim=16384,
@@ -586,12 +586,12 @@ class TestTrainingCreateValidation:
         with pytest.raises(ValidationError) as exc_info:
             TrainingCreate(
                 model_id="m_abc123",
-                dataset_id="",  # Empty
+                dataset_ids=[],  # Empty list
                 hyperparameters=hp,
             )
 
         error = exc_info.value.errors()[0]
-        assert error['loc'] == ('dataset_id',)
+        assert error['loc'] == ('dataset_ids',)
 
     def test_extraction_id_must_start_with_ext_m_prefix(self):
         """Test that extraction_id must start with 'ext_m_'."""
@@ -607,7 +607,7 @@ class TestTrainingCreateValidation:
         with pytest.raises(ValidationError) as exc_info:
             TrainingCreate(
                 model_id="m_abc123",
-                dataset_id="ds_xyz789",
+                dataset_ids=["ds_xyz789"],
                 extraction_id="invalid_id",  # Missing 'ext_m_' prefix
                 hyperparameters=hp,
             )
@@ -629,7 +629,7 @@ class TestTrainingCreateValidation:
 
         training = TrainingCreate(
             model_id="m_abc123",
-            dataset_id="ds_xyz789",
+            dataset_ids=["ds_xyz789"],
             extraction_id=None,  # Valid
             hyperparameters=hp,
         )
@@ -649,7 +649,7 @@ class TestTrainingCreateValidation:
 
         training = TrainingCreate(
             model_id="m_abc123",
-            dataset_id="ds_xyz789",
+            dataset_ids=["ds_xyz789"],
             extraction_id="ext_m_abc123",  # Valid
             hyperparameters=hp,
         )

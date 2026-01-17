@@ -38,7 +38,7 @@ import { SAEArchitectureType } from '../types/training';
 export interface TrainingConfig {
   // Target configuration
   model_id: string;
-  dataset_id: string;
+  dataset_ids: string[];  // Supports multiple datasets
   extraction_id?: string;
 
   // SAE Architecture
@@ -162,7 +162,7 @@ type TrainingStore = TrainingStoreState & TrainingStoreActions;
  */
 const defaultConfig: TrainingConfig = {
   model_id: '',
-  dataset_id: '',
+  dataset_ids: [],  // Supports multiple datasets
   extraction_id: undefined,
 
   // SAE Architecture - typical values for 768-dim transformer hidden states
@@ -230,7 +230,7 @@ const API_BASE_URL = '/api/v1/trainings';
  *   const handleStart = async () => {
  *     const training = await createTraining({
  *       model_id: 'gpt2',
- *       dataset_id: 'my_dataset',
+ *       dataset_ids: ['my_dataset', 'another_dataset'],
  *       hyperparameters: {...}
  *     });
  *   };
@@ -412,7 +412,7 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
       // Create new training request with same configuration
       const retryRequest: TrainingCreateRequest = {
         model_id: failedTraining.model_id,
-        dataset_id: failedTraining.dataset_id,
+        dataset_ids: failedTraining.dataset_ids,
         extraction_id: failedTraining.extraction_id || undefined,
         hyperparameters: failedTraining.hyperparameters,
       };
@@ -606,7 +606,7 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
     set({
       config: {
         model_id: training.model_id,
-        dataset_id: training.dataset_id,
+        dataset_ids: training.dataset_ids,
         extraction_id: training.extraction_id || undefined,
         ...training.hyperparameters,
       },

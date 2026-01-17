@@ -41,7 +41,8 @@ class Training(Base):
 
     # Foreign keys
     model_id = Column(String(255), ForeignKey("models.id", ondelete="RESTRICT"), nullable=False)
-    dataset_id = Column(String(255), nullable=False)  # No FK due to type mismatch with datasets.id (UUID)
+    dataset_id = Column(String(255), nullable=False)  # Kept for backward compat, use dataset_ids instead
+    dataset_ids = Column(JSONB, nullable=False, default=list)  # Array of dataset IDs for multi-dataset training
     extraction_id = Column(
         String(255),
         ForeignKey("activation_extractions.id", ondelete="RESTRICT"),

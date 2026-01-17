@@ -14,12 +14,14 @@ import {
   SAEUploadRequest,
   SAEUploadResponse,
   SAEImportFromTrainingRequest,
+  SAEImportFromTrainingResponse,
   SAEImportFromFileRequest,
   SAEFeatureBrowserResponse,
   SAEDeleteRequest,
   SAEDeleteResponse,
   SAESource,
   SAEStatus,
+  TrainingAvailableSAEsResponse,
 } from '../types/sae';
 import {
   ExtractionStatusResponse,
@@ -90,12 +92,22 @@ export async function uploadSAE(
 }
 
 /**
- * Import an SAE from a completed training job
+ * Get list of available SAEs from a completed training
+ */
+export async function getAvailableSAEsFromTraining(
+  trainingId: string
+): Promise<TrainingAvailableSAEsResponse> {
+  return fetchAPI<TrainingAvailableSAEsResponse>(`/saes/training/${trainingId}/available`);
+}
+
+/**
+ * Import SAE(s) from a completed training job.
+ * Supports importing multiple SAEs from multi-layer/multi-hook trainings.
  */
 export async function importSAEFromTraining(
   request: SAEImportFromTrainingRequest
-): Promise<SAE> {
-  return fetchAPI<SAE>('/saes/import/training', {
+): Promise<SAEImportFromTrainingResponse> {
+  return fetchAPI<SAEImportFromTrainingResponse>('/saes/import/training', {
     method: 'POST',
     body: JSON.stringify(request),
   });

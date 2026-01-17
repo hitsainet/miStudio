@@ -292,23 +292,23 @@ export const useSAEsStore = create<SAEsState>()(
         }
       },
 
-      // Import an SAE from a completed training job
+      // Import SAE(s) from a completed training job
       importFromTraining: async (request: SAEImportFromTrainingRequest) => {
         set({ loading: true, error: null });
         try {
-          const newSAE = await saesApi.importSAEFromTraining(request);
+          const response = await saesApi.importSAEFromTraining(request);
 
-          // Add SAE to store
+          // Add all imported SAEs to store
           set((state) => ({
-            saes: [newSAE, ...state.saes],
+            saes: [...response.saes, ...state.saes],
             pagination: {
               ...state.pagination,
-              total: state.pagination.total + 1,
+              total: state.pagination.total + response.imported_count,
             },
             loading: false,
           }));
 
-          return newSAE;
+          return response;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to import SAE from training';
           set({ error: errorMessage, loading: false });

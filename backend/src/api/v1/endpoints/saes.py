@@ -34,6 +34,8 @@ from ....schemas.sae import (
     SAEDeleteRequest,
     SAEDeleteResponse,
     SAEFeatureBrowserResponse,
+    TrainingAvailableSAEsResponse,
+    SAEImportFromTrainingResponse,
 )
 from ....schemas.extraction import (
     ExtractionConfigRequest,
@@ -292,20 +294,46 @@ async def upload_sae_to_hf(
 # Import Operations
 # ============================================================================
 
-@router.post("/import/training", response_model=SAEResponse)
+@router.get("/training/{training_id}/available", response_model=TrainingAvailableSAEsResponse)
+async def get_available_saes_from_training(
+    training_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List available SAEs in a completed training for import.
+
+    Scans the training checkpoint directory and returns information about
+    each available SAE, including layer index, hook type, and file size.
+    Use this to preview what can be imported before calling the import endpoint.
+    """
+    try:
+        response = await SAEManagerService.get_available_saes_from_training(db, training_id)
+        return response
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error(f"Error getting available SAEs from training: {e}")
+        raise HTTPException(500, f"Error listing available SAEs: {str(e)}")
+
+
+@router.post("/import/training", response_model=SAEImportFromTrainingResponse)
 async def import_sae_from_training(
     request: SAEImportFromTrainingRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Import an SAE from a completed training job.
+    Import SAE(s) from a completed training job.
 
-    Creates a copy of the trained SAE in the SAE storage directory.
-    The SAE is immediately ready for use in steering.
+    Supports importing multiple SAEs from multi-layer/multi-hook trainings.
+    By default (import_all=True), imports all available SAEs.
+    Use layers and hook_types filters to import specific SAEs.
+
+    Creates copies of the trained SAE(s) in the SAE storage directory.
+    Each SAE is immediately ready for use in steering.
     """
     try:
-        sae = await SAEManagerService.import_from_training(db, request)
-        return SAEResponse.model_validate(sae)
+        response = await SAEManagerService.import_from_training(db, request)
+        return response
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:

@@ -123,12 +123,49 @@ export interface SAEUploadResponse {
 }
 
 /**
- * Request to import SAE from a completed training job.
+ * Request to import SAE(s) from a completed training job.
+ * Supports importing multiple SAEs from multi-layer/multi-hook trainings.
  */
 export interface SAEImportFromTrainingRequest {
   training_id: string;
   name?: string;
   description?: string;
+  /** Import all available SAEs (default: true) */
+  import_all?: boolean;
+  /** Specific layers to import (if import_all=false) */
+  layers?: number[];
+  /** Specific hook types to import (if import_all=false) */
+  hook_types?: string[];
+}
+
+/**
+ * Info about an available SAE in a training checkpoint.
+ */
+export interface AvailableSAEInfo {
+  layer: number;
+  hook_type: string;
+  path: string;
+  size_bytes: number | null;
+}
+
+/**
+ * Response listing available SAEs in a completed training.
+ */
+export interface TrainingAvailableSAEsResponse {
+  training_id: string;
+  available_saes: AvailableSAEInfo[];
+  total_count: number;
+}
+
+/**
+ * Response from importing SAEs from training.
+ */
+export interface SAEImportFromTrainingResponse {
+  imported_count: number;
+  sae_ids: string[];
+  saes: SAE[];
+  training_id: string;
+  message: string;
 }
 
 /**
@@ -183,6 +220,7 @@ export interface SAE {
 
   // SAE architecture info
   layer: number | null;
+  hook_type: string | null;
   n_features: number | null;
   d_model: number | null;
   architecture: string | null;

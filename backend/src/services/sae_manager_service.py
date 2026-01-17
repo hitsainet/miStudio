@@ -23,6 +23,9 @@ from ..schemas.sae import (
     SAEImportFromTrainingRequest,
     SAEImportFromFileRequest,
     SAEResponse,
+    AvailableSAEInfo,
+    TrainingAvailableSAEsResponse,
+    SAEImportFromTrainingResponse,
 )
 from .huggingface_sae_service import HuggingFaceSAEService
 
@@ -185,103 +188,127 @@ class SAEManagerService:
         return db_sae
 
     @staticmethod
-    async def import_from_training(
+    async def get_available_saes_from_training(
         db: AsyncSession,
-        request: SAEImportFromTrainingRequest
-    ) -> ExternalSAE:
+        training_id: str
+    ) -> TrainingAvailableSAEsResponse:
         """
-        Import an SAE from a completed training job.
+        Get list of available SAEs from a completed training.
 
-        Prefers Community Standard format if available (community_format directory),
-        otherwise falls back to legacy checkpoint format.
+        Scans the community_format directory for layer subdirectories
+        and extracts layer/hook_type information.
+
+        Directory naming conventions:
+        - Single hook: layer_{idx}/
+        - Multi-hook: layer_{idx}_{hook_type}/
 
         Args:
             db: Database session
-            request: Import request with training_id
+            training_id: Training job ID
 
         Returns:
-            Created ExternalSAE
+            TrainingAvailableSAEsResponse with list of available SAEs
         """
-        from ..core.config import settings
-
         # Get the training job
         training_result = await db.execute(
-            select(Training).where(Training.id == request.training_id)
+            select(Training).where(Training.id == training_id)
         )
         training = training_result.scalar_one_or_none()
 
         if not training:
-            raise ValueError(f"Training job not found: {request.training_id}")
+            raise ValueError(f"Training job not found: {training_id}")
 
         if training.status != TrainingStatus.COMPLETED.value:
             raise ValueError(f"Training job is not completed: {training.status}")
 
-        # Get hyperparameters from training
-        hyperparams = training.hyperparameters or {}
+        # Check for Community Standard format
+        training_base_dir = settings.data_dir / "trainings" / training_id
+        community_format_dir = training_base_dir / "community_format"
 
-        # Extract layer from training_layers (list) or target_layer (legacy)
-        training_layers = hyperparams.get("training_layers", [])
-        layer = training_layers[0] if training_layers else hyperparams.get("target_layer")
+        available_saes: List[AvailableSAEInfo] = []
+
+        if community_format_dir.exists():
+            # Scan for layer directories
+            for item in community_format_dir.iterdir():
+                if not item.is_dir():
+                    continue
+
+                dir_name = item.name
+
+                # Parse directory name: layer_{idx} or layer_{idx}_{hook_type}
+                if not dir_name.startswith("layer_"):
+                    continue
+
+                parts = dir_name.split("_", 2)  # ["layer", "{idx}", "{hook_type}"] or ["layer", "{idx}"]
+
+                if len(parts) < 2:
+                    continue
+
+                try:
+                    layer_idx = int(parts[1])
+                except ValueError:
+                    continue
+
+                # Determine hook_type
+                hook_type = parts[2] if len(parts) > 2 else "hook_resid_pre"  # Default hook type
+
+                # Calculate size
+                total_size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
+
+                available_saes.append(AvailableSAEInfo(
+                    layer=layer_idx,
+                    hook_type=hook_type,
+                    path=str(item.relative_to(training_base_dir)),
+                    size_bytes=total_size
+                ))
+
+        # Sort by layer, then hook_type
+        available_saes.sort(key=lambda x: (x.layer, x.hook_type))
+
+        return TrainingAvailableSAEsResponse(
+            training_id=training_id,
+            available_saes=available_saes,
+            total_count=len(available_saes)
+        )
+
+    @staticmethod
+    async def _import_single_sae(
+        db: AsyncSession,
+        training: Training,
+        source_dir: Path,
+        layer: int,
+        hook_type: str,
+        name_prefix: Optional[str],
+        description: Optional[str],
+    ) -> ExternalSAE:
+        """
+        Import a single SAE from a source directory.
+
+        Args:
+            db: Database session
+            training: Training record
+            source_dir: Directory containing SAE files
+            layer: Layer index
+            hook_type: Hook type string
+            name_prefix: Optional name prefix
+            description: Optional description
+
+        Returns:
+            Created ExternalSAE record
+        """
+        hyperparams = training.hyperparameters or {}
 
         sae_id = SAEManagerService.generate_sae_id()
 
-        # Generate name
-        name = request.name or f"SAE from {training.id}"
+        # Generate name with layer/hook suffix
+        if name_prefix:
+            name = f"{name_prefix} (L{layer}-{hook_type})"
+        else:
+            name = f"SAE from {training.id} (L{layer}-{hook_type})"
 
         # Copy checkpoint to SAE storage
         local_path = HuggingFaceSAEService.get_sae_storage_path(sae_id)
         local_path.mkdir(parents=True, exist_ok=True)
-
-        # Check for Community Standard format first (preferred)
-        training_base_dir = settings.data_dir / "trainings" / request.training_id
-        community_format_dir = training_base_dir / "community_format"
-
-        use_community_format = False
-        source_dir = None
-
-        if community_format_dir.exists():
-            # Community Standard format available - use it
-            # For multi-layer training, find the layer directory
-            if layer is not None:
-                layer_dir = community_format_dir / f"layer_{layer}"
-                if layer_dir.exists():
-                    source_dir = layer_dir
-                    use_community_format = True
-            else:
-                # Single layer or no layer specified - check for direct files
-                if (community_format_dir / "cfg.json").exists():
-                    source_dir = community_format_dir
-                    use_community_format = True
-                else:
-                    # Find any layer directory
-                    layer_dirs = list(community_format_dir.glob("layer_*"))
-                    if layer_dirs:
-                        source_dir = layer_dirs[0]
-                        use_community_format = True
-
-        if not use_community_format:
-            # Fall back to legacy checkpoint format
-            checkpoint_dir = Path(training.checkpoint_dir) if training.checkpoint_dir else None
-            if not checkpoint_dir or not checkpoint_dir.exists():
-                raise ValueError("Training checkpoint directory not found")
-
-            # Find the final checkpoint
-            final_checkpoint = checkpoint_dir / "final"
-            if not final_checkpoint.exists():
-                # Try to find the latest checkpoint
-                checkpoints = sorted(checkpoint_dir.glob("step_*"), reverse=True)
-                if not checkpoints:
-                    checkpoints = sorted(
-                        checkpoint_dir.glob("checkpoint_*"),
-                        key=lambda p: int(p.name.split("_")[-1]) if p.name.split("_")[-1].isdigit() else 0,
-                        reverse=True
-                    )
-                if checkpoints:
-                    final_checkpoint = checkpoints[0]
-                else:
-                    raise ValueError("No checkpoints found in training")
-
-            source_dir = final_checkpoint
 
         # Copy the files
         for item in source_dir.iterdir():
@@ -297,17 +324,18 @@ class SAEManagerService:
         db_sae = ExternalSAE(
             id=sae_id,
             name=name,
-            description=request.description,
+            description=description,
             source=SAESource.TRAINED.value,
             status=SAEStatus.READY.value,
-            training_id=request.training_id,
+            training_id=training.id,
             model_id=training.model_id,
-            model_name=None,  # Will be populated if we look up the model
+            model_name=None,
             layer=layer,
+            hook_type=hook_type,
             n_features=hyperparams.get("latent_dim"),
             d_model=hyperparams.get("hidden_dim"),
             architecture=hyperparams.get("architecture_type", "standard"),
-            format=SAEFormat.COMMUNITY_STANDARD.value if use_community_format else SAEFormat.MISTUDIO.value,
+            format=SAEFormat.COMMUNITY_STANDARD.value,
             local_path=str(local_path),
             file_size_bytes=total_size,
             progress=100.0,
@@ -316,19 +344,111 @@ class SAEManagerService:
                 "training_status": training.status,
                 "final_loss": training.current_loss,
                 "final_l0_sparsity": training.current_l0_sparsity,
-                "format_source": "community_format" if use_community_format else "legacy_checkpoint",
+                "format_source": "community_format",
             },
             downloaded_at=datetime.utcnow()
         )
 
         db.add(db_sae)
-        await db.commit()
-        await db.refresh(db_sae)
 
-        format_type = "Community Standard" if use_community_format else "legacy"
-        logger.info(f"Imported SAE {sae_id} from training {request.training_id} ({format_type} format)")
+        logger.info(f"Imported SAE {sae_id} from training {training.id} (L{layer}-{hook_type})")
 
         return db_sae
+
+    @staticmethod
+    async def import_from_training(
+        db: AsyncSession,
+        request: SAEImportFromTrainingRequest
+    ) -> SAEImportFromTrainingResponse:
+        """
+        Import SAE(s) from a completed training job.
+
+        Supports importing multiple SAEs from multi-layer/multi-hook trainings.
+        Uses Community Standard format if available.
+
+        Args:
+            db: Database session
+            request: Import request with training_id and optional filters
+
+        Returns:
+            SAEImportFromTrainingResponse with list of created SAEs
+        """
+        # Get the training job
+        training_result = await db.execute(
+            select(Training).where(Training.id == request.training_id)
+        )
+        training = training_result.scalar_one_or_none()
+
+        if not training:
+            raise ValueError(f"Training job not found: {request.training_id}")
+
+        if training.status != TrainingStatus.COMPLETED.value:
+            raise ValueError(f"Training job is not completed: {training.status}")
+
+        # Get available SAEs
+        available_response = await SAEManagerService.get_available_saes_from_training(
+            db, request.training_id
+        )
+        available_saes = available_response.available_saes
+
+        if not available_saes:
+            raise ValueError("No SAEs found in training checkpoint")
+
+        # Filter if not importing all
+        if not request.import_all:
+            filtered = []
+            for sae_info in available_saes:
+                # Check layer filter
+                if request.layers and sae_info.layer not in request.layers:
+                    continue
+                # Check hook_type filter
+                if request.hook_types and sae_info.hook_type not in request.hook_types:
+                    continue
+                filtered.append(sae_info)
+            available_saes = filtered
+
+        if not available_saes:
+            raise ValueError("No SAEs match the specified filters")
+
+        # Import each SAE
+        training_base_dir = settings.data_dir / "trainings" / request.training_id
+        created_saes: List[ExternalSAE] = []
+
+        for sae_info in available_saes:
+            source_dir = training_base_dir / sae_info.path
+
+            db_sae = await SAEManagerService._import_single_sae(
+                db=db,
+                training=training,
+                source_dir=source_dir,
+                layer=sae_info.layer,
+                hook_type=sae_info.hook_type,
+                name_prefix=request.name,
+                description=request.description,
+            )
+            created_saes.append(db_sae)
+
+        # Commit all at once
+        await db.commit()
+
+        # Refresh all SAEs
+        for sae in created_saes:
+            await db.refresh(sae)
+
+        # Build response
+        sae_responses = [SAEResponse.model_validate(sae) for sae in created_saes]
+
+        logger.info(
+            f"Imported {len(created_saes)} SAE(s) from training {request.training_id}"
+        )
+
+        return SAEImportFromTrainingResponse(
+            imported_count=len(created_saes),
+            sae_ids=[sae.id for sae in created_saes],
+            saes=sae_responses,
+            training_id=request.training_id,
+            message=f"Successfully imported {len(created_saes)} SAE(s)"
+        )
 
     @staticmethod
     async def import_from_file(

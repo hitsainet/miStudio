@@ -38,8 +38,9 @@ import {
   Clock,
 } from 'lucide-react';
 import { useTrainingsStore } from '../../stores/trainingsStore';
-import { useSAEsStore } from '../../stores/saesStore';
 import { TrainingStatus } from '../../types/training';
+import { SAEImportFromTrainingResponse } from '../../types/sae';
+import SAEImportModal from './SAEImportModal';
 import type { Training } from '../../types/training';
 import type { Model } from '../../types/model';
 import type { Dataset } from '../../types/dataset';
@@ -72,8 +73,6 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     deleteCheckpoint,
   } = useTrainingsStore();
 
-  const { importFromTraining } = useSAEsStore();
-
   // UI state
   const [showMetrics, setShowMetrics] = useState(false);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
@@ -82,9 +81,11 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
   const [autoSaveInterval, setAutoSaveInterval] = useState(1000);
   const [isControlling, setIsControlling] = useState(false);
   const [isSavingCheckpoint, setIsSavingCheckpoint] = useState(false);
-  const [isImportingToSAE, setIsImportingToSAE] = useState(false);
-  const [saeImported, setSaeImported] = useState(false);
   const [checkpoints, setCheckpoints] = useState<any[]>([]);
+
+  // SAE import modal state
+  const [showSAEImportModal, setShowSAEImportModal] = useState(false);
+  const [importedSAECount, setImportedSAECount] = useState(0);
 
   // Metrics history for charts (keep last 20 points)
   // Uses step numbers for deduplication (unique per training iteration)
@@ -249,22 +250,16 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
     }
   };
 
-  // Handle import to SAEs
-  const handleImportToSAE = async () => {
-    setIsImportingToSAE(true);
-    try {
-      const sae = await importFromTraining({
-        training_id: training.id,
-        name: `SAE from ${modelName} (${training.id.slice(0, 8)})`,
-        description: `SAE trained on ${datasetName} using ${training.hyperparameters?.architecture_type || 'standard'} architecture`,
-      });
-      setSaeImported(true);
-      console.log('[TrainingCard] SAE imported successfully:', sae.id);
-    } catch (error) {
-      console.error('Failed to import training to SAE:', error);
-    } finally {
-      setIsImportingToSAE(false);
-    }
+  // Handle opening SAE import modal
+  const handleOpenImportModal = () => {
+    setShowSAEImportModal(true);
+  };
+
+  // Handle SAE import completion
+  const handleImportComplete = (response: SAEImportFromTrainingResponse) => {
+    setImportedSAECount(response.imported_count);
+    setShowSAEImportModal(false);
+    console.log('[TrainingCard] SAEs imported successfully:', response.sae_ids);
   };
 
   // Update elapsed time for running trainings
@@ -739,18 +734,18 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
               </button>
               <button
                 type="button"
-                onClick={handleImportToSAE}
-                disabled={isImportingToSAE || saeImported}
+                onClick={handleOpenImportModal}
+                disabled={importedSAECount > 0}
                 className={`flex items-center justify-center gap-2 rounded-lg ${COMPONENTS.button.secondary} ${
-                  saeImported ? 'bg-emerald-500/20 border-emerald-500/50' : ''
+                  importedSAECount > 0 ? 'bg-emerald-500/20 border-emerald-500/50' : ''
                 }`}
               >
-                {isImportingToSAE ? (
-                  <Loader className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Brain className="w-4 h-4" />
-                )}
-                <span>{saeImported ? 'Imported' : 'Import to SAEs'}</span>
+                <Brain className="w-4 h-4" />
+                <span>
+                  {importedSAECount > 0
+                    ? `Imported (${importedSAECount})`
+                    : 'Import to SAEs'}
+                </span>
               </button>
             </div>
           )}
@@ -1406,6 +1401,16 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
           <div className="text-xs text-red-300">{training.error_message}</div>
         </div>
       )}
+
+      {/* SAE Import Modal */}
+      <SAEImportModal
+        training={training}
+        isOpen={showSAEImportModal}
+        onClose={() => setShowSAEImportModal(false)}
+        onImportComplete={handleImportComplete}
+        modelName={modelName}
+        datasetName={datasetName}
+      />
     </div>
   );
 };

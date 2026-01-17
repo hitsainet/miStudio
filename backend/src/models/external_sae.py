@@ -88,6 +88,7 @@ class ExternalSAE(Base):
 
     # SAE architecture info
     layer = Column(Integer, nullable=True)
+    hook_type = Column(String(100), nullable=True)  # e.g., hook_resid_pre, hook_resid_post, hook_mlp_out
     n_features = Column(Integer, nullable=True)  # Number of features (latent dim)
     d_model = Column(Integer, nullable=True)  # Model dimension
     architecture = Column(String(100), nullable=True)  # standard, gated, etc.

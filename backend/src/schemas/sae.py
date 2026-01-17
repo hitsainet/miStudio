@@ -124,11 +124,19 @@ class SAEUploadResponse(BaseModel):
 # ============================================================================
 
 class SAEImportFromTrainingRequest(BaseModel):
-    """Schema for importing an SAE from a completed training job."""
+    """Schema for importing SAE(s) from a completed training job.
+
+    For multi-layer/multi-hook trainings, can import:
+    - All SAEs: import_all=True (default)
+    - Specific SAEs: import_all=False with layers and/or hook_types specified
+    """
 
     training_id: str = Field(..., description="Training job ID to import from")
-    name: Optional[str] = Field(None, max_length=255, description="Display name (defaults to training name)")
+    name: Optional[str] = Field(None, max_length=255, description="Display name prefix (layer/hook suffix added automatically)")
     description: Optional[str] = Field(None, max_length=2000, description="Optional description")
+    import_all: bool = Field(True, description="Import all available SAEs (default: True)")
+    layers: Optional[List[int]] = Field(None, description="Specific layers to import (if import_all=False)")
+    hook_types: Optional[List[str]] = Field(None, description="Specific hook types to import (if import_all=False)")
 
 
 class SAEImportFromFileRequest(BaseModel):
@@ -140,6 +148,27 @@ class SAEImportFromFileRequest(BaseModel):
     format: SAEFormat = Field(SAEFormat.COMMUNITY_STANDARD, description="SAE file format")
     model_name: Optional[str] = Field(None, max_length=255, description="Target model name")
     layer: Optional[int] = Field(None, ge=0, description="Target layer")
+
+
+# ============================================================================
+# Available SAEs from Training Schemas
+# ============================================================================
+
+class AvailableSAEInfo(BaseModel):
+    """Info about an available SAE in a training checkpoint."""
+
+    layer: int = Field(..., description="Layer index")
+    hook_type: str = Field(..., description="Hook type (e.g., 'hook_resid_pre')")
+    path: str = Field(..., description="Path within checkpoint directory")
+    size_bytes: Optional[int] = Field(None, description="SAE file size in bytes")
+
+
+class TrainingAvailableSAEsResponse(BaseModel):
+    """Response listing available SAEs in a completed training."""
+
+    training_id: str = Field(..., description="Training ID")
+    available_saes: List[AvailableSAEInfo] = Field(..., description="Available SAEs for import")
+    total_count: int = Field(..., description="Total available SAE count")
 
 
 # ============================================================================
@@ -167,6 +196,7 @@ class SAEResponse(SAEBase):
 
     # SAE architecture info
     layer: Optional[int] = Field(None, description="Target layer")
+    hook_type: Optional[str] = Field(None, description="Hook type (e.g., hook_resid_pre, hook_mlp_out)")
     n_features: Optional[int] = Field(None, description="Number of features (latent dim)")
     d_model: Optional[int] = Field(None, description="Model dimension")
     architecture: Optional[str] = Field(None, description="SAE architecture type")
@@ -198,6 +228,16 @@ class SAEListResponse(BaseModel):
 
     data: List[SAEResponse] = Field(..., description="List of SAEs")
     pagination: Dict[str, Any] = Field(..., description="Pagination metadata")
+
+
+class SAEImportFromTrainingResponse(BaseModel):
+    """Response schema for importing SAEs from training."""
+
+    imported_count: int = Field(..., description="Number of SAEs imported")
+    sae_ids: List[str] = Field(..., description="List of created SAE IDs")
+    saes: List[SAEResponse] = Field(..., description="List of created SAE objects")
+    training_id: str = Field(..., description="Source training ID")
+    message: str = Field(..., description="Summary message")
 
 
 class SAEDownloadProgressResponse(BaseModel):

@@ -105,6 +105,25 @@ class Settings(BaseSettings):
         description="Automatically cleanup HuggingFace cache and downloads after dataset download"
     )
 
+    # Internal API Configuration (for Celery workers)
+    # NOTE: Default is localhost for native mode. Override for containerized deployments:
+    #   - Docker Compose: INTERNAL_API_URL=http://backend:8000
+    #   - Kubernetes: INTERNAL_API_URL=http://mistudio-backend:8000
+    internal_api_url: str = Field(
+        default="http://localhost:8000",
+        description="Internal API URL for Celery workers to communicate with backend"
+    )
+
+    # Ollama/oLLM Configuration
+    # NOTE: Default is localhost for native mode. Override for containerized deployments:
+    #   - Docker Compose: OLLAMA_URL=http://ollm:11434
+    #   - Kubernetes: OLLAMA_URL=http://ollama-proxy:11434 (ExternalName service to ollama namespace)
+    ollama_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama API URL for local LLM inference"
+    )
+
+
     # WebSocket Configuration
     websocket_ping_interval: int = Field(
         default=30, ge=10, le=300, description="WebSocket ping interval in seconds"
@@ -112,10 +131,11 @@ class Settings(BaseSettings):
     websocket_ping_timeout: int = Field(
         default=10, ge=5, le=60, description="WebSocket ping timeout in seconds"
     )
-    websocket_emit_url: str = Field(
-        default="http://localhost:8000/api/internal/ws/emit",
-        description="Internal WebSocket emission endpoint URL for Celery workers"
-    )
+
+    @property
+    def websocket_emit_url(self) -> str:
+        """WebSocket emission endpoint URL derived from internal_api_url."""
+        return f"{self.internal_api_url}/api/internal/ws/emit"
 
     # System Monitoring Configuration
     system_monitor_interval_seconds: int = Field(
@@ -246,6 +266,14 @@ class Settings(BaseSettings):
         """Get checkpoints storage directory."""
         return self.data_dir / "checkpoints"
 
+    @property
+    def run_dir(self) -> Path:
+        """Get runtime directory for PID files and temporary logs.
+
+        Uses data_dir/run to ensure it's writable in all deployment modes.
+        """
+        return self.data_dir / "run"
+
     def ensure_directories(self) -> None:
         """Create all required directories if they don't exist."""
         directories = [
@@ -256,6 +284,7 @@ class Settings(BaseSettings):
             self.checkpoints_dir,
             self.hf_home,
             self.hf_cache_dir,
+            self.run_dir,
         ]
 
         for directory in directories:

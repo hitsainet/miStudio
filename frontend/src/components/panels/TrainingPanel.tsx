@@ -98,15 +98,16 @@ export const TrainingPanel: React.FC = () => {
     { id: 'files', label: 'Training Files', status: 'pending' },
   ]);
 
-  // Memory estimation
+  // Memory estimation - account for both layers and hook types
+  const numSAEs = (config.training_layers?.length || 1) * (config.hook_types?.length || 1);
   const memoryEstimate = useMemo(() => {
     return estimateMultilayerTrainingMemory(
       config.hidden_dim,
       config.latent_dim,
       config.batch_size,
-      config.training_layers?.length || 1
+      numSAEs
     );
-  }, [config.hidden_dim, config.latent_dim, config.batch_size, config.training_layers]);
+  }, [config.hidden_dim, config.latent_dim, config.batch_size, numSAEs]);
 
   // Generate default template name and description based on current config
   const generateTemplateDefaults = useMemo(() => {
@@ -588,6 +589,7 @@ export const TrainingPanel: React.FC = () => {
           latent_dim: config.latent_dim,
           architecture_type: config.architecture_type,
           training_layers: config.training_layers || [0],
+          hook_types: config.hook_types || ['residual'],
           l1_alpha: config.l1_alpha,
           target_l0: config.target_l0,
           top_k_sparsity: (config as any).top_k_sparsity,
@@ -945,6 +947,61 @@ export const TrainingPanel: React.FC = () => {
             )}
           </div>
 
+          {/* Hook Types Selection */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-slate-300">
+                Hook Types ({config.hook_types?.length || 0} selected)
+              </label>
+              <div className="text-xs text-slate-500">
+                SAEs trained per layer × hook type
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(['residual', 'mlp', 'attention'] as const).map((hookType) => {
+                const isSelected = config.hook_types?.includes(hookType) || false;
+                const displayNames: Record<string, string> = {
+                  'residual': 'Residual Stream',
+                  'mlp': 'MLP Output',
+                  'attention': 'Attention Output',
+                };
+                return (
+                  <button
+                    key={hookType}
+                    type="button"
+                    onClick={() => {
+                      const currentTypes = config.hook_types || ['residual'];
+                      if (isSelected) {
+                        // Prevent deselecting the last hook type
+                        if (currentTypes.length > 1) {
+                          updateConfig({
+                            hook_types: currentTypes.filter((t) => t !== hookType) as any,
+                          });
+                        }
+                      } else {
+                        updateConfig({
+                          hook_types: [...currentTypes, hookType] as any,
+                        });
+                      }
+                    }}
+                    className={`px-3 py-2 text-sm font-medium rounded transition-colors ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {displayNames[hookType]}
+                  </button>
+                );
+              })}
+            </div>
+            {config.hook_types && config.hook_types.length > 1 && config.training_layers && config.training_layers.length > 0 && (
+              <div className="mt-2 text-xs text-amber-500">
+                ⚠️ Training {config.training_layers.length} layers × {config.hook_types.length} hook types = {config.training_layers.length * config.hook_types.length} SAEs
+              </div>
+            )}
+          </div>
+
           {/* Memory Estimation Display */}
           <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
             <div className="flex items-start justify-between">
@@ -960,17 +1017,22 @@ export const TrainingPanel: React.FC = () => {
                     }`}>
                       {formatMemorySize(memoryEstimate.total_gb)}
                     </span>
-                    {config.training_layers && config.training_layers.length > 1 && (
+                    {numSAEs > 1 && (
                       <>
                         <span className="text-xs text-slate-500">×</span>
                         <span className="text-xs text-slate-400">
-                          {formatMemorySize(memoryEstimate.per_layer_gb)} per layer
+                          {formatMemorySize(memoryEstimate.per_layer_gb)} per SAE
                         </span>
                       </>
                     )}
                   </div>
                   <div className="text-xs text-slate-500">
-                    {config.training_layers?.length || 1} layer{(config.training_layers?.length || 1) !== 1 ? 's' : ''}
+                    {numSAEs} SAE{numSAEs !== 1 ? 's' : ''}
+                    {numSAEs > 1 && (
+                      <span className="text-slate-600">
+                        {' '}({config.training_layers?.length || 1}L × {config.hook_types?.length || 1}H)
+                      </span>
+                    )}
                     {' • '}
                     {config.hidden_dim}d hidden
                     {' • '}

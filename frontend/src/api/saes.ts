@@ -21,7 +21,11 @@ import {
   SAESource,
   SAEStatus,
 } from '../types/sae';
-import { ExtractionStatusResponse } from '../types/features';
+import {
+  ExtractionStatusResponse,
+  BatchExtractionRequest,
+  BatchExtractionResponse,
+} from '../types/features';
 import { fetchAPI, buildQueryString } from './client';
 
 /**
@@ -228,5 +232,20 @@ export async function cancelSAEExtraction(
 ): Promise<{ message: string }> {
   return fetchAPI<{ message: string }>(`/saes/${saeId}/cancel-extraction`, {
     method: 'POST',
+  });
+}
+
+/**
+ * Start batch feature extraction for multiple SAEs
+ *
+ * Creates extraction jobs for all specified SAEs using the same dataset
+ * and configuration. Jobs are queued and processed sequentially.
+ */
+export async function startBatchSAEExtraction(
+  request: BatchExtractionRequest
+): Promise<BatchExtractionResponse> {
+  return fetchAPI<BatchExtractionResponse>('/saes/batch-extract-features', {
+    method: 'POST',
+    body: JSON.stringify(request),
   });
 }

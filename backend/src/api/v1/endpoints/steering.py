@@ -229,8 +229,9 @@ async def cleanup_steering_gpu():
 # IN mode: Worker running, model loaded on GPU, can execute tasks.
 # OUT of mode: No worker, no model, GPU free, tasks disabled.
 
-PID_FILE = "/tmp/mistudio-celery-steering.pid"
-STEERING_LOG = "/tmp/celery-steering.log"
+# Use configurable run_dir for PID files and logs (works across native/docker/k8s)
+PID_FILE = str(settings.run_dir / "mistudio-celery-steering.pid")
+STEERING_LOG = str(settings.run_dir / "celery-steering.log")
 
 
 def _get_gpu_memory_mb() -> Optional[int]:

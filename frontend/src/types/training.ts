@@ -58,6 +58,12 @@ export enum SAEArchitectureType {
  * Training hyperparameters configuration.
  * Matches backend TrainingHyperparameters schema.
  */
+/**
+ * Activation hook types for SAE training.
+ * Determines which activation sites to capture during training.
+ */
+export type HookType = 'residual' | 'mlp' | 'attention';
+
 export interface HyperparametersConfig {
   // SAE Architecture
   /** Hidden dimension (input/output size) */
@@ -70,6 +76,8 @@ export interface HyperparametersConfig {
   // Layer configuration
   /** List of layer indices to train SAEs on (e.g., [0, 6, 12]) */
   training_layers: number[];
+  /** Hook types to train SAEs on (default: ['residual']). Multiple hook types create separate SAEs per layer/hook combination. */
+  hook_types?: HookType[];
 
   // Sparsity
   /** L1 sparsity penalty coefficient */

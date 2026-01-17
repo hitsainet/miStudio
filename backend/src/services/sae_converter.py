@@ -181,12 +181,16 @@ class SAEConverterService:
 
         if is_community_format(p):
             return "community_standard"
-        elif is_gemma_scope_format(p):
+
+        # is_gemma_scope_format returns (bool, Optional[Path]) tuple
+        is_gemma, _ = is_gemma_scope_format(p)
+        if is_gemma:
             return "gemma_scope"
-        elif is_mistudio_format(p):
+
+        if is_mistudio_format(p):
             return "mistudio"
-        else:
-            return "unknown"
+
+        return "unknown"
 
     @staticmethod
     def load_auto(

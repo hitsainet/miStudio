@@ -48,6 +48,8 @@ export interface TrainingConfig {
 
   // Layer configuration
   training_layers: number[];
+  // Hook types (default: ['residual']). Multiple types create separate SAEs per layer/hook combination.
+  hook_types: ('residual' | 'mlp' | 'attention')[];
 
   // Sparsity
   l1_alpha: number;
@@ -172,6 +174,8 @@ const defaultConfig: TrainingConfig = {
 
   // Layer configuration - default to layer 0 (single-layer training)
   training_layers: [0],
+  // Hook types - default to residual (most common for SAE training)
+  hook_types: ['residual'],
 
   // Sparsity - SAELens-compatible normalization (constant_norm_rescale) + standard l1_coefficient
   l1_alpha: 0.045, // Empirically tuned: LOWER l1 = WEAKER penalty = MORE activation → closer to 5% target
@@ -609,6 +613,8 @@ export const useTrainingsStore = create<TrainingStore>((set, get) => ({
         dataset_ids: training.dataset_ids,
         extraction_id: training.extraction_id || undefined,
         ...training.hyperparameters,
+        // Ensure hook_types has a default value for backward compatibility
+        hook_types: training.hyperparameters.hook_types || ['residual'],
       },
     });
   },

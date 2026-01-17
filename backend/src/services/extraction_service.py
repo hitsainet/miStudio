@@ -571,6 +571,157 @@ class ExtractionService:
 
         return extraction_job
 
+    async def start_batch_extraction_for_saes(
+        self,
+        sae_ids: List[str],
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Start feature extraction jobs for multiple SAEs in a single batch.
+
+        Creates extraction jobs for all specified SAEs using the same dataset
+        and configuration. Jobs are queued and processed sequentially.
+
+        Args:
+            sae_ids: List of external SAE IDs to extract features from
+            config: Extraction configuration (dataset_id, evaluation_samples, top_k_examples, etc.)
+
+        Returns:
+            Dict containing:
+            - batch_id: Unique identifier for this batch
+            - created_jobs: List of created job info (sae_id, sae_name, job_id, position, status)
+            - skipped_saes: List of skipped SAE info (sae_id, reason)
+            - total_requested: Total SAEs requested
+            - total_created: Number of jobs created
+            - total_skipped: Number of SAEs skipped
+        """
+        import uuid
+        from src.workers.extraction_tasks import extract_features_from_sae_task
+
+        # Generate unique batch ID
+        batch_id = f"batch_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+        created_jobs: List[Dict[str, Any]] = []
+        skipped_saes: List[Dict[str, Any]] = []
+        total_saes = len(sae_ids)
+
+        logger.info(f"Starting batch extraction {batch_id} for {total_saes} SAEs")
+
+        # Process each SAE
+        for position, sae_id in enumerate(sae_ids, start=1):
+            try:
+                # Validate SAE exists and is ready
+                result = await self.db.execute(
+                    select(ExternalSAE).where(ExternalSAE.id == sae_id)
+                )
+                external_sae = result.scalar_one_or_none()
+
+                if not external_sae:
+                    skipped_saes.append({
+                        "sae_id": sae_id,
+                        "reason": f"SAE not found"
+                    })
+                    continue
+
+                if external_sae.status != SAEStatus.READY.value:
+                    skipped_saes.append({
+                        "sae_id": sae_id,
+                        "reason": f"SAE not ready (status: {external_sae.status})"
+                    })
+                    continue
+
+                if not external_sae.local_path:
+                    skipped_saes.append({
+                        "sae_id": sae_id,
+                        "reason": "SAE has no local path"
+                    })
+                    continue
+
+                # Check for active extraction (catch ValueError instead of raising)
+                try:
+                    await self._check_active_extraction(sae_id=sae_id)
+                except ValueError as e:
+                    skipped_saes.append({
+                        "sae_id": sae_id,
+                        "reason": str(e)
+                    })
+                    continue
+
+                # Create extraction job with batch metadata
+                extraction_job = ExtractionJob(
+                    id=f"extr_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_sae_{sae_id[:8]}_{position:03d}",
+                    external_sae_id=sae_id,
+                    training_id=None,
+                    status=ExtractionStatus.QUEUED,
+                    config=config,
+                    filter_special=config.get('filter_special', True),
+                    filter_single_char=config.get('filter_single_char', True),
+                    filter_punctuation=config.get('filter_punctuation', True),
+                    filter_numbers=config.get('filter_numbers', True),
+                    filter_fragments=config.get('filter_fragments', True),
+                    filter_stop_words=config.get('filter_stop_words', False),
+                    context_prefix_tokens=config.get('context_prefix_tokens', 25),
+                    context_suffix_tokens=config.get('context_suffix_tokens', 25),
+                    progress=0.0,
+                    # Batch metadata
+                    batch_id=batch_id,
+                    batch_position=position,
+                    batch_total=total_saes,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
+                )
+
+                self.db.add(extraction_job)
+                await self.db.commit()
+                await self.db.refresh(extraction_job)
+
+                # Queue Celery task
+                soft_time_limit = config.get("soft_time_limit", 144000)
+                time_limit = config.get("time_limit", 172800)
+
+                task_result = extract_features_from_sae_task.apply_async(
+                    args=(sae_id, config),
+                    soft_time_limit=soft_time_limit,
+                    time_limit=time_limit
+                )
+
+                extraction_job.celery_task_id = task_result.id
+                await self.db.commit()
+
+                created_jobs.append({
+                    "sae_id": sae_id,
+                    "sae_name": external_sae.name,
+                    "job_id": extraction_job.id,
+                    "position": position,
+                    "status": "queued"
+                })
+
+                logger.info(
+                    f"Batch {batch_id}: Created job {extraction_job.id} for SAE {sae_id} "
+                    f"(position {position}/{total_saes})"
+                )
+
+            except Exception as e:
+                logger.error(f"Batch {batch_id}: Error creating job for SAE {sae_id}: {e}")
+                skipped_saes.append({
+                    "sae_id": sae_id,
+                    "reason": f"Error creating job: {str(e)}"
+                })
+
+        logger.info(
+            f"Batch {batch_id} complete: {len(created_jobs)} jobs created, "
+            f"{len(skipped_saes)} SAEs skipped"
+        )
+
+        return {
+            "batch_id": batch_id,
+            "created_jobs": created_jobs,
+            "skipped_saes": skipped_saes,
+            "total_requested": total_saes,
+            "total_created": len(created_jobs),
+            "total_skipped": len(skipped_saes)
+        }
+
     async def get_extraction_status_for_sae(self, sae_id: str) -> Optional[Dict[str, Any]]:
         """
         Get the status of the most recent extraction job for an external SAE.

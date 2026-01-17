@@ -48,7 +48,7 @@ class TestEmitProgress:
                 "event": "progress",
                 "data": {"progress": 50.0, "status": "processing"}
             },
-            timeout=1.0
+            timeout=5.0  # Default timeout in emit_progress
         )
 
     @patch("src.workers.websocket_emitter.httpx.Client")

@@ -303,8 +303,8 @@ async def delete_extraction(
 async def list_features(
     training_id: str,
     search: str = Query(None, max_length=500, description="Full-text search query"),
-    sort_by: str = Query("activation_freq", regex="^(activation_freq|max_activation|feature_id|name|category)$"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    sort_by: str = Query("activation_freq", pattern="^(activation_freq|max_activation|feature_id|name|category)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Page offset"),
@@ -348,8 +348,8 @@ async def list_features(
 async def list_extraction_features(
     extraction_id: str,
     search: str = Query(None, max_length=500, description="Full-text search query"),
-    sort_by: str = Query("activation_freq", regex="^(activation_freq|max_activation|feature_id|name|category)$"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    sort_by: str = Query("activation_freq", pattern="^(activation_freq|max_activation|feature_id|name|category)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     is_favorite: bool = Query(None, description="Filter by favorite status"),
     limit: int = Query(50, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Page offset"),

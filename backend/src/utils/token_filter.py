@@ -42,7 +42,7 @@ class TokenFilter:
 
         Args:
             mode: Filter aggressiveness level
-            keep_patterns: Regex patterns for tokens to always keep (e.g., r'C\+\+', r'\.NET')
+            keep_patterns: Regex patterns for tokens to always keep (e.g., r'C\\+\\+', r'\\.NET')
             custom_junk_tokens: Additional tokens to always filter
             remove_all_punctuation: If True, removes ALL punctuation characters (overrides mode)
             custom_filter_chars: Additional characters to filter (e.g., "~@#$%")

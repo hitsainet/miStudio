@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from ....core.config import settings
 from ....core.database import get_db
-from ....models.dataset import Dataset
+from ....models.dataset import Dataset, DatasetStatus
 from ....models.external_sae import SAESource, SAEStatus
 from ....schemas.sae import (
     HFRepoPreviewRequest,
@@ -35,7 +35,14 @@ from ....schemas.sae import (
     SAEDeleteResponse,
     SAEFeatureBrowserResponse,
 )
-from ....schemas.extraction import ExtractionConfigRequest, ExtractionStatusResponse
+from ....schemas.extraction import (
+    ExtractionConfigRequest,
+    ExtractionStatusResponse,
+    BatchExtractionRequest,
+    BatchExtractionResponse,
+    BatchExtractionJobInfo,
+    BatchExtractionSkippedInfo,
+)
 from ....services.huggingface_sae_service import HuggingFaceSAEService
 from ....services.sae_manager_service import SAEManagerService
 from ....services.extraction_service import ExtractionService
@@ -713,3 +720,76 @@ async def cancel_sae_extraction(
     await db.commit()
 
     return {"message": f"Extraction {extraction_job.id} cancelled"}
+
+
+@router.post("/batch-extract-features", response_model=BatchExtractionResponse)
+async def start_batch_sae_extraction(
+    request: BatchExtractionRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Start feature extraction from multiple SAEs in a single batch.
+
+    Creates extraction jobs for all specified SAEs using the same dataset
+    and configuration. Jobs are queued and processed sequentially.
+
+    Requires:
+    - All SAEs must be in READY status
+    - Dataset must exist and be in READY status
+
+    Args:
+        request: Batch extraction request with SAE IDs, dataset ID, and config
+
+    Returns:
+        Batch extraction response with created jobs and any skipped SAEs
+    """
+
+    # Validate dataset exists and is ready
+    dataset_result = await db.execute(
+        select(Dataset).where(Dataset.id == request.dataset_id)
+    )
+    dataset = dataset_result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(404, f"Dataset not found: {request.dataset_id}")
+    if dataset.status != DatasetStatus.READY:
+        raise HTTPException(400, f"Dataset is not ready: {dataset.status.value}")
+
+    extraction_service = ExtractionService(db)
+
+    # Build config from request
+    config_dict = {
+        "dataset_id": request.dataset_id,
+        "evaluation_samples": request.evaluation_samples,
+        "top_k_examples": request.top_k_examples,
+        "filter_special": request.filter_special,
+        "filter_single_char": request.filter_single_char,
+        "filter_punctuation": request.filter_punctuation,
+        "filter_numbers": request.filter_numbers,
+        "filter_fragments": request.filter_fragments,
+        "filter_stop_words": request.filter_stop_words,
+        "context_prefix_tokens": request.context_prefix_tokens,
+        "context_suffix_tokens": request.context_suffix_tokens,
+        "min_activation_frequency": request.min_activation_frequency,
+        "auto_nlp": request.auto_nlp,
+    }
+
+    # Create batch extraction
+    result = await extraction_service.start_batch_extraction_for_saes(
+        sae_ids=request.sae_ids,
+        config=config_dict
+    )
+
+    return BatchExtractionResponse(
+        batch_id=result["batch_id"],
+        created_jobs=[
+            BatchExtractionJobInfo(**job) for job in result["created_jobs"]
+        ],
+        skipped_saes=[
+            BatchExtractionSkippedInfo(**skip) for skip in result["skipped_saes"]
+        ],
+        total_requested=result["total_requested"],
+        total_created=result["total_created"],
+        total_skipped=result["total_skipped"],
+        dataset_id=request.dataset_id,
+        dataset_name=dataset.name
+    )

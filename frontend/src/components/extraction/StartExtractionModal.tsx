@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Zap, X, Brain, ChevronDown } from 'lucide-react';
+import { Zap, X, Brain, ChevronDown, Check, Layers } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
@@ -25,7 +25,8 @@ import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesSto
 import type { Training } from '../../types/training';
 import type { ExtractionTemplate } from '../../types/extractionTemplate';
 import type { SAE } from '../../types/sae';
-import { startSAEExtraction, SAEExtractionConfig, getReadySAEs } from '../../api/saes';
+import type { BatchExtractionResponse, BatchExtractionRequest } from '../../types/features';
+import { startSAEExtraction, startBatchSAEExtraction, SAEExtractionConfig, getReadySAEs } from '../../api/saes';
 
 type ExtractionSourceType = 'training' | 'sae';
 
@@ -65,7 +66,8 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
     preSelectedSAE ? 'sae' : preSelectedTraining ? 'training' : 'sae'
   );
   const [selectedTrainingId, setSelectedTrainingId] = useState<string>(preSelectedTraining?.id || '');
-  const [selectedSAEId, setSelectedSAEId] = useState<string>(preSelectedSAE?.id || '');
+  // Support multiple SAE selection for batch extraction
+  const [selectedSAEIds, setSelectedSAEIds] = useState<string[]>(preSelectedSAE ? [preSelectedSAE.id] : []);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
   const [selectedLayerIndex, setSelectedLayerIndex] = useState<number | null>(null);
 
@@ -98,6 +100,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saeLoadError, setSaeLoadError] = useState<string | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchExtractionResponse | null>(null);
 
   // Load data on mount
   useEffect(() => {
@@ -134,7 +137,26 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
 
   // Get selected entities
   const selectedTraining = completedTrainings.find(t => t.id === selectedTrainingId);
-  const selectedSAE = readySAEs.find(s => s.id === selectedSAEId);
+  const selectedSAEs = readySAEs.filter(s => selectedSAEIds.includes(s.id));
+  const isBatchMode = selectedSAEIds.length > 1;
+
+  // Toggle SAE selection
+  const toggleSAESelection = (saeId: string) => {
+    setSelectedSAEIds(prev =>
+      prev.includes(saeId)
+        ? prev.filter(id => id !== saeId)
+        : [...prev, saeId]
+    );
+  };
+
+  // Select/deselect all SAEs
+  const selectAllSAEs = () => {
+    setSelectedSAEIds(readySAEs.map(s => s.id));
+  };
+
+  const deselectAllSAEs = () => {
+    setSelectedSAEIds([]);
+  };
 
   // Get available layers for multi-layer trainings
   const trainingLayers = selectedTraining?.hyperparameters?.training_layers || [];
@@ -216,6 +238,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
    */
   const handleStartExtraction = async () => {
     setLocalError(null);
+    setBatchResult(null);
     setIsSubmitting(true);
 
     try {
@@ -244,17 +267,42 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
           layer_index: selectedLayerIndex,
         };
         await startExtraction(selectedTrainingId, trainingConfig as any);
+        setShowSuccessMessage(true);
       } else {
-        if (!selectedSAEId) {
-          throw new Error('Please select an SAE');
+        if (selectedSAEIds.length === 0) {
+          throw new Error('Please select at least one SAE');
         }
         if (!selectedDatasetId) {
           throw new Error('Please select a dataset');
         }
-        await startSAEExtraction(selectedSAEId, selectedDatasetId, config);
-      }
 
-      setShowSuccessMessage(true);
+        if (selectedSAEIds.length === 1) {
+          // Single SAE extraction
+          await startSAEExtraction(selectedSAEIds[0], selectedDatasetId, config);
+          setShowSuccessMessage(true);
+        } else {
+          // Batch extraction for multiple SAEs
+          const batchRequest: BatchExtractionRequest = {
+            sae_ids: selectedSAEIds,
+            dataset_id: selectedDatasetId,
+            evaluation_samples: evaluationSamples,
+            top_k_examples: topKExamples,
+            filter_special: filterSpecial,
+            filter_single_char: filterSingleChar,
+            filter_punctuation: filterPunctuation,
+            filter_numbers: filterNumbers,
+            filter_fragments: filterFragments,
+            filter_stop_words: filterStopWords,
+            context_prefix_tokens: contextPrefixTokens,
+            context_suffix_tokens: contextSuffixTokens,
+            min_activation_frequency: minActivationFrequency,
+            auto_nlp: autoNlp,
+          };
+          const result = await startBatchSAEExtraction(batchRequest);
+          setBatchResult(result);
+          setShowSuccessMessage(true);
+        }
+      }
     } catch (error: any) {
       // Handle Pydantic validation errors (detail is array) vs regular errors (detail is string)
       const detail = error.response?.data?.detail;
@@ -278,6 +326,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const handleClose = () => {
     setShowSuccessMessage(false);
     setLocalError(null);
+    setBatchResult(null);
     onClose();
   };
 
@@ -321,12 +370,58 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
             {/* Success Message */}
             {showSuccessMessage && (
               <div className="p-4 bg-emerald-900/20 border border-emerald-700 rounded-lg">
-                <p className="text-emerald-400 font-medium mb-2">
-                  Extraction started successfully!
-                </p>
-                <p className="text-sm text-slate-300">
-                  The extraction job is now queued. You can monitor progress on this page.
-                </p>
+                {batchResult ? (
+                  <>
+                    <p className="text-emerald-400 font-medium mb-2">
+                      Batch extraction started successfully!
+                    </p>
+                    <div className="text-sm text-slate-300 space-y-2">
+                      <p>
+                        <span className="text-emerald-400">{batchResult.total_created}</span> extraction jobs created
+                        {batchResult.total_skipped > 0 && (
+                          <span>, <span className="text-amber-400">{batchResult.total_skipped}</span> SAEs skipped</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Batch ID: {batchResult.batch_id}
+                      </p>
+                      {batchResult.created_jobs.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-slate-400 mb-1">Created jobs:</p>
+                          <div className="max-h-32 overflow-y-auto space-y-1">
+                            {batchResult.created_jobs.map((job) => (
+                              <div key={job.job_id} className="text-xs flex items-center gap-2">
+                                <span className="text-emerald-500">#{job.position}</span>
+                                <span className="text-slate-300">{job.sae_name || job.sae_id.slice(0, 12)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {batchResult.skipped_saes.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-amber-400 mb-1">Skipped SAEs:</p>
+                          <div className="max-h-24 overflow-y-auto space-y-1">
+                            {batchResult.skipped_saes.map((skip) => (
+                              <div key={skip.sae_id} className="text-xs text-amber-300">
+                                {skip.sae_id.slice(0, 12)}: {skip.reason}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-emerald-400 font-medium mb-2">
+                      Extraction started successfully!
+                    </p>
+                    <p className="text-sm text-slate-300">
+                      The extraction job is now queued. You can monitor progress on this page.
+                    </p>
+                  </>
+                )}
               </div>
             )}
 
@@ -377,42 +472,79 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                 {/* Source Selection */}
                 {sourceType === 'sae' ? (
                   <div className="space-y-3">
-                    {/* SAE Selection */}
+                    {/* SAE Selection - Multi-select for batch extraction */}
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Select SAE</label>
-                      <select
-                        value={selectedSAEId}
-                        onChange={(e) => setSelectedSAEId(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="">-- Select an SAE --</option>
-                        {readySAEs.map((sae) => {
-                          // Format: Model | L{layer} | Architecture | Features | L0 | Source
-                          // Look up model name from store if not set on SAE
-                          const modelName = sae.model_name || (sae.model_id ? getModelName(sae.model_id) : 'Unknown');
-                          const layer = sae.layer != null ? `L${sae.layer}` : 'L?';
-                          const arch = sae.architecture || 'standard';
-                          const features = sae.n_features
-                            ? `${(sae.n_features / 1000).toFixed(1)}K`
-                            : '?';
-                          const l0 = sae.sae_metadata?.final_l0_sparsity != null
-                            ? `L0: ${(sae.sae_metadata.final_l0_sparsity * 100).toFixed(1)}%`
-                            : '';
-                          const source = sae.training_id
-                            ? sae.training_id.slice(0, 12)
-                            : sae.hf_repo_id?.split('/').pop()?.slice(0, 12) || sae.id.slice(0, 8);
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs text-slate-400">
+                          Select SAE{readySAEs.length > 1 ? 's' : ''} ({selectedSAEIds.length} selected)
+                        </label>
+                        {readySAEs.length > 1 && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={selectAllSAEs}
+                              className="text-xs text-emerald-400 hover:text-emerald-300"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-slate-600">|</span>
+                            <button
+                              type="button"
+                              onClick={deselectAllSAEs}
+                              className="text-xs text-slate-400 hover:text-slate-300"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
-                          const parts = [modelName, layer, arch, features];
-                          if (l0) parts.push(l0);
-                          parts.push(source);
+                      {/* SAE List with checkboxes */}
+                      <div className="max-h-48 overflow-y-auto bg-slate-800 border border-slate-700 rounded">
+                        {readySAEs.length === 0 ? (
+                          <div className="p-3 text-center text-sm text-slate-500">
+                            No ready SAEs available
+                          </div>
+                        ) : (
+                          readySAEs.map((sae) => {
+                            const isSelected = selectedSAEIds.includes(sae.id);
+                            const modelName = sae.model_name || (sae.model_id ? getModelName(sae.model_id) : 'Unknown');
+                            const layer = sae.layer != null ? `L${sae.layer}` : 'L?';
+                            const arch = sae.architecture || 'standard';
+                            const features = sae.n_features
+                              ? `${(sae.n_features / 1000).toFixed(1)}K`
+                              : '?';
 
-                          return (
-                            <option key={sae.id} value={sae.id}>
-                              {parts.join(' | ')}
-                            </option>
-                          );
-                        })}
-                      </select>
+                            return (
+                              <div
+                                key={sae.id}
+                                onClick={() => toggleSAESelection(sae.id)}
+                                className={`flex items-center gap-3 px-3 py-2 cursor-pointer border-b border-slate-700 last:border-b-0 transition-colors ${
+                                  isSelected
+                                    ? 'bg-emerald-900/30'
+                                    : 'hover:bg-slate-700/50'
+                                }`}
+                              >
+                                <div className={`w-5 h-5 rounded flex items-center justify-center border ${
+                                  isSelected
+                                    ? 'bg-emerald-600 border-emerald-500'
+                                    : 'border-slate-600'
+                                }`}>
+                                  {isSelected && <Check className="w-3 h-3 text-white" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm text-white truncate">
+                                    {sae.name || `${modelName} - ${layer}`}
+                                  </div>
+                                  <div className="text-xs text-slate-400 truncate">
+                                    {modelName} | {layer} | {arch} | {features} features
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
                       {saeLoadError && (
                         <p className="text-xs text-red-400 mt-1">{saeLoadError}</p>
                       )}
@@ -420,6 +552,16 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                         <p className="text-xs text-amber-400 mt-1">
                           No ready SAEs available. Download or import an SAE first.
                         </p>
+                      )}
+
+                      {/* Batch mode indicator */}
+                      {isBatchMode && (
+                        <div className="flex items-center gap-2 mt-2 p-2 bg-emerald-900/20 border border-emerald-700/50 rounded text-xs">
+                          <Layers className="w-4 h-4 text-emerald-400" />
+                          <span className="text-emerald-300">
+                            Batch mode: {selectedSAEIds.length} SAEs will be extracted sequentially
+                          </span>
+                        </div>
                       )}
                     </div>
 
@@ -445,16 +587,26 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       )}
                     </div>
 
-                    {/* Selected SAE Info */}
-                    {selectedSAE && (
+                    {/* Selected SAE(s) Info */}
+                    {selectedSAEs.length === 1 && (
                       <div className="p-3 bg-slate-800/30 border border-slate-700 rounded text-sm">
                         <div className="grid grid-cols-2 gap-2 text-slate-400">
                           <span>Model:</span>
-                          <span className="text-slate-200">{selectedSAE.model_name || (selectedSAE.model_id ? getModelName(selectedSAE.model_id) : 'Unknown')}</span>
+                          <span className="text-slate-200">{selectedSAEs[0].model_name || (selectedSAEs[0].model_id ? getModelName(selectedSAEs[0].model_id) : 'Unknown')}</span>
                           <span>Layer:</span>
-                          <span className="text-slate-200">{selectedSAE.layer ?? 'Unknown'}</span>
+                          <span className="text-slate-200">{selectedSAEs[0].layer ?? 'Unknown'}</span>
                           <span>Features:</span>
-                          <span className="text-slate-200">{selectedSAE.n_features?.toLocaleString() ?? 'Unknown'}</span>
+                          <span className="text-slate-200">{selectedSAEs[0].n_features?.toLocaleString() ?? 'Unknown'}</span>
+                        </div>
+                      </div>
+                    )}
+                    {selectedSAEs.length > 1 && (
+                      <div className="p-3 bg-slate-800/30 border border-slate-700 rounded text-sm">
+                        <div className="text-slate-400 mb-2">
+                          <span className="text-emerald-400 font-medium">{selectedSAEs.length}</span> SAEs selected for batch extraction
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Total features: {selectedSAEs.reduce((sum, sae) => sum + (sae.n_features || 0), 0).toLocaleString()}
                         </div>
                       </div>
                     )}
@@ -808,11 +960,15 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                 </button>
                 <button
                   onClick={handleStartExtraction}
-                  disabled={isSubmitting || isLoadingExtraction || (sourceType === 'sae' ? !selectedSAEId || !selectedDatasetId : !selectedTrainingId)}
+                  disabled={isSubmitting || isLoadingExtraction || (sourceType === 'sae' ? selectedSAEIds.length === 0 || !selectedDatasetId : !selectedTrainingId)}
                   className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded transition-colors"
                 >
-                  <Zap className="w-5 h-5" />
-                  {isSubmitting || isLoadingExtraction ? 'Starting...' : 'Start Extraction'}
+                  {isBatchMode ? <Layers className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                  {isSubmitting || isLoadingExtraction
+                    ? 'Starting...'
+                    : isBatchMode
+                      ? `Start Batch (${selectedSAEIds.length} SAEs)`
+                      : 'Start Extraction'}
                 </button>
               </>
             )}

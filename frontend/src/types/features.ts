@@ -102,6 +102,10 @@ export interface ExtractionStatusResponse {
   deletion_progress?: number;  // 0.0 to 1.0
   deletion_features_deleted?: number;
   deletion_total_features?: number;
+  // Batch extraction fields
+  batch_id?: string | null;
+  batch_position?: number | null;
+  batch_total?: number | null;
 }
 
 /**
@@ -414,4 +418,61 @@ export interface NLPAnalysisProgressEvent {
   status: 'analyzing' | 'completed' | 'failed';
   message: string;
   error?: string;
+}
+
+// ============================================
+// Batch Extraction Types
+// ============================================
+
+/**
+ * Request to start batch extraction for multiple SAEs.
+ */
+export interface BatchExtractionRequest {
+  sae_ids: string[];
+  dataset_id: string;
+  evaluation_samples?: number;
+  top_k_examples?: number;
+  filter_special?: boolean;
+  filter_single_char?: boolean;
+  filter_punctuation?: boolean;
+  filter_numbers?: boolean;
+  filter_fragments?: boolean;
+  filter_stop_words?: boolean;
+  context_prefix_tokens?: number;
+  context_suffix_tokens?: number;
+  min_activation_frequency?: number;
+  auto_nlp?: boolean;
+}
+
+/**
+ * Information about a created job in a batch extraction.
+ */
+export interface BatchExtractionJobInfo {
+  sae_id: string;
+  sae_name: string | null;
+  job_id: string;
+  position: number;
+  status: string;
+}
+
+/**
+ * Information about a skipped SAE in a batch extraction.
+ */
+export interface BatchExtractionSkippedInfo {
+  sae_id: string;
+  reason: string;
+}
+
+/**
+ * Response from batch extraction API.
+ */
+export interface BatchExtractionResponse {
+  batch_id: string;
+  created_jobs: BatchExtractionJobInfo[];
+  skipped_saes: BatchExtractionSkippedInfo[];
+  total_requested: number;
+  total_created: number;
+  total_skipped: number;
+  dataset_id: string;
+  dataset_name: string | null;
 }

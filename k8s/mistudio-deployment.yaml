@@ -1,0 +1,417 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mistudio
+
+# -------------------------
+# POSTGRES (with persistent storage via hostPath)
+# -------------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: mistudio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          env:
+            - name: POSTGRES_DB
+              value: mistudio
+            - name: POSTGRES_USER
+              value: mistudio
+            - name: POSTGRES_PASSWORD
+              value: mistudio
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-data
+          hostPath:
+            path: /data/mistudio/postgres
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: mistudio
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+
+# -------------------------
+# REDIS (with persistent storage via hostPath)
+# -------------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: mistudio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          hostPath:
+            path: /data/mistudio/redis
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: mistudio
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+
+# -------------------------
+# BACKEND + CELERY (GPU POD)
+# -------------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistudio-backend
+  namespace: mistudio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Required for GPU workloads - terminate old pod before starting new
+  selector:
+    matchLabels:
+      app: mistudio-backend
+  template:
+    metadata:
+      labels:
+        app: mistudio-backend
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: mcs-lnxgpu01
+
+      # Allow backend to resolve external hostname for Ollama access
+      hostAliases:
+        - ip: "192.168.244.61"
+          hostnames:
+            - "uat-mistudio.mcslab.io"
+
+      # Init container runs database migrations before app starts
+      initContainers:
+        - name: db-migrate
+          image: onegaionegai/mistudio-backend:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Waiting for postgres to be ready..."
+              python3 -c "
+              import time
+              import socket
+              for i in range(30):
+                  try:
+                      s = socket.create_connection(('postgres', 5432), timeout=2)
+                      s.close()
+                      print('Postgres is ready!')
+                      break
+                  except:
+                      print(f'Waiting for postgres... attempt {i+1}')
+                      time.sleep(2)
+              "
+              echo "Running database migrations..."
+              cd /app && alembic upgrade head || {
+                echo "Migration failed, but continuing..."
+              }
+              echo "Database setup complete."
+          env:
+            - name: DATABASE_URL
+              value: postgresql+asyncpg://mistudio:mistudio@postgres:5432/mistudio
+            - name: DATABASE_URL_SYNC
+              value: postgresql+psycopg2://mistudio:mistudio@postgres:5432/mistudio
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              value: mistudio-secret-key-change-in-production
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+
+      containers:
+        - name: backend
+          image: onegaionegai/mistudio-backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: postgresql+asyncpg://mistudio:mistudio@postgres:5432/mistudio
+            - name: DATABASE_URL_SYNC
+              value: postgresql+psycopg2://mistudio:mistudio@postgres:5432/mistudio
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              value: mistudio-secret-key-change-in-production
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+            - name: INTERNAL_API_URL
+              value: http://mistudio-backend:8000
+            - name: OLLAMA_URL
+              value: http://ollama-proxy:11434
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: mistudio-data
+              mountPath: /data
+
+        - name: celery-worker
+          image: onegaionegai/mistudio-backend:latest
+          env:
+            - name: SERVICE_TYPE
+              value: celery-worker
+            - name: DATABASE_URL
+              value: postgresql+asyncpg://mistudio:mistudio@postgres:5432/mistudio
+            - name: DATABASE_URL_SYNC
+              value: postgresql+psycopg2://mistudio:mistudio@postgres:5432/mistudio
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              value: mistudio-secret-key-change-in-production
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+            - name: INTERNAL_API_URL
+              value: http://mistudio-backend:8000
+            - name: OLLAMA_URL
+              value: http://ollama-proxy:11434
+          volumeMounts:
+            - name: mistudio-data
+              mountPath: /data
+
+        - name: celery-beat
+          image: onegaionegai/mistudio-backend:latest
+          env:
+            - name: SERVICE_TYPE
+              value: celery-beat
+            - name: DATABASE_URL
+              value: postgresql+asyncpg://mistudio:mistudio@postgres:5432/mistudio
+            - name: DATABASE_URL_SYNC
+              value: postgresql+psycopg2://mistudio:mistudio@postgres:5432/mistudio
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              value: mistudio-secret-key-change-in-production
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+            - name: INTERNAL_API_URL
+              value: http://mistudio-backend:8000
+            - name: OLLAMA_URL
+              value: http://ollama-proxy:11434
+          volumeMounts:
+            - name: mistudio-data
+              mountPath: /data
+      volumes:
+        - name: mistudio-data
+          hostPath:
+            path: /data/mistudio/data
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistudio-backend
+  namespace: mistudio
+spec:
+  selector:
+    app: mistudio-backend
+  ports:
+    - port: 8000
+
+# -------------------------
+# FRONTEND
+# -------------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistudio-frontend
+  namespace: mistudio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mistudio-frontend
+  template:
+    metadata:
+      labels:
+        app: mistudio-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: onegaionegai/mistudio-frontend:latest
+          ports:
+            - containerPort: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistudio-frontend
+  namespace: mistudio
+spec:
+  selector:
+    app: mistudio-frontend
+  ports:
+    - port: 80
+
+# -------------------------
+# OLLAMA PROXY SERVICE (ExternalName to ollama namespace)
+# -------------------------
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-proxy
+  namespace: mistudio
+spec:
+  type: ExternalName
+  externalName: ollama-service.ollama.svc.cluster.local
+  ports:
+    - port: 11434
+
+# -------------------------
+# INGRESS (MICROK8S NGINX)
+# -------------------------
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mistudio-ingress
+  namespace: mistudio
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "mistudio-backend"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  ingressClassName: public
+  rules:
+    - host: uat-mistudio.mcslab.io
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-backend
+                port:
+                  number: 8000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-frontend
+                port:
+                  number: 80
+
+---
+# Separate ingress for Ollama with path rewrite
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mistudio-ollama-ingress
+  namespace: mistudio
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: public
+  rules:
+    - host: uat-mistudio.mcslab.io
+      http:
+        paths:
+          - path: /ollama(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ollama-proxy
+                port:
+                  number: 11434

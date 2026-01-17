@@ -5,7 +5,7 @@ This module defines the request and response schemas for task queue operations.
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskQueueBase(BaseModel):
@@ -47,8 +47,7 @@ class TaskQueueData(BaseModel):
     updated_at: Optional[str]
     entity_info: Optional[Dict[str, Any]] = Field(None, description="Information about the associated entity")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskQueueResponse(BaseModel):

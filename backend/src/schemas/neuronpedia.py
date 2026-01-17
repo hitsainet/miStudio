@@ -8,7 +8,7 @@ and serialization for Neuronpedia export operations.
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ============================================================================
@@ -120,8 +120,7 @@ class NeuronpediaExportJobStatus(BaseModel):
     # Error info (only when failed)
     error_message: Optional[str] = Field(None, description="Error message (when failed)")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NeuronpediaExportJobResponse(BaseModel):

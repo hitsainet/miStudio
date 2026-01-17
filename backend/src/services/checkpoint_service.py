@@ -405,55 +405,91 @@ class CheckpointService:
 
     @staticmethod
     def save_multilayer_checkpoint(
-        models: Dict[int, torch.nn.Module],
-        optimizers: Dict[int, torch.optim.Optimizer],
+        models: Dict,
+        optimizers: Dict,
         step: int,
         base_storage_path: str,
-        training_layers: List[int],
+        training_layers: Optional[List[int]] = None,
+        layer_hook_combinations: Optional[List[tuple]] = None,
         extra_metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[int, str]:
+    ) -> Dict:
         """
-        Save checkpoints for multi-layer training.
+        Save checkpoints for multi-layer (and optionally multi-hook) training.
 
-        Creates directory structure: checkpoint_{step}/layer_{idx}/checkpoint.safetensors
+        Directory structure:
+        - Single hook type: checkpoint_{step}/layer_{idx}/checkpoint.safetensors
+        - Multi-hook type: checkpoint_{step}/layer_{idx}_{hook_type}/checkpoint.safetensors
 
         Args:
-            models: Dictionary of models per layer {layer_idx: model}
-            optimizers: Dictionary of optimizers per layer {layer_idx: optimizer}
+            models: Dictionary of models. Keys can be:
+                    - int (layer_idx) for single hook type
+                    - tuple (layer_idx, hook_type) for multi-hook
+            optimizers: Dictionary of optimizers (same key structure as models)
             step: Current training step
             base_storage_path: Base directory for checkpoints
-            training_layers: List of layer indices being trained
+            training_layers: List of layer indices (for single hook type, deprecated)
+            layer_hook_combinations: List of (layer_idx, hook_type) tuples (for multi-hook)
             extra_metadata: Additional metadata to save
 
         Returns:
-            Dictionary mapping layer_idx to checkpoint path
+            Dictionary mapping keys to checkpoint paths (same key structure as models)
         """
         checkpoint_dir = Path(base_storage_path) / f"checkpoint_{step}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint_paths = {}
 
-        for layer_idx in training_layers:
-            layer_dir = checkpoint_dir / f"layer_{layer_idx}"
-            layer_dir.mkdir(parents=True, exist_ok=True)
+        # Determine which iteration scheme to use
+        if layer_hook_combinations is not None:
+            # Multi-hook mode: iterate over (layer_idx, hook_type) tuples
+            for layer_idx, hook_type in layer_hook_combinations:
+                sae_key = (layer_idx, hook_type)
+                sae_dir = checkpoint_dir / f"layer_{layer_idx}_{hook_type}"
+                sae_dir.mkdir(parents=True, exist_ok=True)
 
-            storage_path = str(layer_dir / "checkpoint.safetensors")
+                storage_path = str(sae_dir / "checkpoint.safetensors")
 
-            # Add layer-specific metadata
-            layer_metadata = {
-                "layer_idx": layer_idx,
-                **(extra_metadata or {})
-            }
+                # Add layer-specific metadata
+                layer_metadata = {
+                    "layer_idx": layer_idx,
+                    "hook_type": hook_type,
+                    **(extra_metadata or {})
+                }
 
-            CheckpointService.save_checkpoint(
-                model=models[layer_idx],
-                optimizer=optimizers[layer_idx],
-                step=step,
-                storage_path=storage_path,
-                extra_metadata=layer_metadata,
-            )
+                CheckpointService.save_checkpoint(
+                    model=models[sae_key],
+                    optimizer=optimizers[sae_key],
+                    step=step,
+                    storage_path=storage_path,
+                    extra_metadata=layer_metadata,
+                )
 
-            checkpoint_paths[layer_idx] = storage_path
+                checkpoint_paths[sae_key] = storage_path
+        elif training_layers is not None:
+            # Legacy mode: single hook type, iterate over layer indices
+            for layer_idx in training_layers:
+                layer_dir = checkpoint_dir / f"layer_{layer_idx}"
+                layer_dir.mkdir(parents=True, exist_ok=True)
+
+                storage_path = str(layer_dir / "checkpoint.safetensors")
+
+                # Add layer-specific metadata
+                layer_metadata = {
+                    "layer_idx": layer_idx,
+                    **(extra_metadata or {})
+                }
+
+                CheckpointService.save_checkpoint(
+                    model=models[layer_idx],
+                    optimizer=optimizers[layer_idx],
+                    step=step,
+                    storage_path=storage_path,
+                    extra_metadata=layer_metadata,
+                )
+
+                checkpoint_paths[layer_idx] = storage_path
+        else:
+            raise ValueError("Either training_layers or layer_hook_combinations must be provided")
 
         return checkpoint_paths
 
@@ -585,39 +621,42 @@ class CheckpointService:
 
     @staticmethod
     def save_multilayer_community_checkpoint(
-        models: Dict[int, torch.nn.Module],
+        models: Dict,
         base_output_dir: str,
         model_name: str,
-        training_layers: List[int],
-        hyperparams: Dict[str, Any],
+        training_layers: Optional[List[int]] = None,
+        layer_hook_combinations: Optional[List[tuple]] = None,
+        hyperparams: Optional[Dict[str, Any]] = None,
         training_id: Optional[str] = None,
         checkpoint_step: Optional[int] = None,
-        sparsity_per_layer: Optional[Dict[int, torch.Tensor]] = None,
+        sparsity_per_layer: Optional[Dict] = None,
         tied_weights: bool = False,
-    ) -> Dict[int, str]:
+    ) -> Dict:
         """
-        Save multi-layer SAE checkpoints in Community Standard format.
+        Save multi-layer (and optionally multi-hook) SAE checkpoints in Community Standard format.
 
-        Creates directory structure:
-            {base_output_dir}/
-            └── layer_{idx}/
-                ├── cfg.json
-                ├── sae_weights.safetensors
-                └── sparsity.safetensors (optional)
+        Directory structure:
+        - Single hook type:
+            {base_output_dir}/layer_{idx}/cfg.json, sae_weights.safetensors, sparsity.safetensors
+        - Multi-hook type:
+            {base_output_dir}/layer_{idx}_{hook_type}/cfg.json, sae_weights.safetensors, sparsity.safetensors
 
         Args:
-            models: Dictionary of models per layer {layer_idx: model}
+            models: Dictionary of models. Keys can be:
+                    - int (layer_idx) for single hook type
+                    - tuple (layer_idx, hook_type) for multi-hook
             base_output_dir: Base directory for checkpoints
             model_name: Name of the target model
-            training_layers: List of layer indices being trained
+            training_layers: List of layer indices (for single hook type, deprecated)
+            layer_hook_combinations: List of (layer_idx, hook_type) tuples (for multi-hook)
             hyperparams: Training hyperparameters dict
             training_id: Optional training job ID
             checkpoint_step: Optional checkpoint step number
-            sparsity_per_layer: Optional dict of sparsity tensors per layer
+            sparsity_per_layer: Optional dict of sparsity tensors (same key structure as models)
             tied_weights: Whether models use tied weights
 
         Returns:
-            Dictionary mapping layer_idx to output directory path
+            Dictionary mapping keys to output directory paths (same key structure as models)
 
         Raises:
             ValueError: If any model has empty state_dict or conversion fails
@@ -626,41 +665,85 @@ class CheckpointService:
         base_path = Path(base_output_dir)
         base_path.mkdir(parents=True, exist_ok=True)
 
-        # Log summary of models being saved
-        logger.info(
-            f"Saving {len(training_layers)} SAE(s) to Community Standard format: "
-            f"layers={training_layers}, output={base_path}, "
-            f"hyperparams.architecture_type={hyperparams.get('architecture_type', 'unknown')}"
-        )
-
+        hyperparams = hyperparams or {}
         output_paths = {}
 
-        for layer_idx in training_layers:
-            model = models[layer_idx]
-            layer_dir = base_path / f"layer_{layer_idx}"
-
-            # Get sparsity for this layer if provided
-            sparsity = None
-            if sparsity_per_layer and layer_idx in sparsity_per_layer:
-                sparsity = sparsity_per_layer[layer_idx]
-
-            output_path = CheckpointService.save_community_checkpoint(
-                model=model,
-                output_dir=str(layer_dir),
-                model_name=model_name,
-                layer=layer_idx,
-                hyperparams=hyperparams,
-                training_id=training_id,
-                checkpoint_step=checkpoint_step,
-                sparsity=sparsity,
-                tied_weights=tied_weights,
+        # Determine which iteration scheme to use
+        if layer_hook_combinations is not None:
+            # Multi-hook mode: iterate over (layer_idx, hook_type) tuples
+            logger.info(
+                f"Saving {len(layer_hook_combinations)} SAE(s) to Community Standard format: "
+                f"combinations={layer_hook_combinations}, output={base_path}, "
+                f"hyperparams.architecture_type={hyperparams.get('architecture_type', 'unknown')}"
             )
 
-            output_paths[layer_idx] = output_path
+            for layer_idx, hook_type in layer_hook_combinations:
+                sae_key = (layer_idx, hook_type)
+                model = models[sae_key]
+                sae_dir = base_path / f"layer_{layer_idx}_{hook_type}"
 
-        logger.info(
-            f"Saved Community Standard checkpoints for {len(training_layers)} layers "
-            f"to {base_path}"
-        )
+                # Get sparsity for this SAE if provided
+                sparsity = None
+                if sparsity_per_layer and sae_key in sparsity_per_layer:
+                    sparsity = sparsity_per_layer[sae_key]
+
+                # Add hook_type to hyperparams for config
+                layer_hyperparams = {**hyperparams, 'hook_type': hook_type}
+
+                output_path = CheckpointService.save_community_checkpoint(
+                    model=model,
+                    output_dir=str(sae_dir),
+                    model_name=model_name,
+                    layer=layer_idx,
+                    hyperparams=layer_hyperparams,
+                    training_id=training_id,
+                    checkpoint_step=checkpoint_step,
+                    sparsity=sparsity,
+                    tied_weights=tied_weights,
+                )
+
+                output_paths[sae_key] = output_path
+
+            logger.info(
+                f"Saved Community Standard checkpoints for {len(layer_hook_combinations)} SAEs "
+                f"to {base_path}"
+            )
+        elif training_layers is not None:
+            # Legacy mode: single hook type, iterate over layer indices
+            logger.info(
+                f"Saving {len(training_layers)} SAE(s) to Community Standard format: "
+                f"layers={training_layers}, output={base_path}, "
+                f"hyperparams.architecture_type={hyperparams.get('architecture_type', 'unknown')}"
+            )
+
+            for layer_idx in training_layers:
+                model = models[layer_idx]
+                layer_dir = base_path / f"layer_{layer_idx}"
+
+                # Get sparsity for this layer if provided
+                sparsity = None
+                if sparsity_per_layer and layer_idx in sparsity_per_layer:
+                    sparsity = sparsity_per_layer[layer_idx]
+
+                output_path = CheckpointService.save_community_checkpoint(
+                    model=model,
+                    output_dir=str(layer_dir),
+                    model_name=model_name,
+                    layer=layer_idx,
+                    hyperparams=hyperparams,
+                    training_id=training_id,
+                    checkpoint_step=checkpoint_step,
+                    sparsity=sparsity,
+                    tied_weights=tied_weights,
+                )
+
+                output_paths[layer_idx] = output_path
+
+            logger.info(
+                f"Saved Community Standard checkpoints for {len(training_layers)} layers "
+                f"to {base_path}"
+            )
+        else:
+            raise ValueError("Either training_layers or layer_hook_combinations must be provided")
 
         return output_paths

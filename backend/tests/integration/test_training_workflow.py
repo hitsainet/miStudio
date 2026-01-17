@@ -94,7 +94,7 @@ class TestTrainingWorkflow:
         # Step 4: Create training job
         training_data = TrainingCreate(
             model_id=model.id,
-            dataset_id=str(dataset.id),  # Convert UUID to string
+            dataset_ids=[str(dataset.id)],  # List of dataset IDs (supports multi-dataset)
             extraction_id=None,
             hyperparameters=hyperparameters
         )
@@ -119,7 +119,8 @@ class TestTrainingWorkflow:
         assert training.id is not None
         assert training.id.startswith("train_")
         assert training.model_id == model.id
-        assert training.dataset_id == str(dataset.id)  # dataset_id stored as string
+        assert training.dataset_ids == [str(dataset.id)]  # dataset_ids stored as list
+        assert training.dataset_id == str(dataset.id)  # dataset_id is computed property (first in list)
         assert training.extraction_id is None
 
         # Step 6: Verify initial status
@@ -220,7 +221,7 @@ class TestTrainingWorkflow:
 
         training_data = TrainingCreate(
             model_id=model.id,
-            dataset_id=str(dataset.id),
+            dataset_ids=[str(dataset.id)],
             extraction_id=None,
             hyperparameters=hyperparameters
         )
@@ -367,7 +368,7 @@ class TestTrainingWorkflow:
 
         training_data = TrainingCreate(
             model_id=model.id,
-            dataset_id=str(dataset.id),  # Convert UUID to string
+            dataset_ids=[str(dataset.id)],  # List of dataset IDs (supports multi-dataset)
             extraction_id=None,  # No pre-extracted activations
             hyperparameters=hyperparameters
         )
@@ -408,7 +409,7 @@ class TestTrainingWorkflow:
             )
             training_data = TrainingCreate(
                 model_id="invalid-model-id",  # Wrong format
-                dataset_id="d_test_dataset",
+                dataset_ids=["d_test_dataset"],  # List of dataset IDs
                 hyperparameters=hyperparameters
             )
         assert "must start with 'm_'" in str(exc_info.value)
@@ -425,7 +426,7 @@ class TestTrainingWorkflow:
             )
             training_data = TrainingCreate(
                 model_id="m_test_model",
-                dataset_id="d_test_dataset",
+                dataset_ids=["d_test_dataset"],  # List of dataset IDs
                 extraction_id="invalid-extraction-id",  # Wrong format
                 hyperparameters=hyperparameters
             )
@@ -480,7 +481,7 @@ class TestTrainingWorkflow:
         for i in range(3):
             training_data = TrainingCreate(
                 model_id=model.id,
-                dataset_id=str(dataset.id),  # Convert UUID to string
+                dataset_ids=[str(dataset.id)],  # List of dataset IDs (supports multi-dataset)
                 hyperparameters=hyperparameters
             )
             training = await TrainingService.create_training(async_session, training_data)
@@ -569,7 +570,7 @@ class TestTrainingWorkflow:
 
         training_data = TrainingCreate(
             model_id=model.id,
-            dataset_id=str(dataset.id),  # Convert UUID to string
+            dataset_ids=[str(dataset.id)],  # List of dataset IDs (supports multi-dataset)
             hyperparameters=hyperparameters
         )
         training = await TrainingService.create_training(async_session, training_data)

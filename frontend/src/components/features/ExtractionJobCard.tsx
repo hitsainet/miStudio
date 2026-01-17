@@ -810,6 +810,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
               {extraction.source_type === 'external_sae' && (
                 <span className="px-2 py-0.5 text-xs font-medium bg-purple-900/30 text-purple-400 rounded">SAE</span>
               )}
+              {extraction.batch_id && (
+                <span
+                  className="px-2 py-0.5 text-xs font-medium bg-blue-900/30 text-blue-400 rounded"
+                  title={`Batch: ${extraction.batch_id}`}
+                >
+                  {extraction.batch_position}/{extraction.batch_total}
+                </span>
+              )}
               {getStatusBadge()}
               {isCompleted && getNlpStatusBadge()}
               {/* Expand/Collapse button for completed extractions */}

@@ -252,31 +252,52 @@ def train_sae_task(
             training_layers = [training_layers]  # Convert single int to list
         logger.info(f"Training layers: {training_layers}")
 
+        # Get hook types to train on (default to residual for backward compatibility)
+        # Supports both old 'hook_type' (string) and new 'hook_types' (list) format
+        hook_types_config = hp.get('hook_types', hp.get('hook_type', ['residual']))
+        if isinstance(hook_types_config, str):
+            hook_types_config = [hook_types_config]
+        # Ensure we have at least residual
+        if not hook_types_config:
+            hook_types_config = ['residual']
+        logger.info(f"Training hook types: {hook_types_config}")
+
+        # Create all (layer, hook_type) combinations
+        layer_hook_combinations = [
+            (layer_idx, hook_type)
+            for layer_idx in training_layers
+            for hook_type in hook_types_config
+        ]
+        num_sae_models = len(layer_hook_combinations)
+        logger.info(f"Will train {num_sae_models} SAE(s): {len(training_layers)} layers × {len(hook_types_config)} hook types")
+
     try:
         # Memory budget validation
         logger.info("Validating memory budget...")
         batch_size = hp['batch_size']
         num_layers = len(training_layers)
+        num_hook_types = len(hook_types_config)
 
-        if num_layers == 1:
-            # Single-layer training
+        # Total number of SAE models = layers × hook_types
+        if num_sae_models == 1:
+            # Single SAE training
             memory_estimate = estimate_training_memory(
                 hidden_dim=hp['hidden_dim'],
                 latent_dim=hp['latent_dim'],
                 batch_size=batch_size,
             )
         else:
-            # Multi-layer training
+            # Multi-SAE training (multiple layers and/or hook types)
             memory_estimate = estimate_multilayer_training_memory(
                 hidden_dim=hp['hidden_dim'],
                 latent_dim=hp['latent_dim'],
                 batch_size=batch_size,
-                num_layers=num_layers,
+                num_layers=num_sae_models,  # Total number of SAEs
             )
 
         available_gpu_gb = memory_estimate.get('available_gpu_gb', 6.0)
         logger.info(f"Estimated memory usage: {memory_estimate['total_gb']:.2f} GB (Available: {available_gpu_gb:.2f} GB)")
-        if num_layers > 1:
+        if num_sae_models > 1:
             logger.info(f"Per-layer memory: {memory_estimate['per_layer_gb']:.2f} GB")
             logger.info(f"Max layers in available memory: {memory_estimate['max_layers_in_6gb']}")
 
@@ -318,17 +339,17 @@ def train_sae_task(
             recommended_l1_alpha = TrainingValidator.calculate_recommended_l1_alpha(hp['latent_dim'])
             logger.info(f"Recommended l1_alpha for latent_dim {hp['latent_dim']}: {recommended_l1_alpha:.6f}")
 
-        # Initialize models, optimizers, and schedulers (one per layer)
-        logger.info(f"Initializing SAE models for {num_layers} layer(s)...")
+        # Initialize models, optimizers, and schedulers (one per layer/hook_type combination)
+        logger.info(f"Initializing {num_sae_models} SAE model(s)...")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Using device: {device}")
 
-        models = {}
+        models = {}  # Key: (layer_idx, hook_type)
         optimizers = {}
         schedulers = {}
 
-        for layer_idx in training_layers:
-            # Create SAE for this layer
+        for layer_idx, hook_type in layer_hook_combinations:
+            # Create SAE for this layer/hook_type combination
             architecture_type = hp.get('architecture_type', 'standard')
             model = create_sae(
                 architecture_type=architecture_type,
@@ -344,9 +365,9 @@ def train_sae_task(
                 sparsity_coeff=hp.get('sparsity_coeff'),
                 normalize_decoder=hp.get('normalize_decoder', True),
             ).to(device)
-            models[layer_idx] = model
+            models[(layer_idx, hook_type)] = model
 
-            # Initialize optimizer for this layer
+            # Initialize optimizer for this SAE
             # JumpReLU uses Adam with betas=(0.0, 0.999) per Gemma Scope paper
             if architecture_type == 'jumprelu':
                 adam_betas = (0.0, 0.999)
@@ -359,7 +380,7 @@ def train_sae_task(
                 weight_decay=hp.get('weight_decay', 0.0),
                 betas=adam_betas,
             )
-            optimizers[layer_idx] = optimizer
+            optimizers[(layer_idx, hook_type)] = optimizer
 
             # Learning rate scheduler (linear warmup + constant)
             warmup_steps = hp.get('warmup_steps', 0)
@@ -370,16 +391,16 @@ def train_sae_task(
                 return 1.0
 
             scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-            schedulers[layer_idx] = scheduler
+            schedulers[(layer_idx, hook_type)] = scheduler
 
-            logger.info(f"  Layer {layer_idx}: SAE model initialized")
+            logger.info(f"  Layer {layer_idx}/{hook_type}: SAE model initialized")
 
-        # Initialize gradient scalers for mixed precision training (one per layer)
+        # Initialize gradient scalers for mixed precision training (one per layer/hook_type)
         scalers = {}
         if torch.cuda.is_available():
-            for layer_idx in training_layers:
-                scalers[layer_idx] = GradScaler()
-            logger.info("Mixed precision training (FP16) enabled with GradScaler")
+            for layer_idx, hook_type in layer_hook_combinations:
+                scalers[(layer_idx, hook_type)] = GradScaler()
+            logger.info(f"Mixed precision training (FP16) enabled with {len(scalers)} GradScaler(s)")
         else:
             logger.info("CPU training detected, mixed precision disabled")
 
@@ -453,32 +474,22 @@ def train_sae_task(
 
             logger.info(f"Extraction metadata: {extraction_metadata['num_samples_processed']} samples")
 
-            # Determine hook type to use for loading activations
-            # Priority: 1) Explicit from hyperparameters, 2) Auto-detect from extraction
-            hook_type = hp.get('hook_type')
+            # Get available hook types from extraction
+            available_hook_types = extraction_metadata.get('hook_types', ['residual'])
+            logger.info(f"Available hook types in extraction: {available_hook_types}")
 
-            if hook_type is None:
-                # Auto-detect from extraction metadata
-                available_hook_types = extraction_metadata.get('hook_types', ['residual'])
-                # Prefer residual if available (most common for SAE training), otherwise use first available
-                if 'residual' in available_hook_types:
-                    hook_type = 'residual'
-                else:
-                    hook_type = available_hook_types[0]
-                logger.info(f"Auto-detected hook_type: '{hook_type}' from extraction metadata (available: {available_hook_types})")
-            else:
-                # Validate that requested hook_type is available in extraction
-                available_hook_types = extraction_metadata.get('hook_types', ['residual'])
-                if hook_type not in available_hook_types:
+            # Validate that all requested hook types are available in extraction
+            for ht in hook_types_config:
+                if ht not in available_hook_types:
                     raise ValueError(
-                        f"Requested hook_type '{hook_type}' not available in extraction. "
+                        f"Requested hook_type '{ht}' not available in extraction. "
                         f"Available hook types: {available_hook_types}. "
                         f"Please re-extract activations with the desired hook type or choose from available types."
                     )
-                logger.info(f"Using user-specified hook_type: '{hook_type}'")
+            logger.info(f"Using hook_types: {hook_types_config} for multi-hook training")
 
-            # Load activation files for each training layer
-            for layer_idx in training_layers:
+            # Load activation files for each (layer, hook_type) combination
+            for layer_idx, hook_type in layer_hook_combinations:
                 activation_file = extraction_path / f"layer_{layer_idx}_{hook_type}.npy"
                 if not activation_file.exists():
                     # List available files for better error message
@@ -490,7 +501,7 @@ def train_sae_task(
                         f"Available layers in extraction: {extraction_metadata.get('layer_indices', 'unknown')}"
                     )
 
-                logger.info(f"Loading layer {layer_idx} activations from {activation_file}")
+                logger.info(f"Loading layer {layer_idx}/{hook_type} activations from {activation_file}")
                 # Use memory-mapped loading for large files to avoid RAM exhaustion
                 # Shape: (num_samples, seq_len, hidden_dim)
                 layer_acts_mmap = np.load(activation_file, mmap_mode='r')
@@ -498,23 +509,25 @@ def train_sae_task(
 
                 # Average over sequence dimension in chunks to save RAM
                 # (num_samples, seq_len, hidden_dim) -> (num_samples, hidden_dim)
-                num_samples, seq_len, hidden_dim = layer_acts_mmap.shape
+                num_samples_in_file, seq_len, hidden_dim = layer_acts_mmap.shape
                 chunk_size = 1000  # Process 1000 samples at a time
-                layer_acts_mean = np.zeros((num_samples, hidden_dim), dtype=np.float32)
+                layer_acts_mean = np.zeros((num_samples_in_file, hidden_dim), dtype=np.float32)
 
                 logger.info(f"  Averaging over sequence dimension in chunks of {chunk_size}...")
-                for start_idx in range(0, num_samples, chunk_size):
-                    end_idx = min(start_idx + chunk_size, num_samples)
+                for start_idx in range(0, num_samples_in_file, chunk_size):
+                    end_idx = min(start_idx + chunk_size, num_samples_in_file)
                     chunk = layer_acts_mmap[start_idx:end_idx]  # Load chunk into RAM
                     layer_acts_mean[start_idx:end_idx] = chunk.mean(axis=1).astype(np.float32)
 
                 # Convert to torch tensor and move to GPU
                 layer_acts_tensor = torch.from_numpy(layer_acts_mean).to(device)
-                cached_activations[layer_idx] = layer_acts_tensor
+                cached_activations[(layer_idx, hook_type)] = layer_acts_tensor
                 logger.info(f"  Loaded shape: {layer_acts_mmap.shape} -> averaged to {layer_acts_tensor.shape} on GPU")
 
-            num_samples = cached_activations[training_layers[0]].shape[0]
-            logger.info(f"Cached activations ready: {num_samples} samples across {len(training_layers)} layers (all on GPU)")
+            # Get sample count from first cached activation
+            first_key = layer_hook_combinations[0]
+            num_samples = cached_activations[first_key].shape[0]
+            logger.info(f"Cached activations ready: {num_samples} samples across {num_sae_models} SAEs (all on GPU)")
 
         else:
             # Load dataset(s) and base model for on-the-fly activation extraction
@@ -646,16 +659,15 @@ def train_sae_task(
 
             architecture = model_record.architecture
 
-            # Determine hook type for on-the-fly extraction
-            # Use hook_type from hyperparameters if specified, otherwise default to residual
-            hook_type_str = hp.get('hook_type', 'residual')
+            # Determine hook types for on-the-fly extraction
+            # Use hook_types from hyperparameters (already validated at the top of the function)
             hook_type_map = {
                 'residual': HookType.RESIDUAL,
                 'mlp': HookType.MLP,
                 'attention': HookType.ATTENTION,
             }
-            hook_types = [hook_type_map.get(hook_type_str, HookType.RESIDUAL)]
-            logger.info(f"Using hook_type '{hook_type_str}' for on-the-fly activation extraction")
+            hook_types = [hook_type_map.get(ht, HookType.RESIDUAL) for ht in hook_types_config]
+            logger.info(f"Using hook_types {hook_types_config} for on-the-fly activation extraction")
 
             num_samples = len(dataset)
             logger.info(f"Dataset: {num_samples} samples, Model: {model_record.repo_id}")
@@ -691,11 +703,11 @@ def train_sae_task(
                     # Sample from cached activations (already on GPU)
                     batch_indices = torch.randint(0, num_samples, (batch_size,), device=device)
 
-                    for layer_idx in training_layers:
+                    for layer_idx, hook_type in layer_hook_combinations:
                         # Get cached activations: shape (num_samples, hidden_dim) already on GPU
-                        cached = cached_activations[layer_idx]
+                        cached = cached_activations[(layer_idx, hook_type)]
                         # Sample batch directly on GPU - super fast!
-                        layer_activations[layer_idx] = cached[batch_indices]  # Shape: (batch_size, hidden_dim)
+                        layer_activations[(layer_idx, hook_type)] = cached[batch_indices]  # Shape: (batch_size, hidden_dim)
 
                         # VALIDATION: Check activation statistics on first step
                         if step == 1:
@@ -703,16 +715,16 @@ def train_sae_task(
                             act_std = cached.std().item()
                             act_min = cached.min().item()
                             act_max = cached.max().item()
-                            logger.info(f"Layer {layer_idx} cached activations sampled successfully:")
+                            logger.info(f"Layer {layer_idx}/{hook_type} cached activations sampled successfully:")
                             logger.info(f"  Cached shape on GPU: {cached.shape}")
                             logger.info(f"  Mean: {act_mean:.4f}, Std: {act_std:.4f}")
                             logger.info(f"  Range: [{act_min:.4f}, {act_max:.4f}]")
 
                             # Sanity check
                             if act_std < 0.01 or act_std > 100:
-                                logger.error(f"SUSPICIOUS: Layer {layer_idx} std={act_std:.4f} is unusual!")
+                                logger.error(f"SUSPICIOUS: Layer {layer_idx}/{hook_type} std={act_std:.4f} is unusual!")
                             if abs(act_mean) > 50:
-                                logger.error(f"SUSPICIOUS: Layer {layer_idx} mean={act_mean:.4f} is unusual!")
+                                logger.error(f"SUSPICIOUS: Layer {layer_idx}/{hook_type} mean={act_mean:.4f} is unusual!")
 
                 else:
                     # Extract activations on-the-fly from base model
@@ -759,21 +771,16 @@ def train_sae_task(
                         with torch.no_grad():
                             _ = base_model(input_ids=input_ids_tensor, attention_mask=attention_mask_tensor)
 
-                        # Get captured activations for each layer
-                        for layer_idx in training_layers:
-                            # Find the activation for this layer
+                        # Get captured activations for each (layer, hook_type) combination
+                        for layer_idx, hook_type in layer_hook_combinations:
                             # Key format is "layer_{idx}_{hook_type}" (e.g., "layer_9_residual")
-                            layer_key = None
-                            for key in hook_manager.activations.keys():
-                                if f"layer_{layer_idx}_" in key:
-                                    layer_key = key
-                                    break
+                            layer_key = f"layer_{layer_idx}_{hook_type}"
 
-                            if layer_key and hook_manager.activations[layer_key]:
+                            if layer_key in hook_manager.activations and hook_manager.activations[layer_key]:
                                 acts = hook_manager.activations[layer_key][0]  # Shape: (batch_size, seq_len, hidden_dim)
                                 # Average over sequence dimension to get (batch_size, hidden_dim)
                                 # Move to correct device (activations are on CPU from hook)
-                                layer_activations[layer_idx] = acts.mean(dim=1).detach().to(device)
+                                layer_activations[(layer_idx, hook_type)] = acts.mean(dim=1).detach().to(device)
 
                                 # VALIDATION: Check activation statistics on first step
                                 if step == 1:
@@ -781,38 +788,39 @@ def train_sae_task(
                                     act_std = acts.std().item()
                                     act_min = acts.min().item()
                                     act_max = acts.max().item()
-                                    logger.info(f"Layer {layer_idx} activations captured successfully:")
+                                    logger.info(f"Layer {layer_idx}/{hook_type} activations captured successfully:")
                                     logger.info(f"  Shape: {acts.shape}")
                                     logger.info(f"  Mean: {act_mean:.4f}, Std: {act_std:.4f}")
                                     logger.info(f"  Range: [{act_min:.4f}, {act_max:.4f}]")
 
                                     # Sanity check: Real activations should have reasonable statistics
                                     if act_std < 0.01 or act_std > 100:
-                                        logger.error(f"SUSPICIOUS: Layer {layer_idx} std={act_std:.4f} is unusual!")
+                                        logger.error(f"SUSPICIOUS: Layer {layer_idx}/{hook_type} std={act_std:.4f} is unusual!")
                                     if abs(act_mean) > 50:
-                                        logger.error(f"SUSPICIOUS: Layer {layer_idx} mean={act_mean:.4f} is unusual!")
+                                        logger.error(f"SUSPICIOUS: Layer {layer_idx}/{hook_type} mean={act_mean:.4f} is unusual!")
                             else:
                                 # CRITICAL ERROR: No activations captured means hooks failed
-                                logger.error(f"FATAL: No activations captured for layer {layer_idx}")
+                                logger.error(f"FATAL: No activations captured for layer {layer_idx}/{hook_type}")
                                 logger.error(f"Available keys: {list(hook_manager.activations.keys())}")
-                                logger.error(f"Expected key pattern: layer_{layer_idx}_*")
+                                logger.error(f"Expected key: {layer_key}")
                                 raise RuntimeError(
-                                    f"Failed to capture activations for layer {layer_idx}. "
+                                    f"Failed to capture activations for layer {layer_idx}/{hook_type}. "
                                     f"Hook registration failed. Available keys: {list(hook_manager.activations.keys())}"
                                 )
 
-                # Train all layers
-                layer_losses = {}
+                # Train all SAEs (one per layer/hook_type combination)
+                layer_losses = {}  # Key: (layer_idx, hook_type)
                 layer_sparsities = {}
                 layer_dead_neurons = {}
                 layer_fvu = {}
 
-                for layer_idx in training_layers:
-                    x = layer_activations[layer_idx]
-                    model = models[layer_idx]
-                    optimizer = optimizers[layer_idx]
-                    scheduler = schedulers[layer_idx]
-                    scaler = scalers.get(layer_idx)  # None if CPU training
+                for layer_idx, hook_type in layer_hook_combinations:
+                    sae_key = (layer_idx, hook_type)
+                    x = layer_activations[sae_key]
+                    model = models[sae_key]
+                    optimizer = optimizers[sae_key]
+                    scheduler = schedulers[sae_key]
+                    scaler = scalers.get(sae_key)  # None if CPU training
 
                     # Forward pass
                     if step % grad_accum_steps == 0:
@@ -876,17 +884,17 @@ def train_sae_task(
 
                         scheduler.step()
 
-                    # Store layer metrics
-                    layer_losses[layer_idx] = loss.item() * grad_accum_steps  # Undo accumulation scaling
-                    layer_sparsities[layer_idx] = (z != 0).float().mean().item()
-                    layer_dead_neurons[layer_idx] = (z == 0).all(dim=0).sum().item()
+                    # Store SAE metrics (keyed by (layer_idx, hook_type) tuple)
+                    layer_losses[sae_key] = loss.item() * grad_accum_steps  # Undo accumulation scaling
+                    layer_sparsities[sae_key] = (z != 0).float().mean().item()
+                    layer_dead_neurons[sae_key] = (z == 0).all(dim=0).sum().item()
                     # Store FVU if available (JumpReLU SAE computes this)
                     # Convert tensor to float for database storage
                     fvu_val = losses.get('fvu', None)
                     if fvu_val is not None:
-                        layer_fvu[layer_idx] = fvu_val.item() if hasattr(fvu_val, 'item') else float(fvu_val)
+                        layer_fvu[sae_key] = fvu_val.item() if hasattr(fvu_val, 'item') else float(fvu_val)
                     else:
-                        layer_fvu[layer_idx] = None
+                        layer_fvu[sae_key] = None
 
                 # Calculate aggregated metrics across all layers
                 avg_loss = sum(layer_losses.values()) / len(layer_losses)
@@ -941,8 +949,9 @@ def train_sae_task(
                     # Re-raise other runtime errors
                     raise
 
-            # Get aggregated metrics
-            current_lr = schedulers[training_layers[0]].get_last_lr()[0]  # Use first layer's LR
+            # Get aggregated metrics (use first SAE's learning rate as representative)
+            first_sae_key = layer_hook_combinations[0]
+            current_lr = schedulers[first_sae_key].get_last_lr()[0]
 
             # Log metrics periodically
             if step % log_interval == 0:
@@ -993,17 +1002,18 @@ def train_sae_task(
                     fvu=avg_fvu,  # FVU metric (for JumpReLU SAE)
                 )
 
-                # Log per-layer metrics
-                for layer_idx in training_layers:
+                # Log per-SAE metrics (one per layer/hook_type combination)
+                for layer_idx, hook_type in layer_hook_combinations:
+                    sae_key = (layer_idx, hook_type)
                     self.log_metric(
                         training_id=training_id,
                         step=step,
-                        loss=layer_losses[layer_idx],
-                        l0_sparsity=layer_sparsities[layer_idx],
-                        dead_neurons=int(layer_dead_neurons[layer_idx]),
+                        loss=layer_losses[sae_key],
+                        l0_sparsity=layer_sparsities[sae_key],
+                        dead_neurons=int(layer_dead_neurons[sae_key]),
                         learning_rate=current_lr,
-                        layer_idx=layer_idx,
-                        fvu=layer_fvu.get(layer_idx),  # Per-layer FVU
+                        layer_idx=layer_idx,  # For backward compat, log layer_idx only
+                        fvu=layer_fvu.get(sae_key),  # Per-SAE FVU
                     )
 
                 # Update progress with aggregated metrics
@@ -1038,11 +1048,12 @@ def train_sae_task(
 
                     # Perform resampling at specified intervals after warmup
                     if step > 0 and step % resample_interval == 0 and step >= hp.get('warmup_steps', 0):
-                        for layer_idx in training_layers:
-                            model = models[layer_idx]
+                        for layer_idx, hook_type in layer_hook_combinations:
+                            sae_key = (layer_idx, hook_type)
+                            model = models[sae_key]
 
                             # Get current batch activations to identify dead neurons
-                            x = layer_activations[layer_idx]
+                            x = layer_activations[sae_key]
                             with torch.no_grad():
                                 z = model.encode(x)
                                 # Identify dead neurons (never activated in current batch)
@@ -1050,7 +1061,7 @@ def train_sae_task(
                                 num_dead = dead_mask.sum().item()
 
                                 if num_dead > 0:
-                                    logger.info(f"Layer {layer_idx}: Resampling {num_dead} dead neurons at step {step}")
+                                    logger.info(f"Layer {layer_idx}/{hook_type}: Resampling {num_dead} dead neurons at step {step}")
 
                                     # Resample dead neurons by reinitializing to high-loss examples
                                     # Strategy: Set encoder weights to point toward high-loss directions
@@ -1103,7 +1114,10 @@ def train_sae_task(
                         "dead_neurons": int(avg_dead_neurons),
                         "learning_rate": current_lr,
                         "num_layers": num_layers,
+                        "num_hook_types": num_hook_types,
+                        "num_sae_models": num_sae_models,
                         "training_layers": training_layers,
+                        "hook_types": hook_types_config,
                     }
                 )
 
@@ -1111,21 +1125,22 @@ def train_sae_task(
             if step % checkpoint_interval == 0 and step > 0:
                 logger.info(f"Saving checkpoint at step {step}...")
 
-                # Save multi-layer checkpoint
+                # Save multi-layer/multi-hook checkpoint
                 checkpoint_paths = CheckpointService.save_multilayer_checkpoint(
                     models=models,
                     optimizers=optimizers,
                     step=step,
                     base_storage_path=str(checkpoint_dir),
-                    training_layers=training_layers,
+                    layer_hook_combinations=layer_hook_combinations,
                     extra_metadata={
                         'avg_loss': avg_loss,
                         'avg_sparsity': avg_sparsity,
+                        'hook_types': hook_types_config,
                         'layer_losses': {str(k): v for k, v in layer_losses.items()},
                     }
                 )
 
-                # Create checkpoint record for EACH layer (multi-layer support)
+                # Create checkpoint record for EACH SAE (multi-layer/multi-hook support)
                 with self.get_db() as db:
                     from ..models.checkpoint import Checkpoint
                     from uuid import uuid4
@@ -1142,36 +1157,40 @@ def train_sae_task(
                         for ckpt in prev_best:
                             ckpt.is_best = False
 
-                    # Create a checkpoint record for each layer
-                    for layer_idx in training_layers:
-                        checkpoint_path = checkpoint_paths[layer_idx]
-                        layer_loss = layer_losses.get(layer_idx, avg_loss)
-                        layer_sparsity = layer_sparsities.get(layer_idx, avg_sparsity)
+                    # Create a checkpoint record for each (layer, hook_type) combination
+                    for layer_idx, hook_type in layer_hook_combinations:
+                        sae_key = (layer_idx, hook_type)
+                        checkpoint_path = checkpoint_paths[sae_key]
+                        sae_loss = layer_losses.get(sae_key, avg_loss)
+                        sae_sparsity = layer_sparsities.get(sae_key, avg_sparsity)
 
                         checkpoint_id = f"ckpt_{uuid4().hex[:8]}"
                         checkpoint = Checkpoint(
                             id=checkpoint_id,
                             training_id=training_id,
                             step=step,
-                            loss=layer_loss,
-                            l0_sparsity=layer_sparsity,
+                            loss=sae_loss,
+                            l0_sparsity=sae_sparsity,
                             storage_path=checkpoint_path,
                             is_best=is_best,
                             extra_metadata={
                                 'layer_idx': layer_idx,
-                                'num_layers': num_layers,
+                                'hook_type': hook_type,
+                                'num_sae_models': num_sae_models,
                                 'training_layers': training_layers,
+                                'hook_types': hook_types_config,
                                 'avg_loss': avg_loss,
                                 'avg_sparsity': avg_sparsity,
                             },
                         )
                         db.add(checkpoint)
 
-                        logger.info(f"Checkpoint saved: {checkpoint_id} layer={layer_idx} (is_best={is_best})")
+                        logger.info(f"Checkpoint saved: {checkpoint_id} layer={layer_idx}/{hook_type} (is_best={is_best})")
 
                     db.commit()
 
-                    # Emit checkpoint:created WebSocket event (use first layer for backward compat)
+                    # Emit checkpoint:created WebSocket event (use first SAE for backward compat)
+                    first_sae_key = layer_hook_combinations[0]
                     from ..workers.websocket_emitter import emit_checkpoint_created
                     emit_checkpoint_created(
                         training_id=training_id,
@@ -1179,7 +1198,7 @@ def train_sae_task(
                         step=step,
                         loss=avg_loss,
                         is_best=is_best,
-                        storage_path=checkpoint_paths[training_layers[0]],
+                        storage_path=checkpoint_paths[first_sae_key],
                     )
 
                 logger.info(f"Saved checkpoint at step {step} (best={is_best})")
@@ -1202,7 +1221,7 @@ def train_sae_task(
             models=models,
             base_output_dir=str(community_output_dir),
             model_name=model_name,
-            training_layers=training_layers,
+            layer_hook_combinations=layer_hook_combinations,
             hyperparams=hp,
             training_id=training_id,
             checkpoint_step=total_steps,
@@ -1214,10 +1233,11 @@ def train_sae_task(
         logger.info("Cleaning up GPU memory...")
         del base_model
         del tokenizer
-        for layer_idx in training_layers:
-            del models[layer_idx]
-            del optimizers[layer_idx]
-            del schedulers[layer_idx]
+        for layer_idx, hook_type in layer_hook_combinations:
+            sae_key = (layer_idx, hook_type)
+            del models[sae_key]
+            del optimizers[sae_key]
+            del schedulers[sae_key]
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         logger.info("GPU memory cleanup completed")
@@ -1259,14 +1279,15 @@ def train_sae_task(
                 del base_model
             if 'tokenizer' in locals():
                 del tokenizer
-            if 'models' in locals():
-                for layer_idx in training_layers:
-                    if layer_idx in models:
-                        del models[layer_idx]
-                    if layer_idx in optimizers:
-                        del optimizers[layer_idx]
-                    if layer_idx in schedulers:
-                        del schedulers[layer_idx]
+            if 'models' in locals() and 'layer_hook_combinations' in locals():
+                for layer_idx, hook_type in layer_hook_combinations:
+                    sae_key = (layer_idx, hook_type)
+                    if sae_key in models:
+                        del models[sae_key]
+                    if sae_key in optimizers:
+                        del optimizers[sae_key]
+                    if sae_key in schedulers:
+                        del schedulers[sae_key]
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             logger.info("GPU memory cleanup completed")

@@ -160,6 +160,20 @@ class ExtractionStatusResponse(BaseModel):
         description="Error message if NLP processing failed"
     )
 
+    # Batch extraction fields
+    batch_id: Optional[str] = Field(
+        default=None,
+        description="Batch ID if this job is part of a batch extraction"
+    )
+    batch_position: Optional[int] = Field(
+        default=None,
+        description="Position in batch (1-indexed, e.g., 1 of 5)"
+    )
+    batch_total: Optional[int] = Field(
+        default=None,
+        description="Total jobs in batch"
+    )
+
 
 class ExtractionListResponse(BaseModel):
     """
@@ -173,3 +187,108 @@ class ExtractionListResponse(BaseModel):
     meta: Dict[str, Any] = Field(
         description="Metadata including total count, limit, offset"
     )
+
+
+class BatchExtractionRequest(BaseModel):
+    """
+    Request schema for batch feature extraction from multiple SAEs.
+
+    Allows starting extraction for multiple SAEs with the same dataset
+    and configuration in a single API call.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    sae_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="List of SAE IDs to extract features from (1-50 SAEs per batch)"
+    )
+    dataset_id: str = Field(
+        ...,
+        min_length=1,
+        description="Dataset ID to use for all extractions"
+    )
+
+    # Extraction configuration (applied to all SAEs in batch)
+    evaluation_samples: int = Field(
+        default=10000,
+        ge=1000,
+        le=100000,
+        description="Number of dataset samples to evaluate per SAE (1,000-100,000)"
+    )
+    top_k_examples: int = Field(
+        default=100,
+        ge=10,
+        le=500,
+        description="Number of top-activating examples to store per feature (10-500)"
+    )
+
+    # Token filtering configuration
+    filter_special: bool = Field(True, description="Filter special tokens")
+    filter_single_char: bool = Field(True, description="Filter single character tokens")
+    filter_punctuation: bool = Field(True, description="Filter pure punctuation")
+    filter_numbers: bool = Field(True, description="Filter pure numeric tokens")
+    filter_fragments: bool = Field(True, description="Filter word fragments")
+    filter_stop_words: bool = Field(False, description="Filter common stop words")
+
+    # Context window configuration
+    context_prefix_tokens: int = Field(25, ge=0, le=50, description="Tokens before prime token")
+    context_suffix_tokens: int = Field(25, ge=0, le=50, description="Tokens after prime token")
+
+    # Dead neuron filtering
+    min_activation_frequency: float = Field(
+        default=0.001,
+        ge=0.0,
+        le=0.1,
+        description="Minimum activation frequency to keep a feature"
+    )
+
+    # NLP Analysis
+    auto_nlp: bool = Field(
+        default=True,
+        description="Auto-start NLP analysis after each extraction completes"
+    )
+
+
+class BatchExtractionJobInfo(BaseModel):
+    """Information about a single job in a batch extraction."""
+    model_config = ConfigDict(from_attributes=True)
+
+    sae_id: str = Field(..., description="SAE ID")
+    sae_name: Optional[str] = Field(None, description="SAE name for display")
+    job_id: str = Field(..., description="Extraction job ID")
+    position: int = Field(..., description="Position in batch (1-indexed)")
+    status: str = Field(default="queued", description="Initial job status")
+
+
+class BatchExtractionSkippedInfo(BaseModel):
+    """Information about a skipped SAE in a batch extraction."""
+    model_config = ConfigDict(from_attributes=True)
+
+    sae_id: str = Field(..., description="SAE ID that was skipped")
+    reason: str = Field(..., description="Reason why the SAE was skipped")
+
+
+class BatchExtractionResponse(BaseModel):
+    """
+    Response schema for batch extraction creation.
+
+    Returns information about the batch extraction jobs that were created.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    batch_id: str = Field(..., description="Unique batch ID for tracking all jobs in this batch")
+    created_jobs: List[BatchExtractionJobInfo] = Field(
+        ...,
+        description="List of extraction jobs that were created"
+    )
+    skipped_saes: List[BatchExtractionSkippedInfo] = Field(
+        default_factory=list,
+        description="List of SAEs that were skipped (not ready, already extracting, etc.)"
+    )
+    total_requested: int = Field(..., description="Total SAEs requested in batch")
+    total_created: int = Field(..., description="Number of extraction jobs created")
+    total_skipped: int = Field(..., description="Number of SAEs skipped")
+    dataset_id: str = Field(..., description="Dataset ID used for all extractions")
+    dataset_name: Optional[str] = Field(None, description="Dataset name for display")

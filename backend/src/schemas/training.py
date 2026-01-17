@@ -40,13 +40,16 @@ class TrainingHyperparameters(BaseModel):
         description="List of layer indices to train SAEs on (e.g., [0, 6, 12])"
     )
 
-    # Hook type configuration (which activation to train on)
-    hook_type: Optional[Literal["residual", "mlp", "attention"]] = Field(
-        default=None,
+    # Hook type configuration (which activations to train on)
+    # Supports multiple hook types - will train separate SAE for each layer/hook combination
+    hook_types: List[Literal["residual", "mlp", "attention"]] = Field(
+        default=["residual"],
+        min_length=1,
         description=(
-            "Activation hook type to use for training. Options: 'residual' (residual stream), "
+            "Activation hook types to train SAEs on. Options: 'residual' (residual stream), "
             "'mlp' (MLP layer output), 'attention' (attention layer output). "
-            "If None, auto-detects from extraction metadata (prefers residual if available)."
+            "Training will create one SAE per layer/hook_type combination. "
+            "E.g., 2 layers × 2 hook_types = 4 SAEs."
         )
     )
 
@@ -129,6 +132,32 @@ class TrainingHyperparameters(BaseModel):
             raise ValueError("training_layers must not contain duplicate layer indices")
         return sorted(v)  # Return sorted list for consistency
 
+    @field_validator("hook_types", mode="before")
+    @classmethod
+    def normalize_hook_types(cls, v):
+        """
+        Normalize hook_types to a list for backward compatibility.
+
+        Accepts:
+        - List of hook types: ["residual", "mlp"]
+        - Single hook type string: "residual" (legacy format)
+        - None: defaults to ["residual"]
+        """
+        if v is None:
+            return ["residual"]
+        if isinstance(v, str):
+            return [v]  # Convert scalar to list for backward compat
+        if isinstance(v, list):
+            # Remove duplicates while preserving order
+            seen = set()
+            unique = []
+            for item in v:
+                if item not in seen:
+                    seen.add(item)
+                    unique.append(item)
+            return unique if unique else ["residual"]
+        return v
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -136,6 +165,7 @@ class TrainingHyperparameters(BaseModel):
                 "latent_dim": 16384,
                 "architecture_type": "standard",
                 "training_layers": [0, 6, 12],
+                "hook_types": ["residual", "mlp"],
                 "l1_alpha": 0.001,
                 "target_l0": 0.05,
                 "normalize_activations": "constant_norm_rescale",

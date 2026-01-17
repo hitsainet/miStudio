@@ -101,6 +101,12 @@ class ExtractionJob(Base):
     # Contains: {total_features: int, avg_interpretability: float,
     #            avg_activation_freq: float, interpretable_count: int}
 
+    # Batch extraction support
+    # Allows grouping multiple extraction jobs that were started together
+    batch_id = Column(String(255), nullable=True, index=True)  # Group ID for batch extractions
+    batch_position = Column(Integer, nullable=True)  # Position in batch (1-indexed, e.g., 1 of 5)
+    batch_total = Column(Integer, nullable=True)  # Total jobs in batch
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

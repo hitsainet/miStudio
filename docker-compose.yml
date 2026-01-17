@@ -56,9 +56,7 @@ services:
   # ============================================================================
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: onegaionegai/mistudio-backend:latest
     container_name: mistudio-backend
     environment:
       SERVICE_TYPE: api
@@ -69,6 +67,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       DATA_DIR: /data
+      BACKEND_DIR: /app
       HF_HOME: /data/huggingface_cache
       HF_CACHE_DIR: /data/huggingface_cache
       HF_TOKEN: ${HF_TOKEN:-}
@@ -81,11 +80,13 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-true}
+      # Cross-deployment URLs (use Docker service names)
+      INTERNAL_API_URL: http://backend:8000
+      OLLAMA_URL: http://ollm:11434
     ports:
       - "8000:8000"
     volumes:
       - ./backend/data:/data  # Mount host data directory for SAEs, models, etc.
-      - ./backend/src:/app/src:ro  # Mount source for development (remove in prod)
     restart: unless-stopped
     depends_on:
       postgres:
@@ -109,9 +110,7 @@ services:
       - mistudio-network
 
   celery-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: onegaionegai/mistudio-backend:latest
     container_name: mistudio-celery-worker
     healthcheck:
       disable: true  # Celery workers don't have HTTP endpoints
@@ -126,6 +125,7 @@ services:
       CELERY_CONCURRENCY: 1
       CELERY_MAX_TASKS: 5
       DATA_DIR: /data
+      BACKEND_DIR: /app
       HF_HOME: /data/huggingface_cache
       HF_CACHE_DIR: /data/huggingface_cache
       HF_TOKEN: ${HF_TOKEN:-}
@@ -134,9 +134,11 @@ services:
       ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
       API_BASE_URL: http://mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Cross-deployment URLs (use Docker service names)
+      INTERNAL_API_URL: http://backend:8000
+      OLLAMA_URL: http://ollm:11434
     volumes:
       - ./backend/data:/data  # Mount host data directory for SAEs, models, etc.
-      - ./backend/src:/app/src:ro  # Mount source for development (remove in prod)
     restart: unless-stopped
     depends_on:
       postgres:
@@ -154,9 +156,7 @@ services:
       - mistudio-network
 
   celery-beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: onegaionegai/mistudio-backend:latest
     container_name: mistudio-celery-beat
     healthcheck:
       disable: true  # Celery beat doesn't have HTTP endpoints
@@ -171,6 +171,11 @@ services:
       ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
       API_BASE_URL: http://mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATA_DIR: /data
+      BACKEND_DIR: /app
+      # Cross-deployment URLs (use Docker service names)
+      INTERNAL_API_URL: http://backend:8000
+      OLLAMA_URL: http://ollm:11434
     restart: unless-stopped
     depends_on:
       - celery-worker
@@ -182,20 +187,14 @@ services:
   # ============================================================================
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      target: development  # Use 'production' for prod builds
+    image: onegaionegai/mistudio-frontend:latest
     container_name: mistudio-frontend
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       VITE_API_URL: ""
       VITE_WS_URL: ""
     ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend/src:/app/src:ro  # Mount source for HMR (remove in prod)
-      - ./frontend/public:/app/public:ro
+      - "3000:80"  # Frontend image serves on port 80
     restart: unless-stopped
     networks:
       - mistudio-network

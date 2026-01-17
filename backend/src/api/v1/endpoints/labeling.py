@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.deps import get_db
 from src.services.labeling_service import LabelingService
 from src.workers.labeling_tasks import label_features_task
@@ -311,7 +312,7 @@ async def list_available_ollama_models():
     try:
         # Query Ollama API for available models
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get("http://localhost:11434/api/tags")
+            response = await client.get(f"{settings.ollama_url}/api/tags")
             response.raise_for_status()
             data = response.json()
 

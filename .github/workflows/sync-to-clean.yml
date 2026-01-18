@@ -1,3 +1,29 @@
+name: Sync to Clean Repository
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove excluded files and folders
+        run: |
+          rm -rf 0xcc/
+          rm -rf .claude/
+          rm -f CLAUDE.md
+          rm -rf backups/
+          rm -rf docs/
+          rm -rf scripts/
+          echo "Removed excluded files"
+
       - name: Push to clean repository
         env:
           SYNC_TOKEN: ${{ secrets.HITSAINET_SYNC }}

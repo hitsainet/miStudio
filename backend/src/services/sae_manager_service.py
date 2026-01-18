@@ -5,6 +5,7 @@ This module contains business logic for SAE management operations,
 including listing, creating, importing from training, and deleting SAEs.
 """
 
+import json
 import logging
 import shutil
 from typing import Optional, Tuple, List, Dict, Any
@@ -262,9 +263,31 @@ class SAEManagerService:
                 except ValueError:
                     continue
 
-                # Determine hook_type from directory name or default
-                # For single-hook trainings (layer_13), use "resid_pre" as default
-                hook_type = parts[2] if len(parts) > 2 else "resid_pre"
+                # Determine hook_type from directory name or cfg.json
+                if len(parts) > 2:
+                    # Multi-hook directory naming: layer_{idx}_{hook_type}
+                    hook_type = parts[2]
+                else:
+                    # Legacy single-hook naming: layer_{idx}
+                    # Try to read hook_type from cfg.json if available
+                    hook_type = "residual"  # Default fallback (matches training config naming)
+                    cfg_path = item / "cfg.json"
+                    if cfg_path.exists():
+                        try:
+                            with open(cfg_path, "r") as f:
+                                cfg = json.load(f)
+                            hook_point = cfg.get("hook_point", "")
+                            # Parse hook_point like "blocks.13.hook_resid_post" to training config names
+                            # Training config uses: "residual", "mlp", "attention"
+                            if "resid" in hook_point:  # hook_resid_pre or hook_resid_post
+                                hook_type = "residual"
+                            elif "mlp" in hook_point:  # hook_mlp_out
+                                hook_type = "mlp"
+                            elif "attn" in hook_point:  # hook_attn_out
+                                hook_type = "attention"
+                            logger.debug(f"Inferred hook_type '{hook_type}' from cfg.json hook_point: {hook_point}")
+                        except Exception as e:
+                            logger.warning(f"Failed to read cfg.json for {item}: {e}")
 
                 # Skip if this SAE has already been imported
                 if (layer_idx, hook_type) in imported_saes:

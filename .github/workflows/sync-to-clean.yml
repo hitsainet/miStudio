@@ -34,5 +34,5 @@ jobs:
           else
             git commit -m "Sync from source repository (filtered)"
           fi
-          git remote add clean https://x-access-token:${{ secrets.HITSAI_SYNC }}@github.com/hitsainet/miStudio.git
+          git remote add clean https://x-access-token:${{ secrets.HITSAINET_SYNC }}@github.com/hitsainet/miStudio.git
           git push clean main --force

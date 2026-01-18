@@ -315,11 +315,12 @@ class ExtractionService:
         if training.status != TrainingStatus.COMPLETED.value:
             raise ValueError(f"Training {training_id} must be completed before extraction")
 
-        # Get layer_index from config (for multi-layer trainings)
+        # Get layer_index and hook_type from config (for multi-layer/multi-hook trainings)
         layer_index = config.get("layer_index")
+        hook_type = config.get("hook_type")
 
-        # Check if training has checkpoints for the specified layer
-        if layer_index is not None:
+        # Check if training has checkpoints for the specified layer/hook
+        if layer_index is not None or hook_type is not None:
             # Look for checkpoint with specific layer_index in extra_metadata
             # First try to find by layer_idx in metadata
             checkpoint_result = await self.db.execute(
@@ -329,18 +330,40 @@ class ExtractionService:
             )
             all_checkpoints = checkpoint_result.scalars().all()
 
-            # Filter checkpoints by layer_idx
-            layer_checkpoints = [
-                cp for cp in all_checkpoints
-                if cp.extra_metadata and cp.extra_metadata.get("layer_idx") == layer_index
-            ]
+            # Filter checkpoints by layer_idx and/or hook_type
+            def matches_checkpoint(cp):
+                """Check if checkpoint matches the requested layer and hook type."""
+                if not cp.extra_metadata:
+                    return False
+                # Check layer_idx match (if specified)
+                if layer_index is not None:
+                    if cp.extra_metadata.get("layer_idx") != layer_index:
+                        return False
+                # Check hook_type match (if specified)
+                if hook_type is not None:
+                    if cp.extra_metadata.get("hook_type") != hook_type:
+                        return False
+                return True
+
+            layer_checkpoints = [cp for cp in all_checkpoints if matches_checkpoint(cp)]
 
             if not layer_checkpoints:
-                # Fallback: check if layer exists in the checkpoint path
-                layer_checkpoints = [
-                    cp for cp in all_checkpoints
-                    if f"/layer_{layer_index}/" in (cp.storage_path or "")
-                ]
+                # Fallback: check if layer/hook exists in the checkpoint path
+                def matches_path(cp):
+                    """Check if checkpoint path matches the requested layer and hook type."""
+                    path = cp.storage_path or ""
+                    if hook_type is not None:
+                        # Multi-hook path format: layer_{idx}_{hook_type}/
+                        if layer_index is not None:
+                            return f"/layer_{layer_index}_{hook_type}/" in path
+                        else:
+                            return f"_{hook_type}/" in path
+                    elif layer_index is not None:
+                        # Single-hook path format: layer_{idx}/
+                        return f"/layer_{layer_index}/" in path
+                    return False
+
+                layer_checkpoints = [cp for cp in all_checkpoints if matches_path(cp)]
 
             if not layer_checkpoints and all_checkpoints:
                 # Fallback for legacy trainings: construct path from existing checkpoint
@@ -351,16 +374,28 @@ class ExtractionService:
 
                 latest_cp = all_checkpoints[0]  # Already sorted by step desc
                 if latest_cp.storage_path:
-                    # Replace layer_XX with the requested layer
-                    constructed_path = re.sub(
-                        r"/layer_\d+/",
-                        f"/layer_{layer_index}/",
-                        latest_cp.storage_path
-                    )
-                    if os.path.exists(constructed_path):
+                    # Construct path based on whether hook_type is specified
+                    if hook_type is not None and layer_index is not None:
+                        # Multi-hook format: layer_{idx}_{hook_type}/
+                        constructed_path = re.sub(
+                            r"/layer_\d+(?:_[a-z]+)?/",
+                            f"/layer_{layer_index}_{hook_type}/",
+                            latest_cp.storage_path
+                        )
+                    elif layer_index is not None:
+                        # Single-hook format: layer_{idx}/
+                        constructed_path = re.sub(
+                            r"/layer_\d+/",
+                            f"/layer_{layer_index}/",
+                            latest_cp.storage_path
+                        )
+                    else:
+                        constructed_path = None
+
+                    if constructed_path and os.path.exists(constructed_path):
                         logger.info(
                             f"Using legacy fallback: constructed path {constructed_path} "
-                            f"for layer {layer_index} (from checkpoint {latest_cp.id})"
+                            f"for layer {layer_index}, hook_type {hook_type} (from checkpoint {latest_cp.id})"
                         )
                         # Create a synthetic checkpoint-like object for later use
                         # We'll use the existing checkpoint but override the storage_path
@@ -368,21 +403,36 @@ class ExtractionService:
                         layer_checkpoints = [latest_cp]
 
             if not layer_checkpoints:
-                # Get available layers for error message
+                # Get available layers and hooks for error message
                 available_layers = set()
+                available_hooks = set()
                 for cp in all_checkpoints:
-                    if cp.extra_metadata and "layer_idx" in cp.extra_metadata:
-                        available_layers.add(cp.extra_metadata["layer_idx"])
-                    elif cp.extra_metadata and "training_layers" in cp.extra_metadata:
-                        available_layers.update(cp.extra_metadata["training_layers"])
+                    if cp.extra_metadata:
+                        if "layer_idx" in cp.extra_metadata:
+                            available_layers.add(cp.extra_metadata["layer_idx"])
+                        if "hook_type" in cp.extra_metadata:
+                            available_hooks.add(cp.extra_metadata["hook_type"])
+                        if "training_layers" in cp.extra_metadata:
+                            available_layers.update(cp.extra_metadata["training_layers"])
 
+                error_parts = []
+                if layer_index is not None:
+                    error_parts.append(f"layer {layer_index}")
+                if hook_type is not None:
+                    error_parts.append(f"hook_type '{hook_type}'")
+                target_str = " and ".join(error_parts) if error_parts else "specified parameters"
+
+                avail_parts = []
                 if available_layers:
-                    raise ValueError(
-                        f"Training {training_id} has no checkpoint for layer {layer_index}. "
-                        f"Available layers: {sorted(available_layers)}"
-                    )
-                else:
-                    raise ValueError(f"Training {training_id} has no checkpoint for layer {layer_index}")
+                    avail_parts.append(f"layers: {sorted(available_layers)}")
+                if available_hooks:
+                    avail_parts.append(f"hook_types: {sorted(available_hooks)}")
+                avail_str = ", ".join(avail_parts) if avail_parts else "unknown"
+
+                raise ValueError(
+                    f"Training {training_id} has no checkpoint for {target_str}. "
+                    f"Available: {avail_str}"
+                )
 
             latest_checkpoint = layer_checkpoints[0]  # Already sorted by step desc
         else:
@@ -395,16 +445,21 @@ class ExtractionService:
             )
             latest_checkpoint = checkpoint_result.scalar_one_or_none()
 
-            # Extract layer_index from checkpoint metadata or path
+            # Extract layer_index and hook_type from checkpoint metadata or path
             if latest_checkpoint:
-                if latest_checkpoint.extra_metadata and "layer_idx" in latest_checkpoint.extra_metadata:
-                    layer_index = latest_checkpoint.extra_metadata["layer_idx"]
-                else:
+                if latest_checkpoint.extra_metadata:
+                    if "layer_idx" in latest_checkpoint.extra_metadata:
+                        layer_index = latest_checkpoint.extra_metadata["layer_idx"]
+                    if "hook_type" in latest_checkpoint.extra_metadata:
+                        hook_type = latest_checkpoint.extra_metadata["hook_type"]
+                if layer_index is None:
                     # Try to extract from path
                     import re
-                    match = re.search(r"/layer_(\d+)/", latest_checkpoint.storage_path or "")
+                    match = re.search(r"/layer_(\d+)(?:_([a-z]+))?/", latest_checkpoint.storage_path or "")
                     if match:
                         layer_index = int(match.group(1))
+                        if match.group(2):
+                            hook_type = match.group(2)
 
         if not latest_checkpoint:
             raise ValueError(f"Training {training_id} has no checkpoints")
@@ -419,6 +474,7 @@ class ExtractionService:
             status=ExtractionStatus.QUEUED,
             config=config,
             layer_index=layer_index,  # Layer index for multi-layer trainings
+            hook_type=hook_type,  # Hook type for multi-hook trainings
             # Token filtering configuration (matches labeling filter structure)
             filter_special=config.get('filter_special', True),
             filter_single_char=config.get('filter_single_char', True),
@@ -842,6 +898,7 @@ class ExtractionService:
             "id": extraction_job.id,
             "training_id": extraction_job.training_id,
             "layer_index": extraction_job.layer_index,  # Layer index for multi-layer trainings
+            "hook_type": extraction_job.hook_type,  # Hook type for multi-hook trainings
             "status": extraction_job.status,
             "progress": extraction_job.progress,
             "features_extracted": features_extracted,
@@ -989,6 +1046,7 @@ class ExtractionService:
                 "dataset_name": dataset_name,
                 "sae_name": sae_name,
                 "layer_index": extraction_job.layer_index,  # Layer index for multi-layer trainings
+                "hook_type": extraction_job.hook_type,  # Hook type for multi-hook trainings
                 "status": extraction_job.status,
                 "progress": extraction_job.progress,
                 "features_extracted": features_extracted,
@@ -1366,30 +1424,47 @@ class ExtractionService:
             if not training:
                 raise ValueError(f"Training {training_id} not found")
 
-            # Get layer_index from extraction_job (for multi-layer trainings)
+            # Get layer_index and hook_type from extraction_job (for multi-layer/multi-hook trainings)
             layer_index = extraction_job.layer_index
+            hook_type = extraction_job.hook_type
 
-            # Find checkpoint for the specified layer (or any if not specified)
+            # Find checkpoint for the specified layer/hook (or any if not specified)
             checkpoint_path_override = None  # Will be set if we need to construct path
 
-            if layer_index is not None:
-                # Look for checkpoint with specific layer in metadata or path
+            if layer_index is not None or hook_type is not None:
+                # Look for checkpoint with specific layer/hook in metadata or path
                 all_checkpoints = self.db.query(Checkpoint).filter(
                     Checkpoint.training_id == training_id
                 ).order_by(Checkpoint.step.desc()).all()
 
-                # Filter by layer_idx in metadata
-                layer_checkpoints = [
-                    cp for cp in all_checkpoints
-                    if cp.extra_metadata and cp.extra_metadata.get("layer_idx") == layer_index
-                ]
+                # Filter by layer_idx and hook_type in metadata
+                def matches_checkpoint(cp):
+                    if not cp.extra_metadata:
+                        return False
+                    if layer_index is not None:
+                        if cp.extra_metadata.get("layer_idx") != layer_index:
+                            return False
+                    if hook_type is not None:
+                        if cp.extra_metadata.get("hook_type") != hook_type:
+                            return False
+                    return True
+
+                layer_checkpoints = [cp for cp in all_checkpoints if matches_checkpoint(cp)]
 
                 if not layer_checkpoints:
                     # Fallback: check path
-                    layer_checkpoints = [
-                        cp for cp in all_checkpoints
-                        if f"/layer_{layer_index}/" in (cp.storage_path or "")
-                    ]
+                    def matches_path(cp):
+                        path = cp.storage_path or ""
+                        if hook_type is not None:
+                            if layer_index is not None:
+                                return f"/layer_{layer_index}_{hook_type}/" in path
+                            else:
+                                return f"_{hook_type}/" in path
+                        elif layer_index is not None:
+                            return f"/layer_{layer_index}/" in path
+                        return False
+
+                    layer_checkpoints = [cp for cp in all_checkpoints if matches_path(cp)]
 
                 if not layer_checkpoints and all_checkpoints:
                     # Fallback for legacy trainings: construct path from existing checkpoint
@@ -1399,16 +1474,27 @@ class ExtractionService:
 
                     latest_cp = all_checkpoints[0]
                     if latest_cp.storage_path:
-                        # Replace layer_XX with the requested layer
-                        constructed_path = re_module.sub(
-                            r"/layer_\d+/",
-                            f"/layer_{layer_index}/",
-                            latest_cp.storage_path
-                        )
-                        if os.path.exists(constructed_path):
+                        if hook_type is not None and layer_index is not None:
+                            # Multi-hook format: layer_{idx}_{hook_type}/
+                            constructed_path = re_module.sub(
+                                r"/layer_\d+(?:_[a-z]+)?/",
+                                f"/layer_{layer_index}_{hook_type}/",
+                                latest_cp.storage_path
+                            )
+                        elif layer_index is not None:
+                            # Single-hook format: layer_{idx}/
+                            constructed_path = re_module.sub(
+                                r"/layer_\d+/",
+                                f"/layer_{layer_index}/",
+                                latest_cp.storage_path
+                            )
+                        else:
+                            constructed_path = None
+
+                        if constructed_path and os.path.exists(constructed_path):
                             logger.info(
                                 f"Using legacy fallback: constructed path {constructed_path} "
-                                f"for layer {layer_index} (from checkpoint {latest_cp.id})"
+                                f"for layer {layer_index}, hook_type {hook_type} (from checkpoint {latest_cp.id})"
                             )
                             checkpoint_path_override = constructed_path
                             layer_checkpoints = [latest_cp]
@@ -1418,10 +1504,10 @@ class ExtractionService:
                 else:
                     checkpoint = all_checkpoints[0] if all_checkpoints else None
                     logger.warning(
-                        f"No checkpoint found for layer {layer_index}, using latest checkpoint"
+                        f"No checkpoint found for layer {layer_index}, hook_type {hook_type}, using latest checkpoint"
                     )
             else:
-                # No layer specified - get latest checkpoint
+                # No layer/hook specified - get latest checkpoint
                 checkpoint = self.db.query(Checkpoint).filter(
                     Checkpoint.training_id == training_id
                 ).order_by(Checkpoint.step.desc()).first()

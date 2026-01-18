@@ -57,6 +57,8 @@ class ExtractionJob(Base):
 
     # Layer selection for multi-layer trainings
     layer_index = Column(Integer, nullable=True)  # Layer index (e.g., 10, 17, 24)
+    # Hook type selection for multi-hook trainings
+    hook_type = Column(String(50), nullable=True)  # Hook type (e.g., "residual", "mlp", "attention")
 
     # Token filtering configuration (per-job) - matches labeling filter structure
     # These filters control which tokens are stored in FeatureActivation records during extraction

@@ -25,6 +25,11 @@ class ExtractionConfigRequest(BaseModel):
         le=100,
         description="Layer index to extract from (for multi-layer trainings). If not specified, uses the first available layer."
     )
+    # Hook type selection for multi-hook trainings
+    hook_type: Optional[str] = Field(
+        default=None,
+        description="Hook type to extract from (for multi-hook trainings). Valid values: 'residual', 'mlp', 'attention'. If not specified, uses the first available hook type."
+    )
 
     evaluation_samples: int = Field(
         default=10000,
@@ -113,6 +118,7 @@ class ExtractionStatusResponse(BaseModel):
     dataset_name: Optional[str] = None
     sae_name: Optional[str] = None  # Name of external SAE (when applicable)
     layer_index: Optional[int] = None  # Layer index for multi-layer trainings
+    hook_type: Optional[str] = None  # Hook type for multi-hook trainings
     status: str
     progress: Optional[float] = None
     features_extracted: Optional[int] = None

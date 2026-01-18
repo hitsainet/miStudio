@@ -530,6 +530,12 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                   Layer(s): {training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')}
                 </>
               )}
+              {training.hyperparameters?.hook_types && training.hyperparameters.hook_types.length > 0 && (
+                <>
+                  {' • '}
+                  Hook(s): {training.hyperparameters.hook_types.join(', ')}
+                </>
+              )}
               {' • '}
               Started: {training.started_at ? formatTime(training.started_at) : 'Not started'}
               {training.completed_at && training.started_at && (
@@ -1219,6 +1225,14 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                       {training.hyperparameters.training_layers && training.hyperparameters.training_layers.length > 0
                         ? training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')
                         : 'L0'}
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg p-2">
+                    <div className="text-xs text-slate-400 mb-1">Hook Types</div>
+                    <div className="text-sm text-slate-100 font-medium">
+                      {training.hyperparameters.hook_types && training.hyperparameters.hook_types.length > 0
+                        ? training.hyperparameters.hook_types.join(', ')
+                        : 'residual'}
                     </div>
                   </div>
                   <div className="bg-slate-800/50 rounded-lg p-2">

@@ -70,6 +70,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [selectedSAEIds, setSelectedSAEIds] = useState<string[]>(preSelectedSAE ? [preSelectedSAE.id] : []);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
   const [selectedLayerIndex, setSelectedLayerIndex] = useState<number | null>(null);
+  const [selectedHookType, setSelectedHookType] = useState<string | null>(null);
 
   // Extraction config
   const [evaluationSamples, setEvaluationSamples] = useState(10000);
@@ -162,6 +163,10 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const trainingLayers = selectedTraining?.hyperparameters?.training_layers || [];
   const hasMultipleLayers = trainingLayers.length > 1;
 
+  // Get available hook types for multi-hook trainings
+  const trainingHookTypes = selectedTraining?.hyperparameters?.hook_types || [];
+  const hasMultipleHookTypes = trainingHookTypes.length > 1;
+
   // Auto-select first layer when training changes
   useEffect(() => {
     if (selectedTrainingId && trainingLayers.length > 0) {
@@ -170,6 +175,15 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
       setSelectedLayerIndex(null);
     }
   }, [selectedTrainingId, JSON.stringify(trainingLayers)]);
+
+  // Auto-select first hook type when training changes
+  useEffect(() => {
+    if (selectedTrainingId && trainingHookTypes.length > 0) {
+      setSelectedHookType(trainingHookTypes[0]);
+    } else {
+      setSelectedHookType(null);
+    }
+  }, [selectedTrainingId, JSON.stringify(trainingHookTypes)]);
 
   // Look up human-readable names from stores (training only has IDs, not names)
   const getDatasetName = (datasetId: string) => {
@@ -261,10 +275,11 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         if (!selectedTrainingId) {
           throw new Error('Please select a training');
         }
-        // Include layer_index for multi-layer trainings
+        // Include layer_index and hook_type for multi-layer/multi-hook trainings
         const trainingConfig = {
           ...config,
           layer_index: selectedLayerIndex,
+          hook_type: selectedHookType,
         };
         await startExtraction(selectedTrainingId, trainingConfig as any);
         setShowSuccessMessage(true);
@@ -676,6 +691,27 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       </div>
                     )}
 
+                    {/* Hook Type Selection (only for multi-hook trainings) */}
+                    {hasMultipleHookTypes && (
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">Select Hook Type</label>
+                        <select
+                          value={selectedHookType ?? ''}
+                          onChange={(e) => setSelectedHookType(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
+                        >
+                          {trainingHookTypes.map((hookType: string) => (
+                            <option key={hookType} value={hookType}>
+                              {hookType}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-slate-500 mt-1">
+                          This training has {trainingHookTypes.length} hook types: {trainingHookTypes.join(', ')}
+                        </p>
+                      </div>
+                    )}
+
                     {/* Selected Training Info */}
                     {selectedTraining && (
                       <div className="p-3 bg-slate-800/30 border border-slate-700 rounded text-sm">
@@ -690,6 +726,12 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                             <>
                               <span>Extracting Layer:</span>
                               <span className="text-emerald-400 font-medium">Layer {selectedLayerIndex}</span>
+                            </>
+                          )}
+                          {hasMultipleHookTypes && selectedHookType && (
+                            <>
+                              <span>Extracting Hook:</span>
+                              <span className="text-emerald-400 font-medium">{selectedHookType}</span>
                             </>
                           )}
                         </div>

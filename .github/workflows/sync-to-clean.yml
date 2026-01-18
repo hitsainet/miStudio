@@ -31,8 +31,9 @@ jobs:
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
 
-          # Configure git to use the token for authentication
-          git config --global url."https://x-access-token:${SYNC_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # Remove the credential helper that actions/checkout sets up
+          git config --unset-all http.https://github.com/.extraheader || true
+          git config --global --unset-all http.https://github.com/.extraheader || true
 
           git add -A
           if git diff --staged --quiet; then
@@ -41,5 +42,5 @@ jobs:
             git commit -m "Sync from source repository (filtered)"
           fi
 
-          git remote add clean https://github.com/hitsainet/miStudio.git
-          git push clean main --force
+          # Push directly with token in URL (bypasses credential helper)
+          git push --force "https://x-access-token:${SYNC_TOKEN}@github.com/hitsainet/miStudio.git" main

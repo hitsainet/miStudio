@@ -530,12 +530,10 @@ export const TrainingCard: React.FC<TrainingCardProps> = ({
                   Layer(s): {training.hyperparameters.training_layers.map(l => `L${l}`).join(', ')}
                 </>
               )}
-              {training.hyperparameters?.hook_types && training.hyperparameters.hook_types.length > 0 && (
-                <>
-                  {' • '}
-                  Hook(s): {training.hyperparameters.hook_types.join(', ')}
-                </>
-              )}
+              {' • '}
+              Hook(s): {training.hyperparameters?.hook_types && training.hyperparameters.hook_types.length > 0
+                ? training.hyperparameters.hook_types.join(', ')
+                : 'residual'}
               {' • '}
               Started: {training.started_at ? formatTime(training.started_at) : 'Not started'}
               {training.completed_at && training.started_at && (

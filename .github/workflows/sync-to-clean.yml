@@ -1,38 +1,19 @@
-name: Sync to Clean Repository
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  sync:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout source repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Remove excluded files and folders
-        run: |
-          rm -rf 0xcc/
-          rm -rf .claude/
-          rm -f CLAUDE.md
-          rm -rf backups/
-          rm -rf docs/
-          rm -rf scripts/
-          echo "Removed excluded files"
-
       - name: Push to clean repository
+        env:
+          SYNC_TOKEN: ${{ secrets.HITSAINET_SYNC }}
         run: |
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
+
+          # Configure git to use the token for authentication
+          git config --global url."https://x-access-token:${SYNC_TOKEN}@github.com/".insteadOf "https://github.com/"
+
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to sync"
           else
             git commit -m "Sync from source repository (filtered)"
           fi
-          git remote add clean https://x-access-token:${{ secrets.HITSAINET_SYNC }}@github.com/hitsainet/miStudio.git
+
+          git remote add clean https://github.com/hitsainet/miStudio.git
           git push clean main --force

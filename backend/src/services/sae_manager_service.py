@@ -196,7 +196,8 @@ class SAEManagerService:
         Get list of available SAEs from a completed training.
 
         Scans the community_format directory for layer subdirectories
-        and extracts layer/hook_type information.
+        and extracts layer/hook_type information. Filters out SAEs that
+        have already been imported to the SAE repository.
 
         Directory naming conventions:
         - Single hook: layer_{idx}/
@@ -207,7 +208,7 @@ class SAEManagerService:
             training_id: Training job ID
 
         Returns:
-            TrainingAvailableSAEsResponse with list of available SAEs
+            TrainingAvailableSAEsResponse with list of available SAEs (excluding already imported)
         """
         # Get the training job
         training_result = await db.execute(
@@ -220,6 +221,18 @@ class SAEManagerService:
 
         if training.status != TrainingStatus.COMPLETED.value:
             raise ValueError(f"Training job is not completed: {training.status}")
+
+        # Get already-imported SAEs for this training
+        # These should be filtered out from the available list
+        imported_result = await db.execute(
+            select(ExternalSAE.layer, ExternalSAE.hook_type)
+            .where(ExternalSAE.training_id == training_id)
+            .where(ExternalSAE.status != SAEStatus.DELETED.value)
+        )
+        imported_saes = set()
+        for row in imported_result:
+            # Create a key for already-imported SAEs
+            imported_saes.add((row.layer, row.hook_type))
 
         # Check for Community Standard format
         training_base_dir = settings.data_dir / "trainings" / training_id
@@ -249,8 +262,14 @@ class SAEManagerService:
                 except ValueError:
                     continue
 
-                # Determine hook_type
-                hook_type = parts[2] if len(parts) > 2 else "hook_resid_pre"  # Default hook type
+                # Determine hook_type from directory name or default
+                # For single-hook trainings (layer_13), use "resid_pre" as default
+                hook_type = parts[2] if len(parts) > 2 else "resid_pre"
+
+                # Skip if this SAE has already been imported
+                if (layer_idx, hook_type) in imported_saes:
+                    logger.debug(f"Skipping already-imported SAE: layer {layer_idx}, hook_type {hook_type}")
+                    continue
 
                 # Calculate size
                 total_size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())

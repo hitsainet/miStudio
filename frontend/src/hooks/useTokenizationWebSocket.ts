@@ -9,6 +9,7 @@
  *
  * Events:
  * - tokenization:progress - Detailed progress with stage, samples, filter stats
+ * - tokenization:status - Status changes (error, cancelled, deleted, ready)
  *
  * Usage:
  *   useTokenizationWebSocket(tokenizationIds);
@@ -22,9 +23,17 @@ import { useWebSocketContext } from '../contexts/WebSocketContext';
 import { useDatasetsStore } from '../stores/datasetsStore';
 import type { DatasetTokenizationProgress } from '../types/dataset';
 
+interface TokenizationStatusEvent {
+  dataset_id: string;
+  tokenization_id: string;
+  status: string;
+  error_message?: string;
+  model_id?: string;
+}
+
 export const useTokenizationWebSocket = (tokenizationIds: Array<{ datasetId: string; tokenizationId: string }>) => {
   const { on, off, subscribe, unsubscribe, isConnected } = useWebSocketContext();
-  const { updateTokenizationProgress } = useDatasetsStore();
+  const { updateTokenizationProgress, updateTokenizationStatus } = useDatasetsStore();
   const handlersRegisteredRef = useRef(false);
 
   // Set up global event handlers (once)
@@ -39,8 +48,15 @@ export const useTokenizationWebSocket = (tokenizationIds: Array<{ datasetId: str
       updateTokenizationProgress(data.dataset_id, data.tokenization_id, data);
     };
 
-    // Register event handler
+    // Handler for 'tokenization:status' events (cancel, error, deleted)
+    const handleStatus = (data: TokenizationStatusEvent) => {
+      console.log('[Tokenization WS] Status event:', data);
+      updateTokenizationStatus(data.dataset_id, data.tokenization_id, data.status, data.error_message);
+    };
+
+    // Register event handlers
     on('tokenization:progress', handleProgress);
+    on('tokenization:status', handleStatus);
 
     handlersRegisteredRef.current = true;
     console.log('[Tokenization WS] Event handlers registered');
@@ -49,9 +65,10 @@ export const useTokenizationWebSocket = (tokenizationIds: Array<{ datasetId: str
     return () => {
       console.log('[Tokenization WS] Cleaning up event handlers');
       off('tokenization:progress', handleProgress);
+      off('tokenization:status', handleStatus);
       handlersRegisteredRef.current = false;
     };
-  }, [on, off, updateTokenizationProgress]);
+  }, [on, off, updateTokenizationProgress, updateTokenizationStatus]);
 
   // Create a stable key from tokenizationIds to prevent unnecessary re-subscriptions
   const tokenizationIdsKey = useMemo(

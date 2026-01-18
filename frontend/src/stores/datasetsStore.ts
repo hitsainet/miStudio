@@ -47,6 +47,7 @@ interface DatasetsState {
   deleteTokenization: (datasetId: string, tokenizationId: string) => Promise<void>;
   cancelTokenization: (datasetId: string, tokenizationId: string) => Promise<void>;
   updateTokenizationProgress: (datasetId: string, tokenizationId: string, progress: DatasetTokenizationProgress) => void;
+  updateTokenizationStatus: (datasetId: string, tokenizationId: string, status: string, errorMessage?: string) => void;
 }
 
 export const useDatasetsStore = create<DatasetsState>()(
@@ -390,6 +391,77 @@ export const useDatasetsStore = create<DatasetsState>()(
           setTimeout(() => {
             _get().fetchTokenizations(datasetId);
           }, 500);
+        }
+      },
+
+      // Update tokenization status (called by WebSocket for cancel/error/deleted events)
+      updateTokenizationStatus: (datasetId: string, tokenizationId: string, status: string, errorMessage?: string) => {
+        console.log(`[Store] updateTokenizationStatus: dataset=${datasetId}, tokenization=${tokenizationId}, status=${status}`);
+
+        if (status === 'deleted') {
+          // Remove tokenization from the list
+          set((state) => ({
+            tokenizations: {
+              ...state.tokenizations,
+              [datasetId]: (state.tokenizations[datasetId] || []).filter((t) => t.id !== tokenizationId),
+            },
+            // Also remove from progress tracking
+            tokenizationProgress: Object.fromEntries(
+              Object.entries(state.tokenizationProgress).filter(([key]) => key !== tokenizationId)
+            ),
+          }));
+
+          // Refresh datasets to get updated parent dataset status
+          setTimeout(() => {
+            _get().fetchDatasets();
+          }, 300);
+        } else {
+          // Update tokenization status (error, cancelled, ready, etc.)
+          set((state) => {
+            const datasetTokenizations = state.tokenizations[datasetId];
+            if (!datasetTokenizations) return state;
+
+            // Map status string to TokenizationStatus enum
+            let tokenizationStatus: TokenizationStatus;
+            switch (status.toLowerCase()) {
+              case 'error':
+              case 'cancelled':
+                tokenizationStatus = TokenizationStatus.ERROR;
+                break;
+              case 'ready':
+              case 'completed':
+                tokenizationStatus = TokenizationStatus.READY;
+                break;
+              case 'processing':
+                tokenizationStatus = TokenizationStatus.PROCESSING;
+                break;
+              case 'queued':
+                tokenizationStatus = TokenizationStatus.QUEUED;
+                break;
+              default:
+                console.warn(`[Store] Unknown tokenization status: ${status}`);
+                return state;
+            }
+
+            return {
+              tokenizations: {
+                ...state.tokenizations,
+                [datasetId]: datasetTokenizations.map((t) =>
+                  t.id === tokenizationId
+                    ? { ...t, status: tokenizationStatus, error_message: errorMessage }
+                    : t
+                ),
+              },
+            };
+          });
+
+          // For error/cancelled status, also refresh the datasets to update parent dataset status
+          if (status === 'error' || status === 'cancelled') {
+            setTimeout(() => {
+              _get().fetchDatasets();
+              _get().fetchTokenizations(datasetId);
+            }, 300);
+          }
         }
       },
     }),

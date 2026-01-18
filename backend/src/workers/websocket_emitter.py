@@ -168,6 +168,59 @@ def emit_dataset_progress(
     return emit_progress(channel, namespaced_event, data)
 
 
+def emit_tokenization_status(
+    dataset_id: str,
+    tokenization_id: str,
+    status: str,
+    error_message: Optional[str] = None,
+    model_id: Optional[str] = None,
+) -> bool:
+    """
+    Emit tokenization status change event (error, cancelled, completed).
+
+    This function is used to notify the frontend when a tokenization job
+    changes status due to cancellation, error, or completion. This is
+    separate from progress updates and ensures the frontend store stays
+    in sync with the database.
+
+    Args:
+        dataset_id: Dataset UUID
+        tokenization_id: Tokenization job ID
+        status: New status (error, cancelled, completed, ready)
+        error_message: Optional error message for error/cancelled status
+        model_id: Optional model ID for the tokenization
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        datasets/{dataset_id}/tokenization/{tokenization_id}
+
+    Examples:
+        >>> emit_tokenization_status(
+        ...     dataset_id="abc-123",
+        ...     tokenization_id="tok_abc123",
+        ...     status="error",
+        ...     error_message="Cancelled by user"
+        ... )
+        True
+    """
+    data = {
+        "tokenization_id": tokenization_id,
+        "dataset_id": dataset_id,
+        "status": status,
+    }
+
+    if error_message:
+        data["error_message"] = error_message
+    if model_id:
+        data["model_id"] = model_id
+
+    channel = f"datasets/{dataset_id}/tokenization/{tokenization_id}"
+    namespaced_event = "tokenization:status"
+    return emit_progress(channel, namespaced_event, data)
+
+
 def emit_tokenization_progress(
     dataset_id: str,
     tokenization_id: str,
@@ -1327,6 +1380,8 @@ def emit_steering_progress(
 __all__ = [
     "emit_progress",
     "emit_dataset_progress",
+    "emit_tokenization_status",
+    "emit_tokenization_progress",
     "emit_model_progress",
     "emit_extraction_progress",
     "emit_extraction_failed",

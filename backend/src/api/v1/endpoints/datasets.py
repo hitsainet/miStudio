@@ -33,6 +33,7 @@ from ....schemas.dataset import (
     DatasetTokenizationListResponse,
 )
 from ....services.dataset_service import DatasetService
+from ....workers.websocket_emitter import emit_tokenization_status, emit_dataset_progress
 
 logger = logging.getLogger(__name__)
 
@@ -1237,8 +1238,10 @@ async def delete_dataset_tokenization(
             detail="Cannot delete tokenization while it is being processed. Please wait for completion or cancel the job first."
         )
 
-    # Store tokenized_path before deletion
+    # Store values before deletion for WebSocket emission
     tokenized_path = tokenization.tokenized_path
+    deleted_tokenization_id = tokenization.id
+    deleted_model_id = tokenization.model_id
 
     # Delete tokenization record
     await db.delete(tokenization)
@@ -1258,6 +1261,7 @@ async def delete_dataset_tokenization(
     remaining_tokenizations = remaining_result.scalars().all()
 
     # If no tokenizations remain and dataset is in PROCESSING/ERROR, reset to READY
+    dataset_status_changed = False
     if not remaining_tokenizations:
         dataset_result = await db.execute(
             select(Dataset).where(Dataset.id == dataset_id)
@@ -1267,21 +1271,44 @@ async def delete_dataset_tokenization(
             dataset.status = DatasetStatus.READY
             dataset.progress = 0.0
             dataset.error_message = None  # Clear error message when resetting status
+            dataset_status_changed = True
             logger.info(f"Reset dataset {dataset_id} status to READY (no tokenizations remaining)")
 
     await db.commit()
 
+    # Emit WebSocket event for tokenization deletion
+    emit_tokenization_status(
+        dataset_id=str(dataset_id),
+        tokenization_id=deleted_tokenization_id,
+        status="deleted",
+        model_id=deleted_model_id
+    )
+    logger.debug(f"Emitted tokenization:status event for deleted tokenization {deleted_tokenization_id}")
+
+    # Emit dataset status change if it was reset to READY
+    if dataset_status_changed:
+        emit_dataset_progress(
+            dataset_id=str(dataset_id),
+            event="status",
+            data={
+                "dataset_id": str(dataset_id),
+                "status": "ready",
+                "progress": 0.0
+            }
+        )
+        logger.debug(f"Emitted dataset:status event for dataset {dataset_id} reset to READY")
+
     # Queue background file cleanup if there are files to delete
     if tokenized_path and settings.resolve_data_path(tokenized_path).exists():
         from ....workers.dataset_tasks import delete_dataset_files
-        logger.info(f"Queuing file cleanup for tokenization {tokenization.id} (path={tokenized_path})")
+        logger.info(f"Queuing file cleanup for tokenization {deleted_tokenization_id} (path={tokenized_path})")
         delete_dataset_files.delay(
             dataset_id=str(dataset_id),
             raw_path=None,  # Don't delete raw files
             tokenized_path=tokenized_path
         )
     else:
-        logger.info(f"No files to clean up for tokenization {tokenization.id}")
+        logger.info(f"No files to clean up for tokenization {deleted_tokenization_id}")
 
     return None
 
@@ -1352,6 +1379,16 @@ async def cancel_dataset_tokenization(
     tokenization.error_message = "Cancelled by user"
     tokenization.progress = None
     await db.commit()
+
+    # Emit WebSocket event to notify frontend of status change
+    emit_tokenization_status(
+        dataset_id=str(dataset_id),
+        tokenization_id=tokenization.id,
+        status="error",
+        error_message="Cancelled by user",
+        model_id=tokenization.model_id
+    )
+    logger.debug(f"Emitted tokenization:status event for cancelled job {tokenization.id}")
 
     # Release Redis lock
     from ....core.config import settings

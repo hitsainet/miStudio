@@ -7,7 +7,11 @@ on:
 
 jobs:
   sync:
+    # HARD STOP: only run in Onegaishima/miStudio
+    if: github.repository == 'Onegaishima/miStudio'
+
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout source repository
         uses: actions/checkout@v4
@@ -22,7 +26,7 @@ jobs:
           rm -rf backups/
           rm -rf docs/
           rm -rf scripts/
-          rm -rf .github/workflows/sync-to-clean.yml
+          # rm -rf .github/workflows/sync-to-clean.yml
           echo "Removed excluded files"
 
       - name: Push to clean repository

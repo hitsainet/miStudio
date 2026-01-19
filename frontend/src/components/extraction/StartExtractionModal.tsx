@@ -14,12 +14,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Zap, X, ChevronDown, Check, Layers } from 'lucide-react';
+import { Zap, X, ChevronDown, Check, Layers, Save } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
-import type { ExtractionTemplate } from '../../types/extractionTemplate';
+import type { ExtractionTemplate, ExtractionTemplateCreate } from '../../types/extractionTemplate';
 import type { SAE } from '../../types/sae';
 import type { BatchExtractionResponse, BatchExtractionRequest } from '../../types/features';
 import { startSAEExtraction, startBatchSAEExtraction, SAEExtractionConfig, getReadySAEs } from '../../api/saes';
@@ -46,7 +46,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
 
   const { datasets, fetchDatasets } = useDatasetsStore();
   const { models, fetchModels } = useModelsStore();
-  const { templates: extractionTemplates, fetchTemplates: fetchExtractionTemplates } = useExtractionTemplatesStore();
+  const { templates: extractionTemplates, fetchTemplates: fetchExtractionTemplates, createTemplate } = useExtractionTemplatesStore();
 
   // Local state for SAEs (fetched directly from API to avoid affecting global store)
   const [saes, setSaes] = useState<SAE[]>([]);
@@ -85,6 +85,8 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saeLoadError, setSaeLoadError] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<BatchExtractionResponse | null>(null);
+  const [templateSaveMessage, setTemplateSaveMessage] = useState<string | null>(null);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
   // Load data on mount
   useEffect(() => {
@@ -191,6 +193,109 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
     // Apply auto_nlp setting from extra_metadata (defaults to true if not specified)
     if (template.extra_metadata?.auto_nlp !== undefined) {
       setAutoNlp(template.extra_metadata.auto_nlp);
+    }
+  };
+
+  /**
+   * Generate an informative name and description for the template based on current config.
+   */
+  const generateTemplateNameAndDescription = (): { name: string; description: string } => {
+    // Build name components
+    const sampleStr = evaluationSamples >= 1000
+      ? `${(evaluationSamples / 1000).toFixed(evaluationSamples % 1000 === 0 ? 0 : 1)}K`
+      : `${evaluationSamples}`;
+
+    // Count active filters
+    const activeFilters = [filterSpecial, filterSingleChar, filterPunctuation, filterNumbers, filterFragments, filterStopWords].filter(Boolean).length;
+    let filterStr = '';
+    if (activeFilters === 0) {
+      filterStr = 'no filtering';
+    } else if (activeFilters <= 2) {
+      filterStr = 'minimal filtering';
+    } else if (activeFilters <= 4) {
+      filterStr = 'standard filtering';
+    } else {
+      filterStr = 'full filtering';
+    }
+
+    // Build name: "10K samples, 100 examples, standard filtering"
+    const name = `${sampleStr} samples, ${topKExamples} examples, ${filterStr}`;
+
+    // Build detailed description
+    const descParts: string[] = [];
+    descParts.push(`Evaluation: ${evaluationSamples.toLocaleString()} samples`);
+    descParts.push(`Top-K: ${topKExamples} examples per feature`);
+
+    // Filter summary
+    const filterNames: string[] = [];
+    if (filterSpecial) filterNames.push('special');
+    if (filterSingleChar) filterNames.push('single-char');
+    if (filterPunctuation) filterNames.push('punctuation');
+    if (filterNumbers) filterNames.push('numbers');
+    if (filterFragments) filterNames.push('fragments');
+    if (filterStopWords) filterNames.push('stop-words');
+    if (filterNames.length > 0) {
+      descParts.push(`Filters: ${filterNames.join(', ')}`);
+    } else {
+      descParts.push('Filters: none');
+    }
+
+    descParts.push(`Context: ±${contextPrefixTokens}/${contextSuffixTokens} tokens`);
+    descParts.push(`Dead neuron threshold: ${(minActivationFrequency * 100).toFixed(2)}%`);
+    descParts.push(`Auto-NLP: ${autoNlp ? 'enabled' : 'disabled'}`);
+
+    const description = descParts.join(' | ');
+
+    return { name, description };
+  };
+
+  /**
+   * Handle saving current config as a template.
+   */
+  const handleSaveAsTemplate = async () => {
+    setIsSavingTemplate(true);
+    setTemplateSaveMessage(null);
+
+    try {
+      const { name, description } = generateTemplateNameAndDescription();
+
+      // Map current config to ExtractionTemplateCreate
+      const templateData: ExtractionTemplateCreate = {
+        name,
+        description,
+        // Required fields - use placeholders since SAE extraction doesn't use layer/hook selection
+        layer_indices: [0],
+        hook_types: ['residual'],
+        // Map extraction config
+        max_samples: evaluationSamples,
+        top_k_examples: topKExamples,
+        // Context window
+        context_prefix_tokens: contextPrefixTokens,
+        context_suffix_tokens: contextSuffixTokens,
+        // Store SAE-specific settings in extra_metadata
+        extra_metadata: {
+          template_type: 'sae_extraction',
+          filter_special: filterSpecial,
+          filter_single_char: filterSingleChar,
+          filter_punctuation: filterPunctuation,
+          filter_numbers: filterNumbers,
+          filter_fragments: filterFragments,
+          filter_stop_words: filterStopWords,
+          min_activation_frequency: minActivationFrequency,
+          auto_nlp: autoNlp,
+        },
+      };
+
+      await createTemplate(templateData);
+      setTemplateSaveMessage(`Template saved: "${name}"`);
+
+      // Auto-dismiss after 4 seconds
+      setTimeout(() => setTemplateSaveMessage(null), 4000);
+    } catch (error: any) {
+      const errorMessage = error.message || 'Failed to save template';
+      setTemplateSaveMessage(`Error: ${errorMessage}`);
+    } finally {
+      setIsSavingTemplate(false);
     }
   };
 
@@ -751,6 +856,17 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                   </label>
                 </div>
 
+                {/* Template Save Notification */}
+                {templateSaveMessage && (
+                  <div className={`p-3 rounded text-sm ${
+                    templateSaveMessage.startsWith('Error')
+                      ? 'bg-red-900/20 border border-red-700 text-red-400'
+                      : 'bg-emerald-900/20 border border-emerald-700 text-emerald-400'
+                  }`}>
+                    {templateSaveMessage}
+                  </div>
+                )}
+
                 {/* Error Message */}
                 {displayError && (
                   <div className="p-3 bg-red-900/20 border border-red-700 rounded text-red-400 text-sm">
@@ -772,6 +888,16 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
               </button>
             ) : (
               <>
+                <button
+                  onClick={handleSaveAsTemplate}
+                  disabled={isSavingTemplate}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-slate-300 rounded transition-colors"
+                  title="Save current settings as a reusable template"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSavingTemplate ? 'Saving...' : 'Save as Template'}
+                </button>
+                <div className="flex-1" /> {/* Spacer */}
                 <button
                   onClick={handleClose}
                   className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition-colors"

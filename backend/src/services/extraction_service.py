@@ -1301,7 +1301,7 @@ class ExtractionService:
 
                             vectorization_batch_size = get_vectorization_config(
                                 config=config,
-                                available_vram_gb=None,
+                                available_vram_gb=torch.cuda.mem_get_info()[0] / (1024**3) if torch.cuda.is_available() else None,
                                 latent_dim=latent_dim,
                                 seq_len=max_seq_len
                             )

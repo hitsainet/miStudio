@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { SAE, SAESource, SAEStatus } from '../../types/sae';
 import { COMPONENTS } from '../../config/brand';
+import { useModelsStore } from '../../stores/modelsStore';
 
 interface SAECardProps {
   sae: SAE;
@@ -54,6 +55,21 @@ export function SAECard({
 
   const isReady = sae.status === SAEStatus.READY;
   const isError = sae.status === SAEStatus.ERROR;
+
+  // Get models store for model name lookup
+  const { models } = useModelsStore();
+
+  // Get model name with fallback to store lookup
+  const getModelName = (): string | null => {
+    if (sae.model_name) return sae.model_name;
+    if (sae.model_id) {
+      const model = models.find((m) => m.id === sae.model_id);
+      if (model) return model.name;
+    }
+    return null;
+  };
+
+  const modelName = getModelName();
 
   const formatFeatureCount = (count: number): string => {
     if (count >= 1_000_000) {
@@ -187,7 +203,7 @@ export function SAECard({
             <p className="text-sm text-slate-400 mt-0.5">
               {sae.n_features ? formatFeatureCount(sae.n_features) : '?'} features
               {sae.layer !== undefined && sae.layer !== null && ` • Layer ${sae.layer}`}
-              {sae.model_name && ` • ${sae.model_name}`}
+              {modelName && ` • ${modelName}`}
               {sae.file_size_bytes && ` • ${formatFileSize(sae.file_size_bytes)}`}
             </p>
             {sae.hf_repo_id && (

@@ -20,6 +20,7 @@ import { triggerNlpAnalysis, cancelNlpAnalysis, resetNlpAnalysis } from '../../a
 import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
+import { useModelsStore } from '../../stores/modelsStore';
 import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
 import { StartLabelingButton } from '../labeling/StartLabelingButton';
@@ -108,6 +109,19 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
   // Get trainings store methods and state
   const { trainings, fetchTraining } = useTrainingsStore();
+
+  // Get models store for model name lookup
+  const { models } = useModelsStore();
+
+  // Helper to get model name with fallback to store lookup
+  const getModelDisplayName = (): string => {
+    if (extraction.model_name) return extraction.model_name;
+    if (extraction.model_id) {
+      const model = models.find((m) => m.id === extraction.model_id);
+      if (model) return model.name;
+    }
+    return 'Unknown Model';
+  };
 
   const features = featuresByExtraction[extraction.id] || [];
   const metadata = featureListMetadata[extraction.id];
@@ -804,8 +818,8 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100 truncate">
                 {extraction.source_type === 'external_sae' && extraction.sae_name
-                  ? `${extraction.sae_name} (${extraction.model_name || 'Unknown Model'})`
-                  : `${extraction.model_name || 'Unknown Model'} - ${extraction.dataset_name || 'Unknown Dataset'}`}
+                  ? `${extraction.sae_name} (${getModelDisplayName()})`
+                  : `${getModelDisplayName()} - ${extraction.dataset_name || 'Unknown Dataset'}`}
               </h3>
               {extraction.source_type === 'external_sae' && (
                 <span className="px-2 py-0.5 text-xs font-medium bg-purple-900/30 text-purple-400 rounded">SAE</span>

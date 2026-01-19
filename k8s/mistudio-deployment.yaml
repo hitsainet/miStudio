@@ -133,58 +133,16 @@ spec:
           hostnames:
             - "uat-mistudio.mcslab.io"
 
-      # Init container runs database migrations before app starts
-      initContainers:
-        - name: db-migrate
-          image: onegaionegai/mistudio-backend:latest
-          command:
-            - /bin/bash
-            - -c
-            - |
-              echo "Waiting for postgres to be ready..."
-              python3 -c "
-              import time
-              import socket
-              for i in range(30):
-                  try:
-                      s = socket.create_connection(('postgres', 5432), timeout=2)
-                      s.close()
-                      print('Postgres is ready!')
-                      break
-                  except:
-                      print(f'Waiting for postgres... attempt {i+1}')
-                      time.sleep(2)
-              "
-              echo "Running database migrations..."
-              cd /app && alembic upgrade head || {
-                echo "Migration failed, but continuing..."
-              }
-              echo "Database setup complete."
-          env:
-            - name: DATABASE_URL
-              value: postgresql+asyncpg://mistudio:mistudio@postgres:5432/mistudio
-            - name: DATABASE_URL_SYNC
-              value: postgresql+psycopg2://mistudio:mistudio@postgres:5432/mistudio
-            - name: REDIS_URL
-              value: redis://redis:6379/0
-            - name: CELERY_BROKER_URL
-              value: redis://redis:6379/0
-            - name: CELERY_RESULT_BACKEND
-              value: redis://redis:6379/0
-            - name: SECRET_KEY
-              value: mistudio-secret-key-change-in-production
-            # Deployment portability env vars
-            - name: DATA_DIR
-              value: /data
-            - name: BACKEND_DIR
-              value: /app
-
+      # Migrations run automatically via docker-entrypoint.sh for SERVICE_TYPE=api
+      # The entrypoint handles: wait-for-db, alembic upgrade head, fail-on-error
       containers:
         - name: backend
-          image: onegaionegai/mistudio-backend:latest
+          image: hitsai/mistudio-backend:latest
           ports:
             - containerPort: 8000
           env:
+            - name: SERVICE_TYPE
+              value: api
             - name: DATABASE_URL
               value: postgresql+asyncpg://mistudio:mistudio@postgres:5432/mistudio
             - name: DATABASE_URL_SYNC
@@ -214,7 +172,7 @@ spec:
               mountPath: /data
 
         - name: celery-worker
-          image: onegaionegai/mistudio-backend:latest
+          image: hitsai/mistudio-backend:latest
           env:
             - name: SERVICE_TYPE
               value: celery-worker
@@ -244,7 +202,7 @@ spec:
               mountPath: /data
 
         - name: celery-beat
-          image: onegaionegai/mistudio-backend:latest
+          image: hitsai/mistudio-backend:latest
           env:
             - name: SERVICE_TYPE
               value: celery-beat
@@ -311,7 +269,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: onegaionegai/mistudio-frontend:latest
+          image: hitsai/mistudio-frontend:latest
           ports:
             - containerPort: 80
 

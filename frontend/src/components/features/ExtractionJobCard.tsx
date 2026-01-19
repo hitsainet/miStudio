@@ -20,7 +20,6 @@ import { triggerNlpAnalysis, cancelNlpAnalysis, resetNlpAnalysis } from '../../a
 import { format, intervalToDuration } from 'date-fns';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useTrainingsStore } from '../../stores/trainingsStore';
-import { useModelsStore } from '../../stores/modelsStore';
 import { TokenHighlightCompact } from './TokenHighlight';
 import { FeatureDetailModal } from './FeatureDetailModal';
 import { StartLabelingButton } from '../labeling/StartLabelingButton';
@@ -110,8 +109,6 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   // Get trainings store methods and state
   const { trainings, fetchTraining } = useTrainingsStore();
 
-  // Get models store for model name lookup
-  const { models } = useModelsStore();
   // Helper to get model name
   const getModelDisplayName = (): string => {
     if (extraction.model_name) return extraction.model_name;

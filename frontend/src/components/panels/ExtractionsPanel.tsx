@@ -24,7 +24,6 @@ export const ExtractionsPanel: React.FC = () => {
     isLoadingExtractions,
     extractionsError,
     fetchAllExtractions,
-    cancelExtraction,
     deleteExtraction,
   } = useFeaturesStore();
 
@@ -187,22 +186,17 @@ export const ExtractionsPanel: React.FC = () => {
                     key={extraction.id}
                     extraction={extraction}
                     onCancel={async () => {
-                      // Use different cancel endpoint based on source type
-                      if (extraction.source_type === 'external_sae' && extraction.external_sae_id) {
-                        // SAE extraction - use SAE cancel endpoint
+                      // Cancel SAE extraction
+                      if (extraction.external_sae_id) {
                         await cancelSAEExtraction(extraction.external_sae_id);
-                      } else if (extraction.training_id) {
-                        // Training extraction - use training cancel endpoint
-                        await cancelExtraction(extraction.training_id);
                       }
                       // Refresh list after cancellation
                       fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);
                     }}
                     onDelete={async () => {
-                      const sourceId = extraction.training_id || extraction.external_sae_id || '';
                       try {
                         console.log(`[Extractions] Deleting extraction ${extraction.id}...`);
-                        await deleteExtraction(extraction.id, sourceId);
+                        await deleteExtraction(extraction.id);
                         console.log(`[Extractions] Extraction ${extraction.id} deleted successfully`);
                         // Refresh list after deletion
                         fetchAllExtractions(statusFilter.length > 0 ? statusFilter : undefined);

@@ -1,76 +1,59 @@
 /**
  * StartExtractionModal Component
  *
- * Unified modal dialog for configuring and starting feature extraction.
- * Supports extraction from both:
- * - Training jobs (SAEs trained in miStudio)
- * - External SAEs (downloaded from HuggingFace)
+ * Modal dialog for configuring and starting feature extraction from SAEs.
+ * Supports batch extraction from multiple SAEs.
  *
  * Workflow:
  * 1. User clicks "Start Extraction" on Extractions tab
- * 2. Selects source (Training or SAE)
- * 3. For SAE: also selects dataset
+ * 2. Selects one or more SAEs
+ * 3. Selects a dataset for activation extraction
  * 4. Configures extraction parameters
  * 5. Starts extraction
  * 6. Modal shows success message
  */
 
 import React, { useState, useEffect } from 'react';
-import { Zap, X, Brain, ChevronDown, Check, Layers } from 'lucide-react';
+import { Zap, X, ChevronDown, Check, Layers } from 'lucide-react';
 import { useFeaturesStore } from '../../stores/featuresStore';
 import { useDatasetsStore } from '../../stores/datasetsStore';
-import { useTrainingsStore } from '../../stores/trainingsStore';
 import { useModelsStore } from '../../stores/modelsStore';
 import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
-import type { Training } from '../../types/training';
 import type { ExtractionTemplate } from '../../types/extractionTemplate';
 import type { SAE } from '../../types/sae';
 import type { BatchExtractionResponse, BatchExtractionRequest } from '../../types/features';
 import { startSAEExtraction, startBatchSAEExtraction, SAEExtractionConfig, getReadySAEs } from '../../api/saes';
 
-type ExtractionSourceType = 'training' | 'sae';
-
 interface StartExtractionModalProps {
   isOpen: boolean;
   onClose: () => void;
   // Optional pre-selection
-  preSelectedTraining?: Training;
   preSelectedSAE?: SAE;
 }
 
 /**
- * StartExtractionModal Component - Unified extraction modal.
+ * StartExtractionModal Component - SAE extraction modal.
  */
 export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   isOpen,
   onClose,
-  preSelectedTraining,
   preSelectedSAE,
 }) => {
   const {
     isLoadingExtraction,
     extractionError,
-    startExtraction,
   } = useFeaturesStore();
 
   const { datasets, fetchDatasets } = useDatasetsStore();
-  const { trainings, fetchTrainings } = useTrainingsStore();
   const { models, fetchModels } = useModelsStore();
   const { templates: extractionTemplates, fetchTemplates: fetchExtractionTemplates } = useExtractionTemplatesStore();
 
   // Local state for SAEs (fetched directly from API to avoid affecting global store)
   const [saes, setSaes] = useState<SAE[]>([]);
 
-  // Source selection
-  const [sourceType, setSourceType] = useState<ExtractionSourceType>(
-    preSelectedSAE ? 'sae' : preSelectedTraining ? 'training' : 'sae'
-  );
-  const [selectedTrainingId, setSelectedTrainingId] = useState<string>(preSelectedTraining?.id || '');
-  // Support multiple SAE selection for batch extraction
+  // SAE selection - supports multiple SAE selection for batch extraction
   const [selectedSAEIds, setSelectedSAEIds] = useState<string[]>(preSelectedSAE ? [preSelectedSAE.id] : []);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
-  const [selectedLayerIndex, setSelectedLayerIndex] = useState<number | null>(null);
-  const [selectedHookType, setSelectedHookType] = useState<string | null>(null);
 
   // Extraction config
   const [evaluationSamples, setEvaluationSamples] = useState(10000);
@@ -119,16 +102,12 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
           setSaeLoadError('Failed to load SAEs. Please try again.');
         });
 
-      // Fetch datasets, trainings, models, and extraction templates from stores
+      // Fetch datasets, models, and extraction templates from stores
       fetchDatasets();
-      fetchTrainings();
       fetchModels();
       fetchExtractionTemplates();
     }
-  }, [isOpen, fetchDatasets, fetchTrainings, fetchModels, fetchExtractionTemplates]);
-
-  // Filter completed trainings
-  const completedTrainings = trainings.filter(t => t.status === 'completed');
+  }, [isOpen, fetchDatasets, fetchModels, fetchExtractionTemplates]);
 
   // SAEs are already filtered to ready status by the API call
   const readySAEs = saes;
@@ -137,7 +116,6 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
   const readyDatasets = datasets.filter(d => d.status === 'ready');
 
   // Get selected entities
-  const selectedTraining = completedTrainings.find(t => t.id === selectedTrainingId);
   const selectedSAEs = readySAEs.filter(s => selectedSAEIds.includes(s.id));
   const isBatchMode = selectedSAEIds.length > 1;
 
@@ -159,38 +137,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
     setSelectedSAEIds([]);
   };
 
-  // Get available layers for multi-layer trainings
-  const trainingLayers = selectedTraining?.hyperparameters?.training_layers || [];
-  const hasMultipleLayers = trainingLayers.length > 1;
-
-  // Get available hook types for multi-hook trainings
-  const trainingHookTypes = selectedTraining?.hyperparameters?.hook_types || [];
-  const hasMultipleHookTypes = trainingHookTypes.length > 1;
-
-  // Auto-select first layer when training changes
-  useEffect(() => {
-    if (selectedTrainingId && trainingLayers.length > 0) {
-      setSelectedLayerIndex(trainingLayers[0]);
-    } else {
-      setSelectedLayerIndex(null);
-    }
-  }, [selectedTrainingId, JSON.stringify(trainingLayers)]);
-
-  // Auto-select first hook type when training changes
-  useEffect(() => {
-    if (selectedTrainingId && trainingHookTypes.length > 0) {
-      setSelectedHookType(trainingHookTypes[0]);
-    } else {
-      setSelectedHookType(null);
-    }
-  }, [selectedTrainingId, JSON.stringify(trainingHookTypes)]);
-
-  // Look up human-readable names from stores (training only has IDs, not names)
-  const getDatasetName = (datasetId: string) => {
-    const dataset = datasets.find(d => d.id === datasetId);
-    return dataset?.name || datasetId;
-  };
-
+  // Look up human-readable names from stores
   const getModelName = (modelId: string) => {
     const model = models.find(m => m.id === modelId);
     return model?.name || modelId;
@@ -256,6 +203,13 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
     setIsSubmitting(true);
 
     try {
+      if (selectedSAEIds.length === 0) {
+        throw new Error('Please select at least one SAE');
+      }
+      if (!selectedDatasetId) {
+        throw new Error('Please select a dataset');
+      }
+
       const config: SAEExtractionConfig = {
         evaluation_samples: evaluationSamples,
         top_k_examples: topKExamples,
@@ -271,52 +225,31 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
         auto_nlp: autoNlp,
       };
 
-      if (sourceType === 'training') {
-        if (!selectedTrainingId) {
-          throw new Error('Please select a training');
-        }
-        // Include layer_index and hook_type for multi-layer/multi-hook trainings
-        const trainingConfig = {
-          ...config,
-          layer_index: selectedLayerIndex,
-          hook_type: selectedHookType,
-        };
-        await startExtraction(selectedTrainingId, trainingConfig as any);
+      if (selectedSAEIds.length === 1) {
+        // Single SAE extraction
+        await startSAEExtraction(selectedSAEIds[0], selectedDatasetId, config);
         setShowSuccessMessage(true);
       } else {
-        if (selectedSAEIds.length === 0) {
-          throw new Error('Please select at least one SAE');
-        }
-        if (!selectedDatasetId) {
-          throw new Error('Please select a dataset');
-        }
-
-        if (selectedSAEIds.length === 1) {
-          // Single SAE extraction
-          await startSAEExtraction(selectedSAEIds[0], selectedDatasetId, config);
-          setShowSuccessMessage(true);
-        } else {
-          // Batch extraction for multiple SAEs
-          const batchRequest: BatchExtractionRequest = {
-            sae_ids: selectedSAEIds,
-            dataset_id: selectedDatasetId,
-            evaluation_samples: evaluationSamples,
-            top_k_examples: topKExamples,
-            filter_special: filterSpecial,
-            filter_single_char: filterSingleChar,
-            filter_punctuation: filterPunctuation,
-            filter_numbers: filterNumbers,
-            filter_fragments: filterFragments,
-            filter_stop_words: filterStopWords,
-            context_prefix_tokens: contextPrefixTokens,
-            context_suffix_tokens: contextSuffixTokens,
-            min_activation_frequency: minActivationFrequency,
-            auto_nlp: autoNlp,
-          };
-          const result = await startBatchSAEExtraction(batchRequest);
-          setBatchResult(result);
-          setShowSuccessMessage(true);
-        }
+        // Batch extraction for multiple SAEs
+        const batchRequest: BatchExtractionRequest = {
+          sae_ids: selectedSAEIds,
+          dataset_id: selectedDatasetId,
+          evaluation_samples: evaluationSamples,
+          top_k_examples: topKExamples,
+          filter_special: filterSpecial,
+          filter_single_char: filterSingleChar,
+          filter_punctuation: filterPunctuation,
+          filter_numbers: filterNumbers,
+          filter_fragments: filterFragments,
+          filter_stop_words: filterStopWords,
+          context_prefix_tokens: contextPrefixTokens,
+          context_suffix_tokens: contextSuffixTokens,
+          min_activation_frequency: minActivationFrequency,
+          auto_nlp: autoNlp,
+        };
+        const result = await startBatchSAEExtraction(batchRequest);
+        setBatchResult(result);
+        setShowSuccessMessage(true);
       }
     } catch (error: any) {
       // Handle Pydantic validation errors (detail is array) vs regular errors (detail is string)
@@ -443,50 +376,8 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
             {/* Configuration Form (only show if not successful) */}
             {!showSuccessMessage && (
               <>
-                {/* Source Type Selection */}
-                <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
-                  <h4 className="text-sm font-semibold text-slate-300 mb-3">Extraction Source</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSourceType('sae')}
-                      className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
-                        sourceType === 'sae'
-                          ? 'border-emerald-500 bg-emerald-900/20'
-                          : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-                      }`}
-                    >
-                      <Brain className={`w-8 h-8 ${sourceType === 'sae' ? 'text-emerald-400' : 'text-slate-400'}`} />
-                      <span className={`font-medium ${sourceType === 'sae' ? 'text-emerald-400' : 'text-slate-300'}`}>
-                        SAE
-                      </span>
-                      <span className="text-xs text-slate-500 text-center">
-                        External or imported SAE
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSourceType('training')}
-                      className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
-                        sourceType === 'training'
-                          ? 'border-emerald-500 bg-emerald-900/20'
-                          : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-                      }`}
-                    >
-                      <Zap className={`w-8 h-8 ${sourceType === 'training' ? 'text-emerald-400' : 'text-slate-400'}`} />
-                      <span className={`font-medium ${sourceType === 'training' ? 'text-emerald-400' : 'text-slate-300'}`}>
-                        Training
-                      </span>
-                      <span className="text-xs text-slate-500 text-center">
-                        Completed training job
-                      </span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Source Selection */}
-                {sourceType === 'sae' ? (
-                  <div className="space-y-3">
+                {/* SAE Selection Section */}
+                <div className="space-y-3">
                     {/* SAE Selection - Multi-select for batch extraction */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
@@ -626,119 +517,6 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    {/* Training Selection */}
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Select Training</label>
-                      <select
-                        value={selectedTrainingId}
-                        onChange={(e) => setSelectedTrainingId(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="">-- Select a training --</option>
-                        {completedTrainings.map((training) => {
-                          // Format: Model | L{layers} | Architecture | Features | L0 | training_id
-                          const modelName = getModelName(training.model_id);
-                          const hp = training.hyperparameters || {};
-                          // Show all layers for multi-layer trainings
-                          const layers = hp.training_layers;
-                          const layerStr = layers?.length > 1
-                            ? `L${layers.join(',')}`
-                            : layers?.[0] != null ? `L${layers[0]}` : 'L?';
-                          const arch = hp.architecture_type || 'standard';
-                          const features = hp.latent_dim
-                            ? hp.latent_dim >= 1000 ? `${(hp.latent_dim / 1000).toFixed(1)}K` : hp.latent_dim
-                            : '?';
-                          const l0 = hp.target_l0 != null
-                            ? `L0: ${(hp.target_l0 * 100).toFixed(1)}%`
-                            : '';
-                          const parts = [modelName, layerStr, arch, features];
-                          if (l0) parts.push(l0);
-                          parts.push(training.id.slice(0, 12));
-                          return (
-                            <option key={training.id} value={training.id}>
-                              {parts.join(' | ')}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      {completedTrainings.length === 0 && (
-                        <p className="text-xs text-amber-400 mt-1">
-                          No completed trainings available.
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Layer Selection (only for multi-layer trainings) */}
-                    {hasMultipleLayers && (
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">Select Layer</label>
-                        <select
-                          value={selectedLayerIndex ?? ''}
-                          onChange={(e) => setSelectedLayerIndex(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
-                        >
-                          {trainingLayers.map((layerIdx: number) => (
-                            <option key={layerIdx} value={layerIdx}>
-                              Layer {layerIdx}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">
-                          This training has {trainingLayers.length} layers: {trainingLayers.join(', ')}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Hook Type Selection (only for multi-hook trainings) */}
-                    {hasMultipleHookTypes && (
-                      <div>
-                        <label className="block text-xs text-slate-400 mb-1">Select Hook Type</label>
-                        <select
-                          value={selectedHookType ?? ''}
-                          onChange={(e) => setSelectedHookType(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:border-emerald-500"
-                        >
-                          {trainingHookTypes.map((hookType: string) => (
-                            <option key={hookType} value={hookType}>
-                              {hookType}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">
-                          This training has {trainingHookTypes.length} hook types: {trainingHookTypes.join(', ')}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Selected Training Info */}
-                    {selectedTraining && (
-                      <div className="p-3 bg-slate-800/30 border border-slate-700 rounded text-sm">
-                        <div className="grid grid-cols-2 gap-2 text-slate-400">
-                          <span>Model:</span>
-                          <span className="text-slate-200">{getModelName(selectedTraining.model_id)}</span>
-                          <span>Dataset:</span>
-                          <span className="text-slate-200">{getDatasetName(selectedTraining.dataset_id)}</span>
-                          <span>Latent Dim:</span>
-                          <span className="text-slate-200">{selectedTraining.hyperparameters?.latent_dim?.toLocaleString() ?? 'Unknown'}</span>
-                          {hasMultipleLayers && selectedLayerIndex !== null && (
-                            <>
-                              <span>Extracting Layer:</span>
-                              <span className="text-emerald-400 font-medium">Layer {selectedLayerIndex}</span>
-                            </>
-                          )}
-                          {hasMultipleHookTypes && selectedHookType && (
-                            <>
-                              <span>Extracting Hook:</span>
-                              <span className="text-emerald-400 font-medium">{selectedHookType}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 {/* Extraction Template Selector */}
                 {extractionTemplates.length > 0 && (
@@ -1002,7 +780,7 @@ export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
                 </button>
                 <button
                   onClick={handleStartExtraction}
-                  disabled={isSubmitting || isLoadingExtraction || (sourceType === 'sae' ? selectedSAEIds.length === 0 || !selectedDatasetId : !selectedTrainingId)}
+                  disabled={isSubmitting || isLoadingExtraction || selectedSAEIds.length === 0 || !selectedDatasetId}
                   className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded transition-colors"
                 >
                   {isBatchMode ? <Layers className="w-5 h-5" /> : <Zap className="w-5 h-5" />}

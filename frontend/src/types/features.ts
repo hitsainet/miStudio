@@ -38,8 +38,9 @@ export interface ExtractionConfigRequest {
 
 /**
  * Extraction source type.
+ * Only external SAE extraction is supported (import SAE first, then extract).
  */
-export type ExtractionSourceType = 'training' | 'external_sae';
+export type ExtractionSourceType = 'external_sae';
 
 /**
  * NLP processing status.
@@ -48,12 +49,12 @@ export type NlpStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'can
 
 /**
  * Extraction job status response.
- * Supports both training-based and external SAE-based extractions.
+ * Supports external SAE-based extractions.
  */
 export interface ExtractionStatusResponse {
   id: string;
-  // Source identification - exactly one will be set
-  training_id: string | null;
+  // Source identification
+  training_id: string | null;  // Legacy: kept for backward compatibility with existing extractions
   external_sae_id: string | null;
   source_type: ExtractionSourceType;
   // Display info

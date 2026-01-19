@@ -5,26 +5,26 @@
  * Manages feature extraction, search, filtering, and real-time updates via WebSocket.
  *
  * Backend API Contract:
- * - POST /api/v1/trainings/:id/extract-features - Start feature extraction
- * - POST /api/v1/trainings/:id/cancel-extraction - Cancel active extraction
+ * - GET /api/v1/extractions - List all extraction jobs
  * - DELETE /api/v1/extractions/:id - Delete extraction job
- * - GET /api/v1/trainings/:id/extraction-status - Get extraction status
- * - GET /api/v1/trainings/:id/features - List/search features
+ * - GET /api/v1/extractions/:id/features - List/search features for an extraction
  * - GET /api/v1/features/:id - Get feature details
  * - PATCH /api/v1/features/:id - Update feature metadata
  * - POST /api/v1/features/:id/favorite - Toggle favorite status
  * - GET /api/v1/features/:id/examples - Get max-activating examples
  *
+ * Note: Feature extraction is initiated via SAE API endpoints (see saes.ts).
+ * This store focuses on managing and displaying extraction results.
+ *
  * WebSocket Events:
- * - training:{training_id}/extraction:progress - Extraction progress updates
- * - training:{training_id}/extraction:completed - Extraction completion
- * - training:{training_id}/extraction:failed - Extraction failure
+ * - extraction:{extraction_id}:progress - Extraction progress updates
+ * - extraction:{extraction_id}:completed - Extraction completion
+ * - extraction:{extraction_id}:failed - Extraction failure
  */
 
 import { create } from 'zustand';
 import axios from 'axios';
 import type {
-  ExtractionConfigRequest,
   ExtractionStatusResponse,
   Feature,
   FeatureListResponse,
@@ -109,10 +109,7 @@ interface FeaturesStoreState {
   featureDetailError: string | null;
 
   // Actions
-  startExtraction: (trainingId: string, config: ExtractionConfigRequest) => Promise<void>;
-  cancelExtraction: (trainingId: string) => Promise<void>;
-  deleteExtraction: (extractionId: string, trainingId: string) => Promise<void>;
-  getExtractionStatus: (trainingId: string) => Promise<void>;
+  deleteExtraction: (extractionId: string) => Promise<void>;
   fetchAllExtractions: (statusFilter?: string[], limit?: number, offset?: number) => Promise<void>;
   fetchFeatures: (trainingId: string, filters?: FeatureSearchRequest) => Promise<void>;
   fetchExtractionFeatures: (extractionId: string, filters?: FeatureSearchRequest) => Promise<void>;
@@ -131,11 +128,6 @@ interface FeaturesStoreState {
   toggleFavorite: (featureId: string, isFavorite: boolean) => Promise<void>;
   setSearchFilters: (trainingId: string, filters: FeatureSearchRequest) => void;
   clearSelectedFeature: () => void;
-
-  // WebSocket update handlers
-  handleExtractionProgress: (trainingId: string, progress: number, featuresExtracted: number, totalFeatures: number) => void;
-  handleExtractionCompleted: (trainingId: string) => void;
-  handleExtractionFailed: (trainingId: string, error: string) => void;
 
   // WebSocket update handlers for allExtractions list (by extraction ID)
   updateExtractionById: (extractionId: string, updates: Partial<ExtractionStatusResponse>) => void;
@@ -168,95 +160,23 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
   featureDetailError: null,
 
   /**
-   * Start feature extraction for a training.
-   */
-  startExtraction: async (trainingId: string, config: ExtractionConfigRequest) => {
-    set({ isLoadingExtraction: true, extractionError: null });
-
-    try {
-      const response = await axios.post<ExtractionStatusResponse>(
-        `/api/v1/trainings/${trainingId}/extract-features`,
-        config
-      );
-
-      set((state) => ({
-        extractionStatus: {
-          ...state.extractionStatus,
-          [trainingId]: response.data,
-        },
-        isLoadingExtraction: false,
-      }));
-    } catch (error: any) {
-      const errorMessage = extractErrorMessage(error, 'Failed to start extraction');
-      set({ extractionError: errorMessage, isLoadingExtraction: false });
-      throw error;
-    }
-  },
-
-  /**
-   * Cancel an active extraction.
-   */
-  cancelExtraction: async (trainingId: string) => {
-    set({ isLoadingExtraction: true, extractionError: null });
-
-    try {
-      await axios.post(`/api/v1/trainings/${trainingId}/cancel-extraction`);
-
-      // Refresh status to get updated state
-      await get().getExtractionStatus(trainingId);
-    } catch (error: any) {
-      const errorMessage = extractErrorMessage(error, 'Failed to cancel extraction');
-      set({ extractionError: errorMessage, isLoadingExtraction: false });
-      throw error;
-    }
-  },
-
-  /**
    * Delete an extraction job.
    */
-  deleteExtraction: async (extractionId: string, trainingId: string) => {
+  deleteExtraction: async (extractionId: string) => {
     set({ isLoadingExtraction: true, extractionError: null });
 
     try {
       await axios.delete(`/api/v1/extractions/${extractionId}`);
 
-      // Clear extraction status for this training
+      // Remove from allExtractions list
       set((state) => ({
-        extractionStatus: {
-          ...state.extractionStatus,
-          [trainingId]: null,
-        },
+        allExtractions: state.allExtractions.filter(e => e.id !== extractionId),
         isLoadingExtraction: false,
       }));
     } catch (error: any) {
       const errorMessage = extractErrorMessage(error, 'Failed to delete extraction');
       set({ extractionError: errorMessage, isLoadingExtraction: false });
       throw error;
-    }
-  },
-
-  /**
-   * Get extraction status for a training.
-   */
-  getExtractionStatus: async (trainingId: string) => {
-    set({ isLoadingExtraction: true, extractionError: null });
-
-    try {
-      const response = await axios.get<ExtractionStatusResponse | null>(
-        `/api/v1/trainings/${trainingId}/extraction-status`
-      );
-
-      // Backend returns null when no extraction exists (instead of 404)
-      set((state) => ({
-        extractionStatus: {
-          ...state.extractionStatus,
-          [trainingId]: response.data,
-        },
-        isLoadingExtraction: false,
-      }));
-    } catch (error: any) {
-      const errorMessage = extractErrorMessage(error, 'Failed to get extraction status');
-      set({ extractionError: errorMessage, isLoadingExtraction: false });
     }
   },
 
@@ -570,57 +490,6 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         // Log but don't fail - cleanup is best-effort
         console.warn('[Analysis Cleanup] Failed:', error.message);
       });
-  },
-
-  /**
-   * Handle extraction progress WebSocket event.
-   */
-  handleExtractionProgress: (trainingId: string, progress: number, featuresExtracted: number, totalFeatures: number) => {
-    set((state) => {
-      const currentStatus = state.extractionStatus[trainingId];
-      if (!currentStatus) return state;
-
-      return {
-        extractionStatus: {
-          ...state.extractionStatus,
-          [trainingId]: {
-            ...currentStatus,
-            progress,
-            features_extracted: featuresExtracted,
-            total_features: totalFeatures,
-          },
-        },
-      };
-    });
-  },
-
-  /**
-   * Handle extraction completed WebSocket event.
-   */
-  handleExtractionCompleted: (trainingId: string) => {
-    // Refresh extraction status to get final statistics
-    get().getExtractionStatus(trainingId);
-  },
-
-  /**
-   * Handle extraction failed WebSocket event.
-   */
-  handleExtractionFailed: (trainingId: string, error: string) => {
-    set((state) => {
-      const currentStatus = state.extractionStatus[trainingId];
-      if (!currentStatus) return state;
-
-      return {
-        extractionStatus: {
-          ...state.extractionStatus,
-          [trainingId]: {
-            ...currentStatus,
-            status: 'failed',
-            error_message: error,
-          },
-        },
-      };
-    });
   },
 
   /**

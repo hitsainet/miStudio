@@ -111,9 +111,9 @@ class ExtractionStatusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    training_id: Optional[str] = None  # Nullable for external SAE extractions
+    training_id: Optional[str] = None  # Legacy: kept for backward compatibility with existing extractions
     external_sae_id: Optional[str] = None  # Set for external SAE extractions
-    source_type: Literal["training", "external_sae"] = "training"  # Source type indicator
+    source_type: Literal["training", "external_sae"] = "external_sae"  # Source type (training is legacy)
     model_name: Optional[str] = None
     dataset_name: Optional[str] = None
     sae_name: Optional[str] = None  # Name of external SAE (when applicable)

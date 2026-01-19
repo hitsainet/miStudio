@@ -112,14 +112,9 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
 
   // Get models store for model name lookup
   const { models } = useModelsStore();
-
-  // Helper to get model name with fallback to store lookup
+  // Helper to get model name
   const getModelDisplayName = (): string => {
     if (extraction.model_name) return extraction.model_name;
-    if (extraction.model_id) {
-      const model = models.find((m) => m.id === extraction.model_id);
-      if (model) return model.name;
-    }
     return 'Unknown Model';
   };
 

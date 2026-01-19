@@ -33,7 +33,9 @@ export interface ExtractionConfigRequest {
   soft_time_limit?: number;  // Soft time limit in seconds (default: 144000 = 40 hours)
   time_limit?: number;  // Hard time limit in seconds (default: 172800 = 48 hours)
   // NLP configuration
-  auto_nlp?: boolean;  // Automatically start NLP analysis after extraction (default: true)
+  auto_nlp?: boolean;
+  /** Batch size for processing samples (auto-calculated if not specified) */
+  batch_size?: number;  // Automatically start NLP analysis after extraction (default: true)
 }
 
 /**
@@ -83,7 +85,9 @@ export interface ExtractionStatusResponse {
   context_prefix_tokens?: number;
   context_suffix_tokens?: number;
   // NLP configuration
-  auto_nlp?: boolean;  // Whether NLP was/will be auto-triggered after extraction
+  auto_nlp?: boolean;
+  /** Batch size for processing samples (auto-calculated if not specified) */
+  batch_size?: number;  // Whether NLP was/will be auto-triggered after extraction
   // NLP Processing status (separate from feature extraction)
   nlp_status?: NlpStatus;
   nlp_progress?: number | null;
@@ -443,6 +447,8 @@ export interface BatchExtractionRequest {
   context_suffix_tokens?: number;
   min_activation_frequency?: number;
   auto_nlp?: boolean;
+  /** Batch size for processing samples (auto-calculated if not specified) */
+  batch_size?: number;
 }
 
 /**

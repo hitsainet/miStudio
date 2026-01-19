@@ -119,11 +119,19 @@ class ResourceConfig:
             # This is often the largest single allocation!
             lm_head_output_mb = (sequence_length * vocab_size * 4) / (1024**2)
 
-            # Total per-sample GPU memory
-            per_sample_gpu_mb = layer_activations_mb + lm_head_output_mb
+
+            # ATTENTION MEMORY - scales QUADRATICALLY with sequence length!
+            # Formula: num_heads * seq_len^2 * 4 bytes * num_layers (per sample)
+            # This is often the memory bottleneck for long sequences
+            estimated_num_heads = max(8, hidden_dim // 64)  # Typical: hidden_dim/64 or hidden_dim/128
+            attention_memory_mb = (estimated_num_heads * sequence_length * sequence_length * 4 * estimated_layers) / (1024**2)
+
+            # Total per-sample GPU memory (includes attention!)
+            per_sample_gpu_mb = layer_activations_mb + lm_head_output_mb + attention_memory_mb
 
             logger.info(f"Per-sample GPU memory: {per_sample_gpu_mb:.1f}MB "
-                       f"(activations: {layer_activations_mb:.1f}MB, lm_head: {lm_head_output_mb:.1f}MB)")
+                       f"(activations: {layer_activations_mb:.1f}MB, lm_head: {lm_head_output_mb:.1f}MB, "
+                       f"attention: {attention_memory_mb:.1f}MB)")
 
             # Estimate model memory from hidden_dim (rough: larger models use more)
             estimated_model_gb = max(2.0, (hidden_dim / 768) ** 2 * 0.5)

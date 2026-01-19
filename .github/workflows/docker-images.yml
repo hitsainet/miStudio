@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - backend/**
-      - frontend/**
-      - .github/workflows/docker-images.yml
 
 jobs:
   build:
@@ -23,18 +19,14 @@ jobs:
             context: ./backend
             dockerfile: ./backend/Dockerfile
             repo: hitsai/mistudio-backend
-            path: backend/
           - name: frontend
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
             repo: hitsai/mistudio-frontend
-            path: frontend/
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Full history for reliable diff after force pushes
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -42,41 +34,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Detect changes for ${{ matrix.image.name }}
-        id: changes
-        run: |
-          # Handle force pushes where github.event.before may not exist
-          BEFORE_SHA="${{ github.event.before }}"
-          CURRENT_SHA="${{ github.sha }}"
-
-          # Check if the "before" commit exists (it won't after a force push)
-          if git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
-            # Normal push - compare with before commit
-            CHANGED_FILES="$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")"
-          else
-            # Force push - compare with parent commit, or assume all changed
-            if git rev-parse HEAD~1 >/dev/null 2>&1; then
-              CHANGED_FILES="$(git diff --name-only HEAD~1 HEAD)"
-            else
-              # First commit or shallow clone - rebuild everything
-              echo "changed=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-
-          if echo "$CHANGED_FILES" | grep -q "^${{ matrix.image.path }}"; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          elif echo "$CHANGED_FILES" | grep -q "^.github/workflows/docker-images.yml$"; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Build and push ${{ matrix.image.name }} image
-        if: steps.changes.outputs.changed == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.image.context }}

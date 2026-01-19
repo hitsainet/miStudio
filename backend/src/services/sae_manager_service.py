@@ -25,6 +25,7 @@ from ..schemas.sae import (
     SAEImportFromFileRequest,
     SAEResponse,
     AvailableSAEInfo,
+    ImportedSAEInfo,
     TrainingAvailableSAEsResponse,
     SAEImportFromTrainingResponse,
 )
@@ -224,16 +225,25 @@ class SAEManagerService:
             raise ValueError(f"Training job is not completed: {training.status}")
 
         # Get already-imported SAEs for this training
-        # These should be filtered out from the available list
+        # These will be shown as greyed out (unselectable) in the UI
         imported_result = await db.execute(
-            select(ExternalSAE.layer, ExternalSAE.hook_type)
+            select(ExternalSAE)
             .where(ExternalSAE.training_id == training_id)
             .where(ExternalSAE.status != SAEStatus.DELETED.value)
         )
-        imported_saes = set()
-        for row in imported_result:
+        imported_sae_set = set()  # For quick lookup
+        imported_sae_list: List[ImportedSAEInfo] = []  # For returning to frontend
+        for sae in imported_result.scalars():
             # Create a key for already-imported SAEs
-            imported_saes.add((row.layer, row.hook_type))
+            imported_sae_set.add((sae.layer, sae.hook_type))
+            # Add to the list for display
+            imported_sae_list.append(ImportedSAEInfo(
+                layer=sae.layer,
+                hook_type=sae.hook_type,
+                sae_id=str(sae.id),
+                sae_name=sae.name,
+                imported_at=sae.created_at.isoformat() if sae.created_at else None
+            ))
 
         # Check for Community Standard format
         training_base_dir = settings.data_dir / "trainings" / training_id
@@ -290,7 +300,7 @@ class SAEManagerService:
                             logger.warning(f"Failed to read cfg.json for {item}: {e}")
 
                 # Skip if this SAE has already been imported
-                if (layer_idx, hook_type) in imported_saes:
+                if (layer_idx, hook_type) in imported_sae_set:
                     logger.debug(f"Skipping already-imported SAE: layer {layer_idx}, hook_type {hook_type}")
                     continue
 
@@ -306,11 +316,13 @@ class SAEManagerService:
 
         # Sort by layer, then hook_type
         available_saes.sort(key=lambda x: (x.layer, x.hook_type))
+        imported_sae_list.sort(key=lambda x: (x.layer, x.hook_type))
 
         return TrainingAvailableSAEsResponse(
             training_id=training_id,
             available_saes=available_saes,
-            total_count=len(available_saes)
+            imported_saes=imported_sae_list,
+            total_count=len(available_saes) + len(imported_sae_list)
         )
 
     @staticmethod

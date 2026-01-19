@@ -149,11 +149,23 @@ export interface AvailableSAEInfo {
 }
 
 /**
+ * Info about an already-imported SAE from a training.
+ */
+export interface ImportedSAEInfo {
+  layer: number;
+  hook_type: string;
+  sae_id: string;
+  sae_name: string;
+  imported_at: string | null;
+}
+
+/**
  * Response listing available SAEs in a completed training.
  */
 export interface TrainingAvailableSAEsResponse {
   training_id: string;
   available_saes: AvailableSAEInfo[];
+  imported_saes: ImportedSAEInfo[];
   total_count: number;
 }
 

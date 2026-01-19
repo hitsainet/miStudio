@@ -163,12 +163,23 @@ class AvailableSAEInfo(BaseModel):
     size_bytes: Optional[int] = Field(None, description="SAE file size in bytes")
 
 
+class ImportedSAEInfo(BaseModel):
+    """Info about an already-imported SAE from a training."""
+
+    layer: int = Field(..., description="Layer index")
+    hook_type: str = Field(..., description="Hook type (e.g., 'hook_resid_pre')")
+    sae_id: str = Field(..., description="ID of the imported SAE in the repository")
+    sae_name: str = Field(..., description="Name of the imported SAE")
+    imported_at: Optional[str] = Field(None, description="When the SAE was imported")
+
+
 class TrainingAvailableSAEsResponse(BaseModel):
     """Response listing available SAEs in a completed training."""
 
     training_id: str = Field(..., description="Training ID")
     available_saes: List[AvailableSAEInfo] = Field(..., description="Available SAEs for import")
-    total_count: int = Field(..., description="Total available SAE count")
+    imported_saes: List[ImportedSAEInfo] = Field(default_factory=list, description="Already imported SAEs")
+    total_count: int = Field(..., description="Total SAE count (available + imported)")
 
 
 # ============================================================================

@@ -6,10 +6,11 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Download, CheckCircle, Loader2, AlertCircle, Layers } from 'lucide-react';
+import { X, Download, CheckCircle, Loader2, AlertCircle, Layers, CheckCircle2 } from 'lucide-react';
 import { Training } from '../../types/training';
 import {
   AvailableSAEInfo,
+  ImportedSAEInfo,
   SAEImportFromTrainingResponse,
 } from '../../types/sae';
 import {
@@ -44,6 +45,7 @@ export const SAEImportModal: React.FC<SAEImportModalProps> = ({
   datasetName,
 }) => {
   const [availableSAEs, setAvailableSAEs] = useState<AvailableSAEInfo[]>([]);
+  const [importedSAEs, setImportedSAEs] = useState<ImportedSAEInfo[]>([]);
   const [selectedSAEs, setSelectedSAEs] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
@@ -58,7 +60,8 @@ export const SAEImportModal: React.FC<SAEImportModalProps> = ({
       getAvailableSAEsFromTraining(training.id)
         .then((response) => {
           setAvailableSAEs(response.available_saes);
-          // Select all by default
+          setImportedSAEs(response.imported_saes || []);
+          // Select all available by default
           const allKeys = response.available_saes.map(
             (sae) => `${sae.layer}_${sae.hook_type}`
           );
@@ -207,7 +210,7 @@ export const SAEImportModal: React.FC<SAEImportModalProps> = ({
               <AlertCircle className="w-5 h-5 mr-2" />
               {error}
             </div>
-          ) : availableSAEs.length === 0 ? (
+          ) : availableSAEs.length === 0 && importedSAEs.length === 0 ? (
             <div className="text-center py-8 text-slate-400">
               No SAEs found in this training checkpoint.
             </div>
@@ -215,32 +218,49 @@ export const SAEImportModal: React.FC<SAEImportModalProps> = ({
             <div className="space-y-4">
               {/* Summary */}
               <div className="text-sm text-slate-400">
-                Found {availableSAEs.length} SAE(s) across {layers.length} layer(s)
-                {hookTypes.length > 1 && ` and ${hookTypes.length} hook types`}
+                {availableSAEs.length > 0 ? (
+                  <>
+                    Found {availableSAEs.length} SAE(s) available for import
+                    {layers.length > 0 && ` across ${layers.length} layer(s)`}
+                    {hookTypes.length > 1 && ` and ${hookTypes.length} hook types`}
+                  </>
+                ) : (
+                  'All SAEs from this training have been imported'
+                )}
+                {importedSAEs.length > 0 && (
+                  <span className="text-slate-500">
+                    {' '}({importedSAEs.length} already imported)
+                  </span>
+                )}
               </div>
 
-              {/* Selection buttons */}
-              <div className="flex gap-2">
-                <button
-                  onClick={selectAll}
-                  className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={deselectAll}
-                  className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
-                >
-                  Deselect All
-                </button>
-              </div>
+              {/* Selection buttons - only show if there are available SAEs */}
+              {availableSAEs.length > 0 && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={selectAll}
+                    className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={deselectAll}
+                    className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              )}
 
               {/* SAE selection grid */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-slate-300">
-                  Select SAEs to Import ({selectedSAEs.size} selected)
+                  {availableSAEs.length > 0
+                    ? `Select SAEs to Import (${selectedSAEs.size} selected)`
+                    : 'SAEs in this Training'}
                 </label>
                 <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+                  {/* Available SAEs (selectable) */}
                   {availableSAEs.map((sae) => {
                     const key = `${sae.layer}_${sae.hook_type}`;
                     const isSelected = selectedSAEs.has(key);
@@ -267,6 +287,27 @@ export const SAEImportModal: React.FC<SAEImportModalProps> = ({
                           {formatBytes(sae.size_bytes)}
                         </div>
                       </button>
+                    );
+                  })}
+                  {/* Imported SAEs (greyed out, not selectable) */}
+                  {importedSAEs.map((sae) => {
+                    const key = `imported_${sae.layer}_${sae.hook_type}`;
+                    return (
+                      <div
+                        key={key}
+                        className="p-3 text-left rounded border bg-slate-800/40 border-slate-700 opacity-60 cursor-not-allowed"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-slate-500">Layer {sae.layer}</span>
+                          <CheckCircle2 className="w-4 h-4 text-slate-500" />
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1 truncate">
+                          {sae.hook_type.replace('hook_', '')}
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5">
+                          Already imported
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

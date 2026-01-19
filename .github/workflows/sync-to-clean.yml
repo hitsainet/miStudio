@@ -7,8 +7,8 @@ on:
 
 jobs:
   sync:
-    # HARD STOP: only run in Onegaishima/miStudio
-    if: github.repository == 'Onegaishima/miStudio'
+    # HARD STOP: only run in Onegaishimas/miStudio
+    if: github.repository == 'Onegaishimas/miStudio'
 
     runs-on: ubuntu-latest
 

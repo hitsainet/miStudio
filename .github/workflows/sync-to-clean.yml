@@ -7,8 +7,8 @@ on:
 
 jobs:
   sync:
-    # HARD STOP: only run in Onegaishima/miStudio
-    if: github.repository == 'Onegaishima/miStudio'
+    # HARD STOP: only run in Onegaishimas/miStudio
+    if: github.repository == 'Onegaishimas/miStudio'
 
     runs-on: ubuntu-latest
 
@@ -26,7 +26,6 @@ jobs:
           rm -rf backups/
           rm -rf docs/
           rm -rf scripts/
-          # Intentionally NOT removing workflow files
           echo "Removed excluded files"
 
       - name: Commit filtered changes (including workflow updates)
@@ -47,7 +46,6 @@ jobs:
         env:
           SYNC_TOKEN: ${{ secrets.HITSAINET_SYNC }}
         run: |
-          # Remove credential helpers injected by checkout
           git config --unset-all http.https://github.com/.extraheader || true
           git config --global --unset-all http.https://github.com/.extraheader || true
 

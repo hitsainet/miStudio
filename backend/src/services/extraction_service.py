@@ -1356,8 +1356,8 @@ class ExtractionService:
 
             # Cleanup base model
             base_model.cpu()
-            del base_model
-            del tokenizer
+            base_model = None  # Clear reference instead of del to avoid UnboundLocalError in finally
+            tokenizer = None  # Clear reference instead of del to avoid UnboundLocalError in finally
             if torch.cuda.is_available():
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -1574,7 +1574,7 @@ class ExtractionService:
             if incremental_heap is not None:
                 del incremental_heap
             if tokenizer is not None:
-                del tokenizer
+                tokenizer = None  # Clear reference instead of del to avoid UnboundLocalError in finally
 
             # Final garbage collection
             gc.collect()

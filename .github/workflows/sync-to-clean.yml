@@ -7,8 +7,8 @@ on:
 
 jobs:
   sync:
-    # HARD STOP: only run in Onegaishimas/miStudio
-    if: github.repository == 'Onegaishimas/miStudio'
+    # HARD STOP: only run in Onegaishima/miStudio
+    if: github.repository == 'Onegaishima/miStudio'
 
     runs-on: ubuntu-latest
 
@@ -29,23 +29,25 @@ jobs:
           # rm -rf .github/workflows/sync-to-clean.yml
           echo "Removed excluded files"
 
-      - name: Push to clean repository
-        env:
-          SYNC_TOKEN: ${{ secrets.HITSAINET_SYNC }}
+      - name: Commit filtered changes
         run: |
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
 
-          # Remove the credential helper that actions/checkout sets up
-          git config --unset-all http.https://github.com/.extraheader || true
-          git config --global --unset-all http.https://github.com/.extraheader || true
-
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to sync"
+            exit 0
           else
             git commit -m "Sync from source repository (filtered)"
           fi
 
-          # Push directly with token in URL (bypasses credential helper)
+      - name: Push to clean repository
+        env:
+          SYNC_TOKEN: ${{ secrets.HITSAINET_SYNC }}
+        run: |
+          # Remove credential helpers injected by checkout
+          git config --unset-all http.https://github.com/.extraheader || true
+          git config --global --unset-all http.https://github.com/.extraheader || true
+
           git push --force "https://x-access-token:${SYNC_TOKEN}@github.com/hitsainet/miStudio.git" main

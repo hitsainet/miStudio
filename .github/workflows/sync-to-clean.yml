@@ -26,21 +26,22 @@ jobs:
           rm -rf backups/
           rm -rf docs/
           rm -rf scripts/
-          # rm -rf .github/workflows/sync-to-clean.yml
+          # Intentionally NOT removing workflow files
           echo "Removed excluded files"
 
-      - name: Commit filtered changes
+      - name: Commit filtered changes (including workflow updates)
         run: |
           git config user.name "GitHub Action"
           git config user.email "action@github.com"
 
           git add -A
+
           if git diff --staged --quiet; then
             echo "No changes to sync"
             exit 0
-          else
-            git commit -m "Sync from source repository (filtered)"
           fi
+
+          git commit -m "Sync from source repository (filtered)"
 
       - name: Push to clean repository
         env:

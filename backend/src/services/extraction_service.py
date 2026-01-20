@@ -7,6 +7,7 @@ statistics calculation.
 """
 
 import gc
+import time
 import logging
 import os
 from pathlib import Path
@@ -1219,6 +1220,10 @@ class ExtractionService:
                 text_column = (dataset_record.extra_metadata or {}).get("text_column", "text")
 
                 with torch.no_grad():
+                    # Track timing for live metrics
+                    extraction_start_time = time.time()
+                    total_batches = (len(dataset) + batch_size - 1) // batch_size
+                    
                     for batch_start in range(0, len(dataset), batch_size):
                         batch_end = min(batch_start + batch_size, len(dataset))
                         batch = dataset[batch_start:batch_end]
@@ -1349,6 +1354,13 @@ class ExtractionService:
                                 ExtractionStatus.EXTRACTING.value,
                                 progress=progress
                             )
+                            # Calculate live metrics
+                            elapsed_time = time.time() - extraction_start_time
+                            samples_per_second = batch_end / elapsed_time if elapsed_time > 0 else 0
+                            remaining_samples = len(dataset) - batch_end
+                            eta_seconds = remaining_samples / samples_per_second if samples_per_second > 0 else 0
+                            current_batch = (batch_start // batch_size) + 1
+
                             emit_progress(
                                 channel=f"extraction/{extraction_job.id}",
                                 event="extraction:progress",
@@ -1358,7 +1370,14 @@ class ExtractionService:
                                     "sae_id": sae_id,
                                     "progress": progress,
                                     "features_extracted": int(latent_dim * progress),
-                                    "total_features": latent_dim
+                                    "total_features": latent_dim,
+                                    # Live metrics
+                                    "current_batch": current_batch,
+                                    "total_batches": total_batches,
+                                    "samples_processed": batch_end,
+                                    "total_samples": len(dataset),
+                                    "samples_per_second": round(samples_per_second, 2),
+                                    "eta_seconds": int(eta_seconds)
                                 }
                             )
 

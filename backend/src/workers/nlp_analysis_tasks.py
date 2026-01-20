@@ -7,6 +7,7 @@ context patterns, semantic clusters) for features after extraction completes.
 
 import logging
 from typing import Dict, Any, List, Optional
+from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 
 from src.core.celery_app import celery_app

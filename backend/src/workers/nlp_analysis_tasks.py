@@ -329,6 +329,13 @@ def analyze_features_nlp_task(
                 }
             )
 
+            # Even if NLP fails, start the next batch job if applicable
+            try:
+                if extraction_job.batch_id and extraction_job.batch_position:
+                    _start_next_batch_job(db, extraction_job)
+            except Exception as batch_error:
+                logger.error(f"Failed to start next batch job after NLP failure: {batch_error}")
+
             raise
 
 
@@ -427,7 +434,7 @@ def _start_next_batch_job(db: Session, current_job) -> None:
         db: Database session
         current_job: The extraction job that just completed NLP
     """
-    from src.models.extraction import ExtractionJob, ExtractionStatus
+    from src.models.extraction_job import ExtractionJob, ExtractionStatus
     from src.workers.extraction_tasks import extract_features_from_sae_task
     
     try:

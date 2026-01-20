@@ -79,10 +79,10 @@ export const useExtractionWebSocket = (extractionIds: string[]) => {
   const handleProgress = useCallback((data: ExtractionProgressEvent) => {
     console.log('[Extraction WS] 📊 Progress event received:', data);
     // Build update object, only including defined values to avoid overwriting with undefined
-    const update: Partial<ExtractionProgressEvent> = {
-      status: data.status,
-      progress: data.progress,
-    };
+    const update: Partial<ExtractionProgressEvent> = {};
+    // Only include status and progress if they are defined
+    if (data.status !== undefined) update.status = data.status;
+    if (data.progress !== undefined) update.progress = data.progress;
     // Only include optional fields if they are defined
     if (data.features_extracted !== undefined) update.features_extracted = data.features_extracted;
     if (data.total_features !== undefined) update.total_features = data.total_features;

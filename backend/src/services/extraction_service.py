@@ -1347,6 +1347,7 @@ class ExtractionService:
                                 event="extraction:progress",
                                 data={
                                     "extraction_id": extraction_job.id,
+                                    "status": ExtractionStatus.EXTRACTING.value,
                                     "sae_id": sae_id,
                                     "progress": progress,
                                     "features_extracted": int(latent_dim * progress),
@@ -1505,6 +1506,7 @@ class ExtractionService:
                 event="extraction:completed",
                 data={
                     "extraction_id": extraction_job.id,
+                                    "status": ExtractionStatus.EXTRACTING.value,
                     "sae_id": sae_id,
                     "statistics": statistics
                 }
@@ -1548,6 +1550,7 @@ class ExtractionService:
                 event="extraction:failed",
                 data={
                     "extraction_id": extraction_job.id,
+                                    "status": ExtractionStatus.EXTRACTING.value,
                     "sae_id": sae_id,
                     "error": error_str
                 }

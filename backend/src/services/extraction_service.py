@@ -489,17 +489,24 @@ class ExtractionService:
                 await self.db.commit()
                 await self.db.refresh(extraction_job)
 
-                # Queue Celery task
+                # Only queue the FIRST job in the batch immediately
+                # Subsequent jobs will be queued after NLP completes for the previous job
                 soft_time_limit = config.get("soft_time_limit", 144000)
                 time_limit = config.get("time_limit", 172800)
 
-                task_result = extract_features_from_sae_task.apply_async(
-                    args=(sae_id, config),
-                    soft_time_limit=soft_time_limit,
-                    time_limit=time_limit
-                )
-
-                extraction_job.celery_task_id = task_result.id
+                if position == 1:
+                    # First job - queue immediately
+                    task_result = extract_features_from_sae_task.apply_async(
+                        args=(sae_id, config),
+                        soft_time_limit=soft_time_limit,
+                        time_limit=time_limit
+                    )
+                    extraction_job.celery_task_id = task_result.id
+                    logger.info(f"Batch {batch_id}: Queued first job {extraction_job.id} to Celery")
+                else:
+                    # Later jobs - leave queued, will be started after previous NLP completes
+                    logger.info(f"Batch {batch_id}: Job {extraction_job.id} waiting for previous job to complete")
+                
                 await self.db.commit()
 
                 created_jobs.append({

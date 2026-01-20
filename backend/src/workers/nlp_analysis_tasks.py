@@ -295,6 +295,11 @@ def analyze_features_nlp_task(
             }
 
             logger.info(f"NLP analysis completed for extraction {extraction_job_id}: {statistics}")
+            
+            # Check if this extraction is part of a batch and start the next job
+            if extraction_job.batch_id and extraction_job.batch_position:
+                _start_next_batch_job(db, extraction_job)
+            
             return statistics
 
         except Exception as e:
@@ -411,3 +416,60 @@ def analyze_single_feature_nlp_task(
         except Exception as e:
             logger.error(f"NLP analysis failed for feature {feature_id}: {e}", exc_info=True)
             raise
+
+
+def _start_next_batch_job(db: Session, current_job) -> None:
+    """
+    Start the next extraction job in a batch after the current job's NLP completes.
+    
+    Args:
+        db: Database session
+        current_job: The extraction job that just completed NLP
+    """
+    from src.models.extraction import ExtractionJob, ExtractionStatus
+    from src.workers.extraction_tasks import extract_features_from_sae_task
+    
+    try:
+        batch_id = current_job.batch_id
+        current_position = current_job.batch_position
+        next_position = current_position + 1
+        
+        logger.info(f"Batch {batch_id}: Looking for next job at position {next_position}")
+        
+        # Find the next job in the batch
+        next_job = db.query(ExtractionJob).filter(
+            ExtractionJob.batch_id == batch_id,
+            ExtractionJob.batch_position == next_position,
+            ExtractionJob.status == ExtractionStatus.QUEUED.value
+        ).first()
+        
+        if next_job:
+            # Get the config from the job
+            config = next_job.config or {}
+            sae_id = next_job.external_sae_id
+            
+            soft_time_limit = config.get("soft_time_limit", 144000)
+            time_limit = config.get("time_limit", 172800)
+            
+            # Queue the task to Celery
+            task_result = extract_features_from_sae_task.apply_async(
+                args=(sae_id, config),
+                soft_time_limit=soft_time_limit,
+                time_limit=time_limit
+            )
+            
+            next_job.celery_task_id = task_result.id
+            db.commit()
+            
+            logger.info(
+                f"Batch {batch_id}: Started next job {next_job.id} for SAE {sae_id} "
+                f"(position {next_position}/{next_job.batch_total})"
+            )
+        else:
+            logger.info(f"Batch {batch_id}: No more jobs to process (completed at position {current_position})")
+            
+    except Exception as e:
+        logger.error(f"Error starting next batch job: {e}", exc_info=True)
+        # Don't fail the current task - just log the error
+
+

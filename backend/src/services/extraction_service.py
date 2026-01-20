@@ -1222,6 +1222,7 @@ class ExtractionService:
                 with torch.no_grad():
                     # Track timing for live metrics
                     extraction_start_time = time.time()
+                    last_emit_time = extraction_start_time
                     total_batches = (len(dataset) + batch_size - 1) // batch_size
                     
                     for batch_start in range(0, len(dataset), batch_size):
@@ -1348,7 +1349,11 @@ class ExtractionService:
 
                         # Update progress
                         progress = batch_end / len(dataset)
-                        if int(progress * 20) > int((batch_start / len(dataset)) * 20):
+                        current_time = time.time()
+                        # Emit progress every 2 seconds OR at 5% intervals (whichever comes first)
+                        should_emit = (current_time - last_emit_time >= 2.0) or (int(progress * 20) > int((batch_start / len(dataset)) * 20))
+                        if should_emit:
+                            last_emit_time = current_time
                             self.update_extraction_status_sync(
                                 extraction_job.id,
                                 ExtractionStatus.EXTRACTING.value,

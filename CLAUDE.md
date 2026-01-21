@@ -50,6 +50,70 @@ sudo bash -c 'echo "127.0.0.1  mistudio.mcslab.io" >> /etc/hosts'
 ./stop-mistudio.sh
 ```
 
+## Standard Development Workflow
+
+### Bug Fix / Feature Workflow (The Normal Pattern)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  1. IDENTIFY & FIX                                                       │
+│     - Find the bug/implement feature                                    │
+│     - Run type-check: cd frontend && npm run type-check                 │
+│     - Run build: npm run build                                          │
+│                                                                          │
+│  2. COMMIT & PUSH                                                        │
+│     - git add <files>                                                   │
+│     - git commit -m "fix/feat: description"                             │
+│     - git push origin main                                              │
+│                                                                          │
+│  3. WAIT FOR CI (~3-5 min)                                              │
+│     - Sync workflow pushes to hitsainet/miStudio                        │
+│     - Docker workflow builds & pushes images to DockerHub               │
+│                                                                          │
+│  4. DEPLOY TO K8S (use k8s helper function)                             │
+│     - k8s_deploy                                                        │
+│                                                                          │
+│  5. VERIFY                                                               │
+│     - Test at http://uat-mistudio.mcslab.io                             │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**CRITICAL: NO LOCAL DOCKER BUILDS. The CI/CD pipeline is fully automated.**
+
+### K8s Helper Commands
+
+**Load helpers at session start:**
+```bash
+source scripts/k8s-helpers.sh
+```
+
+**Available commands after sourcing:**
+| Command | Description |
+|---------|-------------|
+| `k8s_check` | Check DockerHub image timestamps (verify CI completed) |
+| `k8s_deploy` | Full deploy: pull + restart + wait + verify |
+| `k8s_status` | Quick pod status |
+| `k8s_logs [n]` | Backend logs (default 50 lines) |
+| `k8s_logs_celery` | Celery worker logs |
+| `k8s_gpu` | GPU utilization |
+| `k8s "cmd"` | Run any command on k8s host |
+
+**Typical deploy sequence after push:**
+```bash
+source scripts/k8s-helpers.sh  # Load helpers
+k8s_check                       # Wait for timestamps > push time
+k8s_deploy                      # Pull + restart + verify
+```
+
+### K8s Environment
+| Setting | Value |
+|---------|-------|
+| Host | 192.168.244.61 (mcs-lnxgpu01) |
+| Namespace | mistudio |
+| Domain | uat-mistudio.mcslab.io |
+| GPU | NVIDIA RTX 3090 (24GB) |
+| Manifest | k8s/mistudio-deployment.yaml |
+
 ### Service Status Check
 ```bashPlease
 # Check all services:

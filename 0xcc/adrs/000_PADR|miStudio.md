@@ -1,8 +1,8 @@
 # Architecture Decision Record: MechInterp Studio (miStudio)
 
-**Version:** 2.1 (Post-MVP Enhancements)
+**Version:** 2.2 (CI/CD Pipeline & Idempotent Migrations)
 **Created:** 2025-10-05
-**Updated:** 2025-12-16
+**Updated:** 2026-01-21
 **Status:** Active
 **Document Type:** Project-Level Architecture Decision Record
 
@@ -2043,6 +2043,79 @@ WantedBy=multi-user.target
 5. Install backend: `pip install -r requirements.txt`
 6. Install frontend: `npm install`
 7. Start services: `./scripts/start.sh`
+
+### CI/CD Pipeline (Added Jan 2026)
+
+**Repository Structure:**
+```
+┌─────────────────────┐     sync-to-clean    ┌─────────────────────┐
+│      GitHub:        │      workflow        │      GitHub:        │
+│  Onegaishimas/      │─────────────────────►│   hitsainet/        │
+│    miStudio         │                      │    miStudio         │
+│  (Private Dev)      │                      │  (Public Release)   │
+└─────────────────────┘                      └─────────┬───────────┘
+         ▲                                             │
+         │                                             │ docker-images.yml
+    Claude Code                                        │ GitHub Actions
+    Development                                        ▼
+                                             ┌─────────────────────┐
+                                             │    Docker Hub:      │
+                                             │  hitsai/mistudio-   │
+                                             │    backend:latest   │
+                                             │  hitsai/mistudio-   │
+                                             │    frontend:latest  │
+                                             └─────────┬───────────┘
+                                                       │
+                              ┌────────────────────────┴───────────────────────┐
+                              │                                                │
+                              ▼                                                ▼
+                    ┌─────────────────┐                              ┌─────────────────┐
+                    │   Kubernetes    │                              │  Docker-Compose │
+                    │   (MicroK8s)    │                              │   (Local Dev)   │
+                    └─────────────────┘                              └─────────────────┘
+```
+
+**Workflow: sync-to-clean.yml**
+- Triggers on push to Onegaishimas/miStudio main branch
+- Syncs code to hitsainet/miStudio (public release repo)
+- Excludes sensitive files and development-only content
+
+**Workflow: docker-images.yml**
+- Triggers on push to hitsainet/miStudio main branch
+- Builds both backend and frontend Docker images
+- Pushes to Docker Hub: `hitsai/mistudio-backend:latest`, `hitsai/mistudio-frontend:latest`
+- Uses matrix strategy for parallel builds
+
+**Migration Handling:**
+- All deployments use `docker-entrypoint.sh` for automatic migrations
+- `SERVICE_TYPE=api` triggers `alembic upgrade head` on startup
+- Idempotent migrations support safe re-runs across environments
+
+### Database Migrations (Added Jan 2026)
+
+**Idempotent Migration Pattern:**
+```python
+def column_exists(table_name: str, column_name: str) -> bool:
+    """Check if a column exists before adding."""
+    conn = op.get_bind()
+    result = conn.execute(sa.text("""
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = :table_name AND column_name = :column_name
+        )
+    """), {"table_name": table_name, "column_name": column_name})
+    return result.scalar()
+
+def upgrade() -> None:
+    if not column_exists('my_table', 'new_column'):
+        op.add_column('my_table', sa.Column('new_column', sa.String(255)))
+```
+
+**Benefits:**
+- Safe to run multiple times (idempotent)
+- Works across all deployment modes (docker-compose, native, k8s)
+- Supports recovery from partial failures
+- Enables schema evolution without downtime
 
 ---
 

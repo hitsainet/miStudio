@@ -1,8 +1,8 @@
 # Feature PRD: SAE Management
 
 **Document ID:** 005_FPRD|SAE_Management
-**Version:** 1.0 (MVP Complete)
-**Last Updated:** 2025-12-05
+**Version:** 1.1 (External SAE Import Enhancements)
+**Last Updated:** 2026-01-21
 **Status:** Implemented
 **Priority:** P0 (Core Feature)
 
@@ -56,6 +56,16 @@ A unified SAE management system supporting multiple sources, automatic format de
 | FR-4.1 | Delete SAEs | Implemented |
 | FR-4.2 | Link SAE to training record | Implemented |
 | FR-4.3 | View SAE statistics | Implemented |
+
+### 2.5 External SAE Import Enhancements (Added Jan 2026)
+| Requirement | Description | Status |
+|-------------|-------------|--------|
+| FR-5.1 | Import all SAEs from multi-layer/multi-hook trainings | Implemented |
+| FR-5.2 | Auto-detect hook type from cfg.json | Implemented |
+| FR-5.3 | Filter already-imported SAEs from selection list | Implemented |
+| FR-5.4 | Show already-imported SAEs (disabled) in modal | Implemented |
+| FR-5.5 | Support external SAEs without training_id (nullable FK) | Implemented |
+| FR-5.6 | Display hook types on SAE cards | Implemented |
 
 ---
 

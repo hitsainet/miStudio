@@ -1,8 +1,8 @@
 # Technical Design Document: Feature Discovery
 
 **Document ID:** 004_FTDD|Feature_Discovery
-**Version:** 1.1
-**Last Updated:** 2025-12-16
+**Version:** 1.2 (Batch Extraction & Live Metrics)
+**Last Updated:** 2026-01-21
 **Status:** Implemented
 **Related PRD:** [004_FPRD|Feature_Discovery](../prds/004_FPRD|Feature_Discovery.md)
 
@@ -56,6 +56,46 @@
 │  └───────────────────────────────────────────┘               │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### 1.3 Live Metrics Architecture (Added Jan 2026)
+
+**Time-Based Progress Emission:**
+- Emit progress every 2 seconds OR at 5% intervals (whichever comes first)
+- Prevents UI stall during slow extractions
+- Controlled by `last_emit_time` tracking
+
+**Metrics Included in Progress Events:**
+| Metric | Type | Description |
+|--------|------|-------------|
+| `progress` | float | 0.0-1.0 completion percentage |
+| `current_batch` | int | Current batch number |
+| `total_batches` | int | Total batches to process |
+| `samples_processed` | int | Samples completed |
+| `total_samples` | int | Total samples in dataset |
+| `samples_per_second` | float | Processing rate |
+| `eta_seconds` | int | Estimated time remaining |
+| `features_in_heap` | int | Features with examples |
+| `heap_examples_count` | int | Total examples collected |
+
+### 1.4 Batch Extraction Flow (Added Jan 2026)
+
+**Sequential Processing:**
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  Job 1: Extract  │────►│  Job 1: NLP      │────►│  Job 2: Extract  │──►...
+│  (EXTRACTING)    │     │  (NLP_ANALYSIS)  │     │  (EXTRACTING)    │
+└──────────────────┘     └──────────────────┘     └──────────────────┘
+                                  │
+                                  ▼
+                         _start_next_batch_job()
+                         Triggers next in sequence
+```
+
+**Batch Job States:**
+1. **Job 1**: Queued immediately, starts extraction
+2. **Jobs 2-N**: Stay in QUEUED status
+3. **After Job 1 NLP**: `_start_next_batch_job()` triggers Job 2
+4. **Batch continues** even if individual job NLP fails
 
 ---
 

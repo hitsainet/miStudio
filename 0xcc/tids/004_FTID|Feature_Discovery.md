@@ -1,8 +1,8 @@
 # Technical Implementation Document: Feature Discovery
 
 **Document ID:** 004_FTID|Feature_Discovery
-**Version:** 1.0
-**Last Updated:** 2025-12-05
+**Version:** 1.2
+**Last Updated:** 2026-01-21
 **Status:** Implemented
 **Related TDD:** [004_FTDD|Feature_Discovery](../tdds/004_FTDD|Feature_Discovery.md)
 
@@ -899,6 +899,215 @@ await label_features(unlabeled)
    ```sql
    CREATE INDEX idx_features_sae_freq ON features(sae_id, activation_frequency DESC);
    ```
+
+---
+
+## 7. Live Progress Metrics Implementation (Added Jan 2026)
+
+### 7.1 IncrementalTopKHeap Statistics
+```python
+# backend/src/services/extraction_vectorized.py
+
+class IncrementalTopKHeap:
+    """Maintains top-k examples per feature across extraction batches."""
+
+    def get_stats(self) -> Dict[str, int]:
+        """
+        Get current heap statistics for progress reporting.
+
+        Returns:
+            Dictionary with:
+            - features_in_heap: Number of features with at least one example
+            - heap_examples_count: Total examples across all heaps
+        """
+        features_in_heap = len(self.heaps)
+        heap_examples_count = sum(len(heap) for heap in self.heaps.values())
+        return {
+            "features_in_heap": features_in_heap,
+            "heap_examples_count": heap_examples_count
+        }
+```
+
+**Key Implementation Notes:**
+- Call `get_stats()` during progress emission (every 2 seconds)
+- Statistics enable live graph updates in frontend
+- Minimal overhead - just counts existing heap data
+
+### 7.2 Time-Based Progress Emission
+```python
+# backend/src/services/extraction_service.py
+
+import time
+
+# Track last emission time
+last_emit_time = time.time()
+EMIT_INTERVAL_SECONDS = 2.0
+
+# In processing loop:
+current_time = time.time()
+if current_time - last_emit_time >= EMIT_INTERVAL_SECONDS:
+    # Get heap stats for graph metrics
+    heap_stats = incremental_heap.get_stats()
+
+    emit_progress(
+        channel=f"extraction/{extraction_job.id}",
+        event="extraction:progress",
+        data={
+            "extraction_id": str(extraction_job.id),
+            "current_step": samples_processed,
+            "total_steps": total_samples,
+            "progress_percentage": round(progress_pct, 1),
+            "features_extracted": len(incremental_heap.heaps),
+            "status": "running",
+            # Graph metrics
+            "features_in_heap": heap_stats["features_in_heap"],
+            "heap_examples_count": heap_stats["heap_examples_count"],
+        }
+    )
+    last_emit_time = current_time
+```
+
+**Key Implementation Notes:**
+- 2-second interval prevents WebSocket spam
+- Progress percentage capped at 99% during extraction (100% on completion)
+- Stats include both feature count and total examples
+
+---
+
+## 8. Batch Extraction Implementation (Added Jan 2026)
+
+### 8.1 Batch Extraction Endpoint
+```python
+# backend/src/api/v1/endpoints/extractions.py
+
+@router.post("/extractions/batch", response_model=BatchExtractionResponse)
+async def start_batch_extraction(
+    request: BatchExtractionCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Start batch extraction on multiple SAEs.
+
+    SAEs are processed sequentially to avoid resource contention.
+    When 'continue_to_nlp' is True, each SAE's extraction is automatically
+    followed by NLP labeling.
+    """
+    jobs = []
+    for sae_id in request.sae_ids:
+        job = extraction_service.create_job(
+            sae_id=sae_id,
+            dataset_id=request.dataset_id,
+            config=request.config,
+            batch_id=request.batch_id,  # Links jobs together
+            continue_to_nlp=request.continue_to_nlp
+        )
+        jobs.append(job)
+
+    # Queue first job immediately, others wait
+    celery.send_task('extract_features', args=[str(jobs[0].id)])
+
+    return BatchExtractionResponse(
+        batch_id=request.batch_id,
+        jobs=[ExtractionJobResponse.from_orm(j) for j in jobs],
+        total_count=len(jobs)
+    )
+```
+
+### 8.2 Sequential Processing with NLP Continuation
+```python
+# backend/src/workers/extraction_tasks.py
+
+@celery.task(bind=True)
+def extract_features_task(self, extraction_job_id: str):
+    """Extract features from SAE with optional NLP continuation."""
+    try:
+        # ... extraction logic ...
+
+        # On completion, check for NLP continuation
+        if extraction_job.continue_to_nlp:
+            celery.send_task('label_features', args=[extraction_job_id])
+
+        # Check for next job in batch
+        if extraction_job.batch_id:
+            next_job = get_next_batch_job(
+                extraction_job.batch_id,
+                extraction_job.queue_position
+            )
+            if next_job:
+                celery.send_task('extract_features', args=[str(next_job.id)])
+
+    except Exception as e:
+        # ... error handling ...
+```
+
+### 8.3 Batch Progress Tracking
+```python
+# backend/src/services/batch_extraction_service.py
+
+def get_batch_status(batch_id: str) -> BatchStatusResponse:
+    """Get aggregated status for all jobs in a batch."""
+    jobs = db.query(ExtractionJob).filter(
+        ExtractionJob.batch_id == batch_id
+    ).all()
+
+    return BatchStatusResponse(
+        batch_id=batch_id,
+        total_jobs=len(jobs),
+        completed_jobs=sum(1 for j in jobs if j.status == 'completed'),
+        failed_jobs=sum(1 for j in jobs if j.status == 'failed'),
+        current_job=next((j for j in jobs if j.status == 'running'), None),
+        overall_progress=calculate_batch_progress(jobs)
+    )
+```
+
+---
+
+## 9. Frontend Live Charts Implementation
+
+### 9.1 ExtractionProgressChart Component
+```typescript
+// frontend/src/components/features/ExtractionProgressChart.tsx
+
+interface ProgressDataPoint {
+  timestamp: number;
+  features_in_heap: number;
+  heap_examples_count: number;
+  progress_percentage: number;
+}
+
+export function ExtractionProgressChart({ extractionId }: Props) {
+  const [dataPoints, setDataPoints] = useState<ProgressDataPoint[]>([]);
+
+  // Subscribe to WebSocket progress events
+  useEffect(() => {
+    const socket = getSocket();
+
+    const handleProgress = (data: ExtractionProgress) => {
+      setDataPoints(prev => [...prev, {
+        timestamp: Date.now(),
+        features_in_heap: data.features_in_heap,
+        heap_examples_count: data.heap_examples_count,
+        progress_percentage: data.progress_percentage
+      }].slice(-300));  // Keep last 300 points (10 mins at 2s interval)
+    };
+
+    socket.on(`extraction:${extractionId}:progress`, handleProgress);
+    return () => socket.off(`extraction:${extractionId}:progress`, handleProgress);
+  }, [extractionId]);
+
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <LineChart data={dataPoints} xKey="timestamp" yKey="features_in_heap" />
+      <LineChart data={dataPoints} xKey="timestamp" yKey="heap_examples_count" />
+    </div>
+  );
+}
+```
+
+**Key Implementation Notes:**
+- Charts update in real-time via WebSocket
+- Data buffered for smooth line rendering
+- Memory-limited to last 300 data points
 
 ---
 

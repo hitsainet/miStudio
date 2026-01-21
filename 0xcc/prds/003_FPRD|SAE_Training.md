@@ -1,8 +1,8 @@
 # Feature PRD: SAE Training
 
 **Document ID:** 003_FPRD|SAE_Training
-**Version:** 1.0 (MVP Complete)
-**Last Updated:** 2025-12-05
+**Version:** 1.1 (Multi-Dataset & Multi-Hook Training)
+**Last Updated:** 2026-01-21
 **Status:** Implemented
 **Priority:** P0 (Core Feature)
 
@@ -35,6 +35,8 @@ A comprehensive training system with multiple architectures, real-time metrics s
 | FR-1.3 | Configure all hyperparameters (see §4) | Implemented |
 | FR-1.4 | Select SAE architecture (Standard, JumpReLU, Skip, Transcoder) | Implemented |
 | FR-1.5 | Set checkpoint interval | Implemented |
+| FR-1.6 | Select multiple datasets for training (Jan 2026) | Implemented |
+| FR-1.7 | Select multiple hook types per layer (Jan 2026) | Implemented |
 
 ### 2.2 Training Execution
 | Requirement | Description | Status |
@@ -71,6 +73,24 @@ A comprehensive training system with multiple architectures, real-time metrics s
 | FR-5.3 | Template favorites | Implemented |
 | FR-5.4 | Template import/export (JSON) | Implemented |
 | FR-5.5 | Duplicate templates | Implemented |
+
+### 2.6 Multi-Dataset Training (Sub-feature - Added Jan 2026)
+| Requirement | Description | Status |
+|-------------|-------------|--------|
+| FR-6.1 | Select multiple datasets via multi-select UI | Implemented |
+| FR-6.2 | Concatenate datasets at training time | Implemented |
+| FR-6.3 | Store dataset_ids as JSONB array in database | Implemented |
+| FR-6.4 | Backward compatibility with single dataset_id | Implemented |
+| FR-6.5 | Validate all datasets have matching tokenizations | Implemented |
+
+### 2.7 Multi-Hook Training (Sub-feature - Added Jan 2026)
+| Requirement | Description | Status |
+|-------------|-------------|--------|
+| FR-7.1 | Select multiple hook types per layer | Implemented |
+| FR-7.2 | Train separate SAE for each layer/hook combination | Implemented |
+| FR-7.3 | Link related SAEs via shared training_id | Implemented |
+| FR-7.4 | Display hook types on training cards | Implemented |
+| FR-7.5 | Support hook types: residual, mlp_out, attn_out | Implemented |
 
 ---
 

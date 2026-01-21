@@ -1,8 +1,8 @@
 # Feature PRD: Feature Discovery
 
 **Document ID:** 004_FPRD|Feature_Discovery
-**Version:** 1.1 (Post-MVP Enhancements)
-**Last Updated:** 2025-12-16
+**Version:** 1.2 (Batch Extraction & Live Metrics)
+**Last Updated:** 2026-01-21
 **Status:** Implemented
 **Priority:** P0 (Core Feature)
 
@@ -36,6 +36,10 @@ A comprehensive feature discovery system with batch extraction, statistical anal
 | FR-1.4 | Context window capture (tokens before/after) | Implemented |
 | FR-1.5 | Token filtering during extraction | Implemented |
 | FR-1.6 | Real-time progress via WebSocket | Implemented |
+| FR-1.7 | Live progress metrics (samples/second, ETA) | Implemented |
+| FR-1.8 | Time-based progress emission (every 2 seconds) | Implemented |
+| FR-1.9 | Features in heap count for progress graphs | Implemented |
+| FR-1.10 | Heap examples count for collection rate graphs | Implemented |
 
 ### 2.2 Feature Browser
 | Requirement | Description | Status |
@@ -79,6 +83,8 @@ A comprehensive feature discovery system with batch extraction, statistical anal
 | FR-6.2 | Load template to populate form | Implemented |
 | FR-6.3 | Template favorites and usage count | Implemented |
 | FR-6.4 | Import/export templates (JSON) | Implemented |
+| FR-6.5 | "Save as Template" button in extraction modal | Implemented |
+| FR-6.6 | Auto-generated template names from config | Implemented |
 
 ### 2.7 Labeling Prompt Templates (Sub-feature)
 | Requirement | Description | Status |
@@ -104,6 +110,16 @@ A comprehensive feature discovery system with batch extraction, statistical anal
 | FR-9.2 | Configurable LLM provider selection | Implemented |
 | FR-9.3 | Same prompt template compatibility | Implemented |
 | FR-9.4 | Offline operation support | Implemented |
+
+### 2.10 Batch Extraction (Sub-feature - Added Jan 2026)
+| Requirement | Description | Status |
+|-------------|-------------|--------|
+| FR-10.1 | Select multiple SAEs for batch extraction | Implemented |
+| FR-10.2 | Sequential processing (one SAE at a time) | Implemented |
+| FR-10.3 | Auto-continue after NLP analysis completion | Implemented |
+| FR-10.4 | Batch progress tracking (position/total) | Implemented |
+| FR-10.5 | Continue batch even if one job's NLP fails | Implemented |
+| FR-10.6 | Batch ID linking related extraction jobs | Implemented |
 
 ---
 
@@ -240,12 +256,32 @@ CREATE TABLE extraction_jobs (
 
 | Channel | Events | Payload |
 |---------|--------|---------|
-| `extraction/{id}` | `progress` | `{progress, features_found}` |
-| `extraction/{id}` | `completed` | `{features_count}` |
-| `extraction/{id}` | `failed` | `{error}` |
+| `extraction/{id}` | `extraction:progress` | See detailed payload below |
+| `extraction/{id}` | `extraction:completed` | `{features_count, nlp_status?}` |
+| `extraction/{id}` | `extraction:failed` | `{error_message}` |
 | `labeling/{id}` | `progress` | `{progress, labeled_count}` |
 | `labeling/{id}` | `results` | `{feature_id, label, confidence}` |
 | `labeling/{id}` | `completed` | `{total_labeled}` |
+
+### 7.1 Extraction Progress Payload (Jan 2026)
+```json
+{
+  "extraction_id": "uuid",
+  "status": "extracting",
+  "sae_id": "uuid",
+  "progress": 0.45,
+  "features_extracted": 7372,
+  "total_features": 16384,
+  "current_batch": 23,
+  "total_batches": 50,
+  "samples_processed": 23000,
+  "total_samples": 50000,
+  "samples_per_second": 125.5,
+  "eta_seconds": 216,
+  "features_in_heap": 14521,
+  "heap_examples_count": 72605
+}
+```
 
 ---
 
@@ -294,6 +330,10 @@ CREATE TABLE extraction_jobs (
 - [x] Extraction templates
 - [x] Token highlighting
 - [x] Export features to JSON
+- [x] Batch extraction with multiple SAEs (Jan 2026)
+- [x] Live progress metrics display (Jan 2026)
+- [x] Save as Template from extraction modal (Jan 2026)
+- [x] Sequential batch processing with NLP continuation (Jan 2026)
 
 ---
 

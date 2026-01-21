@@ -1,8 +1,8 @@
 # Feature Tasks: Feature Discovery
 
 **Document ID:** 004_FTASKS|Feature_Discovery
-**Version:** 1.1
-**Last Updated:** 2025-12-16
+**Version:** 1.2
+**Last Updated:** 2026-01-21
 **Status:** Implemented
 **Related PRD:** [004_FPRD|Feature_Discovery](../prds/004_FPRD|Feature_Discovery.md)
 
@@ -19,8 +19,9 @@
 | Phase 5: API Endpoints | 4 tasks | ✅ Complete |
 | Phase 6: Frontend Browser | 6 tasks | ✅ Complete |
 | Phase 7: Labeling UI | 4 tasks | ✅ Complete |
+| Phase 8: Batch Extraction & Live Metrics (Jan 2026) | 8 tasks | ✅ Complete |
 
-**Total: 32 tasks**
+**Total: 40 tasks**
 
 ---
 
@@ -293,6 +294,81 @@
 
 **Files:**
 - `frontend/src/components/panels/LabelingPromptTemplatesPanel.tsx`
+
+---
+
+## Phase 8: Batch Extraction & Live Metrics (Added Jan 2026)
+
+### Task 8.1: Add IncrementalTopKHeap Statistics
+- [x] Add get_stats() method to IncrementalTopKHeap class
+- [x] Return features_in_heap count
+- [x] Return heap_examples_count total
+
+**Files:**
+- `backend/src/services/extraction_vectorized.py`
+
+### Task 8.2: Implement Time-Based Progress Emission
+- [x] Add 2-second emission interval
+- [x] Include heap stats in progress payload
+- [x] Cap progress at 99% during extraction
+
+**Files:**
+- `backend/src/services/extraction_service.py`
+
+### Task 8.3: Batch Extraction API
+- [x] Create batch extraction endpoint
+- [x] Support multi-SAE selection
+- [x] Link jobs via batch_id
+- [x] Queue jobs sequentially
+
+**Files:**
+- `backend/src/api/v1/endpoints/extractions.py`
+- `backend/src/schemas/extraction.py`
+
+### Task 8.4: NLP Continuation Support
+- [x] Add continue_to_nlp flag
+- [x] Trigger labeling on extraction completion
+- [x] Chain tasks via Celery
+
+**Files:**
+- `backend/src/workers/extraction_tasks.py`
+
+### Task 8.5: Frontend Progress Types
+- [x] Add features_in_heap to progress type
+- [x] Add heap_examples_count to progress type
+- [x] Update WebSocket handler
+
+**Files:**
+- `frontend/src/types/extraction.ts`
+- `frontend/src/stores/extractionsStore.ts`
+
+### Task 8.6: Live Progress Charts
+- [x] Create ExtractionProgressChart component
+- [x] Display features_in_heap graph
+- [x] Display heap_examples_count graph
+- [x] Real-time WebSocket updates
+
+**Files:**
+- `frontend/src/components/features/ExtractionProgressChart.tsx`
+
+### Task 8.7: Batch Extraction UI
+- [x] Add multi-select for SAEs
+- [x] Add continue_to_nlp toggle
+- [x] Display batch progress
+- [x] Show job queue status
+
+**Files:**
+- `frontend/src/components/features/StartExtractionModal.tsx`
+- `frontend/src/components/features/BatchExtractionProgress.tsx`
+
+### Task 8.8: Save as Template Feature
+- [x] Add "Save as Template" button in extraction config
+- [x] Pre-fill template form with current config
+- [x] Navigate to templates panel after save
+
+**Files:**
+- `frontend/src/components/features/StartExtractionModal.tsx`
+- `frontend/src/stores/extractionTemplatesStore.ts`
 
 ---
 

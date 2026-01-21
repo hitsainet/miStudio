@@ -429,9 +429,10 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
         { params: { is_favorite: isFavorite } }
       );
 
-      // Update feature in list if it exists
+      // Update feature in all lists where it exists
       set((state) => {
         const updatedFeaturesByTraining = { ...state.featuresByTraining };
+        const updatedFeaturesByExtraction = { ...state.featuresByExtraction };
 
         // Find and update feature in all training lists
         Object.keys(updatedFeaturesByTraining).forEach((trainingId) => {
@@ -447,8 +448,23 @@ export const useFeaturesStore = create<FeaturesStoreState>((set, get) => ({
           }
         });
 
+        // Find and update feature in all extraction lists
+        Object.keys(updatedFeaturesByExtraction).forEach((extractionId) => {
+          const features = updatedFeaturesByExtraction[extractionId];
+          const featureIndex = features.findIndex((f) => f.id === featureId);
+
+          if (featureIndex !== -1) {
+            updatedFeaturesByExtraction[extractionId] = [
+              ...features.slice(0, featureIndex),
+              { ...features[featureIndex], is_favorite: isFavorite },
+              ...features.slice(featureIndex + 1),
+            ];
+          }
+        });
+
         return {
           featuresByTraining: updatedFeaturesByTraining,
+          featuresByExtraction: updatedFeaturesByExtraction,
           selectedFeature: state.selectedFeature?.id === featureId
             ? { ...state.selectedFeature, is_favorite: isFavorite }
             : state.selectedFeature,

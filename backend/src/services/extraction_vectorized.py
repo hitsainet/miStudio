@@ -155,6 +155,22 @@ class IncrementalTopKHeap:
 
         return result
 
+    def get_stats(self) -> Dict[str, int]:
+        """
+        Get current heap statistics for progress reporting.
+
+        Returns:
+            Dictionary with:
+            - features_in_heap: Number of features with at least one example
+            - heap_examples_count: Total examples across all heaps
+        """
+        features_in_heap = len(self.heaps)
+        heap_examples_count = sum(len(heap) for heap in self.heaps.values())
+        return {
+            "features_in_heap": features_in_heap,
+            "heap_examples_count": heap_examples_count
+        }
+
 
 def calculate_optimal_vectorization_batch(
     available_vram_gb: float,

@@ -1366,6 +1366,9 @@ class ExtractionService:
                             eta_seconds = remaining_samples / samples_per_second if samples_per_second > 0 else 0
                             current_batch = (batch_start // batch_size) + 1
 
+                            # Get heap stats for graph metrics
+                            heap_stats = incremental_heap.get_stats()
+
                             emit_progress(
                                 channel=f"extraction/{extraction_job.id}",
                                 event="extraction:progress",
@@ -1382,7 +1385,10 @@ class ExtractionService:
                                     "samples_processed": batch_end,
                                     "total_samples": len(dataset),
                                     "samples_per_second": round(samples_per_second, 2),
-                                    "eta_seconds": int(eta_seconds)
+                                    "eta_seconds": int(eta_seconds),
+                                    # Graph metrics
+                                    "features_in_heap": heap_stats["features_in_heap"],
+                                    "heap_examples_count": heap_stats["heap_examples_count"],
                                 }
                             )
 

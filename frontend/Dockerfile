@@ -88,6 +88,9 @@ RUN printf '%s\n' \
 # Copy built assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Copy LICENSE file for open source compliance
+COPY LICENSE /usr/share/nginx/html/LICENSE
+
 # Expose port
 EXPOSE 80
 

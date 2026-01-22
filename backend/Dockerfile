@@ -65,6 +65,9 @@ RUN python3.12 -m spacy download en_core_web_sm
 # Copy application code
 COPY --chown=mistudio:mistudio . .
 
+# Copy LICENSE file for open source compliance
+COPY --chown=mistudio:mistudio LICENSE /app/LICENSE
+
 # Copy and set up entrypoint script
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

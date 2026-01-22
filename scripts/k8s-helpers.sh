@@ -13,8 +13,9 @@ k8s() {
 }
 
 # Check DockerHub for new image timestamps
+# Build times: Frontend ~2-3 min, Backend ~9 min (after sync ~1 min)
 k8s_check() {
-  echo "=== DockerHub Image Timestamps ==="
+  echo "=== DockerHub Image Timestamps (Frontend ~3min, Backend ~9min after push) ==="
   echo -n "Frontend: " && curl -s "https://hub.docker.com/v2/repositories/hitsai/mistudio-frontend/tags/?page_size=1" | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('results',[{}])[0]; print(t.get('last_updated','?'))"
   echo -n "Backend:  " && curl -s "https://hub.docker.com/v2/repositories/hitsai/mistudio-backend/tags/?page_size=1" | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('results',[{}])[0]; print(t.get('last_updated','?'))"
   echo "Current:  $(date -u +%Y-%m-%dT%H:%M:%SZ)"

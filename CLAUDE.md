@@ -66,9 +66,10 @@ sudo bash -c 'echo "127.0.0.1  mistudio.mcslab.io" >> /etc/hosts'
 │     - git commit -m "fix/feat: description"                             │
 │     - git push origin main                                              │
 │                                                                          │
-│  3. WAIT FOR CI (~3-5 min)                                              │
-│     - Sync workflow pushes to hitsainet/miStudio                        │
-│     - Docker workflow builds & pushes images to DockerHub               │
+│  3. WAIT FOR CI                                                          │
+│     - Sync workflow (~1 min)                                            │
+│     - Frontend build (~2-3 min)                                         │
+│     - Backend build (~9 min) ← PyTorch/ML deps take longer              │
 │                                                                          │
 │  4. DEPLOY TO K8S (use k8s helper function)                             │
 │     - k8s_deploy                                                        │

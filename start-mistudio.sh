@@ -6,7 +6,8 @@
 set -e
 
 PROJECT_ROOT="/home/x-sean/app/miStudio"
-DOMAIN="mistudio.mcslab.io"
+DOMAIN="dev-mistudio.mcslab.io"
+NEURONPEDIA_DOMAIN="dev-neuron.mcslab.io"
 
 echo "=================================="
 echo "Starting MechInterp Studio"
@@ -152,27 +153,52 @@ else
 fi
 
 echo ""
-echo "Step 1: Checking /etc/hosts for domain..."
+echo "Step 1: Checking /etc/hosts for domains..."
+HOSTS_MISSING=""
 if ! grep -q "$DOMAIN" /etc/hosts; then
-    echo -e "${YELLOW}⚠${NC}  Domain not found in /etc/hosts"
-    echo "  You need to add this line to /etc/hosts (requires sudo):"
+    HOSTS_MISSING="$DOMAIN"
+fi
+if ! grep -q "$NEURONPEDIA_DOMAIN" /etc/hosts; then
+    HOSTS_MISSING="$HOSTS_MISSING $NEURONPEDIA_DOMAIN"
+fi
+
+if [ -n "$HOSTS_MISSING" ]; then
+    echo -e "${YELLOW}⚠${NC}  Domains not found in /etc/hosts:$HOSTS_MISSING"
+    echo "  You need to add these lines to /etc/hosts (requires sudo):"
     echo "  127.0.0.1  $DOMAIN"
+    echo "  127.0.0.1  $NEURONPEDIA_DOMAIN"
     echo ""
     echo "  Run: sudo bash -c 'echo \"127.0.0.1  $DOMAIN\" >> /etc/hosts'"
+    echo "  Run: sudo bash -c 'echo \"127.0.0.1  $NEURONPEDIA_DOMAIN\" >> /etc/hosts'"
     echo ""
 else
-    echo -e "${GREEN}✓${NC} Domain configured in /etc/hosts"
+    echo -e "${GREEN}✓${NC} Domains configured in /etc/hosts"
 fi
 
 echo ""
-echo "Step 2: Starting Docker services (PostgreSQL, Redis, Nginx)..."
+echo "Step 2: Starting Docker services (PostgreSQL, Redis, Nginx, Neuronpedia)..."
 cd "$PROJECT_ROOT"
-docker-compose -f docker-compose.dev.yml up -d postgres redis nginx
+docker-compose -f docker-compose.dev.yml up -d postgres redis nginx neuronpedia-postgres neuronpedia
 
 # Wait for services to be healthy
 wait_for_service "PostgreSQL" "docker exec mistudio-postgres pg_isready -U postgres"
 wait_for_service "Redis" "docker exec mistudio-redis redis-cli ping"
-echo -e "${GREEN}✓${NC} PostgreSQL and Redis are healthy"
+wait_for_service "Neuronpedia PostgreSQL" "docker exec mistudio-neuronpedia-postgres pg_isready -U neuronpedia"
+echo -e "${GREEN}✓${NC} PostgreSQL, Redis, and Neuronpedia PostgreSQL are healthy"
+
+# Wait for Neuronpedia webapp to start (may take longer due to Next.js)
+echo -n "Waiting for Neuronpedia webapp..."
+for i in {1..60}; do
+    if curl -s http://localhost:3001 > /dev/null 2>&1; then
+        echo -e " ${GREEN}✓${NC}"
+        break
+    fi
+    echo -n "."
+    sleep 2
+done
+if ! curl -s http://localhost:3001 > /dev/null 2>&1; then
+    echo -e " ${YELLOW}⚠${NC} Neuronpedia may still be starting (check docker logs mistudio-neuronpedia)"
+fi
 
 # Start Ollama with GPU support
 echo ""
@@ -188,7 +214,7 @@ else
     docker run -d --name mistudio-ollama --gpus all \
         -p 11434:11434 \
         -v ollama_data:/root/.ollama \
-        -e OLLAMA_ORIGINS="http://mistudio.mcslab.io,http://localhost:3000,http://localhost" \
+        -e OLLAMA_ORIGINS="http://dev-mistudio.mcslab.io,http://localhost:3000,http://localhost" \
         --network mistudio_default \
         --restart unless-stopped \
         ollama/ollama:latest > /dev/null
@@ -288,6 +314,13 @@ check_service "PostgreSQL (Docker)" "docker exec mistudio-postgres pg_isready -U
 check_service "Redis (Docker)" "docker exec mistudio-redis redis-cli ping"
 check_service "Nginx (Docker)" "docker exec mistudio-nginx nginx -t"
 check_service "Ollama (Docker)" "curl -s http://localhost:11434/api/tags"
+check_service "Neuronpedia PostgreSQL (Docker)" "docker exec mistudio-neuronpedia-postgres pg_isready -U neuronpedia"
+# Neuronpedia webapp may still be starting
+if curl -s http://localhost:3001 > /dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} Neuronpedia Webapp (Docker) is running"
+else
+    echo -e "${YELLOW}○${NC} Neuronpedia Webapp is starting (check docker logs mistudio-neuronpedia)"
+fi
 check_service "Celery Worker" "test -f /tmp/mistudio-celery-worker.pid && kill -0 \$(cat /tmp/mistudio-celery-worker.pid 2>/dev/null) 2>/dev/null"
 # Steering is on-demand - show status but don't treat as error if not running
 if test -f /tmp/mistudio-celery-steering.pid && kill -0 $(cat /tmp/mistudio-celery-steering.pid 2>/dev/null) 2>/dev/null; then
@@ -304,8 +337,9 @@ echo "=================================="
 echo "Access URLs:"
 echo "=================================="
 echo "  Primary: http://$DOMAIN"
-echo "  Frontend: http://localhost:3000"
-echo "  Backend: http://localhost:8000"
+echo "  Neuronpedia: http://$NEURONPEDIA_DOMAIN"
+echo "  Frontend (direct): http://localhost:3000"
+echo "  Backend (direct): http://localhost:8000"
 echo "  API Docs: http://localhost:8000/docs"
 echo "  Ollama API: http://localhost:11434"
 echo ""
@@ -316,4 +350,5 @@ echo "  Celery Worker: /tmp/celery-worker.log"
 echo "  Celery Steering: /tmp/celery-steering.log"
 echo "  Celery Beat: /tmp/celery-beat.log"
 echo "  Ollama: docker logs mistudio-ollama"
+echo "  Neuronpedia: docker logs mistudio-neuronpedia"
 echo ""

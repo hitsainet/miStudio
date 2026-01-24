@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     hf_token: Optional[str] = os.environ.get("HF_TOKEN")
 
     # CORS settings (for direct access)
-    allowed_origins: list = ["http://mistudio.mcslab.io", "http://localhost:3000", "http://localhost"]
+    allowed_origins: list = ["http://dev-mistudio.mcslab.io", "http://localhost:3000", "http://localhost"]
 
     # Logging
     log_level: str = "INFO"

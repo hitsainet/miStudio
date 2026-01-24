@@ -131,7 +131,7 @@ spec:
       hostAliases:
         - ip: "192.168.244.61"
           hostnames:
-            - "uat-mistudio.mcslab.io"
+            - "k8s-mistudio.mcslab.io"
 
       # Migrations run automatically via docker-entrypoint.sh for SERVICE_TYPE=api
       # The entrypoint handles: wait-for-db, alembic upgrade head, fail-on-error
@@ -168,7 +168,7 @@ spec:
             - name: NEURONPEDIA_LOCAL_DB_URL
               value: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia
             - name: NEURONPEDIA_LOCAL_URL
-              value: http://neuron.mcslab.io
+              value: http://k8s-neuron.mcslab.io
           resources:
             limits:
               nvidia.com/gpu: 1
@@ -206,7 +206,7 @@ spec:
             - name: NEURONPEDIA_LOCAL_DB_URL
               value: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia
             - name: NEURONPEDIA_LOCAL_URL
-              value: http://neuron.mcslab.io
+              value: http://k8s-neuron.mcslab.io
           volumeMounts:
             - name: mistudio-data
               mountPath: /data
@@ -333,7 +333,7 @@ metadata:
 spec:
   ingressClassName: public
   rules:
-    - host: uat-mistudio.mcslab.io
+    - host: k8s-mistudio.mcslab.io
       http:
         paths:
           - path: /ws
@@ -373,7 +373,7 @@ metadata:
 spec:
   ingressClassName: public
   rules:
-    - host: uat-mistudio.mcslab.io
+    - host: k8s-mistudio.mcslab.io
       http:
         paths:
           - path: /ollama(/|$)(.*)

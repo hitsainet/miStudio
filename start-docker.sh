@@ -31,12 +31,12 @@ fi
 
 # Check for /etc/hosts entry
 echo "Step 1: Checking /etc/hosts for domain..."
-if grep -q "mistudio.mcslab.io" /etc/hosts; then
+if grep -q "dev-mistudio.mcslab.io" /etc/hosts; then
     echo -e "${GREEN}✓${NC} Domain configured in /etc/hosts"
 else
     echo -e "${YELLOW}!${NC} Domain not in /etc/hosts"
     echo "Add the following line to /etc/hosts:"
-    echo "  127.0.0.1  mistudio.mcslab.io"
+    echo "  127.0.0.1  dev-mistudio.mcslab.io"
     echo ""
 fi
 
@@ -135,7 +135,7 @@ echo ""
 echo "=================================="
 echo "Access URLs"
 echo "=================================="
-echo "  Primary:    http://mistudio.mcslab.io"
+echo "  Primary:    http://dev-mistudio.mcslab.io"
 echo "  Frontend:   http://localhost:3000"
 echo "  Backend:    http://localhost:8000"
 echo "  API Docs:   http://localhost:8000/docs"

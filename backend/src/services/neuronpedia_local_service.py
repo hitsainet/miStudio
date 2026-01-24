@@ -109,12 +109,13 @@ class NeuronpediaLocalClient:
             if not user:
                 # Create admin user
                 new_id = str(uuid4())[:25]  # cuid-like
+                email_unsubscribe_code = str(uuid4())  # Required NOT NULL field
                 await conn.execute(
                     '''
-                    INSERT INTO "User" (id, name, admin, bot, "createdAt")
-                    VALUES ($1, $2, true, true, $3)
+                    INSERT INTO "User" (id, name, "emailUnsubscribeCode", admin, bot, "createdAt")
+                    VALUES ($1, $2, $3, true, true, $4)
                     ''',
-                    new_id, user_id, datetime.utcnow()
+                    new_id, user_id, email_unsubscribe_code, datetime.utcnow()
                 )
                 logger.info(f"Created Neuronpedia admin user: {user_id}")
                 return new_id

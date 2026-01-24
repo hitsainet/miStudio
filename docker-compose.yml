@@ -35,6 +35,30 @@ services:
     networks:
       - mistudio-network
 
+  # ============================================================================
+  # Neuronpedia PostgreSQL (Separate Database)
+  # NOTE: Uses pgvector image for vector extension required by Neuronpedia
+  # ============================================================================
+  neuronpedia-postgres:
+    image: pgvector/pgvector:pg15
+    container_name: mistudio-neuronpedia-postgres
+    environment:
+      POSTGRES_USER: neuronpedia
+      POSTGRES_PASSWORD: neuronpedia_local_dev
+      POSTGRES_DB: neuronpedia
+    ports:
+      - "5433:5432"  # Use different host port to avoid conflict
+    volumes:
+      - neuronpedia_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuronpedia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mistudio-network
+
   redis:
     image: redis:7-alpine
     container_name: mistudio-redis
@@ -74,8 +98,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       API_HOST: 0.0.0.0
       API_PORT: 8000
-      API_BASE_URL: http://mistudio.mcslab.io
-      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://dev-mistudio.mcslab.io
+      ALLOWED_ORIGINS: '["http://dev-mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENVIRONMENT: ${ENVIRONMENT:-development}
@@ -83,6 +107,9 @@ services:
       # Cross-deployment URLs (use Docker service names)
       INTERNAL_API_URL: http://backend:8000
       OLLAMA_URL: http://ollm:11434
+      # Neuronpedia local instance configuration
+      NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia
+      NEURONPEDIA_LOCAL_URL: http://localhost:3001
     ports:
       - "8000:8000"
     volumes:
@@ -92,6 +119,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      neuronpedia-postgres:
         condition: service_healthy
     deploy:
       resources:
@@ -131,12 +160,15 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
-      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
-      API_BASE_URL: http://mistudio.mcslab.io
+      ALLOWED_ORIGINS: '["http://dev-mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://dev-mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Cross-deployment URLs (use Docker service names)
       INTERNAL_API_URL: http://backend:8000
       OLLAMA_URL: http://ollm:11434
+      # Neuronpedia local instance configuration
+      NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia
+      NEURONPEDIA_LOCAL_URL: http://localhost:3001
     volumes:
       - ./backend/data:/data  # Mount host data directory for SAEs, models, etc.
     restart: unless-stopped
@@ -144,6 +176,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      neuronpedia-postgres:
         condition: service_healthy
     deploy:
       resources:
@@ -168,14 +202,17 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
-      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
-      API_BASE_URL: http://mistudio.mcslab.io
+      ALLOWED_ORIGINS: '["http://dev-mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://dev-mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DATA_DIR: /data
       BACKEND_DIR: /app
       # Cross-deployment URLs (use Docker service names)
       INTERNAL_API_URL: http://backend:8000
       OLLAMA_URL: http://ollm:11434
+      # Neuronpedia local instance configuration (for consistency)
+      NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia
+      NEURONPEDIA_LOCAL_URL: http://localhost:3001
     restart: unless-stopped
     depends_on:
       - celery-worker
@@ -257,6 +294,35 @@ services:
     networks:
       - mistudio-network
 
+  # ============================================================================
+  # Neuronpedia Webapp (Feature Dashboard)
+  # ============================================================================
+  neuronpedia:
+    image: hitsai/neuronpedia-webapp:latest
+    container_name: mistudio-neuronpedia
+    environment:
+      # Database connection - use Docker service name
+      POSTGRES_PRISMA_URL: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia?pgbouncer=true
+      POSTGRES_URL_NON_POOLING: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia
+      DATABASE_URL: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia
+      # Required environment variables
+      NEXTAUTH_SECRET: neuronpedia-dev-secret-change-in-production
+      NEXTAUTH_URL: http://localhost:3001
+      # Local mode settings (these are build-time but we set them anyway for clarity)
+      NEXT_PUBLIC_DEMO_MODE: "false"
+      NEXT_PUBLIC_CONTACT_EMAIL_ADDRESS: admin@localhost
+      # Secrets for local inference
+      INFERENCE_SERVER_SECRET: local-secret
+      AUTOINTERPRET_SERVER_SECRET: local-secret
+    ports:
+      - "3001:3000"  # Neuronpedia runs on port 3000 inside container
+    restart: unless-stopped
+    depends_on:
+      neuronpedia-postgres:
+        condition: service_healthy
+    networks:
+      - mistudio-network
+
 # ==============================================================================
 # Volumes
 # ==============================================================================
@@ -267,6 +333,8 @@ volumes:
     name: mistudio_redis_data
   mistudio_data:
     name: mistudio_data
+  neuronpedia_postgres_data:
+    name: mistudio_neuronpedia_postgres_data
   # Note: ollama_data volume removed - oLLM uses ./backend/data for model storage
 
 # ==============================================================================

@@ -34,6 +34,30 @@ services:
     networks:
       - mistudio-dev
 
+  # ============================================================================
+  # Neuronpedia PostgreSQL (Separate Database for Feature Dashboard)
+  # NOTE: Uses pgvector image for vector extension required by Neuronpedia
+  # ============================================================================
+  neuronpedia-postgres:
+    image: pgvector/pgvector:pg15
+    container_name: mistudio-neuronpedia-postgres
+    environment:
+      POSTGRES_USER: neuronpedia
+      POSTGRES_PASSWORD: neuronpedia_local_dev
+      POSTGRES_DB: neuronpedia
+    ports:
+      - "5433:5432"  # Use different host port to avoid conflict
+    volumes:
+      - neuronpedia_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuronpedia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mistudio-dev
+
   redis:
     image: redis:7-alpine
     container_name: mistudio-redis
@@ -73,7 +97,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     environment:
-      - OLLAMA_ORIGINS=http://mistudio.mcslab.io,http://localhost:3000,http://localhost
+      - OLLAMA_ORIGINS=http://dev-mistudio.mcslab.io,http://localhost:3000,http://localhost
     restart: unless-stopped
     deploy:
       resources:
@@ -85,12 +109,43 @@ services:
     networks:
       - mistudio-dev
 
+  # ============================================================================
+  # Neuronpedia Webapp (Feature Dashboard)
+  # ============================================================================
+  neuronpedia:
+    image: hitsai/neuronpedia-webapp:latest
+    container_name: mistudio-neuronpedia
+    environment:
+      # Database connection - use localhost since we're on host network for the native backend
+      # But within docker network, use service name
+      POSTGRES_PRISMA_URL: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia?pgbouncer=true
+      POSTGRES_URL_NON_POOLING: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia
+      DATABASE_URL: postgresql://neuronpedia:neuronpedia_local_dev@neuronpedia-postgres:5432/neuronpedia
+      # Required environment variables
+      NEXTAUTH_SECRET: neuronpedia-dev-secret-change-in-production
+      NEXTAUTH_URL: http://dev-neuron.mcslab.io
+      # Local mode settings
+      NEXT_PUBLIC_DEMO_MODE: "false"
+      NEXT_PUBLIC_CONTACT_EMAIL_ADDRESS: admin@localhost
+      # Secrets for local inference
+      INFERENCE_SERVER_SECRET: local-secret
+      AUTOINTERPRET_SERVER_SECRET: local-secret
+    ports:
+      - "3001:3000"  # Neuronpedia runs on port 3000 inside container
+    restart: unless-stopped
+    depends_on:
+      neuronpedia-postgres:
+        condition: service_healthy
+    networks:
+      - mistudio-dev
+
 networks:
   mistudio-dev:
     driver: bridge
 
 volumes:
   postgres_data:
+  neuronpedia_postgres_data:
   ollama_data:
     external: true
     name: ollama_data

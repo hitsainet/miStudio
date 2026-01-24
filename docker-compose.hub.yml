@@ -72,8 +72,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       API_HOST: 0.0.0.0
       API_PORT: 8000
-      API_BASE_URL: http://mistudio.mcslab.io
-      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://dev-mistudio.mcslab.io
+      ALLOWED_ORIGINS: '["http://dev-mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENVIRONMENT: production
@@ -123,8 +123,8 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
-      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
-      API_BASE_URL: http://mistudio.mcslab.io
+      ALLOWED_ORIGINS: '["http://dev-mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://dev-mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./backend/data:/data
@@ -157,8 +157,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string-here}
-      ALLOWED_ORIGINS: '["http://mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
-      API_BASE_URL: http://mistudio.mcslab.io
+      ALLOWED_ORIGINS: '["http://dev-mistudio.mcslab.io","http://localhost:3000","http://localhost"]'
+      API_BASE_URL: http://dev-mistudio.mcslab.io
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     restart: always
     healthcheck:
@@ -211,7 +211,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     environment:
-      OLLAMA_ORIGINS: http://mistudio.mcslab.io,http://localhost:3000
+      OLLAMA_ORIGINS: http://dev-mistudio.mcslab.io,http://localhost:3000
     restart: always
     deploy:
       resources:

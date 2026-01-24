@@ -55,13 +55,13 @@ class Settings(BaseSettings):
     api_workers: int = Field(default=1, ge=1, le=8, description="Number of API workers")
     api_reload: bool = Field(default=True, description="Enable auto-reload in development")
     api_base_url: str = Field(
-        default="http://mistudio.mcslab.io", description="Public API base URL"
+        default="http://dev-mistudio.mcslab.io", description="Public API base URL"
     )
 
     # CORS Configuration
     allowed_origins: list[str] = Field(
         default=[
-            "http://mistudio.mcslab.io",
+            "http://dev-mistudio.mcslab.io",
             "http://localhost:3000",
             "http://localhost",
             "http://192.168.224.222:3000",

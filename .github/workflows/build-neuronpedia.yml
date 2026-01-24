@@ -40,49 +40,34 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Create custom .env for localhost build
+      - name: Update .env.localhost to disable demo mode
+        working-directory: neuronpedia/apps/webapp
         run: |
-          cat > neuronpedia/apps/webapp/.env << 'EOF'
-          # Custom build for self-hosted Neuronpedia (non-demo mode)
+          # Update the existing .env.localhost file to disable demo mode
+          # This is cleaner than creating a new file
 
-          # Domain settings (will be overridden at runtime)
-          NEXT_PUBLIC_URL=http://localhost:3000
-          NEXTAUTH_URL=http://localhost:3000
-          NEXTAUTH_SECRET=placeholder-will-be-overridden-at-runtime
+          # First, check current content
+          echo "=== Original .env.localhost ==="
+          cat .env.localhost
 
-          # Database (will be overridden at runtime)
-          POSTGRES_PRISMA_URL=postgres://postgres:postgres@localhost:5432/postgres
-          POSTGRES_URL_NON_POOLING=postgres://postgres:postgres@localhost:5432/postgres
+          # Append our overrides (these take precedence)
+          cat >> .env.localhost << 'ENVEOF'
 
+          # === MiStudio Custom Overrides ===
           # CRITICAL: Disable demo mode at build time
           NEXT_PUBLIC_DEMO_MODE=false
 
           # Contact email
           NEXT_PUBLIC_CONTACT_EMAIL_ADDRESS=admin@mcslab.io
 
-          # Default Model settings
-          NEXT_PUBLIC_DEFAULT_MODELID=gemma-2-2b
-          NEXT_PUBLIC_DEFAULT_SOURCESET=gemmascope-res-16k
-          NEXT_PUBLIC_DEFAULT_SOURCE=20-gemmascope-res-16k
-          NEXT_PUBLIC_DEFAULT_RELEASE_NAME=gemma-scope
-
-          # User IDs (will be created at runtime)
-          DEFAULT_CREATOR_USER_ID=mistudio-admin
-          PUBLIC_ACTIVATIONS_USER_IDS=mistudio-admin
-          INFERENCE_ACTIVATION_USER_ID=mistudio-admin
-
-          # Steering defaults
-          NEXT_PUBLIC_DEFAULT_STEER_MODEL=gemma-2-2b-it
-          NEXT_PUBLIC_STEER_FORCE_ALLOW_INSTRUCT_MODELS=gemma-2-2b-it
-
           # Local inference (not public demo servers)
           INFERENCE_SERVER_SECRET=local-secret
           AUTOINTERPRET_SERVER_SECRET=local-secret
-          EOF
+          ENVEOF
 
-      - name: Copy custom .env to root for monorepo build
-        run: |
-          cp neuronpedia/apps/webapp/.env neuronpedia/.env
+          echo ""
+          echo "=== Updated .env.localhost ==="
+          cat .env.localhost
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -95,13 +80,17 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Use the default .env.localhost (which we've modified)
           build-args: |
-            ENV_FILE=.env
+            ENV_FILE=.env.localhost
 
       - name: Output image info
         run: |
-          echo "Image pushed: ${{ env.IMAGE_NAME }}:latest"
-          echo "Image pushed: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "✅ Image pushed: ${{ env.IMAGE_NAME }}:latest"
+          echo "✅ Image pushed: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
           echo ""
           echo "To deploy to K8s, run:"
+          echo "  kubectl -n neuronpedia set image deployment/neuronpedia-webapp webapp=${{ env.IMAGE_NAME }}:latest"
+          echo ""
+          echo "Or with specific SHA:"
           echo "  kubectl -n neuronpedia set image deployment/neuronpedia-webapp webapp=${{ env.IMAGE_NAME }}:${{ github.sha }}"

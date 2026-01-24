@@ -190,24 +190,24 @@ class NeuronpediaLocalClient:
             )
 
             if existing:
-                # Update visibility and neuron count if exists
+                # Update visibility if exists (neuronCount may not exist in schema)
                 await conn.execute(
-                    'UPDATE "SourceSet" SET visibility = $1, "neuronCount" = $2 WHERE "modelId" = $3 AND name = $4',
-                    visibility, neuron_count, model_id, name
+                    'UPDATE "SourceSet" SET visibility = $1 WHERE "modelId" = $2 AND name = $3',
+                    visibility, model_id, name
                 )
                 logger.info(f"SourceSet {name} already exists, updated visibility to {visibility}")
                 return False
 
-            # Create source set
+            # Create source set (neuronCount not in Neuronpedia schema)
             await conn.execute(
                 '''
                 INSERT INTO "SourceSet" (
                     "modelId", name, description, type, "creatorName", "creatorId",
-                    visibility, "hasDashboards", "allowInferenceSearch", urls, "neuronCount", "createdAt"
+                    visibility, "hasDashboards", "allowInferenceSearch", urls, "createdAt"
                 )
-                VALUES ($1, $2, $3, 'sae', 'miStudio', $4, $5, true, false, ARRAY[]::text[], $6, $7)
+                VALUES ($1, $2, $3, 'sae', 'miStudio', $4, $5, true, false, ARRAY[]::text[], $6)
                 ''',
-                model_id, name, description, creator_id, visibility, neuron_count, datetime.utcnow()
+                model_id, name, description, creator_id, visibility, datetime.utcnow()
             )
             logger.info(f"Created Neuronpedia source set: {name} with visibility={visibility}")
             return True

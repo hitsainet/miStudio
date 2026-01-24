@@ -172,10 +172,10 @@ class LogitLensService:
         state_dict, config, _ = load_sae_auto_detect(sae_path, device=self._device)
 
         # Get decoder weights
-        # Community format: W_dec is [d_sae, d_in]
-        # miStudio format: decoder.weight is [d_in, d_sae]
+        # After load_sae_auto_detect: W_dec is normalized to [d_in, d_sae]
+        # We need [d_sae, d_in] for computing logit lens: feature_logits = W_dec @ W_U
         if "W_dec" in state_dict:
-            W_dec = state_dict["W_dec"]  # [d_sae, d_in]
+            W_dec = state_dict["W_dec"].T  # [d_in, d_sae] -> [d_sae, d_in]
         elif "decoder.weight" in state_dict:
             W_dec = state_dict["decoder.weight"].T  # [d_in, d_sae] -> [d_sae, d_in]
         else:
@@ -390,17 +390,40 @@ class LogitLensService:
         Returns:
             Dictionary mapping feature index to cached LogitLensResult
         """
+        from sqlalchemy import or_
+        from ..models.external_sae import ExternalSAE
+
         results = {}
 
-        # Build feature IDs from SAE ID and indices
-        feature_id_prefix = f"feat_sae_{sae_id}_"
+        # Get SAE to check for training_id
+        sae = await db.get(ExternalSAE, sae_id)
+        if not sae:
+            return results
+
+        # Build query to get features (check both external_sae_id and training_id)
+        if sae.training_id:
+            stmt = select(Feature).where(
+                or_(
+                    Feature.external_sae_id == sae_id,
+                    Feature.training_id == sae.training_id
+                )
+            ).where(Feature.neuron_index.in_(feature_indices))
+        else:
+            stmt = select(Feature).where(
+                Feature.external_sae_id == sae_id
+            ).where(Feature.neuron_index.in_(feature_indices))
+
+        result = await db.execute(stmt)
+        features = {f.neuron_index: f for f in result.scalars().all()}
 
         for idx in feature_indices:
-            feature_id = f"{feature_id_prefix}{idx}"
+            feature = features.get(idx)
+            if not feature:
+                continue
 
-            # Look up cached dashboard data
+            # Look up cached dashboard data using actual feature ID
             stmt = select(FeatureDashboardData).where(
-                FeatureDashboardData.feature_id == feature_id
+                FeatureDashboardData.feature_id == feature.id
             )
             result = await db.execute(stmt)
             cached = result.scalar_one_or_none()
@@ -428,10 +451,38 @@ class LogitLensService:
             sae_id: SAE ID
             results: Dictionary mapping feature index to LogitLensResult
         """
-        feature_id_prefix = f"feat_sae_{sae_id}_"
+        from sqlalchemy import or_
+        from ..models.external_sae import ExternalSAE
 
-        for idx, result in results.items():
-            feature_id = f"{feature_id_prefix}{idx}"
+        # Get SAE to check for training_id
+        sae = await db.get(ExternalSAE, sae_id)
+        if not sae:
+            logger.warning(f"SAE not found: {sae_id}")
+            return
+
+        # Build query to get features (check both external_sae_id and training_id)
+        if sae.training_id:
+            stmt = select(Feature).where(
+                or_(
+                    Feature.external_sae_id == sae_id,
+                    Feature.training_id == sae.training_id
+                )
+            )
+        else:
+            stmt = select(Feature).where(Feature.external_sae_id == sae_id)
+
+        result = await db.execute(stmt)
+        features = {f.neuron_index: f for f in result.scalars().all()}
+
+        saved_count = 0
+        for idx, logit_result in results.items():
+            # Get actual feature from database
+            feature = features.get(idx)
+            if not feature:
+                # Feature doesn't exist in DB, skip
+                continue
+
+            feature_id = feature.id
 
             # Check if dashboard data exists
             stmt = select(FeatureDashboardData).where(
@@ -441,8 +492,8 @@ class LogitLensService:
             dashboard_data = existing.scalar_one_or_none()
 
             logit_lens_json = {
-                "top_positive": result.top_positive,
-                "top_negative": result.top_negative,
+                "top_positive": logit_result.top_positive,
+                "top_negative": logit_result.top_negative,
             }
 
             if dashboard_data:
@@ -456,9 +507,10 @@ class LogitLensService:
                     computation_version="1.0",
                 )
                 db.add(dashboard_data)
+            saved_count += 1
 
         await db.commit()
-        logger.info(f"Saved logit lens results for {len(results)} features")
+        logger.info(f"Saved logit lens results for {saved_count} features")
 
     def clear_cache(self) -> int:
         """Clear loaded models from cache and free GPU memory."""

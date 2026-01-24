@@ -236,7 +236,26 @@ class HistogramService:
             Dictionary mapping feature index to HistogramData
         """
         # Get all features for this SAE
-        stmt = select(Feature).where(Feature.external_sae_id == sae_id)
+        # First try external_sae_id, then fall back to training_id if SAE has one
+        from sqlalchemy import or_
+        from ..models.external_sae import ExternalSAE
+
+        sae = await db.get(ExternalSAE, sae_id)
+        if not sae:
+            logger.warning(f"SAE not found: {sae_id}")
+            return {}
+
+        # Build query that checks both external_sae_id and training_id
+        if sae.training_id:
+            stmt = select(Feature).where(
+                or_(
+                    Feature.external_sae_id == sae_id,
+                    Feature.training_id == sae.training_id
+                )
+            )
+        else:
+            stmt = select(Feature).where(Feature.external_sae_id == sae_id)
+
         result = await db.execute(stmt)
         features = result.scalars().all()
 

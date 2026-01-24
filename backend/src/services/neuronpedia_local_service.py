@@ -32,6 +32,8 @@ from ..models.feature_activation import FeatureActivation
 from ..models.feature_dashboard import FeatureDashboardData
 from ..models.model import Model
 from ..models.training import Training
+from .logit_lens_service import get_logit_lens_service, LogitLensResult
+from .histogram_service import get_histogram_service, HistogramData
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,13 @@ class LocalPushConfig:
 
     # Feature selection
     feature_indices: Optional[List[int]] = None
+
+    # Visibility: 'PUBLIC' (discoverable) or 'UNLISTED' (direct link only)
+    visibility: str = "PUBLIC"
+
+    # Dashboard data computation
+    compute_dashboard_data: bool = True  # Compute logit lens + histograms if not cached
+    logit_lens_k: int = 20  # Top-k tokens for logit lens
 
 
 @dataclass
@@ -129,6 +138,7 @@ class NeuronpediaLocalClient:
         display_name: str,
         layers: int,
         creator_id: str,
+        visibility: str = "PUBLIC",
     ) -> bool:
         """Create a Model record if it doesn't exist."""
         async with self._pool.acquire() as conn:
@@ -139,7 +149,12 @@ class NeuronpediaLocalClient:
             )
 
             if existing:
-                logger.info(f"Model {model_id} already exists")
+                # Update visibility if model exists
+                await conn.execute(
+                    'UPDATE "Model" SET visibility = $1, "updatedAt" = $2 WHERE id = $3',
+                    visibility, datetime.utcnow(), model_id
+                )
+                logger.info(f"Model {model_id} already exists, updated visibility to {visibility}")
                 return False
 
             # Create model
@@ -150,11 +165,11 @@ class NeuronpediaLocalClient:
                     layers, "neuronsPerLayer", owner, visibility,
                     "inferenceEnabled", instruct, "createdAt", "updatedAt"
                 )
-                VALUES ($1, $2, $2, $3, $4, 0, 'miStudio', 'UNLISTED', false, false, $5, $5)
+                VALUES ($1, $2, $2, $3, $4, 0, 'miStudio', $5, false, false, $6, $6)
                 ''',
-                model_id, display_name, creator_id, layers, datetime.utcnow()
+                model_id, display_name, creator_id, layers, visibility, datetime.utcnow()
             )
-            logger.info(f"Created Neuronpedia model: {model_id}")
+            logger.info(f"Created Neuronpedia model: {model_id} with visibility={visibility}")
             return True
 
     async def create_source_set(
@@ -163,6 +178,8 @@ class NeuronpediaLocalClient:
         name: str,
         description: str,
         creator_id: str,
+        visibility: str = "PUBLIC",
+        neuron_count: int = 0,
     ) -> bool:
         """Create a SourceSet record if it doesn't exist."""
         async with self._pool.acquire() as conn:
@@ -173,7 +190,12 @@ class NeuronpediaLocalClient:
             )
 
             if existing:
-                logger.info(f"SourceSet {name} already exists for model {model_id}")
+                # Update visibility and neuron count if exists
+                await conn.execute(
+                    'UPDATE "SourceSet" SET visibility = $1, "neuronCount" = $2 WHERE "modelId" = $3 AND name = $4',
+                    visibility, neuron_count, model_id, name
+                )
+                logger.info(f"SourceSet {name} already exists, updated visibility to {visibility}")
                 return False
 
             # Create source set
@@ -181,13 +203,13 @@ class NeuronpediaLocalClient:
                 '''
                 INSERT INTO "SourceSet" (
                     "modelId", name, description, type, "creatorName", "creatorId",
-                    visibility, "hasDashboards", "allowInferenceSearch", urls, "createdAt"
+                    visibility, "hasDashboards", "allowInferenceSearch", urls, "neuronCount", "createdAt"
                 )
-                VALUES ($1, $2, $3, 'sae', 'miStudio', $4, 'UNLISTED', true, false, ARRAY[]::text[], $5)
+                VALUES ($1, $2, $3, 'sae', 'miStudio', $4, $5, true, false, ARRAY[]::text[], $6, $7)
                 ''',
-                model_id, name, description, creator_id, datetime.utcnow()
+                model_id, name, description, creator_id, visibility, neuron_count, datetime.utcnow()
             )
-            logger.info(f"Created Neuronpedia source set: {name}")
+            logger.info(f"Created Neuronpedia source set: {name} with visibility={visibility}")
             return True
 
     async def create_source(
@@ -196,6 +218,7 @@ class NeuronpediaLocalClient:
         model_id: str,
         set_name: str,
         creator_id: str,
+        visibility: str = "PUBLIC",
     ) -> bool:
         """Create a Source record if it doesn't exist."""
         async with self._pool.acquire() as conn:
@@ -206,7 +229,12 @@ class NeuronpediaLocalClient:
             )
 
             if existing:
-                logger.info(f"Source {source_id} already exists")
+                # Update visibility if exists
+                await conn.execute(
+                    'UPDATE "Source" SET visibility = $1 WHERE id = $2 AND "modelId" = $3',
+                    visibility, source_id, model_id
+                )
+                logger.info(f"Source {source_id} already exists, updated visibility to {visibility}")
                 return False
 
             # Create source
@@ -216,11 +244,11 @@ class NeuronpediaLocalClient:
                     id, "modelId", "setName", "creatorId",
                     visibility, "hasDashboards", "inferenceEnabled", "createdAt"
                 )
-                VALUES ($1, $2, $3, $4, 'UNLISTED', true, false, $5)
+                VALUES ($1, $2, $3, $4, $5, true, false, $6)
                 ''',
-                source_id, model_id, set_name, creator_id, datetime.utcnow()
+                source_id, model_id, set_name, creator_id, visibility, datetime.utcnow()
             )
-            logger.info(f"Created Neuronpedia source: {source_id}")
+            logger.info(f"Created Neuronpedia source: {source_id} with visibility={visibility}")
             return True
 
     async def upsert_neuron(
@@ -387,6 +415,116 @@ class NeuronpediaLocalPushService:
             await self._client.disconnect()
             self._client = None
 
+    async def _compute_dashboard_data_if_needed(
+        self,
+        db: AsyncSession,
+        sae: ExternalSAE,
+        config: LocalPushConfig,
+        progress_callback: Optional[callable] = None,
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        Compute dashboard data (logit lens, histograms) if not already cached.
+
+        Returns:
+            Dictionary mapping feature index to dashboard data dict with keys:
+            - logit_lens: LogitLensResult or None
+            - histogram: HistogramData or None
+        """
+        dashboard_data: Dict[int, Dict[str, Any]] = {}
+
+        if not config.compute_dashboard_data:
+            return dashboard_data
+
+        # Get feature indices to compute
+        feature_indices = config.feature_indices
+        if not feature_indices:
+            if sae.n_features:
+                feature_indices = list(range(sae.n_features))
+            else:
+                # Get from database
+                stmt = select(Feature.neuron_index).where(Feature.external_sae_id == sae.id)
+                result = await db.execute(stmt)
+                feature_indices = [row[0] for row in result.fetchall()]
+
+        if not feature_indices:
+            logger.warning("No feature indices to compute dashboard data for")
+            return dashboard_data
+
+        total = len(feature_indices)
+        logger.info(f"Computing dashboard data for {total} features...")
+
+        # 1. Compute logit lens data
+        try:
+            if progress_callback:
+                progress_callback(5, "Computing logit lens data...")
+
+            logit_lens_service = get_logit_lens_service()
+
+            def logit_progress(completed: int, total: int, msg: str):
+                if progress_callback:
+                    # Scale logit lens progress from 5-40%
+                    pct = 5 + int((completed / max(total, 1)) * 35)
+                    progress_callback(pct, msg)
+
+            logit_results = await logit_lens_service.compute_logit_lens_for_sae(
+                db=db,
+                sae_id=sae.id,
+                feature_indices=feature_indices,
+                k=config.logit_lens_k,
+                progress_callback=logit_progress,
+                force_recompute=False,
+            )
+
+            # Save logit lens results to database
+            await logit_lens_service.save_logit_lens_results(db, sae.id, logit_results)
+
+            # Add to dashboard data
+            for idx, result in logit_results.items():
+                if idx not in dashboard_data:
+                    dashboard_data[idx] = {}
+                dashboard_data[idx]["logit_lens"] = result
+
+            logger.info(f"Computed logit lens data for {len(logit_results)} features")
+
+        except Exception as e:
+            logger.warning(f"Failed to compute logit lens data: {e}")
+            # Continue without logit lens data
+
+        # 2. Compute histogram data
+        try:
+            if progress_callback:
+                progress_callback(40, "Computing histogram data...")
+
+            histogram_service = get_histogram_service()
+
+            histogram_results = await histogram_service.compute_histograms_for_sae(
+                db=db,
+                sae_id=sae.id,
+                n_bins=50,
+                log_scale=True,
+                force_recompute=False,
+            )
+
+            # Save histogram results to database
+            await histogram_service.save_histogram_results(db, sae.id, histogram_results)
+
+            # Add to dashboard data
+            for idx, result in histogram_results.items():
+                if idx not in dashboard_data:
+                    dashboard_data[idx] = {}
+                dashboard_data[idx]["histogram"] = result
+
+            logger.info(f"Computed histogram data for {len(histogram_results)} features")
+
+        except Exception as e:
+            logger.warning(f"Failed to compute histogram data: {e}")
+            # Continue without histogram data
+
+        if progress_callback:
+            progress_callback(50, "Dashboard data computation complete")
+
+        return dashboard_data
+
     def _generate_model_id(self, model_name: str) -> str:
         """Generate a Neuronpedia-compatible model ID."""
         # Convert to lowercase, replace spaces with hyphens
@@ -481,6 +619,7 @@ class NeuronpediaLocalPushService:
                 display_name=model_name,
                 layers=layer + 1,  # At least this many layers
                 creator_id=creator_id,
+                visibility=config.visibility,
             )
 
             if progress_callback:
@@ -492,6 +631,8 @@ class NeuronpediaLocalPushService:
                 name=np_source_set_name,
                 description=f"SAE from miStudio - {sae.name}",
                 creator_id=creator_id,
+                visibility=config.visibility,
+                neuron_count=n_features,
             )
 
             # Create Source
@@ -500,10 +641,27 @@ class NeuronpediaLocalPushService:
                 model_id=np_model_id,
                 set_name=np_source_set_name,
                 creator_id=creator_id,
+                visibility=config.visibility,
             )
 
+            # Compute dashboard data (logit lens, histograms) if needed
+            computed_dashboard_data: Dict[int, Dict[str, Any]] = {}
+            if config.compute_dashboard_data:
+                if progress_callback:
+                    progress_callback(15, "Computing dashboard data (logit lens, histograms)...")
+
+                try:
+                    computed_dashboard_data = await self._compute_dashboard_data_if_needed(
+                        db=db,
+                        sae=sae,
+                        config=config,
+                        progress_callback=progress_callback,
+                    )
+                except Exception as e:
+                    logger.warning(f"Dashboard data computation failed, continuing without it: {e}")
+
             if progress_callback:
-                progress_callback(15, "Loading features...")
+                progress_callback(50, "Loading features...")
 
             # Load features
             features = await self._load_features(db, sae, config)
@@ -531,30 +689,62 @@ class NeuronpediaLocalPushService:
             for i, feature in enumerate(features):
                 # Update progress every 10 features
                 if progress_callback and i % 10 == 0:
-                    pct = 20 + int((i / total_features) * 70)
+                    pct = 50 + int((i / total_features) * 45)
                     progress_callback(pct, f"Processing feature {i+1}/{total_features}")
 
-                # Load dashboard data for this feature
-                dashboard_data = await self._load_dashboard_data(db, feature)
-
-                # Extract statistics
+                # Extract statistics from computed dashboard data or database
                 pos_str, pos_values = [], []
                 neg_str, neg_values = [], []
                 freq_hist_heights, freq_hist_values = [], []
+                frac_nonzero = feature.activation_frequency or 0.0
 
-                if dashboard_data and dashboard_data.logit_lens_data:
-                    logit_data = dashboard_data.logit_lens_data
-                    if isinstance(logit_data, dict):
-                        pos_str = logit_data.get("top_promoted_tokens", [])[:10]
-                        pos_values = logit_data.get("top_promoted_values", [])[:10]
-                        neg_str = logit_data.get("top_suppressed_tokens", [])[:10]
-                        neg_values = logit_data.get("top_suppressed_values", [])[:10]
+                # First check computed dashboard data (from memory)
+                feature_idx = feature.neuron_index
+                if feature_idx in computed_dashboard_data:
+                    computed = computed_dashboard_data[feature_idx]
 
-                if dashboard_data and dashboard_data.histogram_data:
-                    hist_data = dashboard_data.histogram_data
-                    if isinstance(hist_data, dict):
-                        freq_hist_heights = hist_data.get("counts", [])
-                        freq_hist_values = hist_data.get("bin_edges", [])
+                    # Extract logit lens data
+                    if "logit_lens" in computed and computed["logit_lens"]:
+                        logit_result = computed["logit_lens"]
+                        # LogitLensResult has top_positive and top_negative lists
+                        if hasattr(logit_result, 'top_positive'):
+                            pos_str = [t["token"] for t in logit_result.top_positive[:10]]
+                            pos_values = [t["logit"] for t in logit_result.top_positive[:10]]
+                        if hasattr(logit_result, 'top_negative'):
+                            neg_str = [t["token"] for t in logit_result.top_negative[:10]]
+                            neg_values = [t["logit"] for t in logit_result.top_negative[:10]]
+
+                    # Extract histogram data
+                    if "histogram" in computed and computed["histogram"]:
+                        hist_result = computed["histogram"]
+                        if hasattr(hist_result, 'counts'):
+                            freq_hist_heights = hist_result.counts
+                            freq_hist_values = hist_result.bin_edges
+                        if hasattr(hist_result, 'nonzero_count') and hasattr(hist_result, 'total_count'):
+                            if hist_result.total_count > 0:
+                                frac_nonzero = hist_result.nonzero_count / hist_result.total_count
+
+                # Fall back to database lookup if no computed data
+                if not pos_str:
+                    dashboard_data = await self._load_dashboard_data(db, feature)
+                    if dashboard_data and dashboard_data.logit_lens_data:
+                        logit_data = dashboard_data.logit_lens_data
+                        if isinstance(logit_data, dict):
+                            # Handle both old and new field names
+                            top_pos = logit_data.get("top_positive", [])
+                            if top_pos:
+                                pos_str = [t["token"] for t in top_pos[:10]]
+                                pos_values = [t.get("logit", t.get("value", 0)) for t in top_pos[:10]]
+                            top_neg = logit_data.get("top_negative", [])
+                            if top_neg:
+                                neg_str = [t["token"] for t in top_neg[:10]]
+                                neg_values = [t.get("logit", t.get("value", 0)) for t in top_neg[:10]]
+
+                    if dashboard_data and dashboard_data.histogram_data:
+                        hist_data = dashboard_data.histogram_data
+                        if isinstance(hist_data, dict):
+                            freq_hist_heights = hist_data.get("counts", [])
+                            freq_hist_values = hist_data.get("bin_edges", [])
 
                 # Create neuron
                 await client.upsert_neuron(
@@ -566,7 +756,7 @@ class NeuronpediaLocalPushService:
                     pos_values=pos_values,
                     neg_str=neg_str,
                     neg_values=neg_values,
-                    frac_nonzero=feature.activation_frequency or 0.0,
+                    frac_nonzero=frac_nonzero,
                     freq_hist_heights=freq_hist_heights,
                     freq_hist_values=freq_hist_values,
                     max_act_approx=feature.max_activation or 0.0,

@@ -339,6 +339,12 @@ export interface LocalPushConfig {
   includeExplanations: boolean;
   maxActivationsPerFeature: number;
   featureIndices?: number[];
+  // Visibility: 'PUBLIC' (discoverable) or 'UNLISTED' (direct link only)
+  visibility?: 'PUBLIC' | 'UNLISTED';
+  // Compute logit lens and histogram data before push (default: true)
+  computeDashboardData?: boolean;
+  // Top-k tokens for logit lens (default: 20)
+  logitLensK?: number;
 }
 
 /**
@@ -416,6 +422,21 @@ export async function pushToLocal(
     config.featureIndices.forEach((idx) => {
       queryParams.append('feature_indices', String(idx));
     });
+  }
+
+  // Add optional visibility parameter
+  if (config.visibility) {
+    queryParams.set('visibility', config.visibility);
+  }
+
+  // Add optional dashboard data computation parameter
+  if (config.computeDashboardData !== undefined) {
+    queryParams.set('compute_dashboard_data', String(config.computeDashboardData));
+  }
+
+  // Add optional logit lens K parameter
+  if (config.logitLensK !== undefined) {
+    queryParams.set('logit_lens_k', String(config.logitLensK));
   }
 
   const response = await fetchAPI<{

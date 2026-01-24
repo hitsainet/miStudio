@@ -353,6 +353,9 @@ async def push_to_local_neuronpedia(
     include_explanations: bool = True,
     max_activations_per_feature: int = 20,
     feature_indices: Optional[List[int]] = None,
+    visibility: str = "PUBLIC",
+    compute_dashboard_data: bool = True,
+    logit_lens_k: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -373,6 +376,9 @@ async def push_to_local_neuronpedia(
         include_explanations: Include feature explanations/labels
         max_activations_per_feature: Max activation examples per feature
         feature_indices: Optional list of specific feature indices to push
+        visibility: 'PUBLIC' (discoverable) or 'UNLISTED' (direct link only)
+        compute_dashboard_data: Compute logit lens and histogram data before push
+        logit_lens_k: Top-k tokens for logit lens computation
 
     Returns:
         push_job_id for WebSocket subscription and status polling
@@ -385,6 +391,10 @@ async def push_to_local_neuronpedia(
             503,
             "Local Neuronpedia not configured. Set NEURONPEDIA_LOCAL_DB_URL in settings."
         )
+
+    # Validate visibility
+    if visibility not in ("PUBLIC", "UNLISTED"):
+        raise HTTPException(400, "visibility must be 'PUBLIC' or 'UNLISTED'")
 
     # Verify SAE exists
     from ....models.external_sae import ExternalSAE
@@ -404,6 +414,9 @@ async def push_to_local_neuronpedia(
             include_activations=include_activations,
             include_explanations=include_explanations,
             max_activations_per_feature=max_activations_per_feature,
+            visibility=visibility,
+            compute_dashboard_data=compute_dashboard_data,
+            logit_lens_k=logit_lens_k,
         )
 
         return {

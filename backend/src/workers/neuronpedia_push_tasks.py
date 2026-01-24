@@ -82,6 +82,9 @@ def push_to_neuronpedia_local_task(
     include_activations: bool = True,
     include_explanations: bool = True,
     max_activations_per_feature: int = 20,
+    visibility: str = "PUBLIC",
+    compute_dashboard_data: bool = True,
+    logit_lens_k: int = 20,
 ) -> dict:
     """
     Celery task to push SAE features to local Neuronpedia.
@@ -92,6 +95,9 @@ def push_to_neuronpedia_local_task(
         include_activations: Whether to include activations
         include_explanations: Whether to include explanations
         max_activations_per_feature: Max activations per feature
+        visibility: 'PUBLIC' or 'UNLISTED'
+        compute_dashboard_data: Compute logit lens and histogram data before push
+        logit_lens_k: Top-k tokens for logit lens
 
     Returns:
         dict with push results
@@ -131,11 +137,14 @@ def push_to_neuronpedia_local_task(
                 # Create push service
                 service = NeuronpediaLocalPushService()
 
-                # Create config
+                # Create config with all options
                 config = LocalPushConfig(
                     include_activations=include_activations,
                     include_explanations=include_explanations,
                     max_activations_per_feature=max_activations_per_feature,
+                    visibility=visibility,
+                    compute_dashboard_data=compute_dashboard_data,
+                    logit_lens_k=logit_lens_k,
                 )
 
                 # Create a progress callback that emits WebSocket events
@@ -146,6 +155,10 @@ def push_to_neuronpedia_local_task(
                         progress.current_stage = "creating_model"
                     elif "Creating source" in message:
                         progress.current_stage = "creating_source"
+                    elif "dashboard data" in message.lower() or "logit lens" in message.lower():
+                        progress.current_stage = "computing_dashboard_data"
+                    elif "histogram" in message.lower():
+                        progress.current_stage = "computing_histograms"
                     elif "Loading features" in message:
                         progress.current_stage = "loading_features"
                     elif "Processing feature" in message:

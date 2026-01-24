@@ -40,27 +40,31 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Update .env.localhost to disable demo mode
+      - name: Update .env.localhost for K8s deployment
         working-directory: neuronpedia/apps/webapp
         run: |
-          # Update the existing .env.localhost file to disable demo mode
-          # This is cleaner than creating a new file
+          # Customize .env.localhost for K8s deployment
 
-          # First, check current content
           echo "=== Original .env.localhost ==="
           cat .env.localhost
 
-          # Append our overrides (these take precedence)
+          # CRITICAL: Remove database URLs so they use K8s env vars at runtime
+          # The baked-in localhost URLs would override K8s secrets
+          sed -i '/^POSTGRES_PRISMA_URL=/d' .env.localhost
+          sed -i '/^POSTGRES_URL_NON_POOLING=/d' .env.localhost
+          sed -i '/^DATABASE_URL=/d' .env.localhost
+
+          # Append our overrides
           cat >> .env.localhost << 'ENVEOF'
 
-          # === MiStudio Custom Overrides ===
-          # CRITICAL: Disable demo mode at build time
+          # === MiStudio K8s Overrides ===
+          # Disable demo mode at build time
           NEXT_PUBLIC_DEMO_MODE=false
 
           # Contact email
           NEXT_PUBLIC_CONTACT_EMAIL_ADDRESS=admin@mcslab.io
 
-          # Local inference (not public demo servers)
+          # Local inference secrets (will use K8s secrets at runtime)
           INFERENCE_SERVER_SECRET=local-secret
           AUTOINTERPRET_SERVER_SECRET=local-secret
           ENVEOF

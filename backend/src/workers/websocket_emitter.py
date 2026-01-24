@@ -1376,6 +1376,113 @@ def emit_steering_progress(
         return emit_progress(channel, event, data)
 
 
+# ============================================================================
+# Neuronpedia Push Emission Functions
+# ============================================================================
+
+
+def emit_neuronpedia_push_progress(
+    push_job_id: str,
+    sae_id: str,
+    stage: str,
+    progress: float,
+    status: str,
+    message: Optional[str] = None,
+    features_pushed: Optional[int] = None,
+    total_features: Optional[int] = None,
+    activations_pushed: Optional[int] = None,
+    explanations_pushed: Optional[int] = None,
+    elapsed_seconds: Optional[float] = None,
+    eta_seconds: Optional[float] = None,
+    error: Optional[str] = None,
+) -> bool:
+    """
+    Emit Neuronpedia push progress update.
+
+    This function emits real-time progress updates during the push of SAE
+    features to the local Neuronpedia instance, allowing the frontend to
+    display detailed progress information.
+
+    Args:
+        push_job_id: Unique push job identifier
+        sae_id: SAE being pushed
+        stage: Current stage (initializing, creating_source, pushing_features,
+               pushing_activations, pushing_explanations, completed, failed)
+        progress: Progress percentage (0-100)
+        status: Job status (pending, pushing, completed, failed)
+        message: Optional status message
+        features_pushed: Number of features pushed so far
+        total_features: Total features to push
+        activations_pushed: Number of activations pushed
+        explanations_pushed: Number of explanations pushed
+        elapsed_seconds: Time elapsed since start
+        eta_seconds: Estimated time remaining
+        error: Optional error message (on failure)
+
+    Returns:
+        True if emission succeeded, False otherwise
+
+    Channel Convention:
+        neuronpedia/push/{push_job_id}
+
+    Examples:
+        >>> emit_neuronpedia_push_progress(
+        ...     push_job_id="push_sae_abc123_20260124",
+        ...     sae_id="sae_abc123",
+        ...     stage="pushing_features",
+        ...     progress=45.5,
+        ...     status="pushing",
+        ...     message="Pushing features 5500/12288...",
+        ...     features_pushed=5500,
+        ...     total_features=12288,
+        ...     elapsed_seconds=120.5,
+        ...     eta_seconds=145.0
+        ... )
+        True
+    """
+    channel = f"neuronpedia/push/{push_job_id}"
+
+    # Determine event type based on status
+    if status == "failed":
+        event = "neuronpedia:push_failed"
+    elif status == "completed":
+        event = "neuronpedia:push_completed"
+    else:
+        event = "neuronpedia:push_progress"
+
+    data = {
+        "push_job_id": push_job_id,
+        "sae_id": sae_id,
+        "stage": stage,
+        "progress": progress,
+        "status": status,
+    }
+
+    # Add optional fields if provided
+    if message:
+        data["message"] = message
+    if features_pushed is not None:
+        data["features_pushed"] = features_pushed
+    if total_features is not None:
+        data["total_features"] = total_features
+    if activations_pushed is not None:
+        data["activations_pushed"] = activations_pushed
+    if explanations_pushed is not None:
+        data["explanations_pushed"] = explanations_pushed
+    if elapsed_seconds is not None:
+        data["elapsed_seconds"] = elapsed_seconds
+    if eta_seconds is not None:
+        data["eta_seconds"] = eta_seconds
+    if error:
+        data["error"] = error
+
+    # For critical events (completed/failed), use retries to ensure delivery
+    if event in ("neuronpedia:push_completed", "neuronpedia:push_failed"):
+        return emit_progress(channel, event, data, timeout=10.0, retries=3)
+    else:
+        return emit_progress(channel, event, data)
+
+
 # Export public API
 __all__ = [
     "emit_progress",
@@ -1409,4 +1516,6 @@ __all__ = [
     "emit_export_progress",
     # Steering functions
     "emit_steering_progress",
+    # Neuronpedia push functions
+    "emit_neuronpedia_push_progress",
 ]

@@ -30,6 +30,7 @@ from ..models.external_sae import ExternalSAE
 from ..models.feature import Feature
 from ..models.feature_activation import FeatureActivation
 from ..models.feature_dashboard import FeatureDashboardData
+from ..models.model import Model
 from ..models.training import Training
 
 logger = logging.getLogger(__name__)
@@ -437,8 +438,29 @@ class NeuronpediaLocalPushService:
                     error_message=f"SAE not found: {sae_id}"
                 )
 
-            # Determine model name
-            model_name = sae.model_name or "unknown-model"
+            # Determine model name by looking up the Model record
+            model_name = sae.model_name  # May be None
+            if not model_name and sae.model_id:
+                # Look up model name from Model table
+                model_record = await db.get(Model, sae.model_id)
+                if model_record:
+                    model_name = model_record.name
+
+            # Fallback to parsing from SAE name if still not found
+            if not model_name and sae.name:
+                # SAE names are like "SAE from Phi-4-mini-instruct (L10-residual)"
+                if sae.name.startswith("SAE from "):
+                    # Extract model name between "SAE from " and " ("
+                    name_part = sae.name[9:]  # Remove "SAE from "
+                    if " (" in name_part:
+                        model_name = name_part.split(" (")[0]
+                    else:
+                        model_name = name_part
+
+            # Final fallback
+            if not model_name:
+                model_name = "unknown-model"
+
             layer = sae.layer or 0
             n_features = sae.n_features or 16384
 

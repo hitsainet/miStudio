@@ -358,11 +358,12 @@ async def push_to_local_neuronpedia(
     """
     Push SAE features directly to a local Neuronpedia instance.
 
-    This endpoint writes directly to the local Neuronpedia PostgreSQL database,
-    creating Model, SourceSet, Source, Neuron, Activation, and Explanation records.
+    This endpoint starts an async Celery task that writes directly to the
+    local Neuronpedia PostgreSQL database, creating Model, SourceSet, Source,
+    Neuron, Activation, and Explanation records.
 
-    Unlike the export endpoint which creates a ZIP file for manual upload,
-    this pushes data immediately to the configured local Neuronpedia instance.
+    Returns a push_job_id immediately. Progress updates are sent via WebSocket
+    on channel: neuronpedia/push/{push_job_id}
 
     Requires NEURONPEDIA_LOCAL_DB_URL to be configured in settings.
 
@@ -372,43 +373,72 @@ async def push_to_local_neuronpedia(
         include_explanations: Include feature explanations/labels
         max_activations_per_feature: Max activation examples per feature
         feature_indices: Optional list of specific feature indices to push
+
+    Returns:
+        push_job_id for WebSocket subscription and status polling
     """
+    from datetime import datetime
+    from ....workers.neuronpedia_push_tasks import push_to_neuronpedia_local_task
+
     if not settings.neuronpedia_local_db_url:
         raise HTTPException(
             503,
             "Local Neuronpedia not configured. Set NEURONPEDIA_LOCAL_DB_URL in settings."
         )
 
-    service = get_neuronpedia_local_push_service()
+    # Verify SAE exists
+    from ....models.external_sae import ExternalSAE
+    sae = await db.get(ExternalSAE, sae_id)
+    if not sae:
+        raise HTTPException(404, f"SAE not found: {sae_id}")
 
-    config = LocalPushConfig(
-        include_activations=include_activations,
-        include_explanations=include_explanations,
-        max_activations_per_feature=max_activations_per_feature,
-        feature_indices=feature_indices,
-    )
+    # Generate a unique push job ID
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    push_job_id = f"push_{sae_id}_{timestamp}"
 
     try:
-        result = await service.push_sae_to_local(db, sae_id, config)
-
-        if not result.success:
-            raise HTTPException(400, result.error_message)
+        # Start the Celery task asynchronously
+        task = push_to_neuronpedia_local_task.delay(
+            push_job_id=push_job_id,
+            sae_id=sae_id,
+            include_activations=include_activations,
+            include_explanations=include_explanations,
+            max_activations_per_feature=max_activations_per_feature,
+        )
 
         return {
-            "success": True,
-            "model_id": result.model_id,
-            "source_id": result.source_id,
-            "neurons_created": result.neurons_created,
-            "activations_created": result.activations_created,
-            "explanations_created": result.explanations_created,
-            "neuronpedia_url": result.neuronpedia_url,
+            "push_job_id": push_job_id,
+            "task_id": task.id,
+            "sae_id": sae_id,
+            "status": "started",
+            "message": f"Push started. Subscribe to WebSocket channel: neuronpedia/push/{push_job_id}",
+            "websocket_channel": f"neuronpedia/push/{push_job_id}",
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.exception(f"Error pushing to local Neuronpedia: {e}")
+        logger.exception(f"Error starting push to local Neuronpedia: {e}")
         raise HTTPException(500, str(e))
+
+
+@router.get("/push-local/{push_job_id}")
+async def get_push_status(
+    push_job_id: str,
+):
+    """
+    Get status of a push job by polling (alternative to WebSocket).
+
+    Note: For real-time updates, use WebSocket subscription to
+    channel neuronpedia/push/{push_job_id}
+    """
+    from ....core.celery_app import celery_app
+
+    # Extract task_id from result backend if we stored it
+    # For now, return basic info
+    return {
+        "push_job_id": push_job_id,
+        "message": "Use WebSocket subscription for real-time progress updates",
+        "websocket_channel": f"neuronpedia/push/{push_job_id}",
+    }
 
 
 @router.get("/local-status")

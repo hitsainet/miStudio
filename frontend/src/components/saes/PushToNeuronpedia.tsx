@@ -4,7 +4,8 @@
  * Features:
  * - Configuration form for push options
  * - Real-time status checking for Neuronpedia connection
- * - Progress display during push operation
+ * - Real-time progress display with WebSocket updates
+ * - Progress bar, feature counts, elapsed time, and ETA
  * - Success view with link to browse features in Neuronpedia
  */
 
@@ -23,16 +24,19 @@ import {
   ChevronUp,
   Globe,
   Database,
+  Clock,
+  Zap,
 } from 'lucide-react';
 import { SAE } from '../../types/sae';
 import { COMPONENTS } from '../../config/brand';
 import {
   LocalPushConfig,
-  LocalPushResult,
   LocalNeuronpediaStatus,
   getLocalStatus,
   pushToLocal,
 } from '../../api/neuronpedia';
+import { formatDuration } from '../../api/neuronpedia';
+import { useNeuronpediaPushWebSocket } from '../../hooks/useNeuronpediaPushWebSocket';
 
 interface PushToNeuronpediaProps {
   sae: SAE;
@@ -44,10 +48,13 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
   const [status, setStatus] = useState<LocalNeuronpediaStatus | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
   const [isPushing, setIsPushing] = useState(false);
-  const [result, setResult] = useState<LocalPushResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [view, setView] = useState<'config' | 'pushing' | 'complete'>('config');
+  const [pushJobId, setPushJobId] = useState<string | null>(null);
+
+  // WebSocket hook for real-time progress
+  const { progress, isComplete, error: wsError, reset: resetWs } = useNeuronpediaPushWebSocket(pushJobId);
 
   // Configuration state
   const [config, setConfig] = useState<LocalPushConfig>({
@@ -62,6 +69,20 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
       checkStatus();
     }
   }, [isOpen]);
+
+  // Handle WebSocket completion/error
+  useEffect(() => {
+    if (isComplete && progress) {
+      if (progress.status === 'completed') {
+        setView('complete');
+        setIsPushing(false);
+      } else if (progress.status === 'failed') {
+        setError(wsError || progress.error || 'Push failed');
+        setView('config');
+        setIsPushing(false);
+      }
+    }
+  }, [isComplete, progress, wsError]);
 
   const checkStatus = async () => {
     setIsCheckingStatus(true);
@@ -80,21 +101,22 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
     setIsPushing(true);
     setError(null);
     setView('pushing');
+    resetWs();
 
     try {
-      const pushResult = await pushToLocal(sae.id, config);
-      setResult(pushResult);
-      setView('complete');
+      const pushResponse = await pushToLocal(sae.id, config);
+      setPushJobId(pushResponse.pushJobId);
+      // The WebSocket hook will now receive progress updates
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Push failed');
       setView('config');
-    } finally {
       setIsPushing(false);
     }
   };
 
   const handleClose = () => {
-    setResult(null);
+    setPushJobId(null);
+    resetWs();
     setError(null);
     setView('config');
     onClose();
@@ -103,6 +125,11 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
   if (!isOpen) return null;
 
   const isReady = status?.configured && status?.connected;
+
+  // Calculate progress percentage
+  const progressPercent = progress?.progress ?? 0;
+  const featuresTotal = progress?.total_features ?? sae.n_features ?? 0;
+  const featuresPushed = progress?.features_pushed ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -317,44 +344,95 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
             </div>
           )}
 
-          {/* Pushing View */}
+          {/* Pushing View with Real-time Progress */}
           {view === 'pushing' && (
             <div className="space-y-6">
-              <div className="text-center py-8">
-                <Loader className="w-16 h-16 text-emerald-400 animate-spin mx-auto mb-4" />
+              {/* Progress Header */}
+              <div className="text-center py-4">
+                <Loader className="w-12 h-12 text-emerald-400 animate-spin mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-slate-100">Pushing to Neuronpedia</h3>
-                <p className="text-slate-400 mt-2">
-                  This may take a while depending on the number of features...
+                <p className="text-slate-400 mt-1">
+                  {progress?.message || 'Initializing push...'}
                 </p>
               </div>
 
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-3 text-slate-300">
-                  <Loader className="w-4 h-4 text-blue-400 animate-spin" />
-                  Creating model and source records...
+              {/* Progress Bar */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Progress</span>
+                  <span className="text-emerald-400 font-medium">{Math.round(progressPercent)}%</span>
                 </div>
-                <div className="flex items-center gap-3 text-slate-500">
-                  <div className="w-4 h-4 rounded-full border border-slate-600" />
-                  Creating neurons for each feature...
+                <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
+                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
+                  />
                 </div>
+              </div>
+
+              {/* Statistics Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Features */}
+                <div className="p-4 bg-slate-800/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
+                    <Zap className="w-4 h-4" />
+                    Features
+                  </div>
+                  <div className="text-xl font-semibold text-slate-100">
+                    {featuresPushed.toLocaleString()} / {featuresTotal.toLocaleString()}
+                  </div>
+                </div>
+
+                {/* Activations */}
                 {config.includeActivations && (
-                  <div className="flex items-center gap-3 text-slate-500">
-                    <div className="w-4 h-4 rounded-full border border-slate-600" />
-                    Creating activation examples...
+                  <div className="p-4 bg-slate-800/50 rounded-lg">
+                    <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
+                      <Activity className="w-4 h-4" />
+                      Activations
+                    </div>
+                    <div className="text-xl font-semibold text-slate-100">
+                      {(progress?.activations_pushed ?? 0).toLocaleString()}
+                    </div>
                   </div>
                 )}
-                {config.includeExplanations && (
-                  <div className="flex items-center gap-3 text-slate-500">
-                    <div className="w-4 h-4 rounded-full border border-slate-600" />
-                    Creating explanations...
+
+                {/* Elapsed Time */}
+                <div className="p-4 bg-slate-800/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
+                    <Clock className="w-4 h-4" />
+                    Elapsed
                   </div>
-                )}
+                  <div className="text-xl font-semibold text-slate-100">
+                    {progress?.elapsed_seconds ? formatDuration(progress.elapsed_seconds) : '-'}
+                  </div>
+                </div>
+
+                {/* ETA */}
+                <div className="p-4 bg-slate-800/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
+                    <Clock className="w-4 h-4" />
+                    Remaining
+                  </div>
+                  <div className="text-xl font-semibold text-slate-100">
+                    {progress?.eta_seconds ? formatDuration(progress.eta_seconds) : '-'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stage Indicator */}
+              <div className="p-4 bg-slate-800/50 rounded-lg">
+                <div className="flex items-center gap-2 text-slate-400 text-sm mb-2">
+                  Current Stage
+                </div>
+                <div className="text-sm text-slate-200 capitalize">
+                  {(progress?.stage || 'initializing').replace(/_/g, ' ')}
+                </div>
               </div>
             </div>
           )}
 
           {/* Complete View */}
-          {view === 'complete' && result && (
+          {view === 'complete' && progress && (
             <div className="space-y-6">
               <div className="text-center py-4">
                 <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-4" />
@@ -367,33 +445,35 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
                 <h4 className="text-sm font-medium text-slate-300 mb-3">Push Summary</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-slate-500">Neurons Created:</span>
-                    <span className="ml-2 text-slate-200">{result.neuronsCreated.toLocaleString()}</span>
+                    <span className="text-slate-500">Features Pushed:</span>
+                    <span className="ml-2 text-slate-200">{(progress.features_pushed ?? 0).toLocaleString()}</span>
                   </div>
                   <div>
                     <span className="text-slate-500">Activations Created:</span>
-                    <span className="ml-2 text-slate-200">{result.activationsCreated.toLocaleString()}</span>
+                    <span className="ml-2 text-slate-200">{(progress.activations_pushed ?? 0).toLocaleString()}</span>
                   </div>
                   <div>
                     <span className="text-slate-500">Explanations Created:</span>
-                    <span className="ml-2 text-slate-200">{result.explanationsCreated.toLocaleString()}</span>
+                    <span className="ml-2 text-slate-200">{(progress.explanations_pushed ?? 0).toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500">Source ID:</span>
-                    <span className="ml-2 text-slate-200 font-mono text-xs">{result.sourceId}</span>
+                    <span className="text-slate-500">Total Time:</span>
+                    <span className="ml-2 text-slate-200">
+                      {progress.elapsed_seconds ? formatDuration(progress.elapsed_seconds) : '-'}
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* View in Neuronpedia */}
-              {result.neuronpediaUrl && (
+              {status?.publicUrl && (
                 <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
                   <h4 className="text-sm font-medium text-emerald-300 mb-2">View in Neuronpedia</h4>
                   <p className="text-sm text-slate-300 mb-3">
                     Your features are now available for browsing in the local Neuronpedia instance.
                   </p>
                   <a
-                    href={result.neuronpediaUrl}
+                    href={status.publicUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`inline-flex items-center gap-2 ${COMPONENTS.button.primary}`}
@@ -424,7 +504,7 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
                 {isPushing ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin" />
-                    Pushing...
+                    Starting...
                   </>
                 ) : (
                   <>

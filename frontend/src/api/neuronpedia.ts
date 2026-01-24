@@ -341,6 +341,21 @@ export interface LocalPushConfig {
   featureIndices?: number[];
 }
 
+/**
+ * Response from starting a push operation (async).
+ */
+export interface LocalPushStartResponse {
+  pushJobId: string;
+  taskId: string;
+  saeId: string;
+  status: string;
+  message: string;
+  websocketChannel: string;
+}
+
+/**
+ * Final result of a completed push operation (from WebSocket).
+ */
 export interface LocalPushResult {
   success: boolean;
   modelId: string;
@@ -381,12 +396,15 @@ export async function getLocalStatus(): Promise<LocalNeuronpediaStatus> {
 }
 
 /**
- * Push SAE features to local Neuronpedia instance.
+ * Start pushing SAE features to local Neuronpedia instance.
+ *
+ * This starts an async Celery task and returns a job ID immediately.
+ * Subscribe to the WebSocket channel for real-time progress updates.
  */
 export async function pushToLocal(
   saeId: string,
   config: LocalPushConfig
-): Promise<LocalPushResult> {
+): Promise<LocalPushStartResponse> {
   const queryParams = new URLSearchParams({
     sae_id: saeId,
     include_activations: String(config.includeActivations),
@@ -401,24 +419,22 @@ export async function pushToLocal(
   }
 
   const response = await fetchAPI<{
-    success: boolean;
-    model_id: string;
-    source_id: string;
-    neurons_created: number;
-    activations_created: number;
-    explanations_created: number;
-    neuronpedia_url?: string;
+    push_job_id: string;
+    task_id: string;
+    sae_id: string;
+    status: string;
+    message: string;
+    websocket_channel: string;
   }>(`/neuronpedia/push-local?${queryParams.toString()}`, {
     method: 'POST',
   });
 
   return {
-    success: response.success,
-    modelId: response.model_id,
-    sourceId: response.source_id,
-    neuronsCreated: response.neurons_created,
-    activationsCreated: response.activations_created,
-    explanationsCreated: response.explanations_created,
-    neuronpediaUrl: response.neuronpedia_url,
+    pushJobId: response.push_job_id,
+    taskId: response.task_id,
+    saeId: response.sae_id,
+    status: response.status,
+    message: response.message,
+    websocketChannel: response.websocket_channel,
   };
 }

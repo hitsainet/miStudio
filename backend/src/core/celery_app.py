@@ -161,6 +161,14 @@ celery_app.conf.update(
             "queue": "processing",
         },
 
+        # Neuronpedia push operations: Database bound, medium priority
+        "src.workers.neuronpedia_push_tasks.*": {
+            "queue": "processing",
+        },
+        "push_to_neuronpedia_local": {
+            "queue": "processing",
+        },
+
         # Steering operations: GPU bound, dedicated queue for isolation
         # Steering runs in a dedicated worker with --max-tasks-per-child for memory cleanup
         "src.workers.steering_tasks.*": {
@@ -282,6 +290,7 @@ celery_app.autodiscover_tasks(
         "src.workers.gpu_watchdog_task",  # GPU memory watchdog for detecting stuck processes
         "src.workers.sae_tasks",
         "src.workers.neuronpedia_tasks",
+        "src.workers.neuronpedia_push_tasks",  # Push to local Neuronpedia
         "src.workers.nlp_analysis_tasks",
         "src.workers.steering_tasks",  # Steering operations in dedicated GPU worker
     ],

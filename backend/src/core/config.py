@@ -123,6 +123,21 @@ class Settings(BaseSettings):
         description="Ollama API URL for local LLM inference"
     )
 
+    # Neuronpedia Local Instance Configuration
+    # NOTE: For K8s deployment, use the service name in the neuronpedia namespace
+    neuronpedia_local_db_url: str | None = Field(
+        default=None,
+        description="PostgreSQL connection URL for local Neuronpedia instance (e.g., postgresql://neuronpedia:pass@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia)"
+    )
+    neuronpedia_local_url: str | None = Field(
+        default=None,
+        description="Public URL for local Neuronpedia instance (e.g., http://neuron.mcslab.io)"
+    )
+    neuronpedia_local_admin_user_id: str = Field(
+        default="mistudio-admin",
+        description="User ID to use as creator when pushing to local Neuronpedia"
+    )
+
 
     # WebSocket Configuration
     websocket_ping_interval: int = Field(

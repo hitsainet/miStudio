@@ -329,3 +329,96 @@ export function formatDuration(seconds: number): string {
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;
 }
+
+// ============================================================================
+// Local Neuronpedia Push API
+// ============================================================================
+
+export interface LocalPushConfig {
+  includeActivations: boolean;
+  includeExplanations: boolean;
+  maxActivationsPerFeature: number;
+  featureIndices?: number[];
+}
+
+export interface LocalPushResult {
+  success: boolean;
+  modelId: string;
+  sourceId: string;
+  neuronsCreated: number;
+  activationsCreated: number;
+  explanationsCreated: number;
+  neuronpediaUrl?: string;
+}
+
+export interface LocalNeuronpediaStatus {
+  configured: boolean;
+  dbUrlSet: boolean;
+  publicUrl?: string;
+  connected: boolean;
+  error?: string;
+}
+
+/**
+ * Check local Neuronpedia connection status.
+ */
+export async function getLocalStatus(): Promise<LocalNeuronpediaStatus> {
+  const response = await fetchAPI<{
+    configured: boolean;
+    db_url_set: boolean;
+    public_url?: string;
+    connected: boolean;
+    error?: string;
+  }>('/neuronpedia/local-status');
+
+  return {
+    configured: response.configured,
+    dbUrlSet: response.db_url_set,
+    publicUrl: response.public_url,
+    connected: response.connected,
+    error: response.error,
+  };
+}
+
+/**
+ * Push SAE features to local Neuronpedia instance.
+ */
+export async function pushToLocal(
+  saeId: string,
+  config: LocalPushConfig
+): Promise<LocalPushResult> {
+  const queryParams = new URLSearchParams({
+    sae_id: saeId,
+    include_activations: String(config.includeActivations),
+    include_explanations: String(config.includeExplanations),
+    max_activations_per_feature: String(config.maxActivationsPerFeature),
+  });
+
+  if (config.featureIndices && config.featureIndices.length > 0) {
+    config.featureIndices.forEach((idx) => {
+      queryParams.append('feature_indices', String(idx));
+    });
+  }
+
+  const response = await fetchAPI<{
+    success: boolean;
+    model_id: string;
+    source_id: string;
+    neurons_created: number;
+    activations_created: number;
+    explanations_created: number;
+    neuronpedia_url?: string;
+  }>(`/neuronpedia/push-local?${queryParams.toString()}`, {
+    method: 'POST',
+  });
+
+  return {
+    success: response.success,
+    modelId: response.model_id,
+    sourceId: response.source_id,
+    neuronsCreated: response.neurons_created,
+    activationsCreated: response.activations_created,
+    explanationsCreated: response.explanations_created,
+    neuronpediaUrl: response.neuronpedia_url,
+  };
+}

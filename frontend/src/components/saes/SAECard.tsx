@@ -22,6 +22,7 @@ import {
   Cloud,
   Layers,
   FileJson,
+  Send,
 } from 'lucide-react';
 import { SAE, SAESource, SAEStatus } from '../../types/sae';
 import { COMPONENTS } from '../../config/brand';
@@ -33,6 +34,7 @@ interface SAECardProps {
   onUseSteering?: () => void;
   onUpload?: () => void;
   onExport?: () => void;
+  onPushToLocal?: () => void;
   onDelete: (id: string) => void;
   onCancel?: (id: string) => void;
   isSelected?: boolean;
@@ -44,6 +46,7 @@ export function SAECard({
   onUseSteering,
   onUpload,
   onExport,
+  onPushToLocal,
   onDelete,
   onCancel,
   isSelected = false,
@@ -184,6 +187,11 @@ export function SAECard({
     onExport?.();
   };
 
+  const handlePushToLocal = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onPushToLocal?.();
+  };
+
   return (
     <div
       className={`${COMPONENTS.card.base} p-4 transition-colors ${
@@ -244,9 +252,19 @@ export function SAECard({
                   type="button"
                   onClick={handleExport}
                   className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
-                  title="Export to Neuronpedia"
+                  title="Export to Neuronpedia (ZIP)"
                 >
                   <FileJson className="w-5 h-5" />
+                </button>
+              )}
+              {onPushToLocal && (
+                <button
+                  type="button"
+                  onClick={handlePushToLocal}
+                  className={`p-2 rounded-lg ${COMPONENTS.button.ghost}`}
+                  title="Push to Local Neuronpedia"
+                >
+                  <Send className="w-5 h-5 text-emerald-400" />
                 </button>
               )}
             </>

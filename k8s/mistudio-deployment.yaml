@@ -164,6 +164,11 @@ spec:
               value: http://mistudio-backend:8000
             - name: OLLAMA_URL
               value: http://ollama-proxy:11434
+            # Neuronpedia local instance configuration
+            - name: NEURONPEDIA_LOCAL_DB_URL
+              value: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia
+            - name: NEURONPEDIA_LOCAL_URL
+              value: http://neuron.mcslab.io
           resources:
             limits:
               nvidia.com/gpu: 1
@@ -197,6 +202,11 @@ spec:
               value: http://mistudio-backend:8000
             - name: OLLAMA_URL
               value: http://ollama-proxy:11434
+            # Neuronpedia local instance configuration
+            - name: NEURONPEDIA_LOCAL_DB_URL
+              value: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia
+            - name: NEURONPEDIA_LOCAL_URL
+              value: http://neuron.mcslab.io
           volumeMounts:
             - name: mistudio-data
               mountPath: /data

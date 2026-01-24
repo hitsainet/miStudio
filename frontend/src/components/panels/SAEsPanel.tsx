@@ -22,6 +22,7 @@ import { SAECard } from '../saes/SAECard';
 import { DownloadFromHF } from '../saes/DownloadFromHF';
 import { UploadToHF } from '../saes/UploadToHF';
 import { ExportToNeuronpedia } from '../saes/ExportToNeuronpedia';
+import { PushToNeuronpedia } from '../saes/PushToNeuronpedia';
 import { Search, Filter, Brain, Cloud, Layers, HardDrive } from 'lucide-react';
 import { COMPONENTS } from '../../config/brand';
 
@@ -48,6 +49,7 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
   const [showFilters, setShowFilters] = useState(false);
   const [uploadingSAE, setUploadingSAE] = useState<SAE | null>(null);
   const [exportingSAE, setExportingSAE] = useState<SAE | null>(null);
+  const [pushingSAE, setPushingSAE] = useState<SAE | null>(null);
 
   const { openExportDialog } = useNeuronpediaExportStore();
 
@@ -94,6 +96,10 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
   const handleExport = (sae: SAE) => {
     setExportingSAE(sae);
     openExportDialog(sae.id);
+  };
+
+  const handlePushToLocal = (sae: SAE) => {
+    setPushingSAE(sae);
   };
 
   const handleSourceFilter = (source: SAESource | null) => {
@@ -336,6 +342,7 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
                   onUseSteering={() => handleUseSteering(sae)}
                   onUpload={() => handleUpload(sae)}
                   onExport={() => handleExport(sae)}
+                  onPushToLocal={() => handlePushToLocal(sae)}
                   onDelete={handleDelete}
                 />
               ))}
@@ -387,6 +394,15 @@ export function SAEsPanel({ onNavigateToSteering }: SAEsPanelProps = {}) {
           sae={exportingSAE}
           isOpen={!!exportingSAE}
           onClose={() => setExportingSAE(null)}
+        />
+      )}
+
+      {/* Push to Local Neuronpedia Modal */}
+      {pushingSAE && (
+        <PushToNeuronpedia
+          sae={pushingSAE}
+          isOpen={!!pushingSAE}
+          onClose={() => setPushingSAE(null)}
         />
       )}
     </div>

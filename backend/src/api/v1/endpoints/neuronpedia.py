@@ -33,6 +33,10 @@ from ....services.neuronpedia_export_service import (
     get_neuronpedia_export_service,
     ExportConfig,
 )
+from ....services.neuronpedia_local_service import (
+    get_neuronpedia_local_push_service,
+    LocalPushConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -336,3 +340,101 @@ async def compute_dashboard_data(
     except Exception as e:
         logger.exception(f"Error computing dashboard data: {e}")
         raise HTTPException(500, str(e))
+
+
+# ============================================================================
+# Local Neuronpedia Push Endpoints
+# ============================================================================
+
+@router.post("/push-local")
+async def push_to_local_neuronpedia(
+    sae_id: str,
+    include_activations: bool = True,
+    include_explanations: bool = True,
+    max_activations_per_feature: int = 20,
+    feature_indices: Optional[List[int]] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Push SAE features directly to a local Neuronpedia instance.
+
+    This endpoint writes directly to the local Neuronpedia PostgreSQL database,
+    creating Model, SourceSet, Source, Neuron, Activation, and Explanation records.
+
+    Unlike the export endpoint which creates a ZIP file for manual upload,
+    this pushes data immediately to the configured local Neuronpedia instance.
+
+    Requires NEURONPEDIA_LOCAL_DB_URL to be configured in settings.
+
+    Args:
+        sae_id: ID of the ExternalSAE to push
+        include_activations: Include feature activation examples
+        include_explanations: Include feature explanations/labels
+        max_activations_per_feature: Max activation examples per feature
+        feature_indices: Optional list of specific feature indices to push
+    """
+    if not settings.neuronpedia_local_db_url:
+        raise HTTPException(
+            503,
+            "Local Neuronpedia not configured. Set NEURONPEDIA_LOCAL_DB_URL in settings."
+        )
+
+    service = get_neuronpedia_local_push_service()
+
+    config = LocalPushConfig(
+        include_activations=include_activations,
+        include_explanations=include_explanations,
+        max_activations_per_feature=max_activations_per_feature,
+        feature_indices=feature_indices,
+    )
+
+    try:
+        result = await service.push_sae_to_local(db, sae_id, config)
+
+        if not result.success:
+            raise HTTPException(400, result.error_message)
+
+        return {
+            "success": True,
+            "model_id": result.model_id,
+            "source_id": result.source_id,
+            "neurons_created": result.neurons_created,
+            "activations_created": result.activations_created,
+            "explanations_created": result.explanations_created,
+            "neuronpedia_url": result.neuronpedia_url,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error pushing to local Neuronpedia: {e}")
+        raise HTTPException(500, str(e))
+
+
+@router.get("/local-status")
+async def get_local_neuronpedia_status():
+    """
+    Check if local Neuronpedia is configured and accessible.
+
+    Returns configuration status and connectivity information.
+    """
+    status = {
+        "configured": bool(settings.neuronpedia_local_db_url),
+        "db_url_set": bool(settings.neuronpedia_local_db_url),
+        "public_url": settings.neuronpedia_local_url,
+        "connected": False,
+        "error": None,
+    }
+
+    if settings.neuronpedia_local_db_url:
+        try:
+            service = get_neuronpedia_local_push_service()
+            client = await service._get_client()
+            # Test connection
+            async with client._pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            status["connected"] = True
+        except Exception as e:
+            status["error"] = str(e)
+
+    return status

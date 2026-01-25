@@ -11,7 +11,9 @@ from fastapi import FastAPI
 
 from .api.v1.router import api_router
 from .core.config import settings
+from .core.database import get_db
 from .core.websocket import socket_app, sio, WebSocketManager
+from .db.schema_validator import validate_schema_on_startup
 from .ml.transformers_compat import patch_transformers_compatibility
 from .services.background_monitor import get_background_monitor
 
@@ -30,6 +32,21 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("Starting miStudio backend...")
+
+    # Validate database schema
+    logger.info("Validating database schema...")
+    try:
+        async for db in get_db():
+            is_valid = await validate_schema_on_startup(db)
+            if not is_valid:
+                logger.warning(
+                    "Schema validation failed - some features may not work correctly. "
+                    "Run 'alembic upgrade head' to apply missing migrations."
+                )
+            break
+    except Exception as e:
+        logger.error(f"Schema validation encountered an error: {e}")
+        # Continue startup even if validation fails to avoid blocking deployment
 
     # Start background system monitor (runs independently of Celery)
     background_monitor = get_background_monitor()

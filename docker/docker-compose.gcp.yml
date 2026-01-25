@@ -39,10 +39,10 @@ services:
       - mistudio-net
 
   # =========================================
-  # NEURONPEDIA POSTGRES (separate database)
+  # NEURONPEDIA POSTGRES (separate database with pgvector)
   # =========================================
   neuronpedia-postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     container_name: neuronpedia-postgres
     environment:
       POSTGRES_DB: neuronpedia

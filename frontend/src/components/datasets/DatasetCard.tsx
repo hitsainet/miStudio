@@ -151,9 +151,28 @@ export function DatasetCard({ dataset, tokenizationProgress, onClick, onDelete, 
             <div className="mt-3">
               {tokenizationProgress ? (
                 <TokenizationProgressDisplay progress={tokenizationProgress} />
-              ) : dataset.progress !== undefined ? (
-                <ProgressBar progress={dataset.progress} />
-              ) : null}
+              ) : (() => {
+                // Fallback: Check for active tokenization progress from dataset
+                const activeTokenization = dataset.tokenizations?.find(
+                  t => t.status === 'processing' || t.status === 'queued'
+                );
+                if (activeTokenization && activeTokenization.progress !== undefined && activeTokenization.progress > 0) {
+                  // Create a minimal progress object for display
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-slate-400">
+                        <span>Tokenizing</span>
+                        <span>{activeTokenization.progress.toFixed(1)}%</span>
+                      </div>
+                      <ProgressBar progress={activeTokenization.progress} />
+                    </div>
+                  );
+                }
+                // Final fallback to dataset progress
+                return dataset.progress !== undefined ? (
+                  <ProgressBar progress={dataset.progress} />
+                ) : null;
+              })()}
             </div>
           )}
 

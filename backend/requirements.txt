@@ -167,7 +167,7 @@ tomlkit==0.13.3
 torch==2.9.1
 tqdm==4.67.1
 traitlets==5.14.3
-transformers==4.50.0
+transformers==4.57.6  # LFM2 requires >=4.55.0
 triton==3.5.1
 trove-classifiers==2025.9.11.17
 types-aiofiles==23.2.0.20240623

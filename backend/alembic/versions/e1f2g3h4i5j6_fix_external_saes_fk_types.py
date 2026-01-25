@@ -1,7 +1,7 @@
 """fix_external_saes_fk_types
 
 Revision ID: e1f2g3h4i5j6
-Revises: da9fc8175694
+Revises: 4a1844011c28
 Create Date: 2025-01-16 10:00:00
 
 This migration fixes type mismatches for external_saes.training_id and model_id
@@ -30,7 +30,7 @@ from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = 'e1f2g3h4i5j6'
-down_revision: Union[str, None] = 'da9fc8175694'
+down_revision: Union[str, None] = '4a1844011c28'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

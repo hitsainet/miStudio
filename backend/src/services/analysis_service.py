@@ -29,6 +29,7 @@ from src.models.feature_analysis_cache import FeatureAnalysisCache, AnalysisType
 from src.models.training import Training
 from src.models.checkpoint import Checkpoint
 from src.models.model import Model as ModelRecord, QuantizationFormat
+from src.models.external_sae import ExternalSAE
 from src.schemas.feature import (
     LogitLensResponse,
     CorrelationsResponse,
@@ -37,6 +38,7 @@ from src.schemas.feature import (
 )
 from src.ml.sparse_autoencoder import SparseAutoencoder, create_sae
 from src.ml.model_loader import load_model_from_hf
+from src.ml.community_format import load_sae_auto_detect
 from src.services.checkpoint_service import CheckpointService
 
 
@@ -99,71 +101,145 @@ class AnalysisService:
             logger.warning(f"Feature {feature_id} not found")
             return None
 
-        training = await self._get_training(feature.training_id)
-        if not training:
-            logger.warning(f"Training {feature.training_id} not found")
-            return None
-
         try:
             # Determine device
             device = "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(f"Using device: {device}")
 
-            # Load latest checkpoint
-            checkpoint_stmt = select(Checkpoint).where(
-                Checkpoint.training_id == training.id
-            ).order_by(Checkpoint.step.desc()).limit(1)
+            # Two paths: training-based SAE or external SAE
+            sae = None
+            model_record = None
+            decoder_weight = None
 
-            if isinstance(self.db, AsyncSession):
-                checkpoint_result = await self.db.execute(checkpoint_stmt)
-                checkpoint = checkpoint_result.scalar_one_or_none()
+            if feature.training_id:
+                # Path 1: Load from training checkpoint
+                training = await self._get_training(feature.training_id)
+                if not training:
+                    logger.warning(f"Training {feature.training_id} not found")
+                    return None
+
+                # Load latest checkpoint
+                checkpoint_stmt = select(Checkpoint).where(
+                    Checkpoint.training_id == training.id
+                ).order_by(Checkpoint.step.desc()).limit(1)
+
+                if isinstance(self.db, AsyncSession):
+                    checkpoint_result = await self.db.execute(checkpoint_stmt)
+                    checkpoint = checkpoint_result.scalar_one_or_none()
+                else:
+                    checkpoint = self.db.execute(checkpoint_stmt).scalar_one_or_none()
+
+                if not checkpoint:
+                    raise ValueError(f"No checkpoint found for training {training.id}")
+
+                logger.info(f"Loading SAE checkpoint from {checkpoint.storage_path}")
+
+                # Initialize SAE model using factory
+                hp = training.hyperparameters
+                architecture_type = hp.get('architecture_type', 'standard')
+                logger.info(f"Creating {architecture_type} SAE for logit lens analysis")
+
+                sae = create_sae(
+                    architecture_type=architecture_type,
+                    hidden_dim=hp["hidden_dim"],
+                    latent_dim=hp["latent_dim"],
+                    l1_alpha=hp.get("l1_alpha", 0.001),
+                    initial_threshold=hp.get("initial_threshold"),
+                    bandwidth=hp.get("bandwidth"),
+                    sparsity_coeff=hp.get("sparsity_coeff"),
+                    normalize_decoder=hp.get("normalize_decoder"),
+                    tied_weights=hp.get("tied_weights"),
+                    normalize_activations=hp.get("normalize_activations"),
+                )
+
+                CheckpointService.load_checkpoint(
+                    storage_path=checkpoint.storage_path,
+                    model=sae,
+                    device=device
+                )
+                sae.to(device)
+                sae.eval()
+
+                # Load model record from training
+                model_stmt = select(ModelRecord).where(ModelRecord.id == training.model_id)
+                if isinstance(self.db, AsyncSession):
+                    model_result = await self.db.execute(model_stmt)
+                    model_record = model_result.scalar_one_or_none()
+                else:
+                    model_record = self.db.execute(model_stmt).scalar_one_or_none()
+
+                if not model_record:
+                    raise ValueError(f"Model {training.model_id} not found")
+
+            elif feature.external_sae_id:
+                # Path 2: Load from external SAE
+                logger.info(f"Loading external SAE {feature.external_sae_id} for logit lens")
+
+                external_sae_stmt = select(ExternalSAE).where(ExternalSAE.id == feature.external_sae_id)
+                if isinstance(self.db, AsyncSession):
+                    external_sae_result = await self.db.execute(external_sae_stmt)
+                    external_sae = external_sae_result.scalar_one_or_none()
+                else:
+                    external_sae = self.db.execute(external_sae_stmt).scalar_one_or_none()
+
+                if not external_sae:
+                    raise ValueError(f"External SAE {feature.external_sae_id} not found")
+
+                if not external_sae.local_path:
+                    raise ValueError(f"External SAE {feature.external_sae_id} has no local path")
+
+                # Load SAE using auto-detect
+                resolved_sae_path = settings.resolve_data_path(external_sae.local_path)
+                logger.info(f"Loading external SAE from {resolved_sae_path}")
+
+                sae_state_dict, sae_config, format_type = load_sae_auto_detect(
+                    resolved_sae_path,
+                    device=device
+                )
+                logger.info(f"Loaded external SAE in {format_type} format")
+
+                # Get decoder weights directly from state_dict
+                # Community/external SAE format uses 'decoder.weight' key
+                if 'decoder.weight' in sae_state_dict:
+                    decoder_weight = sae_state_dict['decoder.weight'].to(device)
+                elif 'W_dec' in sae_state_dict:
+                    decoder_weight = sae_state_dict['W_dec'].to(device)
+                else:
+                    raise ValueError(f"Could not find decoder weights in SAE state dict. Keys: {sae_state_dict.keys()}")
+
+                logger.info(f"Decoder weight shape: {decoder_weight.shape}")
+
+                # Load model record from external SAE
+                if external_sae.model_id:
+                    model_stmt = select(ModelRecord).where(ModelRecord.id == external_sae.model_id)
+                    if isinstance(self.db, AsyncSession):
+                        model_result = await self.db.execute(model_stmt)
+                        model_record = model_result.scalar_one_or_none()
+                    else:
+                        model_record = self.db.execute(model_stmt).scalar_one_or_none()
+
+                if not model_record and external_sae.model_name:
+                    # Try to find model by name
+                    model_stmt = select(ModelRecord).where(
+                        ModelRecord.name.ilike(f"%{external_sae.model_name}%")
+                    )
+                    if isinstance(self.db, AsyncSession):
+                        model_result = await self.db.execute(model_stmt)
+                        model_record = model_result.scalar_one_or_none()
+                    else:
+                        model_record = self.db.execute(model_stmt).scalar_one_or_none()
+
+                if not model_record:
+                    raise ValueError(
+                        f"Model not found for external SAE. "
+                        f"model_id={external_sae.model_id}, model_name={external_sae.model_name}"
+                    )
+
             else:
-                checkpoint = self.db.execute(checkpoint_stmt).scalar_one_or_none()
-
-            if not checkpoint:
-                raise ValueError(f"No checkpoint found for training {training.id}")
-
-            logger.info(f"Loading SAE checkpoint from {checkpoint.storage_path}")
-
-            # Initialize SAE model using factory to support all architectures (standard, JumpReLU, etc.)
-            hp = training.hyperparameters
-            architecture_type = hp.get('architecture_type', 'standard')
-            logger.info(f"Creating {architecture_type} SAE for logit lens analysis")
-
-            sae = create_sae(
-                architecture_type=architecture_type,
-                hidden_dim=hp["hidden_dim"],
-                latent_dim=hp["latent_dim"],
-                l1_alpha=hp.get("l1_alpha", 0.001),
-                # JumpReLU-specific parameters (ignored for other architectures)
-                initial_threshold=hp.get("initial_threshold"),
-                bandwidth=hp.get("bandwidth"),
-                sparsity_coeff=hp.get("sparsity_coeff"),
-                normalize_decoder=hp.get("normalize_decoder"),
-                tied_weights=hp.get("tied_weights"),
-                normalize_activations=hp.get("normalize_activations"),
-            )
-
-            CheckpointService.load_checkpoint(
-                storage_path=checkpoint.storage_path,
-                model=sae,
-                device=device
-            )
-            sae.to(device)
-            sae.eval()
+                logger.warning(f"Feature {feature_id} has no training_id or external_sae_id")
+                return None
 
             logger.info(f"SAE loaded successfully")
-
-            # Load model record
-            model_stmt = select(ModelRecord).where(ModelRecord.id == training.model_id)
-            if isinstance(self.db, AsyncSession):
-                model_result = await self.db.execute(model_stmt)
-                model_record = model_result.scalar_one_or_none()
-            else:
-                model_record = self.db.execute(model_stmt).scalar_one_or_none()
-
-            if not model_record:
-                raise ValueError(f"Model {training.model_id} not found")
 
             logger.info(f"Loading base model {model_record.repo_id}")
 
@@ -188,36 +264,44 @@ class AnalysisService:
             # where W_dec is the SAE decoder weights and W_U is the LM head weights
             with torch.no_grad():
                 # Get decoder direction for this specific feature
-                # Decoder weight shape: [hidden_dim, latent_dim]
+                # Decoder weight shape: [hidden_dim, latent_dim] or [latent_dim, hidden_dim]
                 # We want the column corresponding to this feature: [hidden_dim]
-                #
-                # Different SAE architectures store decoder weights differently:
-                # - Standard SAE: sae.decoder.weight (nn.Linear module)
-                # - JumpReLU SAE: sae.decoder_weight (property returning nn.Parameter)
 
-                # Debug: Log SAE type and available attributes
-                logger.info(f"SAE type: {type(sae).__name__}")
-                logger.info(f"SAE has 'decoder' attr: {hasattr(sae, 'decoder')}")
-                if hasattr(sae, 'decoder'):
-                    logger.info(f"sae.decoder type: {type(sae.decoder)}")
-                    logger.info(f"sae.decoder is None: {sae.decoder is None}")
-                    if sae.decoder is not None:
-                        logger.info(f"sae.decoder has 'weight': {hasattr(sae.decoder, 'weight')}")
-                logger.info(f"SAE has 'decoder_weight' attr: {hasattr(sae, 'decoder_weight')}")
+                if decoder_weight is not None:
+                    # External SAE: decoder_weight already loaded from state_dict
+                    # Shape is typically [d_sae, d_model] for community format
+                    logger.info(f"Using pre-loaded decoder_weight, shape: {decoder_weight.shape}")
+                    if decoder_weight.shape[0] > decoder_weight.shape[1]:
+                        # Shape [d_sae, d_model] - rows are features
+                        decoder_direction = decoder_weight[feature.neuron_index, :]
+                    else:
+                        # Shape [d_model, d_sae] - columns are features
+                        decoder_direction = decoder_weight[:, feature.neuron_index]
+                elif sae is not None:
+                    # Training-based SAE: extract from SAE model object
+                    # Debug: Log SAE type and available attributes
+                    logger.info(f"SAE type: {type(sae).__name__}")
+                    logger.info(f"SAE has 'decoder' attr: {hasattr(sae, 'decoder')}")
+                    if hasattr(sae, 'decoder'):
+                        logger.info(f"sae.decoder type: {type(sae.decoder)}")
+                        logger.info(f"sae.decoder is None: {sae.decoder is None}")
+                        if sae.decoder is not None:
+                            logger.info(f"sae.decoder has 'weight': {hasattr(sae.decoder, 'weight')}")
+                    logger.info(f"SAE has 'decoder_weight' attr: {hasattr(sae, 'decoder_weight')}")
 
-                # Check for JumpReLU's decoder_weight FIRST (before compatibility wrapper)
-                # JumpReLU has both decoder_weight (direct, correct shape) and decoder (compat wrapper with transposed weights)
-                # Standard SAE only has decoder (nn.Linear module)
-                if hasattr(sae, 'decoder_weight') and not isinstance(getattr(sae, 'decoder', None), torch.nn.Linear):
-                    # JumpReLU SAE with decoder_weight property - shape [d_model, d_sae]
-                    logger.info(f"Using JumpReLU SAE decoder_weight, shape: {sae.decoder_weight.shape}")
-                    decoder_direction = sae.decoder_weight[:, feature.neuron_index]
-                elif hasattr(sae, 'decoder') and sae.decoder is not None and hasattr(sae.decoder, 'weight'):
-                    # Standard SAE with nn.Linear decoder - shape [hidden_dim, latent_dim]
-                    logger.info(f"Using standard SAE decoder.weight, shape: {sae.decoder.weight.shape}")
-                    decoder_direction = sae.decoder.weight[:, feature.neuron_index]
+                    # Check for JumpReLU's decoder_weight FIRST (before compatibility wrapper)
+                    if hasattr(sae, 'decoder_weight') and not isinstance(getattr(sae, 'decoder', None), torch.nn.Linear):
+                        # JumpReLU SAE with decoder_weight property - shape [d_model, d_sae]
+                        logger.info(f"Using JumpReLU SAE decoder_weight, shape: {sae.decoder_weight.shape}")
+                        decoder_direction = sae.decoder_weight[:, feature.neuron_index]
+                    elif hasattr(sae, 'decoder') and sae.decoder is not None and hasattr(sae.decoder, 'weight'):
+                        # Standard SAE with nn.Linear decoder - shape [hidden_dim, latent_dim]
+                        logger.info(f"Using standard SAE decoder.weight, shape: {sae.decoder.weight.shape}")
+                        decoder_direction = sae.decoder.weight[:, feature.neuron_index]
+                    else:
+                        raise ValueError(f"Unknown SAE architecture: cannot find decoder weights")
                 else:
-                    raise ValueError(f"Unknown SAE architecture: cannot find decoder weights")
+                    raise ValueError(f"No SAE model or decoder weights available")
 
                 # Get the unembedding matrix (LM head weights)
                 # base_model.lm_head.weight shape: [vocab_size, hidden_dim]

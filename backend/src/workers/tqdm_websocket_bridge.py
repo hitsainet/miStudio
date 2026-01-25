@@ -2,7 +2,12 @@
 TqdmWebSocket Bridge
 
 This module provides a custom tqdm class that bridges HuggingFace dataset
-download progress into the application's WebSocket progress system.
+download and tokenization progress into the application's WebSocket progress system.
+
+IMPORTANT: For multiprocessing support (num_proc > 1), you MUST patch
+`datasets.utils.tqdm.tqdm` in addition to standard tqdm modules. HuggingFace's
+datasets library imports tqdm at module load time, so patching after import
+requires patching the HuggingFace internal tqdm class directly.
 
 Usage:
     from datasets import load_dataset
@@ -15,16 +20,27 @@ Usage:
         progress_range=60.0  # Maps tqdm 0-100% to 10-70% in our system
     )
 
-    # Monkey-patch tqdm for this download
-    import datasets.utils.file_utils
-    original_tqdm = datasets.utils.file_utils.tqdm
-    datasets.utils.file_utils.tqdm = tqdm_class
+    # Monkey-patch tqdm at ALL locations for multiprocessing support
+    import sys
+    import datasets.utils.tqdm as hf_tqdm_module
+    from tqdm import tqdm as original_tqdm
 
-    # Download with progress tracking
+    # Save originals
+    original_hf_tqdm = hf_tqdm_module.tqdm
+
+    # Apply patches
+    sys.modules['tqdm'].tqdm = tqdm_class
+    sys.modules['tqdm.auto'].tqdm = tqdm_class
+    hf_tqdm_module.tqdm = tqdm_class  # CRITICAL for multiprocessing!
+
+    # Download/tokenize with progress tracking
     dataset = load_dataset(...)
+    # or tokenized = dataset.map(..., num_proc=4)
 
     # Restore original tqdm
-    datasets.utils.file_utils.tqdm = original_tqdm
+    sys.modules['tqdm'].tqdm = original_tqdm
+    sys.modules['tqdm.auto'].tqdm = original_tqdm
+    hf_tqdm_module.tqdm = original_hf_tqdm
 """
 
 import logging
@@ -174,11 +190,20 @@ class TqdmWebSocketCallback(tqdm_original):
                     db_gen = get_db()
                     db = next(db_gen)
                     try:
-                        dataset_uuid = UUID(self.dataset_id)
-                        dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
-                        if dataset_obj:
-                            dataset_obj.progress = mapped_progress / 100.0  # Store as 0.0-1.0 fraction
-                            db.commit()
+                        if self.tokenization_id:
+                            # Update tokenization progress
+                            from ..models.dataset import DatasetTokenization
+                            tokenization_obj = db.query(DatasetTokenization).filter_by(id=self.tokenization_id).first()
+                            if tokenization_obj:
+                                tokenization_obj.progress = mapped_progress  # Store as 0-100 percentage
+                                db.commit()
+                        else:
+                            # Update dataset progress (for downloads)
+                            dataset_uuid = UUID(self.dataset_id)
+                            dataset_obj = db.query(Dataset).filter_by(id=dataset_uuid).first()
+                            if dataset_obj:
+                                dataset_obj.progress = mapped_progress / 100.0  # Store as 0.0-1.0 fraction
+                                db.commit()
                     finally:
                         # Always close the database session
                         try:
@@ -186,7 +211,7 @@ class TqdmWebSocketCallback(tqdm_original):
                         except StopIteration:
                             pass
                 except Exception as e:
-                    # Don't let database errors break the download
+                    # Don't let database errors break the operation
                     logger.warning(f"Failed to update database progress: {e}")
 
         return result

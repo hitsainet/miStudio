@@ -843,13 +843,23 @@ def tokenize_dataset_task(
             started_at=started_at  # Pass start timestamp
         )
 
-        # Patch tqdm at multiple locations where datasets might use it
+        # Patch tqdm at ALL locations including HuggingFace's internal tqdm
+        # This is critical for multiprocessing support - HuggingFace's datasets library
+        # imports tqdm.auto.tqdm at module load time into datasets.utils.tqdm.tqdm
+        # We must patch that class directly for progress to work with num_proc > 1
         import sys
         from tqdm import tqdm as original_tqdm
+        import datasets.utils.tqdm as hf_tqdm_module
 
-        # Save original tqdm
+        # Save all originals
+        original_hf_tqdm = hf_tqdm_module.tqdm
+
+        # Apply patches to all tqdm locations
         sys.modules['tqdm'].tqdm = TqdmTokenization
         sys.modules['tqdm.auto'].tqdm = TqdmTokenization
+        hf_tqdm_module.tqdm = TqdmTokenization  # KEY FIX: Patch HuggingFace's internal tqdm
+
+        logger.info(f"[TQDM_PATCH] Applied WebSocket tqdm patch to datasets.utils.tqdm for multiprocessing support")
 
         # Tokenize dataset using multiprocessing (avoids OOM on large datasets)
         # Progress is now tracked via tqdm WebSocket bridge
@@ -890,6 +900,8 @@ def tokenize_dataset_task(
             # Always restore original tqdm regardless of success/failure
             sys.modules['tqdm'].tqdm = original_tqdm
             sys.modules['tqdm.auto'].tqdm = original_tqdm
+            hf_tqdm_module.tqdm = original_hf_tqdm  # Restore HuggingFace's tqdm
+            logger.info(f"[TQDM_PATCH] Restored original tqdm classes")
 
         # Mark tokenization as complete - from here on, graceful shutdown is allowed
         tokenization_complete = True

@@ -504,6 +504,8 @@ class NeuronpediaLocalPushService:
             logger.warning(f"Failed to compute logit lens data: {e}")
             # Rollback to clear the aborted transaction state
             await db.rollback()
+            # Refresh the SAE object to re-attach it to the session after rollback
+            await db.refresh(sae)
             # Continue without logit lens data
 
         # 2. Compute histogram data
@@ -544,6 +546,8 @@ class NeuronpediaLocalPushService:
             logger.warning(f"Failed to compute histogram data: {e}")
             # Rollback to clear the aborted transaction state
             await db.rollback()
+            # Refresh the SAE object to re-attach it to the session after rollback
+            await db.refresh(sae)
             # Continue without histogram data
 
         if progress_callback:
@@ -693,6 +697,8 @@ class NeuronpediaLocalPushService:
                     logger.warning(f"Dashboard data computation failed, continuing without it: {e}")
                     # Rollback to clear the aborted transaction state
                     await db.rollback()
+                    # Refresh the SAE object to re-attach it to the session after rollback
+                    await db.refresh(sae)
 
             if progress_callback:
                 progress_callback(50, "Loading features...")

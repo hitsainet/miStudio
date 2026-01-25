@@ -75,7 +75,7 @@ sudo bash -c 'echo "127.0.0.1  mistudio.mcslab.io" >> /etc/hosts'
 │     - k8s_deploy                                                        │
 │                                                                          │
 │  5. VERIFY                                                               │
-│     - Test at http://uat-mistudio.mcslab.io                             │
+│     - Test at http://k8s-mistudio.mcslab.io                             │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -111,7 +111,7 @@ k8s_deploy                      # Pull + restart + verify
 |---------|-------|
 | Host | 192.168.244.61 (mcs-lnxgpu01) |
 | Namespace | mistudio |
-| Domain | uat-mistudio.mcslab.io |
+| Domain | k8s-mistudio.mcslab.io |
 | GPU | NVIDIA RTX 3090 (24GB) |
 | Manifest | k8s/mistudio-deployment.yaml |
 

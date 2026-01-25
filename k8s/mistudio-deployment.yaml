@@ -313,6 +313,8 @@ spec:
 # -------------------------
 # INGRESS (MICROK8S NGINX)
 # -------------------------
+# Note: WebSocket support requires specific annotations to handle the upgrade handshake.
+# The /ws path is handled by a separate ingress to ensure clean WebSocket configuration.
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -324,25 +326,12 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
-    nginx.ingress.kubernetes.io/websocket-services: "mistudio-backend"
-    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"
-    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
 spec:
   ingressClassName: public
   rules:
     - host: k8s-mistudio.mcslab.io
       http:
         paths:
-          - path: /ws
-            pathType: Prefix
-            backend:
-              service:
-                name: mistudio-backend
-                port:
-                  number: 8000
           - path: /api
             pathType: Prefix
             backend:
@@ -357,6 +346,36 @@ spec:
                 name: mistudio-frontend
                 port:
                   number: 80
+
+---
+# Separate ingress for WebSocket to ensure proper upgrade handling
+# Note: websocket-services annotation handles Upgrade/Connection headers automatically
+# Do NOT add configuration-snippet with Upgrade headers - it causes header duplication
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mistudio-websocket-ingress
+  namespace: mistudio
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "mistudio-backend"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+spec:
+  ingressClassName: public
+  rules:
+    - host: k8s-mistudio.mcslab.io
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-backend
+                port:
+                  number: 8000
 
 ---
 # Separate ingress for Ollama with path rewrite

@@ -39,10 +39,21 @@ k8s_migrate() {
   k8s "kubectl exec -n $K8S_NS deployment/mistudio-backend -c backend -- python -m alembic upgrade head"
 }
 
-# Full deploy: pull + restart + wait + verify schema
+# Manifest location on k8s host
+K8S_MANIFEST="/home/sean/app/k8s-mistudio.mcslab.io/mistudio-deployment.yaml"
+
+# Apply the deployment manifest
+k8s_apply() {
+  echo "=== Applying manifest from $K8S_MANIFEST ==="
+  k8s "kubectl apply -f $K8S_MANIFEST"
+}
+
+# Full deploy: pull + apply manifest + restart + wait + verify schema
 k8s_deploy() {
   echo "=== Pulling images ===" && \
   k8s "docker pull hitsai/mistudio-frontend:latest && docker pull hitsai/mistudio-backend:latest" && \
+  echo "=== Applying manifest ===" && \
+  k8s "kubectl apply -f $K8S_MANIFEST" && \
   echo "=== Restarting deployments ===" && \
   k8s "kubectl rollout restart deployment/mistudio-backend deployment/mistudio-frontend -n $K8S_NS" && \
   echo "=== Waiting for backend rollout ===" && \
@@ -177,7 +188,8 @@ echo "K8s helpers loaded. Available commands:"
 echo ""
 echo "  === MISTUDIO ==="
 echo "  k8s_check       - Check DockerHub image timestamps"
-echo "  k8s_deploy      - Full deploy (pull + restart + wait + verify schema)"
+echo "  k8s_deploy      - Full deploy (pull + apply + restart + verify schema)"
+echo "  k8s_apply       - Apply deployment manifest (no restart)"
 echo "  k8s_schema      - Verify database schema"
 echo "  k8s_schema_fix  - Fix missing database tables"
 echo "  k8s_migrate     - Run database migrations"

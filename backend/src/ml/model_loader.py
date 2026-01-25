@@ -40,6 +40,7 @@ SUPPORTED_ARCHITECTURES = {
     "gemma",   # Gemma models (google/gemma-*)
     "gemma2",  # Gemma 2 models (google/gemma-2-2b, etc.)
     "gemma3",  # Gemma 3 models (future)
+    "lfm2",   # LiquidAI LFM2 models (LiquidAI/LFM2.5-*)
 }
 
 

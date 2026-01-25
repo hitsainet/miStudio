@@ -148,7 +148,7 @@ export function ModelPreviewModal({
                       <p className="font-medium text-red-300">Unsupported Architecture</p>
                       <p className="text-sm text-red-200/80 mt-1">
                         This model uses the <span className="font-mono">{modelInfo.unsupportedArchitecture}</span> architecture,
-                        which is not currently supported. Supported architectures are: falcon, gemma, gemma2, gemma3, gpt2, gpt_neox, llama,
+                        which is not currently supported. Supported architectures are: falcon, gemma, gemma2, gemma3, gpt2, gpt_neox, lfm2, llama,
                         mistral, mixtral, phi, phi3, phi3_v, pythia, qwen, qwen2, qwen3.
                       </p>
                     </div>

@@ -21,6 +21,7 @@ const SUPPORTED_ARCHITECTURES = [
   'gemma3',
   'gpt2',
   'gpt_neox',
+  'lfm2',
   'llama',
   'mistral',
   'mixtral',

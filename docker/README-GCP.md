@@ -10,7 +10,8 @@ Deploy MechInterp Studio on a Google Cloud Platform instance with NVIDIA T4 GPU.
 2. **OS**: Ubuntu 22.04 LTS
 3. **NVIDIA Drivers**: Installed via GCP's Deep Learning VM or manually
 4. **DNS**: `gcp-dkr-mistudio.hitsai.net` pointing to the instance IP
-5. **Firewall**: Ports 80 and 3001 open
+5. **Firewall**: Port 80 open
+6. **DNS**: `dkr-gcp-neuron.hitsai.net` pointing to the instance IP (for Neuronpedia)
 
 ## Quick Start
 
@@ -69,12 +70,12 @@ docker compose up -d
 | PostgreSQL | neuronpedia-postgres | 5432 | Neuronpedia database |
 | Redis | mistudio-redis | 6379 | Celery broker |
 | Nginx | mistudio-nginx | 80 | Reverse proxy |
-| Neuronpedia | neuronpedia-webapp | 3001 | Feature visualization |
+| Neuronpedia | neuronpedia-webapp | 3000 (internal) | Feature visualization |
 
 ## Access URLs
 
 - **MechInterp Studio**: http://gcp-dkr-mistudio.hitsai.net
-- **Neuronpedia**: http://gcp-dkr-mistudio.hitsai.net:3001
+- **Neuronpedia**: http://dkr-gcp-neuron.hitsai.net
 - **API Documentation**: http://gcp-dkr-mistudio.hitsai.net/api/docs
 
 ## Common Commands
@@ -176,9 +177,14 @@ Create firewall rules to allow HTTP traffic:
 
 ```bash
 gcloud compute firewall-rules create allow-mistudio-http \
-    --allow tcp:80,tcp:3001 \
+    --allow tcp:80 \
     --target-tags=mistudio \
     --description="Allow HTTP access to MechInterp Studio"
 ```
 
 Then add the `mistudio` network tag to your instance.
+
+**DNS Configuration:**
+Both domains must point to your GCP instance IP:
+- `gcp-dkr-mistudio.hitsai.net` → MechInterp Studio
+- `dkr-gcp-neuron.hitsai.net` → Neuronpedia

@@ -112,7 +112,7 @@ docker compose ps
 
 echo -e "\n${GREEN}Access URLs:${NC}"
 echo "  MechInterp Studio: http://gcp-dkr-mistudio.hitsai.net"
-echo "  Neuronpedia:       http://gcp-dkr-mistudio.hitsai.net:3001"
+echo "  Neuronpedia:       http://dkr-gcp-neuron.hitsai.net"
 echo "  API Docs:          http://gcp-dkr-mistudio.hitsai.net/api/docs"
 
 echo -e "\n${YELLOW}Useful Commands:${NC}"
@@ -121,4 +121,5 @@ echo "  Stop services:     docker compose down"
 echo "  Restart services:  docker compose restart"
 echo "  Update images:     docker compose pull && docker compose up -d"
 
-echo -e "\n${YELLOW}Note:${NC} Make sure port 80 and 3001 are open in GCP firewall rules"
+echo -e "\n${YELLOW}Note:${NC} Make sure port 80 is open in GCP firewall rules"
+echo -e "${YELLOW}Note:${NC} DNS for both gcp-dkr-mistudio.hitsai.net and dkr-gcp-neuron.hitsai.net must point to this instance"

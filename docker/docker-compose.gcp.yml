@@ -96,7 +96,7 @@ services:
       INTERNAL_API_URL: http://backend:8000
       # Neuronpedia local instance configuration
       NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
-      NEURONPEDIA_LOCAL_URL: http://gcp-dkr-mistudio.hitsai.net:3001
+      NEURONPEDIA_LOCAL_URL: http://dkr-gcp-neuron.hitsai.net
     volumes:
       - mistudio_data:/data
     ports:
@@ -135,7 +135,7 @@ services:
       BACKEND_DIR: /app
       INTERNAL_API_URL: http://backend:8000
       NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
-      NEURONPEDIA_LOCAL_URL: http://gcp-dkr-mistudio.hitsai.net:3001
+      NEURONPEDIA_LOCAL_URL: http://dkr-gcp-neuron.hitsai.net
     volumes:
       - mistudio_data:/data
     depends_on:
@@ -206,15 +206,13 @@ services:
       DATABASE_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
       POSTGRES_PRISMA_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
       POSTGRES_URL_NON_POOLING: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
-      NEXTAUTH_URL: http://gcp-dkr-mistudio.hitsai.net:3001
+      NEXTAUTH_URL: http://dkr-gcp-neuron.hitsai.net
       NEXTAUTH_SECRET: neuronpedia-gcp-secret-change-in-production
       NODE_ENV: production
       IS_LOCALHOST: "true"
       SKIP_ENV_VALIDATION: "true"
       DEMO_MODE: "false"
       NEXT_PUBLIC_DEMO_MODE: "false"
-    ports:
-      - "3001:3000"
     depends_on:
       neuronpedia-postgres:
         condition: service_healthy

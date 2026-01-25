@@ -63,9 +63,11 @@ dmypy.json
 *.db
 *.sqlite3
 
-# Data Storage
-data/
-/data
+# Data Storage (root level only, not src/data/)
+/data/
+
+# Keep src/data/ for application templates
+!src/data/
 
 # Logs
 *.log

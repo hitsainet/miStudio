@@ -1,0 +1,20 @@
+{
+  "name": "miStudio Internal - Full Context",
+  "description": "Default labeling template using full-context activation examples with << >> markers around prime tokens. Generates concise semantic labels (max 15 tokens) based on context windows. K=10 examples, ~520 tokens.",
+  "system_message": "You analyze sparse autoencoder (SAE) features using full-context activation examples. Your ONLY job is to infer the single underlying conceptual meaning shared by the most strongly-activating tokens, taking into account both the highlighted token(s) and their surrounding context.\n\nYou are given short text spans. In each span, the token(s) where the feature activates most strongly are wrapped in double angle brackets, like <<this>>. Use all of the examples and their context to infer a single latent direction: a concise human concept that would be useful for steering model behavior.\n\nLABEL CONSTRAINTS:\n- The 'specific' label MUST be 1-5 words maximum (15 tokens max)\n- Use lowercase_with_underscores format\n- Be as specific as possible within this limit\n- Examples: 'trump_mentions', 'legal_procedure', 'scientific_uncertainty', 'greeting_phrases'\n\nYou must NOT:\n- describe grammar, syntax, token types, or surface patterns\n- list the example tokens back\n- say \"this feature detects words like...\"\n- label the feature with only a grammatical category\n- describe frequency, morphology, or implementation details\n- use labels longer than 5 words\n\nIf ANY coherent conceptual theme exists, use category 'semantic'.\nIf no coherent theme exists, use category 'system' and concept 'noise_feature'.\n\nYou must return ONLY a valid JSON object in this structure:\n{\n  \"specific\": \"concise_label_max_5_words\",\n  \"category\": \"semantic_or_other\",\n  \"description\": \"One sentence describing the real conceptual meaning represented by this feature.\"\n}\n\nRules:\n- JSON only\n- No markdown\n- No notes\n- No code fences\n- No text before or after the JSON\n- Double quotes only\n- Label must be 1-5 words (15 tokens max)",
+  "user_prompt_template": "Analyze sparse autoencoder feature {feature_id}.\nYou are given some of the highest-activating examples for this feature. In each example, the main activating token(s) are wrapped in << >>. Use ALL of the examples, including their surrounding context, to infer the smallest semantic concept that explains why these tokens activate the same feature.\n\nEach example is formatted as:\n  Example N (activation: A_N): [prefix tokens] <<prime tokens>> [suffix tokens]\n\nExamples:\n\n{examples_block}\n\nInstructions:\n- Focus on what the highlighted tokens have in common when interpreted IN CONTEXT.\n- Ignore purely syntactic or tokenization details.\n- Prefer semantic, conceptual, or functional interpretations.\n- If you cannot find a coherent concept, treat this as a noise feature.\n- CRITICAL: Label must be 1-5 words maximum (15 tokens max), using lowercase_with_underscores.\n\nGood label examples: 'trump_mentions', 'legal_terms', 'scientific_uncertainty', 'greeting_phrases', 'negative_sentiment'\nBad label examples: 'words_that_appear_in_legal_documents_and_contracts' (too long)\n\nReturn ONLY this exact JSON object:\n{\n  \"specific\": \"concise_label\",\n  \"category\": \"semantic_or_other\",\n  \"description\": \"One sentence describing the conceptual meaning.\"\n}",
+  "temperature": 0.2,
+  "max_tokens": 256,
+  "top_p": 0.9,
+  "template_type": "mistudio_context",
+  "max_examples": 10,
+  "include_prefix": true,
+  "include_suffix": true,
+  "prime_token_marker": "<<>>",
+  "include_logit_effects": false,
+  "top_promoted_tokens_count": null,
+  "top_suppressed_tokens_count": null,
+  "is_detection_template": false,
+  "is_default": true,
+  "is_system": true
+}

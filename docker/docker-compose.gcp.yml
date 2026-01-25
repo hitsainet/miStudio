@@ -1,0 +1,251 @@
+# MechInterp Studio - GCP Docker Compose Deployment
+# URL: gcp-dkr-mistudio.hitsai.net
+#
+# Prerequisites:
+# 1. Docker with NVIDIA Container Toolkit installed
+# 2. NVIDIA T4 GPU available
+# 3. DNS pointing gcp-dkr-mistudio.hitsai.net to this instance
+#
+# Usage:
+#   docker-compose -f docker-compose.gcp.yml up -d
+#
+# To pull latest images:
+#   docker-compose -f docker-compose.gcp.yml pull
+#   docker-compose -f docker-compose.gcp.yml up -d
+
+version: '3.8'
+
+services:
+  # =========================================
+  # MISTUDIO POSTGRES
+  # =========================================
+  postgres:
+    image: postgres:15
+    container_name: mistudio-postgres
+    environment:
+      POSTGRES_DB: mistudio
+      POSTGRES_USER: mistudio
+      POSTGRES_PASSWORD: mistudio_secure_pw_2026
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - mistudio_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mistudio -d mistudio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # NEURONPEDIA POSTGRES (separate database)
+  # =========================================
+  neuronpedia-postgres:
+    image: postgres:15
+    container_name: neuronpedia-postgres
+    environment:
+      POSTGRES_DB: neuronpedia
+      POSTGRES_USER: neuronpedia
+      POSTGRES_PASSWORD: neuronpedia_secure_pw_2026
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - neuronpedia_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuronpedia -d neuronpedia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # REDIS (Celery broker)
+  # =========================================
+  redis:
+    image: redis:7-alpine
+    container_name: mistudio-redis
+    volumes:
+      - mistudio_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # MISTUDIO BACKEND (API + Celery Worker + Beat)
+  # =========================================
+  backend:
+    image: hitsai/mistudio-backend:latest
+    container_name: mistudio-backend
+    environment:
+      SERVICE_TYPE: api
+      DATABASE_URL: postgresql+asyncpg://mistudio:mistudio_secure_pw_2026@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql+psycopg2://mistudio:mistudio_secure_pw_2026@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      SECRET_KEY: mistudio-gcp-secret-key-change-in-production
+      DATA_DIR: /data
+      BACKEND_DIR: /app
+      INTERNAL_API_URL: http://backend:8000
+      # Neuronpedia local instance configuration
+      NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
+      NEURONPEDIA_LOCAL_URL: http://gcp-dkr-mistudio.hitsai.net:3001
+    volumes:
+      - mistudio_data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # CELERY WORKER (background tasks)
+  # =========================================
+  celery-worker:
+    image: hitsai/mistudio-backend:latest
+    container_name: mistudio-celery-worker
+    environment:
+      SERVICE_TYPE: celery-worker
+      DATABASE_URL: postgresql+asyncpg://mistudio:mistudio_secure_pw_2026@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql+psycopg2://mistudio:mistudio_secure_pw_2026@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      SECRET_KEY: mistudio-gcp-secret-key-change-in-production
+      DATA_DIR: /data
+      BACKEND_DIR: /app
+      INTERNAL_API_URL: http://backend:8000
+      NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
+      NEURONPEDIA_LOCAL_URL: http://gcp-dkr-mistudio.hitsai.net:3001
+    volumes:
+      - mistudio_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # CELERY BEAT (scheduled tasks)
+  # =========================================
+  celery-beat:
+    image: hitsai/mistudio-backend:latest
+    container_name: mistudio-celery-beat
+    environment:
+      SERVICE_TYPE: celery-beat
+      DATABASE_URL: postgresql+asyncpg://mistudio:mistudio_secure_pw_2026@postgres:5432/mistudio
+      DATABASE_URL_SYNC: postgresql+psycopg2://mistudio:mistudio_secure_pw_2026@postgres:5432/mistudio
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      SECRET_KEY: mistudio-gcp-secret-key-change-in-production
+      DATA_DIR: /data
+      BACKEND_DIR: /app
+      INTERNAL_API_URL: http://backend:8000
+    volumes:
+      - mistudio_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # MISTUDIO FRONTEND
+  # =========================================
+  frontend:
+    image: hitsai/mistudio-frontend:latest
+    container_name: mistudio-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # NEURONPEDIA WEBAPP
+  # =========================================
+  neuronpedia-webapp:
+    image: hitsai/neuronpedia-webapp:latest
+    container_name: neuronpedia-webapp
+    environment:
+      DATABASE_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
+      POSTGRES_PRISMA_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
+      POSTGRES_URL_NON_POOLING: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
+      NEXTAUTH_URL: http://gcp-dkr-mistudio.hitsai.net:3001
+      NEXTAUTH_SECRET: neuronpedia-gcp-secret-change-in-production
+      NODE_ENV: production
+      IS_LOCALHOST: "true"
+      SKIP_ENV_VALIDATION: "true"
+      DEMO_MODE: "false"
+      NEXT_PUBLIC_DEMO_MODE: "false"
+    ports:
+      - "3001:3000"
+    depends_on:
+      neuronpedia-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
+  # NGINX REVERSE PROXY
+  # =========================================
+  nginx:
+    image: nginx:alpine
+    container_name: mistudio-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.gcp.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+      - neuronpedia-webapp
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+volumes:
+  mistudio_postgres_data:
+  neuronpedia_postgres_data:
+  mistudio_redis_data:
+  mistudio_data:
+
+networks:
+  mistudio-net:
+    driver: bridge

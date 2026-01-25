@@ -7,9 +7,10 @@
  * - Real-time progress display with WebSocket updates
  * - Progress bar, feature counts, elapsed time, and ETA
  * - Success view with link to browse features in Neuronpedia
+ * - Background mode: close modal while push continues, re-open to see progress
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
   Send,
@@ -26,6 +27,7 @@ import {
   Database,
   Clock,
   Zap,
+  Minimize2,
 } from 'lucide-react';
 import { SAE } from '../../types/sae';
 import { COMPONENTS } from '../../config/brand';
@@ -37,6 +39,7 @@ import {
 } from '../../api/neuronpedia';
 import { formatDuration } from '../../api/neuronpedia';
 import { useNeuronpediaPushWebSocket } from '../../hooks/useNeuronpediaPushWebSocket';
+import { useNeuronpediaPushStore, selectActivePushJob } from '../../stores/neuronpediaPushStore';
 
 interface PushToNeuronpediaProps {
   sae: SAE;
@@ -53,8 +56,16 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
   const [view, setView] = useState<'config' | 'pushing' | 'complete'>('config');
   const [pushJobId, setPushJobId] = useState<string | null>(null);
 
+  // Store for persisting push state across modal open/close
+  const activePushJob = useNeuronpediaPushStore(selectActivePushJob(sae.id));
+  const { startPush, updateProgress, completePush, failPush, clearPush } = useNeuronpediaPushStore();
+
   // WebSocket hook for real-time progress
   const { progress, isComplete, error: wsError, reset: resetWs } = useNeuronpediaPushWebSocket(pushJobId);
+
+  // Local elapsed time tracking (updates every second independently of WebSocket)
+  const [localElapsedSeconds, setLocalElapsedSeconds] = useState<number>(0);
+  const pushStartTimeRef = useRef<number | null>(null);
 
   // Configuration state
   const [config, setConfig] = useState<LocalPushConfig>({
@@ -63,12 +74,44 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
     maxActivationsPerFeature: 20,
   });
 
+  // Restore state from store on mount if there's an active push
+  useEffect(() => {
+    if (isOpen && activePushJob) {
+      console.log('[PushToNeuronpedia] Restoring push state from store:', activePushJob.pushJobId);
+      setPushJobId(activePushJob.pushJobId);
+      pushStartTimeRef.current = activePushJob.startTime;
+
+      if (activePushJob.isComplete) {
+        if (activePushJob.error) {
+          setError(activePushJob.error);
+          setView('config');
+        } else {
+          setView('complete');
+        }
+        setIsPushing(false);
+      } else {
+        setView('pushing');
+        setIsPushing(true);
+      }
+    }
+  }, [isOpen, activePushJob?.pushJobId]); // Only restore when modal opens or pushJobId changes
+
   // Check Neuronpedia connection status on mount
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !activePushJob) {
+      checkStatus();
+    } else if (isOpen) {
+      // Still check status for the completion screen's Neuronpedia link
       checkStatus();
     }
   }, [isOpen]);
+
+  // Sync WebSocket progress to store
+  useEffect(() => {
+    if (progress && pushJobId) {
+      updateProgress(sae.id, progress);
+    }
+  }, [progress, pushJobId, sae.id, updateProgress]);
 
   // Handle WebSocket completion/error
   useEffect(() => {
@@ -76,13 +119,33 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
       if (progress.status === 'completed') {
         setView('complete');
         setIsPushing(false);
+        completePush(sae.id, progress);
       } else if (progress.status === 'failed') {
-        setError(wsError || progress.error || 'Push failed');
+        const errorMsg = wsError || progress.error || 'Push failed';
+        setError(errorMsg);
         setView('config');
         setIsPushing(false);
+        failPush(sae.id, errorMsg, progress);
       }
     }
-  }, [isComplete, progress, wsError]);
+  }, [isComplete, progress, wsError, sae.id, completePush, failPush]);
+
+  // Local elapsed time timer - updates every second while pushing
+  useEffect(() => {
+    if (view === 'pushing' && pushStartTimeRef.current !== null) {
+      // Calculate initial elapsed time (for restored state)
+      const initialElapsed = (Date.now() - pushStartTimeRef.current) / 1000;
+      setLocalElapsedSeconds(initialElapsed);
+
+      const intervalId = setInterval(() => {
+        const elapsed = (Date.now() - pushStartTimeRef.current!) / 1000;
+        setLocalElapsedSeconds(elapsed);
+      }, 1000);
+
+      return () => clearInterval(intervalId);
+    }
+    return undefined;
+  }, [view]);
 
   const checkStatus = async () => {
     setIsCheckingStatus(true);
@@ -102,34 +165,84 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
     setError(null);
     setView('pushing');
     resetWs();
+    // Start local elapsed time tracking
+    const startTime = Date.now();
+    pushStartTimeRef.current = startTime;
+    setLocalElapsedSeconds(0);
 
     try {
       const pushResponse = await pushToLocal(sae.id, config);
       setPushJobId(pushResponse.pushJobId);
+      // Save to store for persistence
+      startPush(sae.id, sae.name, pushResponse.pushJobId);
+      // Update store with start time
+      useNeuronpediaPushStore.setState((state) => ({
+        activePushJobs: {
+          ...state.activePushJobs,
+          [sae.id]: {
+            ...state.activePushJobs[sae.id],
+            startTime,
+          },
+        },
+      }));
       // The WebSocket hook will now receive progress updates
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Push failed');
       setView('config');
       setIsPushing(false);
+      pushStartTimeRef.current = null;
     }
   };
 
-  const handleClose = () => {
+  // Close modal but keep push running in background
+  const handleRunInBackground = useCallback(() => {
+    console.log('[PushToNeuronpedia] Running in background, keeping push state');
+    // Don't clear anything - just close the modal
+    onClose();
+  }, [onClose]);
+
+  // Full close - clear state and close modal
+  const handleClose = useCallback(() => {
+    // If push is complete or failed, clear the store state
+    if (view === 'complete' || (view === 'config' && error)) {
+      clearPush(sae.id);
+    }
+    // If push is still running, treat as "run in background"
+    if (view === 'pushing' && !error) {
+      handleRunInBackground();
+      return;
+    }
+    // Reset local state
     setPushJobId(null);
     resetWs();
     setError(null);
     setView('config');
+    pushStartTimeRef.current = null;
+    setLocalElapsedSeconds(0);
     onClose();
-  };
+  }, [view, error, sae.id, clearPush, resetWs, onClose, handleRunInBackground]);
+
+  // Dismiss completion and close
+  const handleDismissComplete = useCallback(() => {
+    clearPush(sae.id);
+    setPushJobId(null);
+    resetWs();
+    setError(null);
+    setView('config');
+    pushStartTimeRef.current = null;
+    setLocalElapsedSeconds(0);
+    onClose();
+  }, [sae.id, clearPush, resetWs, onClose]);
 
   if (!isOpen) return null;
 
   const isReady = status?.configured && status?.connected;
 
-  // Calculate progress percentage
-  const progressPercent = progress?.progress ?? 0;
-  const featuresTotal = progress?.total_features ?? sae.n_features ?? 0;
-  const featuresPushed = progress?.features_pushed ?? 0;
+  // Use progress from store if available (for restored state), otherwise use WebSocket progress
+  const currentProgress = progress || activePushJob?.progress;
+  const progressPercent = currentProgress?.progress ?? 0;
+  const featuresTotal = currentProgress?.total_features ?? sae.n_features ?? 0;
+  const featuresPushed = currentProgress?.features_pushed ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -352,7 +465,7 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
                 <Loader className="w-12 h-12 text-emerald-400 animate-spin mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-slate-100">Pushing to Neuronpedia</h3>
                 <p className="text-slate-400 mt-1">
-                  {progress?.message || 'Initializing push...'}
+                  {currentProgress?.message || 'Initializing push...'}
                 </p>
               </div>
 
@@ -391,19 +504,19 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
                       Activations
                     </div>
                     <div className="text-xl font-semibold text-slate-100">
-                      {(progress?.activations_pushed ?? 0).toLocaleString()}
+                      {(currentProgress?.activations_pushed ?? 0).toLocaleString()}
                     </div>
                   </div>
                 )}
 
-                {/* Elapsed Time */}
+                {/* Elapsed Time - uses local timer for real-time updates */}
                 <div className="p-4 bg-slate-800/50 rounded-lg">
                   <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
                     <Clock className="w-4 h-4" />
                     Elapsed
                   </div>
                   <div className="text-xl font-semibold text-slate-100">
-                    {progress?.elapsed_seconds ? formatDuration(progress.elapsed_seconds) : '-'}
+                    {localElapsedSeconds > 0 ? formatDuration(localElapsedSeconds) : '-'}
                   </div>
                 </div>
 
@@ -414,7 +527,7 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
                     Remaining
                   </div>
                   <div className="text-xl font-semibold text-slate-100">
-                    {progress?.eta_seconds ? formatDuration(progress.eta_seconds) : '-'}
+                    {currentProgress?.eta_seconds ? formatDuration(currentProgress.eta_seconds) : '-'}
                   </div>
                 </div>
               </div>
@@ -425,14 +538,14 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
                   Current Stage
                 </div>
                 <div className="text-sm text-slate-200 capitalize">
-                  {(progress?.stage || 'initializing').replace(/_/g, ' ')}
+                  {(currentProgress?.stage || 'initializing').replace(/_/g, ' ')}
                 </div>
               </div>
             </div>
           )}
 
           {/* Complete View */}
-          {view === 'complete' && progress && (
+          {view === 'complete' && currentProgress && (
             <div className="space-y-6">
               <div className="text-center py-4">
                 <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-4" />
@@ -446,20 +559,20 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-slate-500">Features Pushed:</span>
-                    <span className="ml-2 text-slate-200">{(progress.features_pushed ?? 0).toLocaleString()}</span>
+                    <span className="ml-2 text-slate-200">{(currentProgress.features_pushed ?? 0).toLocaleString()}</span>
                   </div>
                   <div>
                     <span className="text-slate-500">Activations Created:</span>
-                    <span className="ml-2 text-slate-200">{(progress.activations_pushed ?? 0).toLocaleString()}</span>
+                    <span className="ml-2 text-slate-200">{(currentProgress.activations_pushed ?? 0).toLocaleString()}</span>
                   </div>
                   <div>
                     <span className="text-slate-500">Explanations Created:</span>
-                    <span className="ml-2 text-slate-200">{(progress.explanations_pushed ?? 0).toLocaleString()}</span>
+                    <span className="ml-2 text-slate-200">{(currentProgress.explanations_pushed ?? 0).toLocaleString()}</span>
                   </div>
                   <div>
                     <span className="text-slate-500">Total Time:</span>
                     <span className="ml-2 text-slate-200">
-                      {progress.elapsed_seconds ? formatDuration(progress.elapsed_seconds) : '-'}
+                      {currentProgress.elapsed_seconds ? formatDuration(currentProgress.elapsed_seconds) : '-'}
                     </span>
                   </div>
                 </div>
@@ -517,13 +630,17 @@ export function PushToNeuronpedia({ sae, isOpen, onClose }: PushToNeuronpediaPro
           )}
 
           {view === 'pushing' && (
-            <button onClick={handleClose} className={COMPONENTS.button.ghost}>
+            <button
+              onClick={handleRunInBackground}
+              className={`flex items-center gap-2 ${COMPONENTS.button.ghost}`}
+            >
+              <Minimize2 className="w-4 h-4" />
               Run in Background
             </button>
           )}
 
           {view === 'complete' && (
-            <button onClick={handleClose} className={COMPONENTS.button.ghost}>
+            <button onClick={handleDismissComplete} className={COMPONENTS.button.ghost}>
               Close
             </button>
           )}

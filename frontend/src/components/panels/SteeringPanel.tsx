@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, StopCircle, History, ChevronDown, RotateCcw, Power, PowerOff } from 'lucide-react';
+import { Play, Loader, AlertCircle, ChevronLeft, ChevronRight, Brain, StopCircle, History, ChevronDown, RotateCcw, Power, PowerOff, Combine } from 'lucide-react';
 import { getTaskResult } from '../../api/steering';
 import { getSteeringModeStatus, enterSteeringMode, exitSteeringMode } from '../../api/steering';
 import { useSteeringStore, selectCanGenerate, selectCanGenerateBatch } from '../../stores/steeringStore';
@@ -75,6 +75,13 @@ export function SteeringPanel() {
     recentComparisons,
     loadRecentComparison,
     resetSession,
+    // Combined mode
+    combinedMode,
+    setCombinedMode,
+    isCombinedGenerating,
+    combinedResults,
+    generateCombined,
+    clearCombinedResults,
   } = useSteeringStore();
 
   const { saes, fetchSAEs } = useSAEsStore();
@@ -174,7 +181,10 @@ export function SteeringPanel() {
 
   const handleGenerate = async () => {
     try {
-      if (isBatchMode) {
+      if (combinedMode && selectedFeatures.length >= 2) {
+        // Combined mode: apply all features together
+        await generateCombined(true, true);
+      } else if (isBatchMode) {
         await generateBatchComparison(true, true);
       } else {
         await generateComparison(true, true);
@@ -505,19 +515,45 @@ export function SteeringPanel() {
                   disabled={isGenerating}
                 />
                 <div className="flex items-center justify-between mt-3">
-                  <div className="text-sm text-slate-500">
-                    {selectedFeatures.length === 0 ? (
-                      <span className="text-amber-400">
-                        Select at least one feature from the sidebar
-                      </span>
-                    ) : isBatchMode ? (
-                      <span>
-                        {selectedFeatures.length} feature{selectedFeatures.length !== 1 ? 's' : ''} × {nonEmptyPrompts.length} prompts
-                      </span>
-                    ) : (
-                      <span>
-                        {selectedFeatures.length} feature{selectedFeatures.length !== 1 ? 's' : ''} selected
-                      </span>
+                  <div className="flex items-center gap-4">
+                    <div className="text-sm text-slate-500">
+                      {selectedFeatures.length === 0 ? (
+                        <span className="text-amber-400">
+                          Select at least one feature from the sidebar
+                        </span>
+                      ) : combinedMode ? (
+                        <span className="text-cyan-400">
+                          <Combine className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+                          {selectedFeatures.length} features combined
+                        </span>
+                      ) : isBatchMode ? (
+                        <span>
+                          {selectedFeatures.length} feature{selectedFeatures.length !== 1 ? 's' : ''} × {nonEmptyPrompts.length} prompts
+                        </span>
+                      ) : (
+                        <span>
+                          {selectedFeatures.length} feature{selectedFeatures.length !== 1 ? 's' : ''} selected
+                        </span>
+                      )}
+                    </div>
+                    {/* Combined Mode toggle - only show with 2+ features */}
+                    {selectedFeatures.length >= 2 && !isBatchMode && (
+                      <label
+                        className={`flex items-center gap-2 text-sm cursor-pointer select-none ${
+                          combinedMode ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-300'
+                        }`}
+                        title="Apply all features simultaneously in a single generation pass"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={combinedMode}
+                          onChange={(e) => setCombinedMode(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
+                          disabled={isGenerating || isCombinedGenerating}
+                        />
+                        <Combine className="w-4 h-4" />
+                        Combined Mode
+                      </label>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -543,19 +579,24 @@ export function SteeringPanel() {
                     )}
                     <button
                       onClick={handleGenerate}
-                      disabled={(!canGenerate && !canGenerateBatch) || isGenerating || !steeringModeActive}
-                      className={`px-6 py-2 flex items-center gap-2 ${COMPONENTS.button.primary} disabled:opacity-50 disabled:cursor-not-allowed`}
-                      title={!steeringModeActive ? 'Enter steering mode first' : undefined}
+                      disabled={(!canGenerate && !canGenerateBatch) || isGenerating || isCombinedGenerating || !steeringModeActive}
+                      className={`px-6 py-2 flex items-center gap-2 ${combinedMode ? 'bg-cyan-600 hover:bg-cyan-500 text-white' : COMPONENTS.button.primary} disabled:opacity-50 disabled:cursor-not-allowed`}
+                      title={!steeringModeActive ? 'Enter steering mode first' : combinedMode ? 'Apply all features together in one generation' : undefined}
                     >
-                      {isGenerating ? (
+                      {isGenerating || isCombinedGenerating ? (
                         <>
                           <Loader className="w-4 h-4 animate-spin" />
-                          {batchState ? `Processing ${batchState.currentIndex + 1}/${batchState.totalPrompts}...` : 'Generating...'}
+                          {batchState ? `Processing ${batchState.currentIndex + 1}/${batchState.totalPrompts}...` : isCombinedGenerating ? 'Generating Combined...' : 'Generating...'}
                         </>
                       ) : !steeringModeActive ? (
                         <>
                           <PowerOff className="w-4 h-4" />
                           Start Steering First
+                        </>
+                      ) : combinedMode ? (
+                        <>
+                          <Combine className="w-4 h-4" />
+                          Generate Combined
                         </>
                       ) : (
                         <>
@@ -586,19 +627,20 @@ export function SteeringPanel() {
               <GenerationConfig />
 
               {/* Progress indicator */}
-              {isGenerating && (
+              {(isGenerating || isCombinedGenerating) && (
                 <div className={`${COMPONENTS.card.base} p-4`}>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-slate-400">
-                      {progressMessage || 'Generating...'}
+                    <span className={`text-sm ${isCombinedGenerating ? 'text-cyan-400' : 'text-slate-400'}`}>
+                      {isCombinedGenerating && <Combine className="w-3 h-3 inline-block mr-1 -mt-0.5" />}
+                      {progressMessage || (isCombinedGenerating ? 'Generating with combined features...' : 'Generating...')}
                     </span>
-                    <span className="text-sm text-emerald-400 font-mono">
+                    <span className={`text-sm font-mono ${isCombinedGenerating ? 'text-cyan-400' : 'text-emerald-400'}`}>
                       {progress.toFixed(0)}%
                     </span>
                   </div>
                   <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
+                      className={`h-full transition-all duration-300 ${isCombinedGenerating ? 'bg-gradient-to-r from-cyan-500 to-cyan-400' : 'bg-gradient-to-r from-emerald-500 to-emerald-400'}`}
                       style={{ width: `${progress}%` }}
                     />
                   </div>
@@ -623,8 +665,103 @@ export function SteeringPanel() {
                 />
               )}
 
+              {/* Results - Combined mode */}
+              {combinedResults && !isCombinedGenerating && (
+                <div className={`${COMPONENTS.card.base} p-4`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Combine className="w-5 h-5 text-cyan-400" />
+                      <h3 className="text-lg font-medium text-slate-100">Combined Steering Result</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500">
+                        {combinedResults.features_applied.length} features × total strength: {combinedResults.total_steering_strength.toFixed(1)}
+                      </span>
+                      <button
+                        onClick={() => clearCombinedResults()}
+                        className="px-2 py-1 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Features Applied */}
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {combinedResults.features_applied.map((f, idx) => (
+                      <span
+                        key={idx}
+                        className={`px-2 py-1 text-xs rounded border ${
+                          f.strength > 0
+                            ? 'border-green-500/30 bg-green-500/10 text-green-400'
+                            : f.strength < 0
+                            ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                            : 'border-slate-500/30 bg-slate-500/10 text-slate-400'
+                        }`}
+                      >
+                        {f.label || `Feature ${f.feature_idx}`}: {f.strength > 0 ? '+' : ''}{f.strength.toFixed(1)}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Side-by-side comparison if baseline available */}
+                  {combinedResults.baseline_output ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Baseline */}
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-400 mb-2">Baseline (No Steering)</h4>
+                        <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700 text-slate-200 text-sm whitespace-pre-wrap">
+                          {combinedResults.baseline_output}
+                        </div>
+                        {combinedResults.baseline_metrics && (
+                          <div className="mt-2 text-xs text-slate-500">
+                            {combinedResults.baseline_metrics.token_count} tokens • {combinedResults.baseline_metrics.generation_time_ms}ms
+                          </div>
+                        )}
+                      </div>
+                      {/* Combined */}
+                      <div>
+                        <h4 className="text-sm font-medium text-cyan-400 mb-2">
+                          <Combine className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+                          Combined ({combinedResults.features_applied.length} features)
+                        </h4>
+                        <div className="p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/30 text-slate-200 text-sm whitespace-pre-wrap">
+                          {combinedResults.combined_output}
+                        </div>
+                        {combinedResults.combined_metrics && (
+                          <div className="mt-2 text-xs text-cyan-400/70">
+                            {combinedResults.combined_metrics.token_count} tokens • {combinedResults.combined_metrics.generation_time_ms}ms
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* Combined only */
+                    <div>
+                      <h4 className="text-sm font-medium text-cyan-400 mb-2">
+                        <Combine className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+                        Combined Output ({combinedResults.features_applied.length} features)
+                      </h4>
+                      <div className="p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/30 text-slate-200 text-sm whitespace-pre-wrap">
+                        {combinedResults.combined_output}
+                      </div>
+                      {combinedResults.combined_metrics && (
+                        <div className="mt-2 text-xs text-cyan-400/70">
+                          {combinedResults.combined_metrics.token_count} tokens • {combinedResults.combined_metrics.generation_time_ms}ms
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Timing */}
+                  <div className="mt-4 pt-3 border-t border-slate-700 text-xs text-slate-500">
+                    Generated in {combinedResults.total_time_ms}ms • {new Date(combinedResults.created_at).toLocaleString()}
+                  </div>
+                </div>
+              )}
+
               {/* Empty results state */}
-              {!currentComparison && !batchState && !isGenerating && selectedFeatures.length > 0 && nonEmptyPrompts.length > 0 && (
+              {!currentComparison && !batchState && !combinedResults && !isGenerating && !isCombinedGenerating && selectedFeatures.length > 0 && nonEmptyPrompts.length > 0 && (
                 <div className={`${COMPONENTS.card.base} p-8 text-center`}>
                   <Play className="w-12 h-12 text-slate-600 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-slate-300 mb-2">

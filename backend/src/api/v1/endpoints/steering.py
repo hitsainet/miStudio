@@ -35,6 +35,8 @@ from ....schemas.steering import (
     SteeringTaskStatus,
     SteeringCancelResponse,
     SteeringExperimentSaveRequest,
+    CombinedSteeringRequest,
+    CombinedSteeringResponse,
 )
 from ....services.sae_manager_service import SAEManagerService
 from ....services.steering_service import get_steering_service
@@ -777,6 +779,125 @@ async def submit_async_strength_sweep(
         status="pending",
         websocket_channel=f"steering/{task.id}",
         message="Strength sweep task submitted",
+        submitted_at=datetime.utcnow(),
+    )
+
+
+@router.post("/async/combined", response_model=SteeringTaskResponse)
+async def submit_async_combined_steering(
+    request: CombinedSteeringRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Submit an async combined multi-feature steering task.
+
+    This endpoint applies ALL selected features simultaneously in a single
+    generation pass, enabling exploration of synergistic effects and
+    feature interactions.
+
+    Use cases:
+    - Test synergistic effects (e.g., "formal" + "positive" = professional tone)
+    - Create complex behavioral changes with multiple influences
+    - Explore feature interactions and emergent behaviors
+
+    After submission:
+    1. Subscribe to WebSocket channel steering/{task_id} for progress
+    2. Or poll GET /steering/async/result/{task_id}
+
+    Rate limited to 5 requests per minute per client.
+    """
+    from datetime import datetime
+    from ....workers.steering_tasks import steering_combined_task
+
+    # Rate limiting
+    client_id = get_client_id(http_request)
+    if not _rate_limiter.is_allowed(client_id):
+        retry_after = int(_rate_limiter.time_until_allowed(client_id)) + 1
+        raise HTTPException(
+            429,
+            f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    # Ensure steering worker is running
+    worker_ok, worker_pid = await _ensure_steering_worker_running()
+    if not worker_ok:
+        raise HTTPException(
+            503,
+            "Steering worker failed to start. Check server logs for details.",
+        )
+
+    # Get SAE from database
+    sae = await SAEManagerService.get_sae(db, request.sae_id)
+    if not sae:
+        raise HTTPException(404, f"SAE not found: {request.sae_id}")
+
+    if sae.status != SAEStatus.READY.value:
+        raise HTTPException(400, f"SAE is not ready: {sae.status}")
+
+    if not sae.local_path:
+        raise HTTPException(400, "SAE has no local path")
+
+    sae_path = settings.resolve_data_path(sae.local_path)
+    if not sae_path.exists():
+        raise HTTPException(400, f"SAE path does not exist: {sae.local_path}")
+
+    # Validate feature indices against SAE dimension
+    if sae.n_features:
+        invalid_features = [
+            f for f in request.selected_features
+            if f.feature_idx >= sae.n_features
+        ]
+        if invalid_features:
+            invalid_indices = [f.feature_idx for f in invalid_features]
+            raise HTTPException(
+                400,
+                f"Invalid feature indices: {invalid_indices}. "
+                f"SAE only has {sae.n_features} features."
+            )
+
+    # Determine model to use
+    model_id = request.model_id
+    if not model_id:
+        if sae.model_id:
+            model_id = sae.model_id
+        elif sae.model_name:
+            model_id = sae.model_name
+        else:
+            raise HTTPException(
+                400,
+                "No model specified and SAE has no linked model."
+            )
+
+    # Look up model from database to get actual file_path
+    model_path = None
+    model = await ModelService.get_model(db, model_id)
+    if model and model.file_path:
+        model_path = str(settings.resolve_data_path(model.file_path))
+        model_id = model.repo_id or model.name
+
+    # Submit task to Celery
+    task = steering_combined_task.apply_async(
+        kwargs={
+            "request_dict": request.model_dump(mode="json"),
+            "sae_id": request.sae_id,
+            "model_id": model_id,
+            "sae_path": str(sae_path),
+            "model_path": model_path,
+            "sae_layer": sae.layer,
+            "sae_d_model": sae.d_model,
+            "sae_n_features": sae.n_features,
+            "sae_architecture": sae.architecture,
+        }
+    )
+
+    return SteeringTaskResponse(
+        task_id=task.id,
+        task_type="combined",
+        status="pending",
+        websocket_channel=f"steering/{task.id}",
+        message="Combined multi-feature steering task submitted",
         submitted_at=datetime.utcnow(),
     )
 

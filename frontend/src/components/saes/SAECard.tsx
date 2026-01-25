@@ -23,10 +23,12 @@ import {
   Layers,
   FileJson,
   Send,
+  ArrowUpCircle,
 } from 'lucide-react';
 import { SAE, SAESource, SAEStatus } from '../../types/sae';
 import { COMPONENTS } from '../../config/brand';
 import { useModelsStore } from '../../stores/modelsStore';
+import { useNeuronpediaPushStore, selectActivePushJob } from '../../stores/neuronpediaPushStore';
 
 interface SAECardProps {
   sae: SAE;
@@ -61,6 +63,9 @@ export function SAECard({
 
   // Get models store for model name lookup
   const { models } = useModelsStore();
+
+  // Get active push job for this SAE (if any)
+  const activePushJob = useNeuronpediaPushStore(selectActivePushJob(sae.id));
 
   // Get model name with fallback to store lookup
   const getModelName = (): string | null => {
@@ -330,6 +335,72 @@ export function SAECard({
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>{sae.error_message}</span>
           </div>
+        </div>
+      )}
+
+      {/* Neuronpedia Push Status Indicator */}
+      {activePushJob && (
+        <div
+          className={`mt-3 p-2 rounded-lg border cursor-pointer transition-colors ${
+            activePushJob.error
+              ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/15'
+              : activePushJob.isComplete
+                ? 'bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15'
+                : 'bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/15'
+          }`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPushToLocal?.();
+          }}
+          title="Click to view push progress"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {activePushJob.error ? (
+                <AlertCircle className="w-4 h-4 text-red-400" />
+              ) : activePushJob.isComplete ? (
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <ArrowUpCircle className="w-4 h-4 text-blue-400 animate-pulse" />
+              )}
+              <span
+                className={`text-sm font-medium ${
+                  activePushJob.error
+                    ? 'text-red-400'
+                    : activePushJob.isComplete
+                      ? 'text-emerald-400'
+                      : 'text-blue-400'
+                }`}
+              >
+                {activePushJob.error
+                  ? 'Push Failed'
+                  : activePushJob.isComplete
+                    ? 'Push Complete'
+                    : 'Pushing to Neuronpedia'}
+              </span>
+            </div>
+            {activePushJob.progress && !activePushJob.isComplete && (
+              <span className="text-sm text-blue-400 font-mono">
+                {activePushJob.progress.features_pushed?.toLocaleString() || 0}/
+                {activePushJob.progress.total_features?.toLocaleString() || '?'} features (
+                {activePushJob.progress.progress?.toFixed(1) || 0}%)
+              </span>
+            )}
+            {activePushJob.isComplete && !activePushJob.error && activePushJob.progress && (
+              <span className="text-sm text-emerald-400 font-mono">
+                {activePushJob.progress.features_pushed?.toLocaleString()} features pushed
+              </span>
+            )}
+          </div>
+          {/* Progress bar for active push */}
+          {!activePushJob.isComplete && activePushJob.progress && (
+            <div className="mt-2 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300"
+                style={{ width: `${activePushJob.progress.progress || 0}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

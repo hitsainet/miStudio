@@ -366,7 +366,7 @@ class SteeringTaskResponse(BaseModel):
     """
 
     task_id: str = Field(..., description="Celery task ID for tracking")
-    task_type: Literal["compare", "sweep"] = Field(..., description="Type of steering task")
+    task_type: Literal["compare", "sweep", "combined"] = Field(..., description="Type of steering task")
     status: str = Field("pending", description="Initial task status (pending)")
     websocket_channel: str = Field(..., description="WebSocket channel to subscribe for progress updates")
     message: str = Field(..., description="Human-readable status message")
@@ -412,3 +412,106 @@ class SteeringCancelResponse(BaseModel):
     task_id: str = Field(..., description="Task ID that was cancelled")
     status: str = Field(..., description="Result of cancellation (cancelled, not_found, already_complete)")
     message: str = Field(..., description="Human-readable message")
+
+
+# ============================================================================
+# Combined Multi-Feature Steering Schemas
+# ============================================================================
+
+
+class CombinedSteeringRequest(BaseModel):
+    """
+    Schema for combined multi-feature steering request.
+
+    Applies ALL selected features simultaneously in a single generation pass,
+    rather than generating separate outputs for each feature.
+
+    Use cases:
+    - Test synergistic effects (e.g., "formal" + "positive" = professional tone)
+    - Create complex behavioral changes with multiple influences
+    - Explore feature interactions and emergent behaviors
+    """
+
+    # SAE identification
+    sae_id: str = Field(..., description="SAE ID to use for steering")
+
+    # Model identification (optional - uses SAE's linked model by default)
+    model_id: Optional[str] = Field(None, description="Model ID (defaults to SAE's linked model)")
+
+    # Prompt
+    prompt: str = Field(..., min_length=1, max_length=10000, description="Input prompt for generation")
+
+    # Selected features for combined steering (all applied simultaneously)
+    selected_features: List[SelectedFeature] = Field(
+        ...,
+        min_length=1,
+        max_length=4,
+        description="List of features to apply together (1-4)"
+    )
+
+    # Generation parameters
+    generation_params: GenerationParams = Field(
+        default_factory=GenerationParams,
+        description="Generation parameters"
+    )
+    advanced_params: AdvancedGenerationParams = Field(
+        default_factory=AdvancedGenerationParams,
+        description="Advanced generation parameters"
+    )
+
+    # Options
+    include_baseline: bool = Field(True, description="Include unsteered baseline output for comparison")
+    compute_metrics: bool = Field(True, description="Compute evaluation metrics")
+
+
+class CombinedFeatureApplied(BaseModel):
+    """Schema for a feature that was applied in combined mode."""
+
+    feature_idx: int = Field(..., description="Feature index")
+    layer: int = Field(..., description="Target layer")
+    strength: float = Field(..., description="Steering strength applied")
+    label: Optional[str] = Field(None, description="Feature label")
+    color: str = Field("teal", description="Color for UI display")
+
+
+class CombinedSteeringResponse(BaseModel):
+    """
+    Schema for combined multi-feature steering response.
+
+    Contains a single combined output where all features were applied together,
+    optionally with a baseline for comparison.
+    """
+
+    # Identification
+    combined_id: str = Field(..., description="Unique combined steering identifier")
+    sae_id: str = Field(..., description="SAE ID used")
+    model_id: str = Field(..., description="Model ID used")
+
+    # Input
+    prompt: str = Field(..., description="Input prompt")
+
+    # Combined output
+    combined_output: str = Field(..., description="Generated text with all features applied together")
+
+    # Features that were applied
+    features_applied: List[CombinedFeatureApplied] = Field(
+        ...,
+        description="List of features that were applied together"
+    )
+
+    # Optional baseline for comparison
+    baseline_output: Optional[str] = Field(None, description="Unsteered baseline output (if requested)")
+
+    # Metrics
+    combined_metrics: Optional[GenerationMetrics] = Field(None, description="Metrics for combined output")
+    baseline_metrics: Optional[GenerationMetrics] = Field(None, description="Metrics for baseline output")
+
+    # Summary of feature contributions
+    total_steering_strength: float = Field(
+        ...,
+        description="Sum of absolute strength values (indicates total intervention intensity)"
+    )
+
+    # Timing
+    total_time_ms: int = Field(..., description="Total generation time in milliseconds")
+    created_at: datetime = Field(..., description="Response creation timestamp")

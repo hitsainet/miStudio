@@ -314,6 +314,9 @@ services:
       # Secrets for local inference
       INFERENCE_SERVER_SECRET: local-secret
       AUTOINTERPRET_SERVER_SECRET: local-secret
+      # Allow miStudio activations to be public (miStudio admin user ID)
+      # This enables activations pushed from miStudio to be displayed
+      PUBLIC_ACTIVATIONS_USER_IDS: "cljj57d3c000076ei38vwnv35,clkht01d40000jv08hvalcvly,${NEURONPEDIA_MISTUDIO_USER_ID:-22e8a139-b241-4f72-ad61-1}"
     ports:
       - "3001:3000"  # Neuronpedia runs on port 3000 inside container
     restart: unless-stopped

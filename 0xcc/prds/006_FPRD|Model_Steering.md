@@ -1,9 +1,9 @@
 # Feature PRD: Model Steering
 
 **Document ID:** 006_FPRD|Model_Steering
-**Version:** 1.0 (MVP Complete)
-**Last Updated:** 2025-12-05
-**Status:** Implemented
+**Version:** 1.1 (Combined Mode Enhancement)
+**Last Updated:** 2026-01-24
+**Status:** Partially Implemented (FR-2.5 Planned)
 **Priority:** P0 (Core Feature)
 
 ---
@@ -41,8 +41,9 @@ A comprehensive steering interface with feature selection, strength control, com
 |-------------|-------------|--------|
 | FR-2.1 | Set steering strength per feature (-10 to +10) | Implemented |
 | FR-2.2 | Steering type: activation or suppression | Implemented |
-| FR-2.3 | Multi-feature steering (combine interventions) | Implemented |
+| FR-2.3 | Multi-feature selection (select multiple features for steering) | Implemented |
 | FR-2.4 | Neuronpedia-compatible calibration | Implemented |
+| FR-2.5 | Combined multi-feature generation (apply all features in single pass) | Planned |
 
 ### 2.3 Generation
 | Requirement | Description | Status |
@@ -92,10 +93,36 @@ def steering_hook(output, feature_idx, strength):
 - Strength scaled by activation standard deviation
 
 ### 3.3 Multi-Feature Steering
+
+#### 3.3.1 Current: Isolated Analysis Mode (Implemented)
+Each feature generates its own separate output for impact analysis:
 ```python
+# Current behavior: separate outputs per feature
+results = []
 for feature_config in selected_features:
-    output = steer(output, feature_config.idx, feature_config.strength)
+    output = generate_with_single_feature(prompt, feature_config)
+    results.append({"feature": feature_config, "output": output})
 ```
+
+#### 3.3.2 New: Combined Generation Mode (Planned - FR-2.5)
+All selected features applied together in a single generation pass:
+```python
+# New behavior: combined output with all features
+def steering_hook(output):
+    total_steering = torch.zeros_like(output)
+    for config in selected_features:
+        steering_vector = get_steering_vector(config.idx)
+        total_steering += config.strength * steering_vector
+    return output + total_steering
+
+# Single generation with all features applied simultaneously
+combined_output = generate_with_hook(prompt, steering_hook)
+```
+
+**Use Cases for Combined Mode:**
+- Test synergistic effects (e.g., "formal" + "positive" = professional tone)
+- Create complex behavioral changes with multiple influences
+- Explore feature interactions and emergent behaviors
 
 ---
 
@@ -125,6 +152,7 @@ for feature_config in selected_features:
 │ [Load Template]                                             │
 ├─────────────────────────────────────────────────────────────┤
 │ [✓] Comparison Mode  [Sweep Strengths: 3]                  │
+│ [✓] Combined Mode (apply all features together)            │
 │                                                             │
 │ [Generate]                                                  │
 └─────────────────────────────────────────────────────────────┘
@@ -159,8 +187,30 @@ for feature_config in selected_features:
 | `/api/v1/steering/compare` | POST | Compare steered vs. baseline |
 | `/api/v1/steering/sweep` | POST | Test multiple strengths |
 | `/api/v1/steering/calibrate` | POST | Get calibration factors |
+| `/api/v1/steering/combined` | POST | Combined multi-feature generation (Planned) |
 | `/api/v1/prompt-templates` | GET/POST | Prompt template CRUD |
 | `/api/v1/prompt-templates/{id}` | GET/PUT/DELETE | Template by ID |
+
+### 5.1 Combined Generation Endpoint (Planned)
+```
+POST /api/v1/steering/combined
+{
+  "sae_id": "uuid",
+  "prompt": "Write a letter...",
+  "features": [
+    {"feature_index": 500, "strength": 2.0},
+    {"feature_index": 633, "strength": 1.5}
+  ],
+  "generation_config": {...}
+}
+
+Response:
+{
+  "combined_output": "Generated text with all features applied...",
+  "features_applied": [...],
+  "baseline_output": "..." (if comparison mode)
+}
+```
 
 ---
 
@@ -238,7 +288,8 @@ class SteeringResult:
 ## 10. Testing Checklist
 
 - [x] Single feature steering
-- [x] Multi-feature steering
+- [x] Multi-feature selection (isolated outputs per feature)
+- [ ] Combined multi-feature generation (all features in single pass)
 - [x] Comparison mode
 - [x] Strength sweep
 - [x] Feature browser search
@@ -246,6 +297,8 @@ class SteeringResult:
 - [x] Export results
 - [x] Negative strength (suppression)
 - [x] Generation parameter configuration
+- [ ] Combined mode with comparison (baseline vs. combined steered)
+- [ ] Combined mode with multiple prompts
 
 ---
 

@@ -158,19 +158,6 @@ function AppContent() {
               )}
             </button>
             <button
-              onClick={() => setActivePanel('templates')}
-              className={`px-6 py-3 font-medium transition-colors relative ${
-                activePanel === 'templates'
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
-            >
-              Templates
-              {activePanel === 'templates' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
-              )}
-            </button>
-            <button
               onClick={() => setActivePanel('saes')}
               className={`px-6 py-3 font-medium transition-colors relative ${
                 activePanel === 'saes'
@@ -193,6 +180,19 @@ function AppContent() {
             >
               Steering
               {activePanel === 'steering' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
+              )}
+            </button>
+            <button
+              onClick={() => setActivePanel('templates')}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activePanel === 'templates'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-300'
+              }`}
+            >
+              Templates
+              {activePanel === 'templates' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400"></div>
               )}
             </button>

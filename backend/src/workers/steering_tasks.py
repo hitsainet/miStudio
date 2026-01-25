@@ -533,3 +533,213 @@ def cleanup_steering_gpu(self) -> Dict[str, Any]:
             "saes_unloaded": 0,
             "memory_freed_gb": 0,
         }
+
+
+@celery_app.task(
+    bind=True,
+    name="steering.combined",
+    queue="steering",
+    soft_time_limit=120,  # Combined generation should be faster than comparison
+    time_limit=150,       # 2.5 min hard limit
+    max_retries=0,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    track_started=True,
+)
+def steering_combined_task(
+    self,
+    request_dict: Dict[str, Any],
+    sae_id: str,
+    model_id: str,
+    sae_path: str,
+    model_path: Optional[str] = None,
+    sae_layer: Optional[int] = None,
+    sae_d_model: Optional[int] = None,
+    sae_n_features: Optional[int] = None,
+    sae_architecture: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Execute combined multi-feature steering in isolated worker process.
+
+    This task applies ALL selected features simultaneously in a single generation
+    pass, enabling exploration of synergistic effects and feature interactions.
+
+    Args:
+        request_dict: Serialized CombinedSteeringRequest as dict
+        sae_id: SAE database ID
+        model_id: Model identifier for HuggingFace loading
+        sae_path: Path to SAE weights file
+        model_path: Optional local path to model weights
+        sae_layer: SAE layer index
+        sae_d_model: SAE model dimension
+        sae_n_features: Number of SAE features
+        sae_architecture: SAE architecture type
+
+    Returns:
+        Dict containing combined steering output and optional baseline
+
+    Timeout behavior:
+        - At 120s: SIGTERM sent, SoftTimeLimitExceeded raised
+        - At 150s: SIGKILL sent, process terminated, GPU memory released
+    """
+    task_id = self.request.id
+    logger.info(f"[Combined Task {task_id}] Starting combined multi-feature steering")
+
+    try:
+        # CRITICAL: Check for zombie processes holding GPU memory
+        try:
+            import subprocess
+            gpu_apps = subprocess.run(
+                ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5
+            )
+            if gpu_apps.returncode == 0 and gpu_apps.stdout.strip():
+                import os
+                for line in gpu_apps.stdout.strip().split("\n"):
+                    if line.strip():
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            pid = int(parts[0].strip())
+                            mem_mb = int(parts[1].strip())
+                            try:
+                                with open(f"/proc/{pid}/status", "r") as f:
+                                    status = f.read()
+                                    if "State:\tZ" in status:
+                                        raise RuntimeError(
+                                            f"Zombie process {pid} is holding {mem_mb}MB GPU memory. "
+                                            f"A system reboot is required to free this memory."
+                                        )
+                            except FileNotFoundError:
+                                pass
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[Combined Task {task_id}] nvidia-smi timeout during zombie check")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning(f"[Combined Task {task_id}] Zombie check failed: {e}")
+
+        # CRITICAL: Clear GPU state at task start to prevent orphan context issues
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                import gc
+                gc.collect()
+                logger.info(f"[Combined Task {task_id}] GPU cache cleared at task start")
+        except Exception as e:
+            logger.warning(f"[Combined Task {task_id}] Failed to clear GPU cache: {e}")
+
+        # Emit initial progress
+        emit_steering_progress(task_id, 0, "Initializing...")
+
+        # Import service lazily to avoid GPU initialization at module load
+        from ..services.steering_service import get_steering_service
+
+        service = get_steering_service()
+
+        # Define progress callback for WebSocket updates
+        def progress_callback(percent: int, message: str):
+            emit_steering_progress(
+                task_id=task_id,
+                percent=percent,
+                message=message,
+            )
+
+        # Run the synchronous combined steering operation
+        result = service.generate_combined_sync(
+            request_dict=request_dict,
+            sae_path=sae_path,
+            model_id=model_id,
+            model_path=model_path,
+            sae_layer=sae_layer,
+            sae_d_model=sae_d_model,
+            sae_n_features=sae_n_features,
+            sae_architecture=sae_architecture,
+            progress_callback=progress_callback,
+        )
+
+        # Emit completion
+        emit_steering_progress(
+            task_id=task_id,
+            percent=100,
+            message="Complete",
+            result=result,
+        )
+
+        logger.info(f"[Combined Task {task_id}] Completed successfully")
+        return result
+
+    except SoftTimeLimitExceeded:
+        logger.warning(f"[Combined Task {task_id}] Soft time limit exceeded, cleaning up...")
+        emit_steering_progress(
+            task_id=task_id,
+            percent=-1,
+            message="Timeout - cleaning up",
+            error="Task exceeded time limit (120s). Try reducing max_new_tokens.",
+        )
+
+        # Attempt graceful cleanup before SIGKILL
+        try:
+            from ..services.steering_service import get_steering_service
+            service = get_steering_service()
+            service.cleanup_gpu()
+        except Exception as e:
+            logger.error(f"[Combined Task {task_id}] Cleanup failed: {e}")
+
+        raise  # Re-raise to mark task as failed
+
+    except Exception as e:
+        logger.exception(f"[Combined Task {task_id}] Failed: {e}")
+        error_str = str(e)
+        emit_steering_progress(
+            task_id=task_id,
+            percent=-1,
+            message=f"Failed: {error_str[:200]}" if len(error_str) > 200 else f"Failed: {error_str}",
+            error=error_str,
+        )
+        raise
+
+    finally:
+        # =================================================================
+        # Cleanup: Clear hooks and reset state (keep model cached)
+        # =================================================================
+        try:
+            import torch
+            import gc
+
+            try:
+                from ..services.steering_service import get_steering_service, _generation_watchdog
+                service = get_steering_service()
+
+                hooks_cleared = 0
+                for mid, (model, _) in list(service._loaded_models.items()):
+                    try:
+                        cleared = service._clear_all_model_hooks(model)
+                        hooks_cleared += cleared
+                        service._reset_model_state(model)
+                    except Exception:
+                        pass
+
+                if hooks_cleared > 0:
+                    logger.info(f"[Combined Task {task_id}] Cleared {hooks_cleared} hooks")
+            except Exception as e:
+                logger.warning(f"[Combined Task {task_id}] Hook cleanup failed: {e}")
+
+            try:
+                from ..services.steering_service import _generation_watchdog
+                if _generation_watchdog is not None:
+                    _generation_watchdog._generation_active = False
+                    _generation_watchdog._generation_start = None
+            except Exception:
+                pass
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+
+            logger.info(f"[Combined Task {task_id}] Cleanup finished")
+
+        except Exception as cleanup_error:
+            logger.warning(f"[Combined Task {task_id}] Cleanup failed: {cleanup_error}")

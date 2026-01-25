@@ -134,8 +134,10 @@ class Settings(BaseSettings):
         description="Public URL for local Neuronpedia instance (e.g., http://neuron.mcslab.io)"
     )
     neuronpedia_local_admin_user_id: str = Field(
-        default="mistudio-admin",
-        description="User ID to use as creator when pushing to local Neuronpedia"
+        default="cljj57d3c000076ei38vwnv35",
+        description="User ID to use as creator when pushing to local Neuronpedia. "
+        "Must be in Neuronpedia's PUBLIC_ACTIVATIONS_USER_IDS list for activations to be visible. "
+        "Default is the SAELens creator ID which is pre-approved in Neuronpedia."
     )
 
 

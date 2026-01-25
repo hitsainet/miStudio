@@ -13,6 +13,8 @@ import {
   SteeringExperiment,
   SteeringExperimentListResponse,
   SteeringExperimentSaveRequest,
+  CombinedSteeringRequest,
+  CombinedSteeringResponse,
 } from '../types/steering';
 import { fetchAPI, buildQueryString } from './client';
 
@@ -25,7 +27,7 @@ import { fetchAPI, buildQueryString } from './client';
  */
 export interface SteeringTaskResponse {
   task_id: string;
-  task_type: 'compare' | 'sweep';
+  task_type: 'compare' | 'sweep' | 'combined';
   status: string;
   websocket_channel: string;
   message: string;
@@ -51,7 +53,7 @@ export interface SteeringTaskStatus {
 export interface SteeringResultResponse {
   task_id: string;
   status: SteeringTaskStatus;
-  result?: SteeringComparisonResponse | StrengthSweepResponse;
+  result?: SteeringComparisonResponse | StrengthSweepResponse | CombinedSteeringResponse;
 }
 
 /**
@@ -171,6 +173,25 @@ export async function submitAsyncSweep(
   request: SteeringStrengthSweepRequest
 ): Promise<SteeringTaskResponse> {
   return fetchAPI<SteeringTaskResponse>('/steering/async/sweep', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Submit an async combined multi-feature steering task.
+ * Applies ALL selected features simultaneously in a single generation pass.
+ * Returns immediately with task_id. Use WebSocket or polling for results.
+ *
+ * Use cases:
+ * - Test synergistic effects (e.g., "formal" + "positive" = professional tone)
+ * - Create complex behavioral changes with multiple influences
+ * - Explore feature interactions and emergent behaviors
+ */
+export async function submitAsyncCombined(
+  request: CombinedSteeringRequest
+): Promise<SteeringTaskResponse> {
+  return fetchAPI<SteeringTaskResponse>('/steering/async/combined', {
     method: 'POST',
     body: JSON.stringify(request),
   });

@@ -261,7 +261,8 @@ dead_neuron_threshold, resample_steps
 - **Suppression:** Reduce specific feature activations toward zero
 
 **Capabilities:**
-- Multi-feature steering (combine multiple interventions)
+- Multi-feature selection (select multiple features for steering)
+- Combined multi-feature generation (apply all features in single pass) [Planned]
 - Strength sweep (test multiple intensities in one run)
 - Comparison mode (steered vs. unsteered side-by-side)
 - Neuronpedia-compatible calibration
@@ -282,6 +283,7 @@ dead_neuron_threshold, resample_steps
 - `POST /api/v1/steering/generate` - Generate with steering
 - `POST /api/v1/steering/compare` - Compare steered vs. baseline
 - `POST /api/v1/steering/sweep` - Multi-strength test
+- `POST /api/v1/steering/combined` - Combined multi-feature generation [Planned]
 
 ---
 

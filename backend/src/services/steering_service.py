@@ -59,6 +59,9 @@ from ..schemas.steering import (
     SteeringStrengthSweepRequest,
     StrengthSweepResponse,
     StrengthSweepResult,
+    CombinedSteeringRequest,
+    CombinedSteeringResponse,
+    CombinedFeatureApplied,
 )
 
 logger = logging.getLogger(__name__)
@@ -2039,6 +2042,217 @@ class SteeringService:
 
             logger.info("[Strength Sweep] GPU cleanup completed")
 
+    async def generate_combined(
+        self,
+        request: CombinedSteeringRequest,
+        sae_path: Path,
+        model_id: str,
+        model_path: Optional[str] = None,
+        # SAE metadata from database for fallback
+        sae_layer: Optional[int] = None,
+        sae_d_model: Optional[int] = None,
+        sae_n_features: Optional[int] = None,
+        sae_architecture: Optional[str] = None,
+        # Progress callback for Celery tasks
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+    ) -> CombinedSteeringResponse:
+        """
+        Generate text with ALL selected features applied simultaneously.
+
+        Unlike generate_comparison which tests each feature separately, this method
+        applies all features together in a single generation pass. This enables:
+        - Testing synergistic effects (e.g., "formal" + "positive" = professional tone)
+        - Creating complex behavioral changes with multiple influences
+        - Exploring feature interactions and emergent behaviors
+
+        The steering vectors from all features are accumulated and applied at once:
+            total_steering = Σ (strength_i × decoder_direction_i)
+
+        Args:
+            request: Combined steering request with multiple features
+            sae_path: Path to the SAE directory
+            model_id: Model identifier
+            model_path: Optional local model path
+            sae_layer: SAE target layer from database
+            sae_d_model: Model hidden dimension from database
+            sae_n_features: Number of SAE features from database
+            sae_architecture: SAE architecture type from database
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            CombinedSteeringResponse with combined output and optional baseline
+        """
+        start_time = time.time()
+        combined_id = f"cmb_{uuid4().hex[:12]}"
+        model = None  # Track for cleanup
+
+        # Helper for progress emission
+        def emit_progress(percent: int, message: str):
+            if progress_callback:
+                progress_callback(percent, message)
+
+        try:
+            # Load SAE and model
+            emit_progress(5, "Loading SAE...")
+            # CRITICAL: Force reload SAE to avoid corruption from cached state
+            sae = await self.load_sae(
+                sae_path,
+                request.sae_id,
+                force_reload=True,
+                layer=sae_layer,
+                d_model=sae_d_model,
+                n_features=sae_n_features,
+                architecture=sae_architecture,
+            )
+
+            emit_progress(15, "Loading model...")
+            # CRITICAL: Always force reload the model to avoid corruption from cached state
+            model, tokenizer = await self.load_model(model_id, model_path, force_reload=True)
+
+            # CRITICAL: Clear any stale hooks from previous requests
+            self._clear_all_model_hooks(model)
+
+            # CRITICAL: Reset all model state to ensure NO context from prior prompts
+            self._reset_model_state(model)
+
+            # Build list of applied features for response
+            features_applied = [
+                CombinedFeatureApplied(
+                    feature_idx=f.feature_idx,
+                    layer=f.layer,
+                    strength=f.strength,
+                    label=f.label,
+                    color=f.color,
+                )
+                for f in request.selected_features
+            ]
+
+            # Calculate total steering strength (sum of absolute values)
+            total_steering_strength = sum(abs(f.strength) for f in request.selected_features)
+
+            # Generate unsteered baseline (if requested)
+            baseline_output = None
+            baseline_metrics = None
+            baseline_text = None
+
+            if request.include_baseline:
+                emit_progress(25, "Generating unsteered baseline...")
+                # Disable KV cache for consistency with steered generation
+                text, token_count, gen_time = await self._generate_text(
+                    model, tokenizer, request.prompt,
+                    request.generation_params,
+                    request.advanced_params,
+                    disable_cache=True,
+                )
+                baseline_text = text
+                baseline_output = text
+
+                if request.compute_metrics:
+                    baseline_metrics = await self._compute_metrics(
+                        model, tokenizer, request.prompt,
+                        text, token_count, gen_time,
+                    )
+
+            # Build feature configs for ALL features together
+            emit_progress(50, f"Generating with {len(request.selected_features)} features combined...")
+
+            # CRITICAL: Clear stale hooks before registering new ones
+            self._clear_all_model_hooks(model)
+
+            # CRITICAL: Reset model state before combined generation
+            self._reset_model_state(model)
+
+            # Create configs for ALL features
+            all_feature_configs = [
+                FeatureSteeringConfig(
+                    feature_idx=f.feature_idx,
+                    layer=f.layer,
+                    strength=f.strength,
+                    label=f.label,
+                    color=f.color,
+                )
+                for f in request.selected_features
+            ]
+
+            # Register steering hooks for ALL features at once
+            # The existing _create_steering_hook already accumulates multiple features!
+            handles = self._register_steering_hooks(model, sae, all_feature_configs)
+
+            try:
+                # Generate with ALL features applied simultaneously
+                combined_text, token_count, gen_time = await self._generate_text(
+                    model, tokenizer, request.prompt,
+                    request.generation_params,
+                    request.advanced_params,
+                    disable_cache=True,
+                )
+
+                # Compute metrics for combined output
+                combined_metrics = None
+                if request.compute_metrics:
+                    feature_labels = [
+                        f.label or f"Feature {f.feature_idx}"
+                        for f in request.selected_features
+                    ]
+                    combined_metrics = await self._compute_metrics(
+                        model, tokenizer, request.prompt,
+                        combined_text, token_count, gen_time,
+                        unsteered_text=baseline_text,
+                        feature_labels=feature_labels,
+                    )
+
+            finally:
+                # Clean up hooks
+                for handle in handles:
+                    handle.remove()
+
+                # CRITICAL: Reset state after generation
+                self._reset_model_state(model)
+
+                # Clear GPU cache
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+            emit_progress(90, "Finalizing results...")
+
+            total_time_ms = int((time.time() - start_time) * 1000)
+
+            logger.info(
+                f"[Combined Steering] Generated with {len(request.selected_features)} features "
+                f"(total strength: {total_steering_strength:.1f}) in {total_time_ms}ms"
+            )
+
+            return CombinedSteeringResponse(
+                combined_id=combined_id,
+                sae_id=request.sae_id,
+                model_id=model_id,
+                prompt=request.prompt,
+                combined_output=combined_text,
+                features_applied=features_applied,
+                baseline_output=baseline_output,
+                combined_metrics=combined_metrics,
+                baseline_metrics=baseline_metrics,
+                total_steering_strength=total_steering_strength,
+                total_time_ms=total_time_ms,
+                created_at=datetime.utcnow(),
+            )
+
+        except Exception as e:
+            logger.error(f"[Combined Steering] Error during generate_combined: {e}")
+            raise
+
+        finally:
+            # CRITICAL: Always clean up GPU memory, even on error
+            if model is not None:
+                self._clear_all_model_hooks(model)
+            self.cleanup_gpu(model)
+
+            # CRITICAL: Ensure model stays on GPU for subsequent requests
+            if model is not None:
+                self._ensure_model_on_gpu(model)
+
+            logger.info("[Combined Steering] GPU cleanup completed")
+
     def unload_sae(self, sae_id: str) -> bool:
         """
         Unload a cached SAE from memory and clean up GPU.
@@ -2361,6 +2575,63 @@ class SteeringService:
         try:
             result = loop.run_until_complete(
                 self.generate_strength_sweep(
+                    request=request,
+                    sae_path=Path(sae_path),
+                    model_id=model_id,
+                    model_path=model_path,
+                    sae_layer=sae_layer,
+                    sae_d_model=sae_d_model,
+                    sae_n_features=sae_n_features,
+                    sae_architecture=sae_architecture,
+                    progress_callback=progress_callback,
+                )
+            )
+            # Convert Pydantic model to dict for JSON serialization
+            return result.model_dump(mode="json")
+        finally:
+            loop.close()
+
+    def generate_combined_sync(
+        self,
+        request_dict: Dict[str, Any],
+        sae_path: str,
+        model_id: str,
+        model_path: Optional[str] = None,
+        sae_layer: Optional[int] = None,
+        sae_d_model: Optional[int] = None,
+        sae_n_features: Optional[int] = None,
+        sae_architecture: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Synchronous wrapper for generate_combined.
+
+        Used by Celery tasks where async is not needed. Converts request dict
+        to Pydantic model and runs the async method synchronously.
+
+        Args:
+            request_dict: Serialized CombinedSteeringRequest as dict
+            sae_path: Path to SAE weights file
+            model_id: Model identifier for HuggingFace loading
+            model_path: Optional local path to model weights
+            sae_layer: SAE layer index
+            sae_d_model: SAE model dimension
+            sae_n_features: Number of SAE features
+            sae_architecture: SAE architecture type
+            progress_callback: Optional callback for progress updates (percent, message)
+
+        Returns:
+            Dict representation of CombinedSteeringResponse
+        """
+        # Convert request_dict back to Pydantic model
+        request = CombinedSteeringRequest(**request_dict)
+
+        # Run the async method synchronously
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                self.generate_combined(
                     request=request,
                     sae_path=Path(sae_path),
                     model_id=model_id,

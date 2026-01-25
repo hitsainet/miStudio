@@ -29,6 +29,8 @@ import {
   FEATURE_COLOR_ORDER,
   BatchPromptResult,
   BatchState,
+  CombinedSteeringRequest,
+  CombinedSteeringResponse,
 } from '../types/steering';
 import { SAE } from '../types/sae';
 import * as steeringApi from '../api/steering';
@@ -147,6 +149,59 @@ function createSweepResolver(
   });
 }
 
+// Combined resolver for WebSocket-based combined steering coordination
+interface CombinedResolver {
+  resolve: (result: CombinedSteeringResponse) => void;
+  reject: (error: Error) => void;
+  taskId: string;
+  timeoutId: ReturnType<typeof setTimeout>;
+  createdAt: number;
+}
+
+let pendingCombinedResolver: CombinedResolver | null = null;
+
+/**
+ * Cleanup the pending combined resolver safely.
+ */
+function cleanupCombinedResolver(): void {
+  if (pendingCombinedResolver) {
+    clearTimeout(pendingCombinedResolver.timeoutId);
+    pendingCombinedResolver = null;
+  }
+}
+
+/**
+ * Create a combined resolver for a specific task.
+ * Includes automatic timeout cleanup to prevent memory leaks.
+ */
+function createCombinedResolver(
+  taskId: string,
+  timeoutMs: number,
+  onTimeout: () => void
+): Promise<CombinedSteeringResponse> {
+  // Clean up any existing resolver first
+  cleanupCombinedResolver();
+
+  return new Promise<CombinedSteeringResponse>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      if (pendingCombinedResolver?.taskId === taskId) {
+        console.log(`[SteeringStore] Combined resolver timeout for task ${taskId}`);
+        pendingCombinedResolver = null;
+        onTimeout();
+        reject(new Error(`Timeout: combined generation took longer than ${timeoutMs / 1000}s`));
+      }
+    }, timeoutMs);
+
+    pendingCombinedResolver = {
+      resolve,
+      reject,
+      taskId,
+      timeoutId,
+      createdAt: Date.now(),
+    };
+  });
+}
+
 interface SteeringState {
   // Selected SAE
   selectedSAE: SAE | null;
@@ -184,6 +239,11 @@ interface SteeringState {
   // Strength sweep state
   isSweeping: boolean;
   sweepResults: StrengthSweepResponse | null;
+
+  // Combined mode state
+  combinedMode: boolean;
+  isCombinedGenerating: boolean;
+  combinedResults: CombinedSteeringResponse | null;
 
   // Experiment management
   experiments: SteeringExperiment[];
@@ -237,7 +297,7 @@ interface SteeringState {
 
   // Actions - Async Task Handling (WebSocket callbacks)
   handleAsyncProgress: (percent: number, message: string, currentFeature?: number, currentStrength?: number) => void;
-  handleAsyncCompleted: (result: SteeringComparisonResponse | StrengthSweepResponse) => void;
+  handleAsyncCompleted: (result: SteeringComparisonResponse | StrengthSweepResponse | CombinedSteeringResponse) => void;
   handleAsyncFailed: (error: string) => void;
 
   // Actions - Batch Processing
@@ -248,6 +308,11 @@ interface SteeringState {
   // Actions - Strength Sweep
   runStrengthSweep: (featureIdx: number, layer: number, strengthValues: number[]) => Promise<StrengthSweepResponse>;
   clearSweepResults: () => void;
+
+  // Actions - Combined Mode
+  setCombinedMode: (enabled: boolean) => void;
+  generateCombined: (includeBaseline?: boolean, computeMetrics?: boolean) => Promise<CombinedSteeringResponse>;
+  clearCombinedResults: () => void;
 
   // Actions - Progress Updates (WebSocket)
   updateProgress: (update: SteeringProgressUpdate) => void;
@@ -293,6 +358,9 @@ export const useSteeringStore = create<SteeringState>()(
       batchState: null,
       isSweeping: false,
       sweepResults: null,
+      combinedMode: false,
+      isCombinedGenerating: false,
+      combinedResults: null,
       experiments: [],
       experimentsLoading: false,
       experimentsPagination: {
@@ -751,20 +819,22 @@ export const useSteeringStore = create<SteeringState>()(
       },
 
       // Handle async completion from WebSocket
-      // This handles both comparison and sweep results
-      handleAsyncCompleted: (result: SteeringComparisonResponse | StrengthSweepResponse) => {
-        const { batchState, recentComparisons, taskId, isSweeping } = get();
+      // This handles comparison, sweep, and combined results
+      handleAsyncCompleted: (result: SteeringComparisonResponse | StrengthSweepResponse | CombinedSteeringResponse) => {
+        const { batchState, recentComparisons, taskId, isSweeping, isCombinedGenerating } = get();
         console.log('[SteeringStore] Async completed:', {
-          resultTaskId: 'comparison_id' in result ? result.comparison_id : ('sweep_id' in result ? result.sweep_id : 'unknown'),
+          resultTaskId: 'comparison_id' in result ? result.comparison_id : ('sweep_id' in result ? result.sweep_id : ('combined_id' in result ? result.combined_id : 'unknown')),
           storeTaskId: taskId,
           batchIsRunning: batchState?.isRunning,
           hasBatchResolver: !!pendingBatchResolver,
           batchResolverTaskId: pendingBatchResolver?.taskId,
           isSweeping,
+          isCombinedGenerating,
         });
 
-        // Check if this is a sweep result (has sweep_id field)
+        // Check result type
         const isSweepResult = 'sweep_id' in result;
+        const isCombinedResult = 'combined_id' in result;
 
         // If in sweep mode with a pending resolver for this task, resolve it
         if (isSweeping && pendingSweepResolver && pendingSweepResolver.taskId === taskId && isSweepResult) {
@@ -775,11 +845,20 @@ export const useSteeringStore = create<SteeringState>()(
           return;
         }
 
+        // If in combined mode with a pending resolver for this task, resolve it
+        if (isCombinedGenerating && pendingCombinedResolver && pendingCombinedResolver.taskId === taskId && isCombinedResult) {
+          console.log(`[SteeringStore] Resolving combined promise for task ${taskId}`);
+          const resolver = pendingCombinedResolver;
+          cleanupCombinedResolver();
+          resolver.resolve(result as CombinedSteeringResponse);
+          return;
+        }
+
         // Cast to comparison result for remaining logic
         const comparisonResult = result as SteeringComparisonResponse;
 
         // Save to recent comparisons (keep last 10) - only for comparison results
-        if (!isSweepResult) {
+        if (!isSweepResult && !isCombinedResult) {
           const newRecent = {
             id: comparisonResult.comparison_id,
             prompt: comparisonResult.prompt,
@@ -812,16 +891,25 @@ export const useSteeringStore = create<SteeringState>()(
       },
 
       // Handle async failure from WebSocket
-      // This handles both comparison and sweep failures
+      // This handles comparison, sweep, and combined failures
       handleAsyncFailed: (error: string) => {
         console.log('[SteeringStore] Async failed:', error);
-        const { batchState, taskId, isSweeping } = get();
+        const { batchState, taskId, isSweeping, isCombinedGenerating } = get();
 
         // If in sweep mode with a pending resolver for this task, reject it
         if (isSweeping && pendingSweepResolver && pendingSweepResolver.taskId === taskId) {
           console.log(`[SteeringStore] Rejecting sweep promise for task ${taskId}:`, error);
           const resolver = pendingSweepResolver;
           cleanupSweepResolver();
+          resolver.reject(new Error(error));
+          return;
+        }
+
+        // If in combined mode with a pending resolver for this task, reject it
+        if (isCombinedGenerating && pendingCombinedResolver && pendingCombinedResolver.taskId === taskId) {
+          console.log(`[SteeringStore] Rejecting combined promise for task ${taskId}:`, error);
+          const resolver = pendingCombinedResolver;
+          cleanupCombinedResolver();
           resolver.reject(new Error(error));
           return;
         }
@@ -838,6 +926,7 @@ export const useSteeringStore = create<SteeringState>()(
         // Single prompt mode - update state directly
         set({
           isGenerating: false,
+          isCombinedGenerating: false,
           error: error,
           progress: 0,
           progressMessage: null,
@@ -1141,6 +1230,92 @@ export const useSteeringStore = create<SteeringState>()(
       // Clear sweep results
       clearSweepResults: () => {
         set({ sweepResults: null });
+      },
+
+      // Set combined mode (all features applied together vs. individual outputs)
+      setCombinedMode: (enabled: boolean) => {
+        set({ combinedMode: enabled });
+      },
+
+      // Generate with combined mode (all features applied together)
+      generateCombined: async (includeBaseline = true, computeMetrics = true) => {
+        const { selectedSAE, selectedFeatures, prompts, generationParams, advancedParams } = get();
+
+        if (!selectedSAE) {
+          throw new Error('No SAE selected');
+        }
+
+        if (selectedFeatures.length === 0) {
+          throw new Error('No features selected');
+        }
+
+        // Use first prompt for combined mode (single prompt only)
+        const prompt = prompts[0]?.trim();
+        if (!prompt) {
+          throw new Error('No prompt provided');
+        }
+
+        set({
+          isCombinedGenerating: true,
+          error: null,
+          progress: 0,
+          progressMessage: 'Submitting combined steering request...',
+        });
+
+        try {
+          const request: CombinedSteeringRequest = {
+            sae_id: selectedSAE.id,
+            prompt,
+            selected_features: selectedFeatures,
+            generation_params: generationParams,
+            advanced_params: advancedParams ?? undefined,
+            include_baseline: includeBaseline,
+            compute_metrics: computeMetrics,
+          };
+
+          // Submit async task
+          const taskResponse = await steeringApi.submitAsyncCombined(request);
+          set({ taskId: taskResponse.task_id });
+
+          console.log(`[SteeringStore] Combined task submitted: ${taskResponse.task_id}`);
+
+          // Create resolver for WebSocket completion
+          const COMBINED_TIMEOUT_MS = 180000; // 3 minutes
+          const result = await createCombinedResolver(
+            taskResponse.task_id,
+            COMBINED_TIMEOUT_MS,
+            () => {
+              set({
+                isCombinedGenerating: false,
+                error: 'Combined generation timed out. Try again or reduce parameters.',
+              });
+            }
+          );
+
+          set({
+            combinedResults: result,
+            isCombinedGenerating: false,
+            progress: 100,
+            progressMessage: 'Complete',
+          });
+
+          return result;
+
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Combined generation failed';
+          set({
+            error: errorMessage,
+            isCombinedGenerating: false,
+            progress: 0,
+            progressMessage: null,
+          });
+          throw error;
+        }
+      },
+
+      // Clear combined results
+      clearCombinedResults: () => {
+        set({ combinedResults: null });
       },
 
       // Update progress (called by WebSocket)

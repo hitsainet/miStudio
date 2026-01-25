@@ -1,9 +1,9 @@
 # Technical Implementation Document: Model Steering
 
 **Document ID:** 006_FTID|Model_Steering
-**Version:** 1.0
-**Last Updated:** 2025-12-05
-**Status:** Implemented
+**Version:** 1.1 (Combined Mode Enhancement)
+**Last Updated:** 2026-01-24
+**Status:** Partially Implemented (Combined Mode Planned)
 **Related TDD:** [006_FTDD|Model_Steering](../tdds/006_FTDD|Model_Steering.md)
 
 ---
@@ -32,6 +32,13 @@
 3. Strength slider component
 4. Comparison results view
 5. Prompt template editor
+
+### Phase 5: Combined Multi-Feature Mode (Planned)
+1. Combined steering hook implementation
+2. Combined generation API endpoint
+3. Combined mode UI toggle
+4. Combined results display component
+5. Combined mode store integration
 
 ---
 
@@ -875,9 +882,9 @@ export const useSteeringStore = create<SteeringState>((set, get) => ({
 
 ## 3. Common Patterns
 
-### 3.1 Multi-Feature Steering
+### 3.1 Multi-Feature Steering (Isolated Mode - Implemented)
 ```python
-# Combine multiple feature interventions
+# Current: Generate separate output per feature
 def apply_multi_feature_steering(hidden_states, sae, configs):
     features = sae.encode(hidden_states)
 
@@ -886,6 +893,90 @@ def apply_multi_feature_steering(hidden_states, sae, configs):
 
     return sae.decode(features)
 ```
+
+### 3.2 Combined Multi-Feature Steering (Planned)
+```python
+# Planned: Apply all features together in single generation
+class CombinedSteeringHook:
+    """
+    Pre-computes combined steering vector from multiple features
+    for efficient single-pass generation.
+    """
+
+    def __init__(self, sae, feature_configs, calibration_factors):
+        self.sae = sae
+        self.feature_configs = feature_configs
+        self.calibration_factors = calibration_factors
+
+        # Pre-compute combined steering direction
+        self.combined_steering = self._compute_combined_vector()
+
+    def _compute_combined_vector(self):
+        """
+        Sum all feature steering directions into one vector.
+
+        Mathematical basis:
+        - Each feature's steering direction is W_dec[feature_idx, :]
+        - Combined steering = Σ (strength_i × calibration_i × direction_i)
+        """
+        W_dec = self.sae.W_dec
+        device = W_dec.device
+        d_model = W_dec.shape[-1]
+
+        combined = torch.zeros(d_model, device=device)
+
+        for config in self.feature_configs:
+            idx = config.feature_index
+            strength = config.strength
+            calibration = self.calibration_factors.get(idx, 1.0)
+
+            # Direction from SAE decoder
+            direction = W_dec[idx, :]
+
+            # Accumulate with scaling
+            combined += strength * calibration * direction
+
+        return combined
+
+    def __call__(self, module, input, output):
+        """Hook function - adds combined steering to residual."""
+        hidden = output[0] if isinstance(output, tuple) else output
+
+        # Broadcast add: [batch, seq, d_model] + [d_model]
+        modified = hidden + self.combined_steering
+
+        if isinstance(output, tuple):
+            return (modified,) + output[1:]
+        return modified
+
+
+# Usage in steering service
+async def generate_combined(self, request):
+    # Create combined hook
+    hook = CombinedSteeringHook(
+        sae=self.sae,
+        feature_configs=request.features,
+        calibration_factors=self._get_all_calibrations(request.features)
+    )
+
+    # Register and generate
+    handle = hook.register(self.model, self.layer)
+    try:
+        output = self._generate_raw(request.prompt, **request.gen_config)
+        return CombinedResult(
+            combined_output=output,
+            features_applied=request.features
+        )
+    finally:
+        handle.remove()
+```
+
+**Key Implementation Notes:**
+
+1. **Vector Accumulation**: Steering directions are summed, not applied sequentially
+2. **Pre-computation**: Combined vector computed once before generation starts
+3. **Direct Modification**: No SAE encode/decode during inference - faster
+4. **Calibration**: Each feature scaled by its calibration factor
 
 ### 3.2 Streaming Generation
 ```python
@@ -984,6 +1075,31 @@ def hook(module, input, output):
 # RIGHT - Process immediately, don't store
 def hook(module, input, output):
     return self.process_and_return(output)
+```
+
+### Pitfall 4: Combined Mode Feature Conflicts (Planned)
+```python
+# POTENTIAL ISSUE - Opposing features may cancel out
+features = [
+    {"feature_index": 42, "strength": +5},   # "formal language"
+    {"feature_index": 99, "strength": +5},   # "casual language"
+]
+# These may partially cancel, producing weak or unpredictable effect
+
+# RECOMMENDED - Start with complementary features
+features = [
+    {"feature_index": 42, "strength": +3},   # "formal language"
+    {"feature_index": 156, "strength": +2},  # "positive sentiment"
+]
+# Complementary features create more predictable combined effects
+
+# UI HINT - Show warning when potentially conflicting features selected
+def check_feature_conflicts(features):
+    # Check category labels for potential conflicts
+    categories = [f.category_label for f in features]
+    if has_opposing_categories(categories):
+        return "Warning: Selected features may have opposing effects"
+    return None
 ```
 
 ---

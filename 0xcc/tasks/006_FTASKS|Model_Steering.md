@@ -1,9 +1,9 @@
 # Feature Tasks: Model Steering
 
 **Document ID:** 006_FTASKS|Model_Steering
-**Version:** 1.0
-**Last Updated:** 2025-12-05
-**Status:** Implemented
+**Version:** 1.1 (Combined Mode Enhancement)
+**Last Updated:** 2026-01-24
+**Status:** Partially Implemented (Phase 7 Pending)
 **Related PRD:** [006_FPRD|Model_Steering](../prds/006_FPRD|Model_Steering.md)
 
 ---
@@ -18,8 +18,9 @@
 | Phase 4: Prompt Templates | 4 tasks | ✅ Complete |
 | Phase 5: Frontend Store | 3 tasks | ✅ Complete |
 | Phase 6: UI Components | 6 tasks | ✅ Complete |
+| Phase 7: Combined Multi-Feature Mode | 7 tasks | ⏳ Pending |
 
-**Total: 24 tasks**
+**Total: 31 tasks (24 complete, 7 pending)**
 
 ---
 
@@ -225,6 +226,77 @@
 
 ---
 
+## Phase 7: Combined Multi-Feature Mode (FR-2.5)
+
+### Task 7.1: Create Combined Steering Hook
+- [ ] Create `CombinedSteeringHook` class in `forward_hooks.py`
+- [ ] Implement `_compute_combined_vector()` method
+- [ ] Pre-compute steering direction from SAE decoder weights
+- [ ] Apply accumulated steering to residual stream
+- [ ] Handle calibration factor per feature
+
+**Files:**
+- `backend/src/ml/forward_hooks.py`
+
+### Task 7.2: Add Combined Generation Service Method
+- [ ] Add `generate_combined()` method to `SteeringService`
+- [ ] Support `include_baseline` flag for comparison
+- [ ] Return combined output with all features applied
+- [ ] Add calibration factor batching
+
+**Files:**
+- `backend/src/services/steering_service.py`
+
+### Task 7.3: Create Combined API Endpoint
+- [ ] Add `CombinedSteeringRequest` schema
+- [ ] Add `CombinedSteeringResponse` schema
+- [ ] Implement POST `/steering/combined` endpoint
+- [ ] Add endpoint to router
+
+**Files:**
+- `backend/src/schemas/steering.py`
+- `backend/src/api/v1/endpoints/steering.py`
+
+### Task 7.4: Update Frontend API Client
+- [ ] Add `generateCombined()` function to `steering.ts`
+- [ ] Define `CombinedSteeringRequest` type
+- [ ] Define `CombinedSteeringResponse` type
+
+**Files:**
+- `frontend/src/api/steering.ts`
+- `frontend/src/types/steering.ts`
+
+### Task 7.5: Update Steering Store
+- [ ] Add `combinedMode: boolean` state
+- [ ] Add `combinedResults: CombinedSteeringResult | null` state
+- [ ] Add `setCombinedMode()` action
+- [ ] Add `generateCombined()` action
+- [ ] Modify `generate()` to branch based on mode
+
+**Files:**
+- `frontend/src/stores/steeringStore.ts`
+
+### Task 7.6: Add Combined Mode UI
+- [ ] Add "Combined Mode" checkbox to SteeringPanel
+- [ ] Disable when < 2 features selected
+- [ ] Show tooltip explaining combined mode
+- [ ] Update Generate button text based on mode
+
+**Files:**
+- `frontend/src/components/panels/SteeringPanel.tsx`
+
+### Task 7.7: Create Combined Results Display
+- [ ] Create `CombinedResults.tsx` component
+- [ ] Show baseline vs combined side-by-side (if comparison enabled)
+- [ ] Display list of applied features with strengths
+- [ ] Add diff highlighting
+- [ ] Support export to JSON
+
+**Files:**
+- `frontend/src/components/steering/CombinedResults.tsx`
+
+---
+
 ## Relevant Files Summary
 
 ### Backend
@@ -247,7 +319,24 @@
 | `frontend/src/components/steering/StrengthSlider.tsx` | Slider |
 | `frontend/src/components/steering/SelectedFeatureCard.tsx` | Card |
 | `frontend/src/components/steering/ComparisonResults.tsx` | Results |
+| `frontend/src/components/steering/CombinedResults.tsx` | Combined mode results (Planned) |
 | `frontend/src/components/panels/SteeringPanel.tsx` | Panel |
+
+---
+
+## Estimated Effort
+
+### Phase 7: Combined Multi-Feature Mode
+| Task | Estimate |
+|------|----------|
+| 7.1 Combined Steering Hook | 2-3 hours |
+| 7.2 Service Method | 1-2 hours |
+| 7.3 API Endpoint | 1 hour |
+| 7.4 Frontend API Client | 30 min |
+| 7.5 Store Updates | 1 hour |
+| 7.6 UI Toggle | 30 min |
+| 7.7 Combined Results Component | 2 hours |
+| **Total** | **8-10 hours** |
 
 ---
 

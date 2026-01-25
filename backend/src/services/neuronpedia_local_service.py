@@ -106,31 +106,42 @@ class NeuronpediaLocalClient:
             logger.info("Disconnected from Neuronpedia database")
 
     async def ensure_admin_user(self, user_id: str = None) -> str:
-        """Ensure the admin user exists, create if needed."""
+        """Ensure the admin user exists, create if needed.
+
+        The user_id must be in Neuronpedia's PUBLIC_ACTIVATIONS_USER_IDS list
+        for activations to be visible in the UI. The default value is the
+        SAELens creator ID which is pre-approved in Neuronpedia.
+
+        Args:
+            user_id: The user ID to use (must be a pre-approved Neuronpedia ID).
+                    Defaults to settings.neuronpedia_local_admin_user_id.
+
+        Returns:
+            The user ID (same as input, for use as creator_id in records).
+        """
         user_id = user_id or settings.neuronpedia_local_admin_user_id
 
         async with self._pool.acquire() as conn:
-            # Check if user exists
+            # Check if user exists by ID (not by name)
             user = await conn.fetchrow(
-                'SELECT id FROM "User" WHERE name = $1',
+                'SELECT id FROM "User" WHERE id = $1',
                 user_id
             )
 
             if not user:
-                # Create admin user
-                new_id = str(uuid4())[:25]  # cuid-like
+                # Create admin user with the approved ID
+                # Important: Use the approved ID directly, not a random UUID
                 email_unsubscribe_code = str(uuid4())  # Required NOT NULL field
                 await conn.execute(
                     '''
                     INSERT INTO "User" (id, name, "emailUnsubscribeCode", admin, bot, "createdAt")
                     VALUES ($1, $2, $3, true, true, $4)
                     ''',
-                    new_id, user_id, email_unsubscribe_code, datetime.utcnow()
+                    user_id, "neuronpedia-saelens", email_unsubscribe_code, datetime.utcnow()
                 )
-                logger.info(f"Created Neuronpedia admin user: {user_id}")
-                return new_id
+                logger.info(f"Created Neuronpedia admin user with approved ID: {user_id}")
 
-            return user['id']
+            return user_id
 
     async def create_model(
         self,
@@ -257,6 +268,7 @@ class NeuronpediaLocalClient:
         layer: str,
         index: str,
         creator_id: str,
+        source_set_name: str,
         pos_str: List[str],
         pos_values: List[float],
         neg_str: List[str],
@@ -269,6 +281,8 @@ class NeuronpediaLocalClient:
         """Create or update a Neuron record."""
         async with self._pool.acquire() as conn:
             # Upsert neuron
+            # Note: layer is the Source.id (e.g., "14-res-8k")
+            # sourceSetName is the SourceSet.name (e.g., "res-8k")
             await conn.execute(
                 '''
                 INSERT INTO "Neuron" (
@@ -288,7 +302,7 @@ class NeuronpediaLocalClient:
                     "freq_hist_data_bar_values" = EXCLUDED."freq_hist_data_bar_values",
                     "maxActApprox" = EXCLUDED."maxActApprox"
                 ''',
-                model_id, layer, index, creator_id, layer,  # sourceSetName = layer for SAEs
+                model_id, layer, index, creator_id, source_set_name,
                 pos_str, pos_values, neg_str, neg_values,
                 frac_nonzero, freq_hist_heights, freq_hist_values,
                 max_act_approx, datetime.utcnow()
@@ -497,11 +511,19 @@ class NeuronpediaLocalPushService:
 
             histogram_service = get_histogram_service()
 
+            # Create progress callback that maps histogram progress (0-100%) to overall (40-50%)
+            def histogram_progress_callback(completed: int, total: int, message: str):
+                if progress_callback and total > 0:
+                    # Map to 40-50% range
+                    pct = 40 + int((completed / total) * 10)
+                    progress_callback(pct, f"Computing histograms... ({completed}/{total})")
+
             histogram_results = await histogram_service.compute_histograms_for_sae(
                 db=db,
                 sae_id=sae.id,
                 n_bins=50,
                 log_scale=True,
+                progress_callback=histogram_progress_callback,
                 force_recompute=False,
             )
 
@@ -533,10 +555,14 @@ class NeuronpediaLocalPushService:
         model_id = "".join(c for c in model_id if c.isalnum() or c in "-.")
         return model_id
 
-    def _generate_source_id(self, layer: int, n_features: int) -> str:
-        """Generate a source ID like '0-res-16k'."""
+    def _generate_source_id(self, layer: int, source_set_name: str) -> str:
+        """Generate a source ID like '0-res-16k' from layer and source set name."""
+        return f"{layer}-{source_set_name}"
+
+    def _generate_source_set_name(self, n_features: int) -> str:
+        """Generate a source set name like 'res-16k' from feature count."""
         k_features = n_features // 1000
-        return f"{layer}-res-{k_features}k"
+        return f"res-{k_features}k"
 
     async def push_sae_to_local(
         self,
@@ -603,9 +629,11 @@ class NeuronpediaLocalPushService:
             n_features = sae.n_features or 16384
 
             # Generate IDs
+            # Source set name is like "res-8k" (without layer number)
+            # Source ID is like "14-res-8k" (layer-sourceset_name)
             np_model_id = self._generate_model_id(model_name)
-            np_source_id = self._generate_source_id(layer, n_features)
-            np_source_set_name = np_source_id
+            np_source_set_name = self._generate_source_set_name(n_features)
+            np_source_id = self._generate_source_id(layer, np_source_set_name)
 
             if progress_callback:
                 progress_callback(5, f"Creating model: {np_model_id}")
@@ -749,9 +777,10 @@ class NeuronpediaLocalPushService:
                 # Create neuron
                 await client.upsert_neuron(
                     model_id=np_model_id,
-                    layer=np_source_id,
+                    layer=np_source_id,  # Source.id like "14-res-8k"
                     index=str(feature.neuron_index),
                     creator_id=creator_id,
+                    source_set_name=np_source_set_name,  # SourceSet.name like "res-8k"
                     pos_str=pos_str,
                     pos_values=pos_values,
                     neg_str=neg_str,

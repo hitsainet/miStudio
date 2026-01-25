@@ -350,3 +350,53 @@ export function getStrengthWarningLevel(strength: number): 'normal' | 'caution' 
 export function strengthToMultiplier(strength: number): number {
   return 1 + strength;
 }
+
+
+// ============================================================================
+// Combined Multi-Feature Steering Types
+// ============================================================================
+
+/**
+ * Request to generate combined multi-feature steering output.
+ * Applies ALL selected features simultaneously in a single generation pass.
+ */
+export interface CombinedSteeringRequest {
+  sae_id: string;
+  model_id?: string;
+  prompt: string;
+  selected_features: SelectedFeature[];
+  generation_params?: GenerationParams;
+  advanced_params?: AdvancedGenerationParams;
+  include_baseline?: boolean;
+  compute_metrics?: boolean;
+}
+
+/**
+ * Feature applied in combined steering mode.
+ */
+export interface CombinedFeatureApplied {
+  feature_idx: number;
+  layer: number;
+  strength: number;
+  label: string | null;
+  color: FeatureColor;
+}
+
+/**
+ * Response from combined multi-feature steering.
+ * Contains a single output where all features were applied together.
+ */
+export interface CombinedSteeringResponse {
+  combined_id: string;
+  sae_id: string;
+  model_id: string;
+  prompt: string;
+  combined_output: string;
+  features_applied: CombinedFeatureApplied[];
+  baseline_output: string | null;
+  combined_metrics: GenerationMetrics | null;
+  baseline_metrics: GenerationMetrics | null;
+  total_steering_strength: number;
+  total_time_ms: number;
+  created_at: string;
+}

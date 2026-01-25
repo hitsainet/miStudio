@@ -1,0 +1,276 @@
+# Neuronpedia Local Instance Deployment
+# This deployment is designed to work alongside miStudio on any k8s infrastructure.
+#
+# SCHEMA MIGRATION STRATEGY:
+# The webapp uses Prisma ORM. To ensure schema is always in sync:
+# 1. A migration init container runs `prisma db push` before the webapp starts
+# 2. This requires a "migrator" image that includes Prisma CLI
+# 3. The migrator image is built from the same source but retains node_modules
+#
+# To build the migrator image:
+#   docker build -t hitsai/neuronpedia-migrator:latest -f Dockerfile.migrator .
+#
+# Or use the webapp image directly if it includes Prisma CLI.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: neuronpedia
+
+---
+# Secrets for database credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: neuronpedia-secrets
+  namespace: neuronpedia
+type: Opaque
+stringData:
+  DB_PASSWORD: "neuronpedia_secure_pw_2026"
+  DATABASE_URL: "postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres-service:5432/neuronpedia"
+  POSTGRES_PRISMA_URL: "postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres-service:5432/neuronpedia"
+  POSTGRES_URL_NON_POOLING: "postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres-service:5432/neuronpedia"
+  NEXTAUTH_SECRET: "neuronpedia-nextauth-secret-change-in-production"
+
+---
+# ConfigMap for non-sensitive configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neuronpedia-config
+  namespace: neuronpedia
+data:
+  NEXTAUTH_URL: "http://k8s-neuron.mcslab.io"
+
+---
+# PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neuronpedia-postgres
+  namespace: neuronpedia
+spec:
+  serviceName: neuronpedia-postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neuronpedia-postgres
+  template:
+    metadata:
+      labels:
+        app: neuronpedia-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          env:
+            - name: POSTGRES_DB
+              value: neuronpedia
+            - name: POSTGRES_USER
+              value: neuronpedia
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neuronpedia-secrets
+                  key: DB_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: neuronpedia-postgres-service
+  namespace: neuronpedia
+spec:
+  selector:
+    app: neuronpedia-postgres
+  ports:
+    - port: 5432
+  clusterIP: None  # Headless service for StatefulSet
+
+---
+# Webapp Deployment
+# IMPORTANT: Schema migrations are handled by the run-migrations init container
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neuronpedia-webapp
+  namespace: neuronpedia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neuronpedia-webapp
+  template:
+    metadata:
+      labels:
+        app: neuronpedia-webapp
+    spec:
+      initContainers:
+        # 1. Wait for PostgreSQL to be ready
+        - name: wait-for-db
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for PostgreSQL..."
+              until pg_isready -h neuronpedia-postgres-service -p 5432 -U neuronpedia; do
+                sleep 2
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neuronpedia-secrets
+                  key: DB_PASSWORD
+
+        # 2. Run Prisma migrations/db push
+        # This ensures the database schema matches what the Prisma client expects
+        - name: run-migrations
+          image: hitsai/neuronpedia-migrator:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Running Prisma db push to sync schema..."
+              npx prisma db push --accept-data-loss --skip-generate
+              echo "Schema sync complete!"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: neuronpedia-secrets
+                  key: DATABASE_URL
+
+      containers:
+        - name: webapp
+          image: hitsai/neuronpedia-webapp:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: neuronpedia-secrets
+                  key: DATABASE_URL
+            - name: POSTGRES_PRISMA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: neuronpedia-secrets
+                  key: POSTGRES_PRISMA_URL
+            - name: POSTGRES_URL_NON_POOLING
+              valueFrom:
+                secretKeyRef:
+                  name: neuronpedia-secrets
+                  key: POSTGRES_URL_NON_POOLING
+            - name: NEXTAUTH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: neuronpedia-config
+                  key: NEXTAUTH_URL
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: neuronpedia-secrets
+                  key: NEXTAUTH_SECRET
+            - name: NODE_ENV
+              value: "production"
+            - name: IS_LOCALHOST
+              value: "true"
+            - name: SKIP_ENV_VALIDATION
+              value: "true"
+            - name: DEMO_MODE
+              value: "false"
+            - name: NEXT_PUBLIC_DEMO_MODE
+              value: "false"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+
+---
+# Webapp Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: neuronpedia-webapp-service
+  namespace: neuronpedia
+spec:
+  selector:
+    app: neuronpedia-webapp
+  ports:
+    - port: 80
+      targetPort: 3000
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: neuronpedia-ingress
+  namespace: neuronpedia
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: public
+  rules:
+    - host: k8s-neuron.mcslab.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: neuronpedia-webapp-service
+                port:
+                  number: 80

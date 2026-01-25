@@ -84,7 +84,98 @@ k8s_all() {
   k8s "kubectl get all -n $K8S_NS"
 }
 
+# ===========================
+# NEURONPEDIA HELPERS
+# ===========================
+NP_NS="neuronpedia"
+
+# Neuronpedia pod status
+np_status() {
+  k8s "kubectl get pods -n $NP_NS"
+}
+
+# Neuronpedia webapp logs
+np_logs() {
+  local lines=${1:-50}
+  k8s "kubectl logs -n $NP_NS deployment/neuronpedia-webapp --tail=$lines"
+}
+
+# Neuronpedia schema check - list expected vs actual columns
+np_schema() {
+  echo "=== Neuronpedia Schema Check ==="
+  k8s "kubectl exec -n $NP_NS neuronpedia-postgres-0 -- psql -U neuronpedia -d neuronpedia -c '
+    SELECT table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = '\\''public'\\''
+    ORDER BY table_name, ordinal_position
+  ' | head -100"
+}
+
+# Neuronpedia data summary
+np_data() {
+  echo "=== Neuronpedia Data Summary ==="
+  k8s "kubectl exec -n $NP_NS neuronpedia-postgres-0 -- psql -U neuronpedia -d neuronpedia -c '
+    SELECT
+      (SELECT COUNT(*) FROM \"Model\") as models,
+      (SELECT COUNT(*) FROM \"Neuron\") as neurons,
+      (SELECT COUNT(*) FROM \"Activation\") as activations,
+      (SELECT COUNT(*) FROM \"Explanation\") as explanations,
+      (SELECT COUNT(*) FROM \"Source\") as sources,
+      (SELECT COUNT(*) FROM \"SourceSet\") as source_sets
+  '"
+}
+
+# Neuronpedia purge all model data
+np_purge() {
+  echo "=== Purging Neuronpedia Model Data ==="
+  read -p "Are you sure you want to purge ALL model data? (y/N) " confirm
+  if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+    k8s "kubectl exec -n $NP_NS neuronpedia-postgres-0 -- psql -U neuronpedia -d neuronpedia -c '
+      UPDATE \"Model\" SET \"defaultSourceId\" = NULL, \"defaultSourceSetName\" = NULL;
+      DELETE FROM \"Source\";
+      DELETE FROM \"Model\";
+    '"
+    echo "Purge complete."
+    np_data
+  else
+    echo "Purge cancelled."
+  fi
+}
+
+# Neuronpedia restart webapp
+np_restart() {
+  echo "=== Restarting Neuronpedia Webapp ==="
+  k8s "kubectl rollout restart deployment/neuronpedia-webapp -n $NP_NS && kubectl rollout status deployment/neuronpedia-webapp -n $NP_NS --timeout=120s"
+}
+
+# Neuronpedia add missing column (for schema fixes)
+# Usage: np_add_column "TableName" "columnName" "TEXT"
+np_add_column() {
+  local table="$1"
+  local column="$2"
+  local type="${3:-TEXT}"
+  echo "=== Adding column $column to $table ==="
+  k8s "kubectl exec -n $NP_NS neuronpedia-postgres-0 -- psql -U neuronpedia -d neuronpedia -c 'ALTER TABLE \"$table\" ADD COLUMN IF NOT EXISTS \"$column\" $type;'"
+}
+
+# Full Neuronpedia deploy with schema sync
+np_deploy() {
+  echo "=== Pulling Neuronpedia image ===" && \
+  k8s "docker pull hitsai/neuronpedia-webapp:latest" && \
+  echo "=== Restarting deployment ===" && \
+  k8s "kubectl rollout restart deployment/neuronpedia-webapp -n $NP_NS" && \
+  echo "=== Waiting for rollout ===" && \
+  k8s "kubectl rollout status deployment/neuronpedia-webapp -n $NP_NS --timeout=180s" && \
+  echo "=== Pod Status ===" && \
+  k8s "kubectl get pods -n $NP_NS" && \
+  echo "" && \
+  echo "=== Data Summary ===" && \
+  np_data
+}
+
 echo "K8s helpers loaded. Available commands:"
+echo ""
+echo "  === MISTUDIO ==="
 echo "  k8s_check       - Check DockerHub image timestamps"
 echo "  k8s_deploy      - Full deploy (pull + restart + wait + verify schema)"
 echo "  k8s_schema      - Verify database schema"
@@ -96,3 +187,13 @@ echo "  k8s_logs_celery - Celery worker logs"
 echo "  k8s_gpu         - GPU status"
 echo "  k8s_all         - All k8s resources"
 echo "  k8s \"cmd\"       - Run any command on k8s host"
+echo ""
+echo "  === NEURONPEDIA ==="
+echo "  np_status       - Neuronpedia pod status"
+echo "  np_logs         - Neuronpedia webapp logs"
+echo "  np_schema       - Check database schema"
+echo "  np_data         - Show data summary (counts)"
+echo "  np_purge        - Purge all model data (with confirmation)"
+echo "  np_restart      - Restart webapp"
+echo "  np_add_column   - Add missing column: np_add_column Table column TYPE"
+echo "  np_deploy       - Full deploy (pull + restart + wait)"

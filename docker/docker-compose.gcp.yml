@@ -7,13 +7,11 @@
 # 3. DNS pointing gcp-dkr-mistudio.hitsai.net to this instance
 #
 # Usage:
-#   docker-compose -f docker-compose.gcp.yml up -d
+#   docker compose -f docker-compose.gcp.yml up -d
 #
 # To pull latest images:
-#   docker-compose -f docker-compose.gcp.yml pull
-#   docker-compose -f docker-compose.gcp.yml up -d
-
-version: '3.8'
+#   docker compose -f docker-compose.gcp.yml pull
+#   docker compose -f docker-compose.gcp.yml up -d
 
 services:
   # =========================================

@@ -848,8 +848,10 @@ def tokenize_dataset_task(
         # imports tqdm.auto.tqdm at module load time into datasets.utils.tqdm.tqdm
         # We must patch that class directly for progress to work with num_proc > 1
         import sys
+        import importlib
         from tqdm import tqdm as original_tqdm
-        import datasets.utils.tqdm as hf_tqdm_module
+        # Use importlib to get the actual MODULE (not the re-exported class from datasets.utils)
+        hf_tqdm_module = importlib.import_module('datasets.utils.tqdm')
 
         # Save all originals
         original_hf_tqdm = hf_tqdm_module.tqdm

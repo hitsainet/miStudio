@@ -22,8 +22,10 @@ Usage:
 
     # Monkey-patch tqdm at ALL locations for multiprocessing support
     import sys
-    import datasets.utils.tqdm as hf_tqdm_module
+    import importlib
     from tqdm import tqdm as original_tqdm
+    # Use importlib to get the MODULE (datasets.utils re-exports the class, not module)
+    hf_tqdm_module = importlib.import_module('datasets.utils.tqdm')
 
     # Save originals
     original_hf_tqdm = hf_tqdm_module.tqdm

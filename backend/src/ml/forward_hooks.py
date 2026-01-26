@@ -235,6 +235,10 @@ class HookManager:
                 return layer.post_attention_layernorm  # Llama-style
             elif hasattr(layer, "ln_2"):
                 return layer.ln_2  # GPT-2 style
+            elif hasattr(layer, "operator_norm"):
+                return layer.operator_norm  # LFM2 (LiquidAI) style
+            elif hasattr(layer, "ffn_norm"):
+                return layer.ffn_norm  # LFM2 alternative - pre-FFN norm
 
         elif hook_type == HookType.MLP:
             # Hook the MLP module output
@@ -249,6 +253,8 @@ class HookManager:
                 return layer.self_attn  # Llama-style
             elif hasattr(layer, "attn"):
                 return layer.attn  # GPT-2 style
+            elif hasattr(layer, "conv"):
+                return layer.conv  # LFM2 (LiquidAI) convolution layers
 
         # Log available attributes to help debug architecture mismatches
         layer_attrs = [attr for attr in dir(layer) if not attr.startswith('_')]

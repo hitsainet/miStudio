@@ -1137,6 +1137,46 @@ class ExtractionService:
             sae.eval()
             logger.info(f"SAE loaded on device: {device}")
 
+            # Fix for JumpReLU SAEs with miscalibrated thresholds
+            # Some trained SAEs have thresholds ~1.0 but encoder weights that produce
+            # pre-activations much smaller than 1.0, causing no features to fire.
+            # We detect this and rescale the threshold to be appropriate.
+            if architecture_type == "jumprelu" and hasattr(sae, 'activation'):
+                with torch.no_grad():
+                    # Get current threshold and encoder stats
+                    log_threshold = sae.activation.log_threshold
+                    threshold = torch.exp(log_threshold)
+                    mean_threshold = threshold.mean().item()
+
+                    # Estimate typical pre-activation magnitude
+                    # For constant_norm_rescale: x_normalized has norm sqrt(d_model)
+                    # z = x_normalized @ W_enc.t() ≈ sqrt(d_model) * |W_enc row|
+                    W_enc_row_norms = sae.W_enc.norm(dim=1)
+                    mean_enc_norm = W_enc_row_norms.mean().item()
+                    expected_z_scale = (hidden_dim ** 0.5) * mean_enc_norm
+
+                    # If threshold >> expected z scale, features won't fire
+                    if mean_threshold > 0.1 and expected_z_scale < mean_threshold * 0.5:
+                        # Threshold is too high relative to encoder magnitude
+                        # Rescale threshold to be ~10% of expected z magnitude
+                        target_threshold = expected_z_scale * 0.1
+                        scale_factor = target_threshold / mean_threshold
+
+                        logger.warning(
+                            f"JumpReLU SAE has miscalibrated threshold! "
+                            f"mean_threshold={mean_threshold:.4f}, expected_z_scale={expected_z_scale:.4f}. "
+                            f"Rescaling threshold by {scale_factor:.4f} (target={target_threshold:.6f})"
+                        )
+
+                        # Adjust log_threshold: new_threshold = old_threshold * scale_factor
+                        # log(new) = log(old) + log(scale_factor)
+                        sae.activation.log_threshold.data += torch.log(
+                            torch.tensor(scale_factor, device=device)
+                        )
+
+                        new_threshold = torch.exp(sae.activation.log_threshold).mean().item()
+                        logger.info(f"Threshold rescaled: {mean_threshold:.4f} -> {new_threshold:.6f}")
+
             # Find model record
             model_record = None
             if external_sae.model_id:

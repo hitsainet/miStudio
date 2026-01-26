@@ -271,6 +271,36 @@ def train_sae_task(
         num_sae_models = len(layer_hook_combinations)
         logger.info(f"Will train {num_sae_models} SAE(s): {len(training_layers)} layers × {len(hook_types_config)} hook types")
 
+        # CRITICAL: Detect actual hidden_dim from cached activations BEFORE creating SAEs
+        # This must happen before memory estimation and SAE initialization
+        if training.extraction_id is not None:
+            logger.info(f"Detecting hidden_dim from cached extraction: {training.extraction_id}")
+            from ..models.activation_extraction import ActivationExtraction
+
+            extraction = db.query(ActivationExtraction).filter(
+                ActivationExtraction.id == training.extraction_id
+            ).first()
+            if extraction and extraction.output_path:
+                extraction_path = settings.resolve_data_path(extraction.output_path)
+                # Find any activation file to peek at its shape
+                first_layer = training_layers[0]
+                first_hook = hook_types_config[0]
+                sample_file = extraction_path / f"layer_{first_layer}_{first_hook}.npy"
+                if sample_file.exists():
+                    # Peek at file shape without loading full data
+                    sample_acts = np.load(sample_file, mmap_mode='r')
+                    actual_hidden_dim = sample_acts.shape[2]  # (samples, seq_len, hidden_dim)
+                    if hp['hidden_dim'] != actual_hidden_dim:
+                        logger.warning(
+                            f"HIDDEN_DIM MISMATCH DETECTED: User-provided hidden_dim ({hp['hidden_dim']}) "
+                            f"does not match extraction's actual hidden dimension ({actual_hidden_dim}). "
+                            f"Overriding to use extraction's actual dimension."
+                        )
+                        hp['hidden_dim'] = actual_hidden_dim
+                    else:
+                        logger.info(f"Hidden dim verified: {actual_hidden_dim}")
+                    del sample_acts  # Release mmap
+
     try:
         # Memory budget validation
         logger.info("Validating memory budget...")

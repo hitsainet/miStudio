@@ -95,6 +95,8 @@ services:
       # Neuronpedia local instance configuration
       NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
       NEURONPEDIA_LOCAL_URL: http://gcp-dkr-neuron.hitsai.net
+      # Ollama configuration
+      OLLAMA_HOST: http://ollama:11434
     volumes:
       - mistudio_data:/data
     ports:
@@ -104,6 +106,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     deploy:
       resources:
         reservations:
@@ -134,6 +138,8 @@ services:
       INTERNAL_API_URL: http://backend:8000
       NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
       NEURONPEDIA_LOCAL_URL: http://gcp-dkr-neuron.hitsai.net
+      # Ollama configuration
+      OLLAMA_HOST: http://ollama:11434
     volumes:
       - mistudio_data:/data
     depends_on:
@@ -141,6 +147,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     deploy:
       resources:
         reservations:
@@ -219,6 +227,27 @@ services:
       - mistudio-net
 
   # =========================================
+  # OLLAMA (Local LLM inference)
+  # =========================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mistudio-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - mistudio-net
+
+  # =========================================
   # NGINX REVERSE PROXY
   # =========================================
   nginx:
@@ -241,6 +270,7 @@ volumes:
   neuronpedia_postgres_data:
   mistudio_redis_data:
   mistudio_data:
+  ollama_data:
 
 networks:
   mistudio-net:

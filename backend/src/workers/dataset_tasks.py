@@ -847,21 +847,29 @@ def tokenize_dataset_task(
         # This is critical for multiprocessing support - HuggingFace's datasets library
         # imports tqdm.auto.tqdm at module load time into datasets.utils.tqdm.tqdm
         # We must patch that class directly for progress to work with num_proc > 1
+        #
+        # CRITICAL: arrow_dataset.py does `from .utils import tqdm as hf_tqdm` at module load,
+        # caching a reference to the original tqdm class. We must also patch arrow_dataset.hf_tqdm
+        # directly, otherwise the cached reference is used when creating tqdm instances.
         import sys
         import importlib
         from tqdm import tqdm as original_tqdm
         # Use importlib to get the actual MODULE (not the re-exported class from datasets.utils)
         hf_tqdm_module = importlib.import_module('datasets.utils.tqdm')
+        # Also import arrow_dataset module to patch its cached hf_tqdm reference
+        arrow_dataset_module = importlib.import_module('datasets.arrow_dataset')
 
         # Save all originals
         original_hf_tqdm = hf_tqdm_module.tqdm
+        original_arrow_dataset_tqdm = arrow_dataset_module.hf_tqdm
 
         # Apply patches to all tqdm locations
         sys.modules['tqdm'].tqdm = TqdmTokenization
         sys.modules['tqdm.auto'].tqdm = TqdmTokenization
-        hf_tqdm_module.tqdm = TqdmTokenization  # KEY FIX: Patch HuggingFace's internal tqdm
+        hf_tqdm_module.tqdm = TqdmTokenization  # Patch datasets.utils.tqdm module
+        arrow_dataset_module.hf_tqdm = TqdmTokenization  # KEY FIX: Patch cached reference in arrow_dataset
 
-        logger.info(f"[TQDM_PATCH] Applied WebSocket tqdm patch to datasets.utils.tqdm for multiprocessing support")
+        logger.info(f"[TQDM_PATCH] Applied WebSocket tqdm patch to datasets.utils.tqdm AND datasets.arrow_dataset for multiprocessing support")
 
         # Tokenize dataset using multiprocessing (avoids OOM on large datasets)
         # Progress is now tracked via tqdm WebSocket bridge
@@ -902,7 +910,8 @@ def tokenize_dataset_task(
             # Always restore original tqdm regardless of success/failure
             sys.modules['tqdm'].tqdm = original_tqdm
             sys.modules['tqdm.auto'].tqdm = original_tqdm
-            hf_tqdm_module.tqdm = original_hf_tqdm  # Restore HuggingFace's tqdm
+            hf_tqdm_module.tqdm = original_hf_tqdm  # Restore datasets.utils.tqdm
+            arrow_dataset_module.hf_tqdm = original_arrow_dataset_tqdm  # Restore arrow_dataset cached reference
             logger.info(f"[TQDM_PATCH] Restored original tqdm classes")
 
         # Mark tokenization as complete - from here on, graceful shutdown is allowed

@@ -4,10 +4,14 @@ TqdmWebSocket Bridge
 This module provides a custom tqdm class that bridges HuggingFace dataset
 download and tokenization progress into the application's WebSocket progress system.
 
-IMPORTANT: For multiprocessing support (num_proc > 1), you MUST patch
-`datasets.utils.tqdm.tqdm` in addition to standard tqdm modules. HuggingFace's
-datasets library imports tqdm at module load time, so patching after import
-requires patching the HuggingFace internal tqdm class directly.
+IMPORTANT: For multiprocessing support (num_proc > 1), you MUST patch BOTH:
+1. `datasets.utils.tqdm.tqdm` - The module-level tqdm class
+2. `datasets.arrow_dataset.hf_tqdm` - The cached reference imported at module load time
+
+HuggingFace's datasets library imports tqdm at module load time via:
+    from .utils import tqdm as hf_tqdm
+This caches a reference to the original class in arrow_dataset.py. Simply patching
+datasets.utils.tqdm.tqdm is NOT enough - you must also patch the cached reference.
 
 Usage:
     from datasets import load_dataset
@@ -26,14 +30,17 @@ Usage:
     from tqdm import tqdm as original_tqdm
     # Use importlib to get the MODULE (datasets.utils re-exports the class, not module)
     hf_tqdm_module = importlib.import_module('datasets.utils.tqdm')
+    arrow_dataset_module = importlib.import_module('datasets.arrow_dataset')
 
     # Save originals
     original_hf_tqdm = hf_tqdm_module.tqdm
+    original_arrow_tqdm = arrow_dataset_module.hf_tqdm
 
     # Apply patches
     sys.modules['tqdm'].tqdm = tqdm_class
     sys.modules['tqdm.auto'].tqdm = tqdm_class
-    hf_tqdm_module.tqdm = tqdm_class  # CRITICAL for multiprocessing!
+    hf_tqdm_module.tqdm = tqdm_class  # Patch module-level class
+    arrow_dataset_module.hf_tqdm = tqdm_class  # CRITICAL: Patch cached reference!
 
     # Download/tokenize with progress tracking
     dataset = load_dataset(...)
@@ -43,6 +50,7 @@ Usage:
     sys.modules['tqdm'].tqdm = original_tqdm
     sys.modules['tqdm.auto'].tqdm = original_tqdm
     hf_tqdm_module.tqdm = original_hf_tqdm
+    arrow_dataset_module.hf_tqdm = original_arrow_tqdm
 """
 
 import logging

@@ -1,10 +1,10 @@
 # MechInterp Studio - GCP Docker Compose Deployment
-# URL: gcp-dkr-mistudio.hitsai.net
+# URL: mistudio.hitsai.net
 #
 # Prerequisites:
 # 1. Docker with NVIDIA Container Toolkit installed
 # 2. NVIDIA T4 GPU available
-# 3. DNS pointing gcp-dkr-mistudio.hitsai.net to this instance
+# 3. DNS pointing mistudio.hitsai.net to this instance
 #
 # Usage:
 #   docker compose -f docker-compose.gcp.yml up -d
@@ -94,7 +94,7 @@ services:
       INTERNAL_API_URL: http://backend:8000
       # Neuronpedia local instance configuration
       NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
-      NEURONPEDIA_LOCAL_URL: http://gcp-dkr-neuron.hitsai.net
+      NEURONPEDIA_LOCAL_URL: http://neuron.hitsai.net
       # Ollama configuration
       OLLAMA_HOST: http://ollama:11434
     volumes:
@@ -137,7 +137,7 @@ services:
       BACKEND_DIR: /app
       INTERNAL_API_URL: http://backend:8000
       NEURONPEDIA_LOCAL_DB_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
-      NEURONPEDIA_LOCAL_URL: http://gcp-dkr-neuron.hitsai.net
+      NEURONPEDIA_LOCAL_URL: http://neuron.hitsai.net
       # Ollama configuration
       OLLAMA_HOST: http://ollama:11434
     volumes:
@@ -212,7 +212,7 @@ services:
       DATABASE_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
       POSTGRES_PRISMA_URL: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
       POSTGRES_URL_NON_POOLING: postgresql://neuronpedia:neuronpedia_secure_pw_2026@neuronpedia-postgres:5432/neuronpedia
-      NEXTAUTH_URL: http://gcp-dkr-neuron.hitsai.net
+      NEXTAUTH_URL: http://neuron.hitsai.net
       NEXTAUTH_SECRET: neuronpedia-gcp-secret-change-in-production
       NODE_ENV: production
       IS_LOCALHOST: "true"

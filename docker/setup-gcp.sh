@@ -1,6 +1,6 @@
 #!/bin/bash
 # MechInterp Studio - GCP Deployment Setup Script
-# URL: gcp-dkr-mistudio.hitsai.net
+# URL: mistudio.hitsai.net
 #
 # Run this script on a fresh GCP instance with NVIDIA T4 GPU
 # Prerequisites: Ubuntu 22.04 LTS with NVIDIA drivers installed
@@ -111,9 +111,9 @@ echo "Service Status:"
 docker compose ps
 
 echo -e "\n${GREEN}Access URLs:${NC}"
-echo "  MechInterp Studio: http://gcp-dkr-mistudio.hitsai.net"
-echo "  Neuronpedia:       http://dkr-gcp-neuron.hitsai.net"
-echo "  API Docs:          http://gcp-dkr-mistudio.hitsai.net/api/docs"
+echo "  MechInterp Studio: http://mistudio.hitsai.net"
+echo "  Neuronpedia:       http://neuron.hitsai.net"
+echo "  API Docs:          http://mistudio.hitsai.net/api/docs"
 
 echo -e "\n${YELLOW}Useful Commands:${NC}"
 echo "  View logs:         docker compose logs -f"
@@ -122,4 +122,4 @@ echo "  Restart services:  docker compose restart"
 echo "  Update images:     docker compose pull && docker compose up -d"
 
 echo -e "\n${YELLOW}Note:${NC} Make sure port 80 is open in GCP firewall rules"
-echo -e "${YELLOW}Note:${NC} DNS for both gcp-dkr-mistudio.hitsai.net and dkr-gcp-neuron.hitsai.net must point to this instance"
+echo -e "${YELLOW}Note:${NC} DNS for both mistudio.hitsai.net and neuron.hitsai.net must point to this instance"

@@ -524,10 +524,22 @@ def train_sae_task(
                 cached_activations[(layer_idx, hook_type)] = layer_acts_tensor
                 logger.info(f"  Loaded shape: {layer_acts_mmap.shape} -> averaged to {layer_acts_tensor.shape} on GPU")
 
-            # Get sample count from first cached activation
+            # Get sample count and hidden dimension from first cached activation
             first_key = layer_hook_combinations[0]
             num_samples = cached_activations[first_key].shape[0]
-            logger.info(f"Cached activations ready: {num_samples} samples across {num_sae_models} SAEs (all on GPU)")
+            actual_hidden_dim = cached_activations[first_key].shape[1]
+
+            # CRITICAL: Override hp['hidden_dim'] with actual dimension from extraction
+            # This ensures SAE is initialized with correct dimensions
+            if hp['hidden_dim'] != actual_hidden_dim:
+                logger.warning(
+                    f"User-provided hidden_dim ({hp['hidden_dim']}) does not match "
+                    f"extraction's actual hidden dimension ({actual_hidden_dim}). "
+                    f"Using extraction's actual dimension."
+                )
+                hp['hidden_dim'] = actual_hidden_dim
+
+            logger.info(f"Cached activations ready: {num_samples} samples, hidden_dim={actual_hidden_dim}, across {num_sae_models} SAEs (all on GPU)")
 
         else:
             # Load dataset(s) and base model for on-the-fly activation extraction

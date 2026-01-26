@@ -152,6 +152,54 @@ else
     echo -e "${YELLOW}⚠${NC} nvidia-smi not found - GPU support unavailable"
 fi
 
+# Step 0b: Check critical Python dependencies are in sync with requirements.txt
+echo ""
+echo "Step 0b: Checking Python dependencies..."
+cd "$PROJECT_ROOT/backend"
+if [ -f "venv/bin/python" ] && [ -f "requirements.txt" ]; then
+    DEPS_OUT_OF_SYNC=""
+
+    # Check transformers version (critical for LFM2 support)
+    REQ_TRANSFORMERS=$(grep "^transformers==" requirements.txt | cut -d'=' -f3)
+    INSTALLED_TRANSFORMERS=$(venv/bin/python -c "import transformers; print(transformers.__version__)" 2>/dev/null || echo "NOT_INSTALLED")
+    if [ "$INSTALLED_TRANSFORMERS" != "$REQ_TRANSFORMERS" ]; then
+        DEPS_OUT_OF_SYNC="transformers ($INSTALLED_TRANSFORMERS -> $REQ_TRANSFORMERS)"
+    fi
+
+    # Check tokenizers version
+    REQ_TOKENIZERS=$(grep "^tokenizers==" requirements.txt | cut -d'=' -f3 | cut -d' ' -f1)
+    INSTALLED_TOKENIZERS=$(venv/bin/python -c "import tokenizers; print(tokenizers.__version__)" 2>/dev/null || echo "NOT_INSTALLED")
+    # Allow minor version differences (e.g., 0.22.0 vs 0.22.2)
+    REQ_TOKENIZERS_MAJOR=$(echo "$REQ_TOKENIZERS" | cut -d'.' -f1,2)
+    INSTALLED_TOKENIZERS_MAJOR=$(echo "$INSTALLED_TOKENIZERS" | cut -d'.' -f1,2)
+    if [ "$INSTALLED_TOKENIZERS_MAJOR" != "$REQ_TOKENIZERS_MAJOR" ]; then
+        DEPS_OUT_OF_SYNC="$DEPS_OUT_OF_SYNC tokenizers ($INSTALLED_TOKENIZERS -> $REQ_TOKENIZERS)"
+    fi
+
+    if [ -n "$DEPS_OUT_OF_SYNC" ]; then
+        echo -e "${YELLOW}⚠${NC}  Dependencies out of sync:$DEPS_OUT_OF_SYNC"
+        echo ""
+        read -p "  Sync venv with requirements.txt? (Y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            echo "  Syncing dependencies..."
+            source venv/bin/activate
+            pip install -q transformers==$REQ_TRANSFORMERS tokenizers==$REQ_TOKENIZERS 2>/dev/null
+            if [ $? -eq 0 ]; then
+                echo -e "  ${GREEN}✓${NC} Dependencies synced"
+            else
+                echo -e "  ${RED}✗${NC} Sync failed - run manually: pip install -r requirements.txt"
+            fi
+            deactivate
+        else
+            echo -e "  ${YELLOW}⚠${NC} Skipping sync - some features may not work (e.g., LFM2 models)"
+        fi
+    else
+        echo -e "${GREEN}✓${NC} Python dependencies in sync"
+    fi
+fi
+cd "$PROJECT_ROOT"
+
 echo ""
 echo "Step 1: Checking /etc/hosts for domains..."
 HOSTS_MISSING=""

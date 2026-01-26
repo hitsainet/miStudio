@@ -1083,9 +1083,30 @@ class ExtractionService:
             )
             logger.info(f"SAE format detected: {format_type}")
 
-            # Determine SAE dimensions
-            latent_dim = external_sae.n_features or sae_config.d_sae if sae_config else 16384
-            hidden_dim = external_sae.d_model or sae_config.d_in if sae_config else 2304
+            # Determine SAE dimensions - CRITICAL: infer from weights if config not available
+            # This handles miStudio format where sae_config is None
+            latent_dim = None
+            hidden_dim = None
+
+            # First try to infer from loaded state_dict weights (most reliable)
+            if 'W_enc' in sae_state_dict:
+                # W_enc shape is [latent_dim, hidden_dim]
+                weight_shape = sae_state_dict['W_enc'].shape
+                latent_dim = weight_shape[0]
+                hidden_dim = weight_shape[1]
+                logger.info(f"Inferred dimensions from W_enc: hidden_dim={hidden_dim}, latent_dim={latent_dim}")
+            elif 'encoder.weight' in sae_state_dict:
+                # encoder.weight shape is [latent_dim, hidden_dim]
+                weight_shape = sae_state_dict['encoder.weight'].shape
+                latent_dim = weight_shape[0]
+                hidden_dim = weight_shape[1]
+                logger.info(f"Inferred dimensions from encoder.weight: hidden_dim={hidden_dim}, latent_dim={latent_dim}")
+
+            # Fall back to config or database record if weights don't provide dimensions
+            if latent_dim is None:
+                latent_dim = external_sae.n_features or (sae_config.d_sae if sae_config else 16384)
+            if hidden_dim is None:
+                hidden_dim = external_sae.d_model or (sae_config.d_in if sae_config else 2304)
 
             # Create SAE model with appropriate architecture
             architecture_type = external_sae.architecture or "standard"

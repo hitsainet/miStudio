@@ -123,6 +123,16 @@ class HookManager:
 
         logger.info(f"Registered {len(self.hooks)} hooks total")
 
+        # CRITICAL: Fail if no hooks were registered
+        # This prevents silent failures where extraction "completes" but no activations are captured
+        if len(self.hooks) == 0:
+            raise ValueError(
+                f"No hooks were successfully registered for architecture '{architecture}'. "
+                f"Requested layers: {layer_indices}, hook_types: {[ht.value for ht in hook_types]}. "
+                f"This usually means the model's layer structure doesn't match expected patterns. "
+                f"Check that the architecture is correctly detected and layer modules exist."
+            )
+
     def _get_layers_module(self, architecture: str) -> Optional[nn.ModuleList]:
         """
         Get the transformer layers container for a given architecture.
@@ -240,6 +250,12 @@ class HookManager:
             elif hasattr(layer, "attn"):
                 return layer.attn  # GPT-2 style
 
+        # Log available attributes to help debug architecture mismatches
+        layer_attrs = [attr for attr in dir(layer) if not attr.startswith('_')]
+        logger.warning(
+            f"Could not find module for {hook_type.value} hook on {architecture}. "
+            f"Available layer attributes: {layer_attrs[:20]}..."  # First 20 to avoid log spam
+        )
         return None
 
     def clear_activations(self) -> None:

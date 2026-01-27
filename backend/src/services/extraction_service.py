@@ -1348,9 +1348,14 @@ class ExtractionService:
                             actual_length = len(batch_input_ids[batch_idx])
                             sample_activations = sample_activations[:actual_length]
 
-                            sae_features = sae.encode(
-                                sample_activations.to(device=device, dtype=torch.float32)
-                            ).detach()
+                            # For JumpReLU SAEs, normalize input first if the SAE uses normalization
+                            # (encode() doesn't normalize, but training uses normalized inputs)
+                            input_activations = sample_activations.to(device=device, dtype=torch.float32)
+                            if hasattr(sae, 'normalize') and hasattr(sae, 'normalize_activations'):
+                                if sae.normalize_activations != 'none':
+                                    input_activations, _ = sae.normalize(input_activations)
+
+                            sae_features = sae.encode(input_activations).detach()
                             batch_sae_features.append(sae_features)
 
                             # Get token strings preserving BPE markers for word reconstruction

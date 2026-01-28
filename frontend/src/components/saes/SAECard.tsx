@@ -24,6 +24,9 @@ import {
   FileJson,
   Send,
   ArrowUpCircle,
+  Clock,
+  Database,
+  Hash,
 } from 'lucide-react';
 import { SAE, SAESource, SAEStatus } from '../../types/sae';
 import { COMPONENTS } from '../../config/brand';
@@ -96,6 +99,43 @@ export function SAECard({
     }
     return `${Math.round(mb)} MB`;
   };
+
+  const formatSteps = (steps: number): string => {
+    if (steps >= 1_000_000) {
+      return `${(steps / 1_000_000).toFixed(1)}M`;
+    } else if (steps >= 1_000) {
+      return `${(steps / 1_000).toFixed(0)}K`;
+    }
+    return steps.toString();
+  };
+
+  const formatRelativeTime = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffHours < 1) return 'just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Get training info from metadata
+  const getTrainingInfo = () => {
+    if (sae.source !== SAESource.TRAINED) return null;
+
+    const meta = sae.sae_metadata;
+    const totalSteps =
+      meta?.training_total_steps || meta?.training_hyperparameters?.total_steps;
+    const completedAt = meta?.training_completed_at;
+    const datasetNames = meta?.training_dataset_names;
+
+    return { totalSteps, completedAt, datasetNames };
+  };
+
+  const trainingInfo = getTrainingInfo();
 
   const getStatusIcon = () => {
     switch (sae.status) {
@@ -224,6 +264,29 @@ export function SAECard({
             )}
             {sae.description && (
               <p className="text-xs text-slate-500 mt-1 truncate">{sae.description}</p>
+            )}
+            {/* Training Info for trained SAEs */}
+            {trainingInfo && (
+              <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+                {trainingInfo.totalSteps && (
+                  <span className="flex items-center gap-1" title="Training steps">
+                    <Hash className="w-3 h-3" />
+                    {formatSteps(trainingInfo.totalSteps)} steps
+                  </span>
+                )}
+                {trainingInfo.completedAt && (
+                  <span className="flex items-center gap-1" title={`Completed: ${new Date(trainingInfo.completedAt).toLocaleString()}`}>
+                    <Clock className="w-3 h-3" />
+                    {formatRelativeTime(trainingInfo.completedAt)}
+                  </span>
+                )}
+                {trainingInfo.datasetNames && trainingInfo.datasetNames.length > 0 && (
+                  <span className="flex items-center gap-1" title={`Datasets: ${trainingInfo.datasetNames.join(', ')}`}>
+                    <Database className="w-3 h-3" />
+                    {trainingInfo.datasetNames.length} dataset{trainingInfo.datasetNames.length > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>

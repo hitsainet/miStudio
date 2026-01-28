@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..models.external_sae import ExternalSAE, SAESource, SAEStatus, SAEFormat
 from ..models.training import Training, TrainingStatus
+from ..models.dataset import Dataset
 from ..schemas.sae import (
     SAEDownloadRequest,
     SAEImportFromTrainingRequest,
@@ -374,6 +375,29 @@ class SAEManagerService:
         # Calculate total size
         total_size = sum(f.stat().st_size for f in local_path.rglob("*") if f.is_file())
 
+        # Get dataset names from dataset_ids
+        dataset_names = []
+        dataset_ids = training.dataset_ids or []
+        if dataset_ids:
+            dataset_result = await db.execute(
+                select(Dataset.name).where(Dataset.id.in_(dataset_ids))
+            )
+            dataset_names = [row[0] for row in dataset_result.fetchall()]
+
+        # Build metadata with training info
+        sae_metadata = {
+            "training_hyperparameters": hyperparams,
+            "training_status": training.status,
+            "final_loss": training.current_loss,
+            "final_l0_sparsity": training.current_l0_sparsity,
+            "format_source": "community_format",
+            # New fields for SAE tile display
+            "training_completed_at": training.completed_at.isoformat() if training.completed_at else None,
+            "training_total_steps": training.total_steps,
+            "training_steps_completed": training.current_step,
+            "training_dataset_names": dataset_names,
+        }
+
         # Create SAE record
         db_sae = ExternalSAE(
             id=sae_id,
@@ -393,13 +417,7 @@ class SAEManagerService:
             local_path=str(local_path),
             file_size_bytes=total_size,
             progress=100.0,
-            sae_metadata={
-                "training_hyperparameters": hyperparams,
-                "training_status": training.status,
-                "final_loss": training.current_loss,
-                "final_l0_sparsity": training.current_l0_sparsity,
-                "format_source": "community_format",
-            },
+            sae_metadata=sae_metadata,
             downloaded_at=datetime.utcnow()
         )
 

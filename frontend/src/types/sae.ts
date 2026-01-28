@@ -205,6 +205,11 @@ export interface SAEMetadata {
   original_path?: string;
   activation_stats?: Record<string, any>;
   neuronpedia_url?: string;
+  // Training info (populated for source=trained SAEs)
+  training_completed_at?: string;
+  training_steps_completed?: number;
+  training_total_steps?: number;
+  training_dataset_names?: string[];
   [key: string]: any;
 }
 

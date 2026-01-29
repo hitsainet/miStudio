@@ -281,13 +281,21 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   }, [extraction.training_id, training, fetchTraining]);
 
   // Update metrics history when extraction receives WebSocket updates
+  // Track last update time to avoid duplicate entries from rapid updates
+  const lastUpdateTimeRef = useRef<number>(0);
+
   useEffect(() => {
-    // Only update if we have detailed metrics from WebSocket
-    if (
-      isActive &&
-      extraction.current_batch !== undefined &&
-      extraction.current_batch !== lastBatchRef.current
-    ) {
+    // Only update if we have detailed metrics from WebSocket and extraction is active
+    if (!isActive) return;
+    if (extraction.current_batch === undefined) return;
+
+    // Check if this is a new update (either batch changed OR enough time passed)
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
+    const batchChanged = extraction.current_batch !== lastBatchRef.current;
+
+    // Add entry if batch changed OR at least 1 second passed (for rate-based updates)
+    if (batchChanged || timeSinceLastUpdate >= 1000) {
       const newEntry: MetricsEntry = {
         timestamp: new Date().toISOString(),
         batch: extraction.current_batch || 0,
@@ -302,6 +310,7 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
       };
 
       lastBatchRef.current = extraction.current_batch || 0;
+      lastUpdateTimeRef.current = now;
 
       setMetricsHistory((prev) => {
         const updated = [...prev, newEntry];
@@ -312,8 +321,14 @@ export const ExtractionJobCard: React.FC<ExtractionJobCardProps> = ({
   }, [
     isActive,
     extraction.current_batch,
+    extraction.total_batches,
     extraction.samples_processed,
+    extraction.total_samples,
     extraction.samples_per_second,
+    extraction.eta_seconds,
+    extraction.features_in_heap,
+    extraction.heap_examples_count,
+    extraction.progress,
   ]);
 
   /**

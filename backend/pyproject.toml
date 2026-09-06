@@ -1,0 +1,179 @@
+[tool.poetry]
+name = "mistudio-backend"
+version = "0.5.0"
+description = "MechInterp Studio - Backend API for edge-deployed mechanistic interpretability"
+authors = ["MechInterp Studio Team"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+# Web Framework
+fastapi = "^0.104.0"  # Staying on 0.104.x until starlette/uvicorn updated together (Phase 3)
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+python-socketio = "^5.15.0"
+python-multipart = "^0.0.18"
+
+# Database
+sqlalchemy = "^2.0.0"
+asyncpg = "^0.31.0"
+alembic = "^1.17.0"
+psycopg2-binary = "^2.9.0"
+
+# Caching & Queue
+redis = "^5.0.0"  # Staying on 5.x until Phase 3 (redis 7.x is major upgrade)
+celery = "^5.6.0"
+
+# ML & AI
+torch = "^2.9.0"
+transformers = "^5.0.0"  # Upgraded from 4.50.x; SlidingWindowCache/LossKwargs constraints resolved
+datasets = "^2.14.0"  # Staying on 2.x until Phase 3 (datasets 4.x is major upgrade)
+tokenizers = "^0.22.2"  # 0.22.2+ allows huggingface-hub>=1.0
+bitsandbytes = "^0.49.0"
+accelerate = "^1.12.0"
+
+# Utils
+pydantic = "^2.12.0"
+pydantic-settings = "^2.12.0"
+python-dotenv = "^1.2.0"
+httpx = "^0.27.0"
+aiofiles = "^23.2.0"  # Staying on 23.x until Phase 3 (aiofiles 25.x is major upgrade)
+python-json-logger = "^2.0.7"  # Staying on 2.x until Phase 3 (4.x is major upgrade)
+tenacity = "^8.5.0"
+
+[tool.poetry.group.dev.dependencies]
+# Testing (staying on pytest 7.x until Phase 3 - pytest 9.x is major upgrade)
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.15.0"
+httpx = "^0.27.0"
+
+# Code Quality
+black = "^23.12.0"
+ruff = "^0.1.15"  # Staying on 0.1.x until Phase 3 (0.14.x has breaking changes)
+mypy = "^1.19.0"
+types-redis = "^4.6.0"
+types-aiofiles = "^23.2.0"
+coverage = "^7.13.0"
+
+# Development
+ipython = "^8.37.0"
+ipdb = "^0.13.13"
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "alembic/versions",
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+follow_imports = "normal"
+ignore_missing_imports = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "celery.*",
+    "transformers.*",
+    "datasets.*",
+    "torch.*",
+    "bitsandbytes.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --cov=src --cov-report=term-missing --cov-report=html"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+filterwarnings = [
+    "ignore::FutureWarning:torch.cuda",
+    "ignore::DeprecationWarning:datasets.utils._dill",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/alembic/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

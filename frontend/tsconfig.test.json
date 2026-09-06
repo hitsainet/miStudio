@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // `@types/node` is not a dependency of this package, so naming it here
+    // made the config fail to load outright. jest-dom ships its own types
+    // from the package root, which vitest/globals picks up.
+    "types": ["vitest/globals"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  // MIS-E2E-021. `exclude` is inherited from tsconfig.json, which excludes
+  // exactly the test files this config exists to check — and an inherited
+  // exclude beats a child's include. So this file was not merely unreferenced
+  // by any script: running it reported "No inputs were found" and checked
+  // nothing at all. Two independent reasons it could never have worked.
+  "exclude": ["node_modules", "dist"]
+}

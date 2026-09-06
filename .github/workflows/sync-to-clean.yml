@@ -1,0 +1,197 @@
+name: Sync to Clean Repository
+
+# Publishes a FILTERED snapshot of this repo to the public mirror
+# (hitsainet/miStudio).
+#
+# ── WHY THIS IS AN ORPHAN COMMIT, NOT A FILTERED BRANCH ────────────────────
+# This workflow used to `rm -rf` the excluded paths and then
+# `git push --force main`. The exclusion list was correct and the mirror's TIP
+# was genuinely clean — but the push shipped the whole branch, so all 1,209
+# unmodified source commits went with it. The mirror's HEAD~1 was our source
+# commit verbatim, and every excluded path was one command away:
+#
+#     git show HEAD~1:0xcc/audits/.../FINDINGS.md
+#
+# That published an SSH password (scripts/k8s-helpers.sh), five database dumps
+# (backups/), CLAUDE.md, and the whole 0xcc/ tree — and GitHub serves commits by
+# SHA regardless of reachability, so a later force-push does not retract them.
+# Recorded as MIS-E2E-143.
+#
+# The fix is not a longer exclusion list. `git checkout --orphan` creates a
+# commit with NO PARENTS, so there is no history to leak — not because the list
+# is right, but because nothing else exists to publish. Excluded BY
+# CONSTRUCTION, not by policy, which is the same discipline BR-002 applies to
+# band constants.
+#
+# The "Verify" step below then proves it against the pushed result, because the
+# absence of exactly that check is why this ran unnoticed for months.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    # HARD STOP: only run in Onegaishimas/miStudio
+    if: github.repository == 'Onegaishimas/miStudio'
+
+    runs-on: ubuntu-latest
+
+    env:
+      MIRROR: hitsainet/miStudio
+
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          # Depth 1 is deliberate and load-bearing: we publish a snapshot, not a
+          # history, so there is no reason to fetch one. Fetching the full
+          # history is what made the old failure possible.
+          fetch-depth: 1
+          # Check out the TRIGGERING ref. A tag event must snapshot the tagged
+          # tree, not whatever main happens to be.
+          ref: ${{ github.ref }}
+
+      - name: Remove excluded files and folders
+        run: |
+          set -euo pipefail
+          rm -rf 0xcc/
+          rm -rf .claude/
+          rm -f CLAUDE.md
+          rm -rf backups/
+          # docs/ is dev-internal EXCEPT the vendored public contracts:
+          #   docs/schemas/*.json    — frozen interchange schemas
+          #   docs/mcp-contract.md   — the generated MCP tool surface
+          # Both are required by mirror tests AND by consumers of the public
+          # repo. Stripping mcp-contract.md left the mirror's Backend Tests red
+          # on EVERY run from 2026-07-26 onward: the test asserts a file the
+          # sync deleted, so it could never pass there while the same suite
+          # stayed green in this repo.
+          find docs/ -mindepth 1 -maxdepth 1 \
+            ! -name schemas ! -name mcp-contract.md -exec rm -rf {} +
+          rm -rf scripts/
+          rm -rf .understand-anything/
+          echo "Removed excluded files"
+
+      - name: Build the orphan snapshot
+        run: |
+          set -euo pipefail
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+
+          VERSION="$(cat VERSION 2>/dev/null || echo unknown)"
+
+          # No parents. The published repo contains this commit and nothing else.
+          git checkout --orphan clean
+          git add -A
+          git commit -m "miStudio ${VERSION} — filtered snapshot from ${GITHUB_SHA::7}"
+
+          # Fail loudly rather than publishing a surprise.
+          PARENTS="$(git rev-list --parents -n1 HEAD | wc -w)"
+          if [ "$PARENTS" -ne 1 ]; then
+            echo "::error::orphan commit has parents — refusing to push"
+            exit 1
+          fi
+          echo "Built orphan snapshot: $(git rev-parse --short HEAD)"
+
+      - name: Push to clean repository
+        env:
+          SYNC_TOKEN: ${{ secrets.HITSAINET_SYNC }}
+        run: |
+          set -euo pipefail
+          git config --unset-all http.https://github.com/.extraheader || true
+          git config --global --unset-all http.https://github.com/.extraheader || true
+
+          REMOTE="https://x-access-token:${SYNC_TOKEN}@github.com/${MIRROR}.git"
+          git push --force "$REMOTE" clean:main
+
+          # TAGS MUST POINT AT THE ORPHAN, NEVER AT THE SOURCE COMMIT.
+          #
+          # `git push <remote> <source-tag>` pushes the objects needed to
+          # complete the tag — i.e. the source commit AND ITS ANCESTORS. That
+          # would reintroduce exactly the history the orphan snapshot exists to
+          # exclude. Verified experimentally: pushing a source tag to a
+          # single-commit mirror took it from 1 commit to 2, the second being
+          # the commit the snapshot had dropped.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            git tag -f "$TAG" HEAD          # HEAD is the orphan
+            git push --force "$REMOTE" "refs/tags/${TAG}"
+            echo "Tagged the orphan snapshot as ${TAG}"
+          fi
+
+          # RETARGET STALE TAGS. Force-pushing main to the orphan orphans the old
+          # commits, but ANY OTHER REF still anchors them as reachable — a clone
+          # then fetches the whole history back.
+          #
+          # Caught by the Verify step on this fix's first run: main was the orphan
+          # with 0 parents, and the mirror still reported 826 commits, because
+          # refs/tags/v0.5.0 pointed at an old source commit. One leftover tag held
+          # the entire history alive.
+          #
+          # The mirror is a snapshot: it holds exactly one commit, so every tag in
+          # it refers to that snapshot by definition. Retarget them all.
+          for ref in $(git ls-remote --tags "$REMOTE" | awk '{print $2}' | grep -v '\^{}$'); do
+            T="${ref#refs/tags/}"
+            git tag -f "$T" HEAD
+            git push --force "$REMOTE" "refs/tags/${T}"
+            echo "Retargeted stale tag ${T} onto the snapshot"
+          done
+
+      # ── The check whose absence let MIS-E2E-143 run for months ─────────────
+      # The old workflow force-pushed and assumed. This clones the PUBLISHED
+      # result and asserts the exclusion list holds across EVERY commit, not
+      # just the tip — the distinction the old one got wrong.
+      - name: Verify the published mirror
+        env:
+          SYNC_TOKEN: ${{ secrets.HITSAINET_SYNC }}
+        run: |
+          set -euo pipefail
+          REMOTE="https://x-access-token:${SYNC_TOKEN}@github.com/${MIRROR}.git"
+          rm -rf /tmp/verify
+          git clone --quiet "$REMOTE" /tmp/verify
+          cd /tmp/verify
+
+          FAILED=0
+
+          # --all covers branches AND tags, which is the point: a tag pointing at
+          # old history keeps it reachable even when main is a clean orphan.
+          COMMITS="$(git rev-list --all --count)"
+          echo "Published commits: ${COMMITS}"
+          if [ "$COMMITS" -ne 1 ]; then
+            echo "::error::mirror has ${COMMITS} commits; a snapshot must have exactly 1"
+            echo "::error::a ref other than main is probably anchoring old history:"
+            git show-ref | sed 's/^/    /'
+            FAILED=1
+          fi
+
+          # Every excluded path, checked against ALL commits — the check the old
+          # workflow never made. `git log --all -- <path>` finds a path in any
+          # commit's tree, reachable or not from the tip.
+          for p in 0xcc .claude CLAUDE.md backups scripts .understand-anything; do
+            if [ -n "$(git log --all --oneline -- "$p" 2>/dev/null)" ]; then
+              echo "::error::LEAK — '${p}' is present in published history"
+              FAILED=1
+            fi
+          done
+
+          # The two paths under docs/ that MUST survive the filter (mirror tests
+          # and external consumers both depend on them).
+          for p in docs/schemas docs/mcp-contract.md; do
+            if [ ! -e "$p" ]; then
+              echo "::error::MISSING — '${p}' must be published but is absent"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::mirror verification FAILED"
+            exit 1
+          fi
+          echo "Mirror verified: 1 commit, no excluded path in any commit."

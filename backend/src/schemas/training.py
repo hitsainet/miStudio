@@ -1,0 +1,497 @@
+"""
+Pydantic schemas for Training API endpoints.
+
+These schemas define the structure for request/response validation
+and serialization for all SAE training-related API operations.
+"""
+
+from datetime import datetime
+from typing import Optional, Dict, Any, List, Literal
+from enum import Enum
+
+from pydantic import BaseModel, Field, field_validator
+
+from ..models.training import TrainingStatus
+
+
+class SAEArchitectureType(str, Enum):
+    """SAE architecture types — each maps to a specific training framework."""
+
+    # Paper-grounded frameworks
+    STANDARD_SAELENS = "standard_saelens"    # Bricken et al. 2023 — L1 + constant_norm_rescale
+    STANDARD_ANTHROPIC = "standard_anthropic"  # Templeton et al. 2024 — L1 + anthropic normalization
+    JUMPRELU = "jumprelu"                     # Rajamanoharan et al. 2024 — L0 via STE
+    TOPK = "topk"                             # Gao et al. 2024 — structural TopK, aux dead loss
+    SKIP = "skip"                             # Community variant — L1 + skip connections
+    TRANSCODER = "transcoder"                 # Dunefsky et al. 2024 — MLP input→output
+
+    # Backward compatibility alias (maps to standard_saelens)
+    STANDARD = "standard"
+
+
+class TrainingHyperparameters(BaseModel):
+    """Training hyperparameters schema."""
+
+    # SAE Architecture
+    hidden_dim: int = Field(..., gt=0, description="Hidden dimension (input/output size)")
+    latent_dim: int = Field(..., gt=0, description="Latent dimension (SAE width)")
+    architecture_type: SAEArchitectureType = Field(
+        SAEArchitectureType.STANDARD_SAELENS,
+        description="SAE training framework"
+    )
+
+    # Layer configuration
+    training_layers: List[int] = Field(
+        default=[0],
+        min_length=1,
+        description="List of layer indices to train SAEs on (e.g., [0, 6, 12])"
+    )
+
+    # Hook type configuration (which activations to train on)
+    # Supports multiple hook types - will train separate SAE for each layer/hook combination
+    hook_types: List[Literal["residual", "mlp", "attention"]] = Field(
+        default=["residual"],
+        min_length=1,
+        description=(
+            "Activation hook types to train SAEs on. Options: 'residual' (residual stream), "
+            "'mlp' (MLP layer output), 'attention' (attention layer output). "
+            "Training will create one SAE per layer/hook_type combination. "
+            "E.g., 2 layers × 2 hook_types = 4 SAEs."
+        )
+    )
+
+    # Sparsity
+    l1_alpha: Optional[float] = Field(
+        None,
+        gt=0.0000001,
+        le=100.0,
+        description="L1 sparsity penalty coefficient. Required for L1-based frameworks (standard_saelens, standard_anthropic, skip, transcoder). Not used by TopK or JumpReLU."
+    )
+    target_l0: Optional[float] = Field(
+        None,
+        gt=0,
+        le=0.2,
+        description="Target L0 sparsity (fraction of active features, typically 0.01-0.05)"
+    )
+    top_k_sparsity: Optional[float] = Field(
+        None,
+        gt=0,
+        le=100.0,
+        description="DEPRECATED: Use top_k (integer) with architecture_type='topk' instead. Kept for backward compat."
+    )
+    normalize_activations: Optional[str] = Field(
+        "constant_norm_rescale",
+        description="Activation normalization: 'constant_norm_rescale' (SAELens), 'anthropic_rescale' (Anthropic), or 'none'"
+    )
+
+    # TopK-specific parameters (Gao et al. 2024, OpenAI)
+    top_k: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Number of top features to keep active per sample (TopK architecture only)"
+    )
+    aux_k: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Number of dead features for auxiliary loss reconstruction (default: top_k * 2)"
+    )
+    aux_loss_alpha: Optional[float] = Field(
+        None,
+        gt=0,
+        le=1.0,
+        description="Weight for auxiliary dead feature loss (default: 1/32 per Gao et al.)"
+    )
+    adam_epsilon: Optional[float] = Field(
+        None,
+        gt=0,
+        description="Adam optimizer epsilon. TopK uses 6.25e-10 per paper."
+    )
+
+    # JumpReLU-specific parameters (Gemma Scope architecture)
+    initial_threshold: Optional[float] = Field(
+        0.5,
+        gt=0,
+        le=5.0,
+        description="Initial threshold value for JumpReLU activation (default: 0.5). Should be close to expected pre-activation magnitude."
+    )
+    bandwidth: Optional[float] = Field(
+        0.01,
+        gt=0,
+        le=1.0,
+        description="KDE bandwidth (epsilon) for STE gradient estimation in JumpReLU (default: 0.01)"
+    )
+    sparsity_coeff: Optional[float] = Field(
+        None,
+        gt=0,
+        le=10.0,
+        description="L0 sparsity coefficient (λ) for JumpReLU. Applied to raw L0 count per sample (Gemma Scope formulation). Default: 1e-4. Typical range: 1e-5 to 1e-3."
+    )
+    normalize_decoder: bool = Field(
+        True,
+        description="Whether to normalize decoder columns to unit norm after each step (required for JumpReLU)"
+    )
+
+    # Training
+    learning_rate: float = Field(..., gt=0, description="Initial learning rate")
+    batch_size: int = Field(..., gt=0, description="Training batch size")
+    total_steps: int = Field(..., gt=0, description="Total training steps")
+    warmup_steps: int = Field(0, ge=0, description="Linear warmup steps for learning rate")
+    sparsity_warmup_steps: int = Field(
+        5000, ge=0, le=100000,
+        description="Steps to linearly ramp sparsity penalty (L1/L0) from 0 to full value. Prevents dead neurons from forming before features are learned."
+    )
+
+    # Optimization
+    weight_decay: float = Field(0.0, ge=0, description="Weight decay (L2 regularization)")
+    grad_clip_norm: Optional[float] = Field(None, gt=0, description="Gradient clipping norm")
+
+    # Checkpointing
+    checkpoint_interval: int = Field(1000, gt=0, description="Save checkpoint every N steps")
+    log_interval: int = Field(100, gt=0, description="Log metrics every N steps")
+
+    # Dead neuron handling
+    dead_neuron_threshold: int = Field(1000, gt=0, description="Steps before a neuron is considered dead")
+    resample_dead_neurons: bool = Field(True, description="Resample dead neurons during training")
+    resample_interval: int = Field(5000, gt=0, description="Resample dead neurons every N steps")
+
+    @field_validator("architecture_type", mode="before")
+    @classmethod
+    def normalize_architecture_type(cls, v):
+        """Map legacy 'standard' to 'standard_saelens' for backward compatibility."""
+        if v == "standard":
+            return "standard_saelens"
+        return v
+
+    @field_validator("training_layers")
+    @classmethod
+    def validate_training_layers(cls, v: List[int]) -> List[int]:
+        """Validate training_layers array."""
+        if not v:
+            raise ValueError("training_layers must contain at least one layer")
+        if any(layer < 0 for layer in v):
+            raise ValueError("All layer indices must be non-negative")
+        if len(v) != len(set(v)):
+            raise ValueError("training_layers must not contain duplicate layer indices")
+        return sorted(v)  # Return sorted list for consistency
+
+    @field_validator("hook_types", mode="before")
+    @classmethod
+    def normalize_hook_types(cls, v):
+        """
+        Normalize hook_types to a list for backward compatibility.
+
+        Accepts:
+        - List of hook types: ["residual", "mlp"]
+        - Single hook type string: "residual" (legacy format)
+        - None: defaults to ["residual"]
+        """
+        if v is None:
+            return ["residual"]
+        if isinstance(v, str):
+            return [v]  # Convert scalar to list for backward compat
+        if isinstance(v, list):
+            # Remove duplicates while preserving order
+            seen = set()
+            unique = []
+            for item in v:
+                if item not in seen:
+                    seen.add(item)
+                    unique.append(item)
+            return unique if unique else ["residual"]
+        return v
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "hidden_dim": 768,
+                "latent_dim": 16384,
+                "architecture_type": "standard_saelens",
+                "training_layers": [0, 6, 12],
+                "hook_types": ["residual", "mlp"],
+                "l1_alpha": 0.0005,
+                "target_l0": 0.05,
+                "normalize_activations": "constant_norm_rescale",
+                "learning_rate": 0.0003,
+                "batch_size": 4096,
+                "total_steps": 100000,
+                "warmup_steps": 1000,
+                "checkpoint_interval": 5000,
+                "log_interval": 100
+            }
+        }
+    }
+
+
+class TrainingCreate(BaseModel):
+    """Schema for creating a new training job."""
+
+    model_id: str = Field(..., min_length=1, description="Model ID to train SAE on")
+    dataset_ids: List[str] = Field(..., min_length=1, description="Dataset IDs for training data (supports multiple datasets)")
+    extraction_id: Optional[str] = Field(None, description="Activation extraction ID (backward compat, use extraction_ids)")
+    extraction_ids: Optional[List[str]] = Field(None, description="Extraction IDs for cached activations (one per dataset)")
+    hyperparameters: TrainingHyperparameters = Field(..., description="Training hyperparameters")
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_model_id(cls, v: str) -> str:
+        """Validate model ID format."""
+        if not v.startswith("m_"):
+            raise ValueError("model_id must start with 'm_'")
+        return v
+
+    @field_validator("dataset_ids")
+    @classmethod
+    def validate_dataset_ids(cls, v: List[str]) -> List[str]:
+        """Validate dataset IDs are non-empty."""
+        if not v or len(v) == 0:
+            raise ValueError("At least one dataset_id is required")
+        return v
+
+    @field_validator("extraction_id")
+    @classmethod
+    def validate_extraction_id(cls, v: Optional[str]) -> Optional[str]:
+        """Validate extraction ID format."""
+        if v is not None and not v.startswith("ext_m_"):
+            raise ValueError("extraction_id must start with 'ext_m_'")
+        return v
+
+    @field_validator("extraction_ids")
+    @classmethod
+    def validate_extraction_ids(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Validate extraction IDs format."""
+        if v is not None:
+            for ext_id in v:
+                if not ext_id.startswith("ext_m_"):
+                    raise ValueError(f"extraction_id '{ext_id}' must start with 'ext_m_'")
+        return v
+
+
+class TrainingUpdate(BaseModel):
+    """Schema for updating a training job (primarily for status changes)."""
+
+    status: Optional[TrainingStatus] = Field(None, description="Training status")
+    progress: Optional[float] = Field(None, ge=0, le=100, description="Training progress")
+    current_step: Optional[int] = Field(None, ge=0, description="Current training step")
+    current_loss: Optional[float] = Field(None, description="Current reconstruction loss")
+    current_l0_sparsity: Optional[float] = Field(None, description="Current L0 sparsity")
+    current_fvu: Optional[float] = Field(None, description="Fraction of Variance Unexplained (0=perfect, 1=mean-only)")
+    current_dead_neurons: Optional[int] = Field(None, ge=0, description="Current dead neuron count")
+    current_learning_rate: Optional[float] = Field(None, ge=0, description="Current learning rate")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+    error_traceback: Optional[str] = Field(None, description="Error traceback for debugging")
+
+
+# ── The PATCH BODY is not the internal update shape (MIS-E2E-106) ───────────
+#
+# The `*Update` schemas above are what the SERVICE accepts. They expose the
+# row's lifecycle `status` and the fields the Celery workers own, and the
+# service applies them with a blind `setattr` loop — which is correct for an
+# internal caller and catastrophic as a request body:
+#
+#   PATCH /api/trainings/{id} {"status": "completed"}
+#
+# against a running job did three things at once. It unlocked SAE import from a
+# partial checkpoint (`sae_manager_service` gates solely on
+# `status != COMPLETED`) with no `finalized_from_step` marker — the one signal
+# Feature 21 added to tell a salvaged run from a complete one. It made the job
+# uncancellable (`cancel_training` returns None for any terminal status, so it
+# silently no-ops while the worker keeps the GPU). And `progress: 100`,
+# `current_loss: 0.01`, `current_dead_neurons: 0` were writable in the same
+# request, so the record could be falsified to match.
+#
+# The fields cannot simply be deleted: internal callers legitimately write them
+# through these very schemas (`datasets.py` sets `status=PROCESSING` when it
+# queues tokenization). So the REQUEST gets its own narrow model, and the route
+# binds that. What a user may edit is a product decision; what a worker may
+# write is not the same list.
+
+
+# There is no `TrainingPatchRequest`. `TrainingUpdate` is ENTIRELY lifecycle and
+# worker-owned metric fields — status, progress, current_step, current_loss,
+# current_l0_sparsity, current_dead_neurons, current_learning_rate,
+# error_message, error_traceback — and the `trainings` table has no
+# user-editable column at all. Removing the unsafe fields therefore leaves
+# nothing, so `PATCH /api/trainings/{id}` is gone rather than reduced to a route
+# whose only valid body is `{}`. It had no caller: the frontend issues no PATCH
+# to it, no MCP tool wraps it, and no test exercised it.
+
+
+class TrainingResponse(BaseModel):
+    """Schema for training job response."""
+
+    id: str = Field(..., description="Training job ID (format: train_{uuid})")
+    model_id: str = Field(..., description="Model ID")
+    dataset_ids: List[str] = Field(..., description="Dataset IDs for training")
+    dataset_id: str = Field(..., description="Primary dataset ID (first in list, for backward compat)")
+    extraction_id: Optional[str] = Field(None, description="Extraction ID (backward compat, first in extraction_ids)")
+    extraction_ids: Optional[List[str]] = Field(None, description="Extraction IDs for cached activations (one per dataset)")
+
+    status: TrainingStatus = Field(..., description="Current training status")
+    progress: float = Field(..., description="Training progress (0-100)")
+    current_step: int = Field(..., description="Current training step")
+    total_steps: int = Field(..., description="Total training steps")
+    finalized_from_step: Optional[int] = Field(
+        None,
+        description=(
+            "Checkpoint step this run was finalized from after being stopped "
+            "early; None if it ran to completion. status is 'completed' in both "
+            "cases, so this is what distinguishes a full run from a salvaged one."
+        ),
+    )
+
+    hyperparameters: Dict[str, Any] = Field(..., description="Training hyperparameters")
+
+    # Current metrics
+    current_loss: Optional[float] = Field(None, description="Current reconstruction loss")
+    current_l0_sparsity: Optional[float] = Field(None, description="Current L0 sparsity")
+    current_fvu: Optional[float] = Field(None, description="Fraction of Variance Unexplained: var(x-x_hat)/var(x). 0=perfect reconstruction, 1=mean-only. NULL when the architecture does not report it.")
+    current_dead_neurons: Optional[int] = Field(None, description="Current dead neuron count")
+    current_learning_rate: Optional[float] = Field(None, description="Current learning rate")
+
+    # Error handling
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+
+    # Paths
+    checkpoint_dir: Optional[str] = Field(None, description="Checkpoint directory path")
+    logs_path: Optional[str] = Field(None, description="Logs file path")
+
+    # Celery
+    celery_task_id: Optional[str] = Field(None, description="Celery task ID")
+
+    # Timestamps
+    created_at: datetime = Field(..., description="Job creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+    started_at: Optional[datetime] = Field(None, description="Training start timestamp")
+    completed_at: Optional[datetime] = Field(None, description="Training completion timestamp")
+
+    model_config = {
+        "from_attributes": True,
+        "json_schema_extra": {
+            "example": {
+                "id": "train_abc123",
+                "model_id": "m_model123",
+                "dataset_ids": ["ds_dataset456", "ds_dataset789"],
+                "dataset_id": "ds_dataset456",
+                "extraction_id": None,
+                "extraction_ids": None,
+                "status": "running",
+                "progress": 45.5,
+                "current_step": 45500,
+                "total_steps": 100000,
+                "hyperparameters": {
+                    "hidden_dim": 768,
+                    "latent_dim": 16384,
+                    "l1_alpha": 0.001,
+                    "learning_rate": 0.0003
+                },
+                "current_loss": 0.0234,
+                "current_l0_sparsity": 0.05,
+                "current_dead_neurons": 42,
+                "current_learning_rate": 0.00028
+            }
+        }
+    }
+
+
+class TrainingListResponse(BaseModel):
+    """Schema for paginated list of training jobs."""
+
+    data: List[TrainingResponse] = Field(..., description="List of training jobs")
+    pagination: Dict[str, Any] = Field(..., description="Pagination metadata")
+    status_counts: Dict[str, int] = Field(..., description="Count of trainings by status (all, running, completed, failed)")
+
+
+class TrainingMetricResponse(BaseModel):
+    """Schema for a single training metric record."""
+
+    id: int = Field(..., description="Metric record ID")
+    training_id: str = Field(..., description="Training job ID")
+    step: int = Field(..., description="Training step")
+    timestamp: datetime = Field(..., description="Timestamp")
+
+    # Loss metrics
+    loss: float = Field(..., description="Total reconstruction loss")
+    loss_reconstructed: Optional[float] = Field(None, description="Reconstruction component")
+    loss_zero: Optional[float] = Field(None, description="Zero ablation loss")
+
+    # Sparsity metrics
+    l0_sparsity: Optional[float] = Field(None, description="L0 sparsity")
+    l1_sparsity: Optional[float] = Field(None, description="L1 sparsity penalty")
+    dead_neurons: Optional[int] = Field(None, description="Dead neuron count")
+
+    # Reconstruction quality metrics
+    fvu: Optional[float] = Field(None, description="Fraction of Variance Unexplained (var_residuals / var_original)")
+
+    # Training dynamics
+    learning_rate: Optional[float] = Field(None, description="Learning rate")
+    grad_norm: Optional[float] = Field(None, description="Gradient norm")
+
+    # Resource metrics
+    gpu_memory_used_mb: Optional[float] = Field(None, description="GPU memory usage (MB)")
+    samples_per_second: Optional[float] = Field(None, description="Training throughput")
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class TrainingMetricsListResponse(BaseModel):
+    """Schema for list of training metrics."""
+
+    data: List[TrainingMetricResponse] = Field(..., description="List of training metrics")
+    pagination: Optional[Dict[str, Any]] = Field(None, description="Pagination metadata")
+
+
+class CheckpointResponse(BaseModel):
+    """Schema for checkpoint response."""
+
+    id: str = Field(..., description="Checkpoint ID (format: ckpt_{uuid})")
+    training_id: str = Field(..., description="Training job ID")
+    step: int = Field(..., description="Training step at checkpoint")
+
+    loss: float = Field(..., description="Loss at checkpoint")
+    l0_sparsity: Optional[float] = Field(None, description="L0 sparsity at checkpoint")
+
+    storage_path: str = Field(..., description="Path to .safetensors file")
+    file_size_bytes: Optional[int] = Field(None, description="File size in bytes")
+
+    is_best: bool = Field(..., description="Whether this is the best checkpoint")
+    extra_metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+
+    created_at: datetime = Field(..., description="Checkpoint creation timestamp")
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class CheckpointListResponse(BaseModel):
+    """Schema for list of checkpoints."""
+
+    data: List[CheckpointResponse] = Field(..., description="List of checkpoints")
+    pagination: Optional[Dict[str, Any]] = Field(None, description="Pagination metadata")
+
+
+class TrainingControlRequest(BaseModel):
+    """Schema for training control operations (pause/resume/stop)."""
+
+    # NOTE: this Literal is the request gate — a new action must be added here
+    # or the endpoint returns 422 before its handler ever runs.
+    action: Literal["pause", "resume", "stop", "stop_and_finalize"] = Field(
+        ...,
+        description=(
+            "Control action. 'stop' cancels the run; 'stop_and_finalize' also "
+            "writes community_format from the newest checkpoint so the SAE "
+            "stays importable."
+        ),
+    )
+
+
+class TrainingControlResponse(BaseModel):
+    """Schema for training control response."""
+
+    success: bool = Field(..., description="Whether the action succeeded")
+    training_id: str = Field(..., description="Training job ID")
+    action: str = Field(..., description="Action that was performed")
+    status: TrainingStatus = Field(..., description="New training status")
+    message: Optional[str] = Field(None, description="Additional message")

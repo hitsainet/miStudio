@@ -1,0 +1,893 @@
+"""
+Feature service for CRUD operations and search.
+
+This service provides feature discovery and management capabilities:
+- List and search features with filtering and pagination
+- Get detailed feature information
+- Update feature metadata (name, description, notes)
+- Toggle favorite status
+"""
+
+import logging
+from typing import Dict, Any, List, Optional, Union
+from datetime import datetime, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session, defer
+from sqlalchemy import desc, asc, func, or_, select, String, exists, literal_column
+from sqlalchemy.sql import text
+
+from src.models.feature import Feature, LabelSource
+from src.models.feature_activation import FeatureActivation
+from src.models.extraction_job import ExtractionJob
+from src.schemas.feature import (
+    FeatureSearchRequest,
+    FeatureResponse,
+    FeatureListResponse,
+    FeatureDetailResponse,
+    FeatureUpdateRequest,
+    FeatureStatistics,
+    FeatureActivationExample
+)
+from src.utils.token_filters import analyze_feature_tokens
+
+
+logger = logging.getLogger(__name__)
+
+
+class ProtectedLabelError(Exception):
+    """Raised when editing identity fields of an aqua-starred (protected) feature
+    without override_protected=true (Feature 010, BR-4.3)."""
+
+    def __init__(self, feature_id: str):
+        self.feature_id = feature_id
+        super().__init__(
+            f"Feature {feature_id} has a protected (aqua) enhanced label; "
+            "pass override_protected=true to modify it"
+        )
+
+
+class FeatureService:
+    """
+    Service for feature CRUD operations and search.
+
+    Provides methods for:
+    - Listing features with search, filtering, sorting, and pagination
+    - Getting detailed feature information
+    - Updating feature metadata
+    - Managing favorite features
+    """
+
+    def __init__(self, db: Union[AsyncSession, Session]):
+        """Initialize feature service with either async or sync session."""
+        self.db = db
+
+    async def list_features(
+        self,
+        training_id: str,
+        search_params: FeatureSearchRequest
+    ) -> FeatureListResponse:
+        """
+        List features with search, filtering, sorting, and pagination.
+
+        Args:
+            training_id: ID of the training to list features for
+            search_params: Search parameters (search query, filters, sort, pagination)
+
+        Returns:
+            FeatureListResponse with features, pagination info, and statistics
+        """
+        # Task 9.3: Build base query with training_id filter — defer heavy JSONB columns
+        query = (
+            select(Feature)
+            .options(defer(Feature.nlp_analysis))
+            .where(Feature.training_id == training_id)
+        )
+
+        # Task 9.4: Apply search filter if specified
+        if search_params.search:
+            # Use ILIKE for substring matching (case-insensitive) in:
+            # 1. Feature name and description
+            # 2. Activation tokens (from feature_activations.tokens JSONB array)
+            search_pattern = f'%{search_params.search}%'
+
+            # NAME + DESCRIPTION only, deliberately.
+            #
+            # This also ILIKE'd `CAST(feature_activations.tokens AS TEXT)` —
+            # a cast expression over 15.7M rows, which no index can serve. The
+            # planner had no choice but Parallel Seq Scan (cost ~4,009,222) and
+            # any SELECTIVE search timed out. It was fast only when the term
+            # matched nearly everything, because the OR short-circuited on the
+            # indexed half and never evaluated the subquery — fast when
+            # useless, timing out when useful.
+            #
+            # It was also undocumented: the tool contract says "search matches
+            # name/description" and never mentioned token contents. Searching
+            # tokens needs a real index (pg_trgm GIN on a materialised column,
+            # or tsvector) and an explicit opt-in — not a cast-and-scan
+            # silently attached to every query.
+            query = query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
+
+        # Task 9.5: Apply is_favorite filter if specified
+        if search_params.is_favorite is not None:
+            query = query.where(Feature.is_favorite == search_params.is_favorite)
+
+        # Category filter. It was declared on the MCP tool and accepted by the
+        # endpoint signature nowhere, so FastAPI dropped it as an unknown query
+        # param and the call returned the ENTIRE extraction while looking
+        # filtered — 30,719 rows for category=uninterpretable. Applied to the
+        # data query and the count query alike; filtering one and not the other
+        # yields a page of N rows over a total of everything, which is the same
+        # lie in a subtler form.
+        if search_params.category:
+            query = query.where(
+                func.lower(Feature.category) == search_params.category.strip().lower()
+            )
+
+        # Apply activation frequency range filter
+        # Note: UI uses percentages (0-100) but DB stores decimals (0-1), so divide by 100
+        if search_params.min_activation_freq is not None:
+            query = query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            query = query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter
+        if search_params.min_max_activation is not None:
+            query = query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            query = query.where(Feature.max_activation <= search_params.max_max_activation)
+
+        # Get total count before pagination
+        count_query = select(func.count()).select_from(Feature).where(Feature.training_id == training_id)
+        if search_params.search:
+            search_pattern = f'%{search_params.search}%'
+
+            count_query = count_query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
+        if search_params.is_favorite is not None:
+            count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
+
+        if search_params.category:
+            count_query = count_query.where(
+                func.lower(Feature.category) == search_params.category.strip().lower()
+            )
+
+        # Apply activation frequency range filter to count query
+        # Note: UI uses percentages (0-100) but DB stores decimals (0-1), so divide by 100
+        if search_params.min_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter to count query
+        if search_params.min_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation <= search_params.max_max_activation)
+
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar_one()
+
+        # Task 9.6: Apply sorting
+        if search_params.sort_by == "activation_freq":
+            sort_column = Feature.activation_frequency
+        elif search_params.sort_by == "max_activation":
+            sort_column = Feature.max_activation
+        elif search_params.sort_by == "name":
+            sort_column = Feature.name
+        elif search_params.sort_by == "category":
+            sort_column = Feature.category
+        else:  # "feature_id"
+            sort_column = Feature.id
+
+        if search_params.sort_order == "asc":
+            query = query.order_by(asc(sort_column))
+        else:  # "desc"
+            query = query.order_by(desc(sort_column))
+
+        # Task 9.7: Apply pagination
+        query = query.limit(search_params.limit).offset(search_params.offset)
+
+        # Execute query to get features
+        result = await self.db.execute(query)
+        features = result.scalars().all()
+
+        # Task 9.8: Batch-load one max-activating example per feature (instead of N+1 queries)
+        feature_ids = [f.id for f in features]
+        examples_map: Dict[str, Any] = {}
+        if feature_ids:
+            examples_query = (
+                text(
+                    "SELECT DISTINCT ON (feature_id) * FROM feature_activations "
+                    "WHERE feature_id = ANY(:feature_ids) "
+                    "ORDER BY feature_id, max_activation DESC"
+                )
+            )
+            examples_result = await self.db.execute(
+                examples_query, {"feature_ids": feature_ids}
+            )
+            for row in examples_result.mappings().all():
+                examples_map[row["feature_id"]] = row
+
+        feature_responses = []
+        for feature in features:
+            example_context = None
+            example = examples_map.get(feature.id)
+
+            if example:
+                tokens = example["tokens"]
+                if isinstance(tokens, dict):
+                    tokens_list = tokens.get("all_tokens", tokens.get("tokens", []))
+                    example_context = FeatureActivationExample(
+                        tokens=tokens_list,
+                        activations=example["activations"],
+                        max_activation=example["max_activation"],
+                        sample_index=example["sample_index"],
+                        prefix_tokens=tokens.get("prefix_tokens"),
+                        prime_token=tokens.get("prime_token"),
+                        suffix_tokens=tokens.get("suffix_tokens"),
+                        prime_activation_index=tokens.get("prime_activation_index"),
+                        token_positions=tokens.get("token_positions")
+                    )
+                else:
+                    example_context = FeatureActivationExample(
+                        tokens=tokens,
+                        activations=example["activations"],
+                        max_activation=example["max_activation"],
+                        sample_index=example["sample_index"],
+                        prefix_tokens=example.get("prefix_tokens"),
+                        prime_token=example.get("prime_token"),
+                        suffix_tokens=example.get("suffix_tokens"),
+                        prime_activation_index=example.get("prime_activation_index")
+                    )
+
+            feature_response = FeatureResponse(
+                id=feature.id,
+                training_id=feature.training_id,
+                extraction_job_id=feature.extraction_job_id,
+                neuron_index=feature.neuron_index,
+                category=feature.category,
+                name=feature.name,
+                description=feature.description,
+                label_source=feature.label_source,
+                activation_frequency=feature.activation_frequency,
+                interpretability_score=feature.interpretability_score,
+                max_activation=feature.max_activation,
+                mean_activation=feature.mean_activation,
+                is_favorite=feature.is_favorite,
+                star_color=feature.star_color,
+                notes=feature.notes,
+                created_at=feature.created_at,
+                updated_at=feature.updated_at,
+                example_context=example_context
+            )
+            feature_responses.append(feature_response)
+
+        # Task 9.9: Calculate statistics — single combined query instead of 3 separate ones
+        stats_query = (
+            select(
+                func.count().label("total_features"),
+                func.count().filter(Feature.interpretability_score > 0.5).label("interpretable_count"),
+                func.avg(Feature.activation_frequency).label("avg_activation_freq")
+            )
+            .where(Feature.training_id == training_id)
+        )
+        stats_result = await self.db.execute(stats_query)
+        stats_row = stats_result.one()
+
+        total_features = stats_row.total_features
+        interpretable_count = stats_row.interpretable_count
+        avg_activation_freq_value = stats_row.avg_activation_freq
+        interpretable_percentage = (interpretable_count / total_features * 100) if total_features > 0 else 0.0
+        avg_activation_frequency = float(avg_activation_freq_value) if avg_activation_freq_value else 0.0
+
+        statistics = FeatureStatistics(
+            total_features=total_features,
+            interpretable_percentage=interpretable_percentage,
+            avg_activation_frequency=avg_activation_frequency
+        )
+
+        return FeatureListResponse(
+            features=feature_responses,
+            total=total,
+            limit=search_params.limit,
+            offset=search_params.offset,
+            statistics=statistics
+        )
+
+    async def list_features_by_extraction(
+        self,
+        extraction_job_id: str,
+        search_params: FeatureSearchRequest
+    ) -> FeatureListResponse:
+        """
+        List features for a specific extraction job with search, filtering, sorting, and pagination.
+
+        Optimized: defers nlp_analysis JSONB column (avg 3.5KB/row) from list queries,
+        and batch-loads examples instead of N+1 individual queries.
+
+        Args:
+            extraction_job_id: ID of the extraction job to list features for
+            search_params: Search parameters (search query, filters, sort, pagination)
+
+        Returns:
+            FeatureListResponse with features, pagination info, and statistics
+        """
+        # Build base query — defer heavy JSONB columns not needed for list view
+        query = (
+            select(Feature)
+            .options(defer(Feature.nlp_analysis))
+            .where(Feature.extraction_job_id == extraction_job_id)
+        )
+
+        # Apply search filter if specified
+        if search_params.search:
+            search_pattern = f'%{search_params.search}%'
+
+            query = query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
+
+        # Apply is_favorite filter if specified
+        if search_params.is_favorite is not None:
+            query = query.where(Feature.is_favorite == search_params.is_favorite)
+
+        # Category filter. It was declared on the MCP tool and accepted by the
+        # endpoint signature nowhere, so FastAPI dropped it as an unknown query
+        # param and the call returned the ENTIRE extraction while looking
+        # filtered — 30,719 rows for category=uninterpretable. Applied to the
+        # data query and the count query alike; filtering one and not the other
+        # yields a page of N rows over a total of everything, which is the same
+        # lie in a subtler form.
+        if search_params.category:
+            query = query.where(
+                func.lower(Feature.category) == search_params.category.strip().lower()
+            )
+
+        # Apply activation frequency range filter
+        # Note: UI uses percentages (0-100) but DB stores decimals (0-1), so divide by 100
+        if search_params.min_activation_freq is not None:
+            query = query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            query = query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter
+        if search_params.min_max_activation is not None:
+            query = query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            query = query.where(Feature.max_activation <= search_params.max_max_activation)
+
+        # Get total count before pagination
+        count_query = select(func.count()).select_from(Feature).where(Feature.extraction_job_id == extraction_job_id)
+        if search_params.search:
+            search_pattern = f'%{search_params.search}%'
+
+            count_query = count_query.where(
+                or_(
+                    Feature.name.ilike(search_pattern),
+                    Feature.description.ilike(search_pattern)
+                )
+            )
+        if search_params.is_favorite is not None:
+            count_query = count_query.where(Feature.is_favorite == search_params.is_favorite)
+
+        if search_params.category:
+            count_query = count_query.where(
+                func.lower(Feature.category) == search_params.category.strip().lower()
+            )
+
+        # Apply activation frequency range filter to count query
+        if search_params.min_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency >= search_params.min_activation_freq / 100)
+        if search_params.max_activation_freq is not None:
+            count_query = count_query.where(Feature.activation_frequency <= search_params.max_activation_freq / 100)
+
+        # Apply max activation range filter to count query
+        if search_params.min_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation >= search_params.min_max_activation)
+        if search_params.max_max_activation is not None:
+            count_query = count_query.where(Feature.max_activation <= search_params.max_max_activation)
+
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar_one()
+
+        # Apply sorting
+        if search_params.sort_by == "activation_freq":
+            sort_column = Feature.activation_frequency
+        elif search_params.sort_by == "max_activation":
+            sort_column = Feature.max_activation
+        elif search_params.sort_by == "name":
+            sort_column = Feature.name
+        elif search_params.sort_by == "category":
+            sort_column = Feature.category
+        else:  # "feature_id"
+            sort_column = Feature.id
+
+        if search_params.sort_order == "asc":
+            query = query.order_by(asc(sort_column))
+        else:  # "desc"
+            query = query.order_by(desc(sort_column))
+
+        # Apply pagination
+        query = query.limit(search_params.limit).offset(search_params.offset)
+
+        # Execute query to get features
+        result = await self.db.execute(query)
+        features = result.scalars().all()
+
+        # Batch-load one max-activating example per feature (instead of N+1 queries)
+        feature_ids = [f.id for f in features]
+        examples_map: Dict[str, FeatureActivation] = {}
+        if feature_ids:
+            # Use a lateral join / window function to get top-1 per feature
+            # DISTINCT ON (feature_id) with ORDER BY feature_id, max_activation DESC
+            examples_query = (
+                text(
+                    "SELECT DISTINCT ON (feature_id) * FROM feature_activations "
+                    "WHERE feature_id = ANY(:feature_ids) "
+                    "ORDER BY feature_id, max_activation DESC"
+                )
+            )
+            examples_result = await self.db.execute(
+                examples_query, {"feature_ids": feature_ids}
+            )
+            for row in examples_result.mappings().all():
+                examples_map[row["feature_id"]] = row
+
+        # Build response list
+        feature_responses = []
+        for feature in features:
+            example_context = None
+            example = examples_map.get(feature.id)
+
+            if example:
+                tokens = example["tokens"]
+                if isinstance(tokens, dict):
+                    tokens_list = tokens.get("all_tokens", tokens.get("tokens", []))
+                    example_context = FeatureActivationExample(
+                        tokens=tokens_list,
+                        activations=example["activations"],
+                        max_activation=example["max_activation"],
+                        sample_index=example["sample_index"],
+                        prefix_tokens=tokens.get("prefix_tokens"),
+                        prime_token=tokens.get("prime_token"),
+                        suffix_tokens=tokens.get("suffix_tokens"),
+                        prime_activation_index=tokens.get("prime_activation_index"),
+                        token_positions=tokens.get("token_positions")
+                    )
+                else:
+                    example_context = FeatureActivationExample(
+                        tokens=tokens,
+                        activations=example["activations"],
+                        max_activation=example["max_activation"],
+                        sample_index=example["sample_index"],
+                        prefix_tokens=example.get("prefix_tokens"),
+                        prime_token=example.get("prime_token"),
+                        suffix_tokens=example.get("suffix_tokens"),
+                        prime_activation_index=example.get("prime_activation_index")
+                    )
+
+            feature_response = FeatureResponse(
+                id=feature.id,
+                training_id=feature.training_id,
+                extraction_job_id=feature.extraction_job_id,
+                neuron_index=feature.neuron_index,
+                category=feature.category,
+                name=feature.name,
+                description=feature.description,
+                label_source=feature.label_source,
+                activation_frequency=feature.activation_frequency,
+                interpretability_score=feature.interpretability_score,
+                max_activation=feature.max_activation,
+                mean_activation=feature.mean_activation,
+                is_favorite=feature.is_favorite,
+                star_color=feature.star_color,
+                notes=feature.notes,
+                created_at=feature.created_at,
+                updated_at=feature.updated_at,
+                example_context=example_context
+            )
+            feature_responses.append(feature_response)
+
+        # Calculate statistics — combine into a single query
+        stats_query = (
+            select(
+                func.count().label("total_features"),
+                func.count().filter(Feature.interpretability_score > 0.5).label("interpretable_count"),
+                func.avg(Feature.activation_frequency).label("avg_activation_freq")
+            )
+            .where(Feature.extraction_job_id == extraction_job_id)
+        )
+        stats_result = await self.db.execute(stats_query)
+        stats_row = stats_result.one()
+
+        total_features = stats_row.total_features
+        interpretable_count = stats_row.interpretable_count
+        avg_activation_freq_value = stats_row.avg_activation_freq
+        interpretable_percentage = (interpretable_count / total_features * 100) if total_features > 0 else 0.0
+        avg_activation_frequency = float(avg_activation_freq_value) if avg_activation_freq_value else 0.0
+
+        statistics = FeatureStatistics(
+            total_features=total_features,
+            interpretable_percentage=interpretable_percentage,
+            avg_activation_frequency=avg_activation_frequency
+        )
+
+        return FeatureListResponse(
+            features=feature_responses,
+            total=total,
+            limit=search_params.limit,
+            offset=search_params.offset,
+            statistics=statistics
+        )
+
+    async def get_feature_detail(self, feature_id: str) -> Optional[FeatureDetailResponse]:
+        """
+        Get detailed information about a feature.
+
+        Args:
+            feature_id: ID of the feature
+
+        Returns:
+            FeatureDetailResponse with computed active_samples field, or None if not found
+        """
+        # Task 9.10: Load feature record
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
+
+        if not feature:
+            return None
+
+        # Calculate active_samples (activation_frequency * total_evaluation_samples)
+        # Get extraction job to find evaluation_samples count
+        extraction_job_query = select(ExtractionJob).where(
+            ExtractionJob.id == feature.extraction_job_id
+        )
+        extraction_job_result = await self.db.execute(extraction_job_query)
+        extraction_job = extraction_job_result.scalar_one_or_none()
+
+        evaluation_samples = extraction_job.config.get("evaluation_samples", 10000) if extraction_job else 10000
+        active_samples = int(feature.activation_frequency * evaluation_samples)
+
+        return FeatureDetailResponse(
+            id=feature.id,
+            training_id=feature.training_id,
+            extraction_job_id=feature.extraction_job_id,
+            neuron_index=feature.neuron_index,
+            category=feature.category,
+            name=feature.name,
+            description=feature.description,
+            label_source=feature.label_source,
+            activation_frequency=feature.activation_frequency,
+            interpretability_score=feature.interpretability_score,
+            max_activation=feature.max_activation,
+            mean_activation=feature.mean_activation,
+            is_favorite=feature.is_favorite,
+            star_color=feature.star_color,
+            notes=feature.notes,
+            created_at=feature.created_at,
+            updated_at=feature.updated_at,
+            active_samples=active_samples,
+            nlp_analysis=feature.nlp_analysis,
+            nlp_processed_at=feature.nlp_processed_at
+        )
+
+    async def get_feature_by_index(
+        self,
+        training_id: str,
+        feature_idx: int
+    ) -> Optional[str]:
+        """
+        Look up feature ID by training_id and feature index (neuron_index).
+
+        Args:
+            training_id: ID of the training
+            feature_idx: Feature index (neuron_index) in the SAE
+
+        Returns:
+            Feature ID string if found, None otherwise
+        """
+        feature_query = select(Feature.id).where(
+            Feature.training_id == training_id,
+            Feature.neuron_index == feature_idx
+        )
+        result = await self.db.execute(feature_query)
+        feature_id = result.scalar_one_or_none()
+        return feature_id
+
+    async def update_feature(
+        self,
+        feature_id: str,
+        updates: FeatureUpdateRequest
+    ) -> Optional[FeatureResponse]:
+        """
+        Update feature metadata (name, description, notes).
+
+        Args:
+            feature_id: ID of the feature to update
+            updates: Fields to update
+
+        Returns:
+            Updated FeatureResponse, or None if feature not found
+        """
+        # Task 9.11: Load feature, validate updates
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
+
+        if not feature:
+            return None
+
+        # Feature 010: aqua star marks a protected (completed enhanced) label.
+        # Editing its identity fields requires an explicit override; notes and
+        # star changes remain allowed.
+        protected_edit = any(
+            value is not None and value != getattr(feature, field)
+            for field, value in (
+                ("name", updates.name),
+                ("category", updates.category),
+                ("description", updates.description),
+            )
+        )
+        if feature.star_color == "aqua" and protected_edit and not updates.override_protected:
+            raise ProtectedLabelError(feature_id)
+
+        # Track if name changed to update label_source
+        name_changed = False
+
+        # Apply updates
+        if updates.name is not None:
+            if updates.name != feature.name:
+                name_changed = True
+            feature.name = updates.name
+
+        if updates.category is not None:
+            feature.category = updates.category
+
+        if updates.description is not None:
+            feature.description = updates.description
+
+        if updates.notes is not None:
+            feature.notes = updates.notes
+
+        # Provenance: explicit label_source (user | mcp_agent) wins; otherwise
+        # a name change implies a manual user edit.
+        if updates.label_source is not None:
+            feature.label_source = updates.label_source
+            feature.labeled_at = datetime.now(timezone.utc)
+        elif name_changed:
+            feature.label_source = LabelSource.USER.value
+
+        # Update timestamp
+        feature.updated_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+        await self.db.refresh(feature)
+
+        logger.info(f"Updated feature {feature_id}: name_changed={name_changed}")
+
+        # Return updated feature (without example_context for update response)
+        return FeatureResponse(
+            id=feature.id,
+            training_id=feature.training_id,
+            extraction_job_id=feature.extraction_job_id,
+            neuron_index=feature.neuron_index,
+            category=feature.category,
+            name=feature.name,
+            description=feature.description,
+            label_source=feature.label_source,
+            activation_frequency=feature.activation_frequency,
+            interpretability_score=feature.interpretability_score,
+            max_activation=feature.max_activation,
+            mean_activation=feature.mean_activation,
+            is_favorite=feature.is_favorite,
+            notes=feature.notes,
+            created_at=feature.created_at,
+            updated_at=feature.updated_at,
+            example_context=None
+        )
+
+    async def toggle_favorite(self, feature_id: str, is_favorite: bool) -> Optional[bool]:
+        """
+        Toggle favorite status for a feature.
+
+        Args:
+            feature_id: ID of the feature
+            is_favorite: New favorite status
+
+        Returns:
+            New is_favorite value, or None if feature not found
+        """
+        # Task 9.12: Load feature, update is_favorite
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
+
+        if not feature:
+            return None
+
+        feature.is_favorite = is_favorite
+        # When un-starring, clear the color; when starring, default to yellow unless already aqua
+        if not is_favorite:
+            feature.star_color = None
+        elif feature.star_color != "aqua":
+            feature.star_color = "yellow"
+        feature.updated_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+
+        logger.info(f"Toggled favorite for feature {feature_id}: is_favorite={is_favorite}")
+
+        return is_favorite
+
+    async def set_star_color(self, feature_id: str, star_color: Optional[str]) -> Optional[dict]:
+        """
+        Set star color for a feature, auto-managing is_favorite.
+
+        Rules:
+          - 'purple' or 'aqua': sets is_favorite=True, star_color=value
+          - 'yellow': sets is_favorite=True, star_color='yellow' (only if not already aqua)
+          - None: sets is_favorite=False, star_color=None (unstar)
+          - Aqua is never downgraded by this method except via explicit None.
+        """
+        feature_result = await self.db.execute(select(Feature).where(Feature.id == feature_id))
+        feature = feature_result.scalar_one_or_none()
+        if not feature:
+            return None
+
+        if star_color is None:
+            feature.is_favorite = False
+            feature.star_color = None
+        elif star_color == "aqua":
+            feature.is_favorite = True
+            feature.star_color = "aqua"
+        elif star_color == "purple":
+            feature.is_favorite = True
+            feature.star_color = "purple"
+        elif star_color == "yellow":
+            feature.is_favorite = True
+            if feature.star_color != "aqua":
+                feature.star_color = "yellow"
+
+        feature.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+
+        logger.info("Set star_color for feature %s: %s", feature_id, feature.star_color)
+        return {"is_favorite": feature.is_favorite, "star_color": feature.star_color}
+
+    async def get_feature_examples(
+        self,
+        feature_id: str,
+        limit: int = 100
+    ) -> List[FeatureActivationExample]:
+        """
+        Get max-activating examples for a feature.
+
+        Args:
+            feature_id: ID of the feature
+            limit: Maximum number of examples to return
+
+        Returns:
+            List of max-activating examples with tokens and activations
+        """
+        examples_query = (
+            select(FeatureActivation)
+            .where(FeatureActivation.feature_id == feature_id)
+            .order_by(desc(FeatureActivation.max_activation))
+            .limit(limit)
+        )
+        examples_result = await self.db.execute(examples_query)
+        examples = examples_result.scalars().all()
+
+        result = []
+        for example in examples:
+            # Check if tokens is an object (enhanced format) or array (legacy format)
+            if isinstance(example.tokens, dict):
+                # Enhanced format with context window
+                result.append(FeatureActivationExample(
+                    tokens=example.tokens.get("all_tokens", []),
+                    activations=example.activations,
+                    max_activation=example.max_activation,
+                    sample_index=example.sample_index,
+                    prefix_tokens=example.tokens.get("prefix_tokens"),
+                    prime_token=example.tokens.get("prime_token"),
+                    suffix_tokens=example.tokens.get("suffix_tokens"),
+                    prime_activation_index=example.tokens.get("prime_activation_index"),
+                    token_positions=example.tokens.get("token_positions")
+                ))
+            else:
+                # New extraction format: tokens is a list, context window in dedicated columns
+                result.append(FeatureActivationExample(
+                    tokens=example.tokens,
+                    activations=example.activations,
+                    max_activation=example.max_activation,
+                    sample_index=example.sample_index,
+                    prefix_tokens=example.prefix_tokens,
+                    prime_token=example.prime_token,
+                    suffix_tokens=example.suffix_tokens,
+                    prime_activation_index=example.prime_activation_index
+                ))
+
+        return result
+
+    async def get_feature_token_analysis(
+        self,
+        feature_id: str,
+        apply_filters: bool = True,
+        filter_special: bool = True,
+        filter_single_char: bool = True,
+        filter_punctuation: bool = True,
+        filter_numbers: bool = True,
+        filter_fragments: bool = True,
+        filter_stop_words: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get token analysis for a feature's activation examples.
+
+        Analyzes all tokens from the feature's max-activating examples,
+        applies filtering to remove junk tokens, and returns statistics
+        and ranked token list.
+
+        Args:
+            feature_id: ID of the feature
+            apply_filters: Master switch for all filtering (default: True)
+            filter_special: Filter special tokens (<s>, </s>, etc.)
+            filter_single_char: Filter single character tokens
+            filter_punctuation: Filter pure punctuation
+            filter_numbers: Filter pure numeric tokens
+            filter_fragments: Filter word fragments (BPE subwords)
+            filter_stop_words: Filter common stop words (the, and, is, etc.)
+
+        Returns:
+            Dictionary with summary statistics and ranked token list, or None if feature not found
+        """
+        # Verify feature exists
+        feature_query = select(Feature).where(Feature.id == feature_id)
+        feature_result = await self.db.execute(feature_query)
+        feature = feature_result.scalar_one_or_none()
+
+        if not feature:
+            return None
+
+        # Query all activations for this feature
+        activations_query = (
+            select(FeatureActivation)
+            .where(FeatureActivation.feature_id == feature_id)
+            .order_by(desc(FeatureActivation.max_activation))
+        )
+        activations_result = await self.db.execute(activations_query)
+        activations = activations_result.scalars().all()
+
+        # Extract tokens from each activation
+        tokens_list = [activation.tokens for activation in activations if activation.tokens]
+
+        # Analyze tokens using utility function with filter options
+        analysis = analyze_feature_tokens(
+            tokens_list,
+            apply_filters=apply_filters,
+            filter_special=filter_special,
+            filter_single_char=filter_single_char,
+            filter_punctuation=filter_punctuation,
+            filter_numbers=filter_numbers,
+            filter_fragments=filter_fragments,
+            filter_stop_words=filter_stop_words
+        )
+
+        return analysis
+
+
+def get_feature_service(db: Union[AsyncSession, Session]) -> FeatureService:
+    """Dependency injection helper for FeatureService."""
+    return FeatureService(db)

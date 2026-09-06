@@ -1,0 +1,245 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      annotations: {}
+      name: neuronpedia-webapp
+      namespace: neuronpedia
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: neuronpedia-webapp
+      template:
+        metadata:
+          labels:
+            app: neuronpedia-webapp
+        spec:
+          containers:
+          - env:
+            - name: DATABASE_URL
+              value: postgresql://neuronpedia:$(DB_PASSWORD)@neuronpedia-postgres-service:5432/neuronpedia
+            - name: POSTGRES_PRISMA_URL
+              value: postgresql://neuronpedia:$(DB_PASSWORD)@neuronpedia-postgres-service:5432/neuronpedia
+            - name: POSTGRES_URL_NON_POOLING
+              value: postgresql://neuronpedia:$(DB_PASSWORD)@neuronpedia-postgres-service:5432/neuronpedia
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: neuronpedia-secrets
+            - name: NEXTAUTH_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: NEXTAUTH_URL
+                  name: neuronpedia-config
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: NEXTAUTH_SECRET
+                  name: neuronpedia-secrets
+            - name: NODE_ENV
+              value: production
+            - name: IS_LOCALHOST
+              value: 'true'
+            - name: SKIP_ENV_VALIDATION
+              value: 'true'
+            image: hitsai/neuronpedia-webapp:latest
+            imagePullPolicy: Always
+            livenessProbe:
+              httpGet:
+                path: /
+                port: 3000
+              initialDelaySeconds: 120
+              periodSeconds: 30
+              timeoutSeconds: 10
+            name: webapp
+            ports:
+            - containerPort: 3000
+            readinessProbe:
+              httpGet:
+                path: /
+                port: 3000
+              initialDelaySeconds: 60
+              periodSeconds: 10
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 2Gi
+              requests:
+                cpu: 250m
+                memory: 512Mi
+            startupProbe:
+              failureThreshold: 30
+              httpGet:
+                path: /
+                port: 3000
+              initialDelaySeconds: 30
+              periodSeconds: 10
+          initContainers:
+          - command:
+            - sh
+            - -c
+            - "echo \"Waiting for PostgreSQL...\"\nuntil pg_isready -h neuronpedia-postgres-service -p 5432 -U neuronpedia; do\n  sleep 2\ndone\necho \"PostgreSQL is ready!\"\n"
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: neuronpedia-secrets
+            image: postgres:15-alpine
+            name: wait-for-db
+  name: neuronpedia-webapp
+  namespace: neuronpedia
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: neuronpedia-webapp
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app: neuronpedia-webapp
+    spec:
+      containers:
+      - env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: neuronpedia-secrets
+        - name: NEXTAUTH_URL
+          value: http://k8s-neuron.hitsai.local
+        - name: NEXTAUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NEXTAUTH_SECRET
+              name: neuronpedia-secrets
+        - name: NODE_ENV
+          value: production
+        - name: IS_LOCALHOST
+          value: 'true'
+        - name: SKIP_ENV_VALIDATION
+          value: 'true'
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: neuronpedia-secrets
+        - name: POSTGRES_URL_NON_POOLING
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_URL_NON_POOLING
+              name: neuronpedia-secrets
+        - name: POSTGRES_PRISMA_URL
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PRISMA_URL
+              name: neuronpedia-secrets
+        - name: DEMO_MODE
+          value: 'false'
+        - name: NEXT_PUBLIC_DEMO_MODE
+          value: 'false'
+        - name: NEXT_PUBLIC_URL
+          value: http://k8s-neuron.hitsai.local
+        image: hitsai/neuronpedia-webapp:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: webapp
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: '1'
+            memory: 2Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - "echo \"Waiting for PostgreSQL...\"\nuntil pg_isready -h neuronpedia-postgres-service -p 5432 -U neuronpedia; do\n  sleep 2\ndone\necho \"PostgreSQL is ready!\"\n"
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: neuronpedia-secrets
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: neuronpedia-secrets
+        - name: POSTGRES_URL_NON_POOLING
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_URL_NON_POOLING
+              name: neuronpedia-secrets
+        - name: POSTGRES_PRISMA_URL
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PRISMA_URL
+              name: neuronpedia-secrets
+        - name: DEMO_MODE
+          value: 'false'
+        - name: NEXT_PUBLIC_DEMO_MODE
+          value: 'false'
+        - name: NEXTAUTH_URL
+          value: http://k8s-neuron.hitsai.local
+        - name: NEXT_PUBLIC_URL
+          value: http://k8s-neuron.hitsai.local
+        image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
+        name: wait-for-db
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30

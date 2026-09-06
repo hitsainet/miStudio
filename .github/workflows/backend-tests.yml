@@ -1,0 +1,124 @@
+name: Backend Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: mistudio_test
+          POSTGRES_USER: mistudio
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      DATABASE_URL: postgresql+asyncpg://mistudio:testpassword@localhost:5432/mistudio_test
+      DATABASE_URL_SYNC: postgresql+psycopg2://mistudio:testpassword@localhost:5432/mistudio_test
+      SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/0
+      REDIS_URL: redis://localhost:6379/0
+      DATA_DIR: /tmp/mistudio-ci
+      HF_HOME: /tmp/mistudio-ci/huggingface_cache
+      HF_CACHE_DIR: /tmp/mistudio-ci/huggingface_cache
+      # Read by tests/unit/test_orm_matches_migrated_schema.py — a migrated
+      # database that conftest's drop_all never touches.
+      SCHEMA_CHECK_DATABASE_URL: postgresql://mistudio:testpassword@localhost:5432/mistudio_schema_check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install PyTorch (CPU)
+        run: |
+          pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: |
+          # Exclude GPU-only packages that cannot install on CPU runners:
+          #   triton  - CUDA compiler, Linux/GPU only
+          #   bitsandbytes - quantization library, requires CUDA at runtime
+          grep -vE "^(triton|bitsandbytes)==" backend/requirements.txt \
+            | pip install -r /dev/stdin
+
+      # MIGRATE BEFORE TESTING (MIS-E2E-030 / -031 follow-on).
+      #
+      # `test_orm_matches_migrated_schema.py` reflects the MIGRATED database on
+      # purpose: the divergence it exists to catch is between the ORM (which is
+      # what `Base.metadata.create_all()` builds for the unit suite) and what
+      # the migrations actually produce. Reflecting a `create_all()` schema
+      # would compare the ORM against itself and pass forever.
+      #
+      # CI never ran `alembic upgrade head`, so those tables did not exist here
+      # and the guard failed with NoSuchTableError on its first push. Skipping
+      # it on a missing table would be worse than the failure — it is the only
+      # place this check runs automatically, and it would fail OPEN in exactly
+      # the environment that is supposed to enforce it.
+      # A SEPARATE database, because `conftest.async_engine` is function-scoped
+      # and runs `Base.metadata.drop_all` on teardown. Migrating the database
+      # the unit fixtures manage does not survive the first test — which is
+      # exactly what happened on the first attempt at this fix: alembic ran,
+      # the log shows every revision applied, and the guard still failed with
+      # NoSuchTableError because the tables had since been dropped.
+      - name: Create and migrate the schema-check database
+        working-directory: backend
+        env:
+          PGPASSWORD: testpassword
+        run: |
+          psql -h localhost -U mistudio -d mistudio_test \
+            -c "CREATE DATABASE mistudio_schema_check;"
+          DATABASE_URL=postgresql+asyncpg://mistudio:testpassword@localhost:5432/mistudio_schema_check \
+          DATABASE_URL_SYNC=postgresql+psycopg2://mistudio:testpassword@localhost:5432/mistudio_schema_check \
+            alembic upgrade head
+          echo "Schema-check database migrated."
+
+      - name: Run tests
+        working-directory: backend
+        run: |
+          # test_activation_service.py is no longer ignored. Its CUDA-bound tests
+          # carry @requires_cuda and skip themselves on a runner with no GPU, so
+          # the four tests in that file which need no GPU now actually run here —
+          # ignoring the whole file had been discarding them silently.
+          python -m pytest tests/ \
+            --ignore=tests/integration \
+            -m "not slow" \
+            -v --no-cov --tb=short

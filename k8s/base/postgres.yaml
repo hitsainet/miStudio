@@ -1,0 +1,77 @@
+# -------------------------
+# POSTGRES (with persistent storage via hostPath)
+# -------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: mistudio
+spec:
+  replicas: 1
+  # RECREATE, NOT ROLLING (MIS-E2E-145).
+  #
+  # This is a Deployment backed by a hostPath volume. The default RollingUpdate
+  # strategy starts the NEW pod before terminating the old one, so for a moment
+  # two postgres processes hold the same directory on the same node. Postgres
+  # refuses to start on a locked data dir — the benign outcome — and the
+  # non-benign one is two writers against one store.
+  #
+  # A StatefulSet with a PVC is the right long-term shape; `Recreate` removes
+  # the overlap today without a storage migration.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      # PINNED. This volume is a hostPath, so the data exists on ONE node's disk
+      # and the pod is only correct where that disk is. Without this the
+      # scheduler is free to place it anywhere, DirectoryOrCreate silently makes
+      # an empty directory on the new node, and postgres initialises a BRAND NEW
+      # EMPTY DATABASE. Nothing errors — the app comes up healthy against an
+      # empty DB while 70.5 GB of real data sits untouched on the original node.
+      #
+      # That is not hypothetical: it happened on 2026-08-30 after a reboot moved
+      # this pod to mcs-lnxhost02, and every miStudio table read as 0 rows.
+      nodeSelector:
+        kubernetes.io/hostname: mcs-lnxgpu01
+      containers:
+        - name: postgres
+          image: postgres:15
+          env:
+            - name: POSTGRES_DB
+              value: mistudio
+            - name: POSTGRES_USER
+              value: mistudio
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: postgres-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-data
+          hostPath:
+            path: /data/mistudio/postgres
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: mistudio
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432

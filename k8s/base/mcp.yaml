@@ -1,0 +1,139 @@
+# -------------------------
+# MCP SERVER (Feature 010 — agentic access, opt-in)
+# Disable: kubectl -n mistudio scale deploy/mistudio-mcp --replicas=0
+# No Ingress shipped — ClusterIP only; expose deliberately (port-forward or
+# your own Ingress + TLS). Requires mcp-auth-token in mistudio-secrets.
+# -------------------------
+# Reuses the hitsai/mistudio-backend image. Its tag/digest is managed by ArgoCD
+# Image Updater via the single kustomization images entry — do not hand-edit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistudio-mcp
+  namespace: mistudio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mistudio-mcp
+  template:
+    metadata:
+      labels:
+        app: mistudio-mcp
+    spec:
+      containers:
+        - name: mcp-server
+          image: hitsai/mistudio-backend:latest
+          command: ["python", "-m", "src.mcp_server"]
+          ports:
+            - containerPort: 8765
+          env:
+            - name: MISTUDIO_API_URL
+              value: http://mistudio-backend:8000
+            - name: MCP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: mcp-auth-token
+            - name: MCP_TOOL_CATEGORIES
+              # THIS is the manifest ArgoCD deploys (k8s/base via kustomize).
+              # `circuits` is in the code's DEFAULT_CATEGORIES and this explicit
+              # list silently overrode it, so all 19 circuit tools AND the 16
+              # millm_circuit_* tools were unreachable in production while
+              # being registered, tested and documented.
+              #
+              # `admin` stays OFF deliberately — two irreversible delete tools
+              # (delete_extraction takes every feature, label and activation
+              # example with it), and it is not in DEFAULT_CATEGORIES either.
+              value: "read,groups,steering,labeling,experiments,profiles,circuits,jlens,jobs,millm_runtime,millm_clusters,millm_sensing,millm_circuits"
+            # Unified MCP (miLLM Feature 9): millm_* categories talk to the
+            # miLLM deployment; unset/empty URL skips them at registration.
+            - name: MILLM_API_URL
+              value: "http://millm-backend.millm.svc.cluster.local:8000"
+            - name: MCP_STEERING_APPROVAL
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistudio-mcp
+  namespace: mistudio
+spec:
+  type: ClusterIP
+  selector:
+    app: mistudio-mcp
+  ports:
+    - port: 8765
+---
+# MCP ingress. Dedicated hosts mcp-mistudio.hitsai.{local,net} resolve on the
+# LAN only (hosts file / local DNS) unless you publish the .net name in public
+# DNS/Cloudflare yourself. Bearer auth applies either way.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mistudio-mcp-ingress
+  namespace: mistudio
+  annotations:
+    # MCP streamable HTTP: long-lived responses + SSE streams
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: public
+  rules:
+    # Path-based route on the shared miStudio host (kept for compatibility)
+    - host: k8s-mistudio.hitsai.local
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-mcp
+                port:
+                  number: 8765
+    # Dedicated MCP hosts — full path space (/mcp for protocol, /health for checks).
+    # LAN-resolved via /etc/hosts or local DNS; the .net name is NOT published in
+    # public DNS/Cloudflare by default. Bearer auth enforced on every request.
+    - host: mcp-mistudio.hitsai.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-mcp
+                port:
+                  number: 8765
+    - host: mcp-mistudio.hitsai.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-mcp
+                port:
+                  number: 8765

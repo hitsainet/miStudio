@@ -1,0 +1,65 @@
+# -------------------------
+# REDIS (with persistent storage via hostPath)
+# -------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: mistudio
+spec:
+  replicas: 1
+  # RECREATE, NOT ROLLING (MIS-E2E-145).
+  #
+  # This is a Deployment backed by a hostPath volume. The default RollingUpdate
+  # strategy starts the NEW pod before terminating the old one, so for a moment
+  # two redis processes hold the same directory on the same node. Postgres
+  # refuses to start on a locked data dir — the benign outcome — and the
+  # non-benign one is two writers against one store.
+  #
+  # A StatefulSet with a PVC is the right long-term shape; `Recreate` removes
+  # the overlap today without a storage migration.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      # PINNED. This volume is a hostPath, so the data exists on ONE node's disk
+      # and the pod is only correct where that disk is. Without this the
+      # scheduler is free to place it anywhere, DirectoryOrCreate silently makes
+      # an empty directory on the new node, and postgres initialises a BRAND NEW
+      # EMPTY DATABASE. Nothing errors — the app comes up healthy against an
+      # empty DB while 70.5 GB of real data sits untouched on the original node.
+      #
+      # That is not hypothetical: it happened on 2026-08-30 after a reboot moved
+      # this pod to mcs-lnxhost02, and every miStudio table read as 0 rows.
+      nodeSelector:
+        kubernetes.io/hostname: mcs-lnxgpu01
+      containers:
+        - name: redis
+          image: redis:7
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          hostPath:
+            path: /data/mistudio/redis
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: mistudio
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379

@@ -1,0 +1,336 @@
+/**
+ * LabelingJobCard Component
+ *
+ * Displays an individual labeling job with status, progress, and actions.
+ */
+
+import React, { useEffect, useState } from 'react';
+import { Tag, Loader, CheckCircle, XCircle, Trash2, Clock, Ban } from 'lucide-react';
+import type { LabelingJob } from '../../types/labeling';
+import { LabelingStatus } from '../../types/labeling';
+import { format } from 'date-fns';
+import { COMPONENTS } from '../../config/brand';
+import { useLabelingPromptTemplatesStore } from '../../stores/labelingPromptTemplatesStore';
+import { LabelingResultsWindow } from './LabelingResultsWindow';
+
+interface LabelingJobCardProps {
+  job: LabelingJob;
+  onCancel?: () => void;
+  onDelete?: () => void;
+}
+
+export const LabelingJobCard: React.FC<LabelingJobCardProps> = ({
+  job,
+  onCancel,
+  onDelete,
+}) => {
+  const [templateName, setTemplateName] = useState<string>('Default Template');
+  const [, setTick] = useState(0); // Force re-render for elapsed time updates
+  const { templates, fetchTemplate } = useLabelingPromptTemplatesStore();
+
+  const isActive = job.status === LabelingStatus.QUEUED || job.status === LabelingStatus.LABELING;
+
+  // Timer to update elapsed time every second while job is active
+  useEffect(() => {
+    if (!isActive) return;
+
+    const timer = setInterval(() => {
+      setTick(t => t + 1); // Force re-render to update elapsed time
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isActive]);
+  const isCompleted = job.status === LabelingStatus.COMPLETED;
+  const isFailed = job.status === LabelingStatus.FAILED;
+  const isCancelled = job.status === LabelingStatus.CANCELLED;
+
+  // Fetch template name if template ID is present
+  useEffect(() => {
+    if (job.prompt_template_id) {
+      // First check if we already have it in the store
+      const existingTemplate = templates.find(t => t.id === job.prompt_template_id);
+      if (existingTemplate) {
+        setTemplateName(existingTemplate.name);
+      } else {
+        // Fetch from API if not in store
+        fetchTemplate(job.prompt_template_id)
+          .then(() => {
+            const template = templates.find(t => t.id === job.prompt_template_id);
+            if (template) {
+              setTemplateName(template.name);
+            }
+          })
+          .catch(() => {
+            setTemplateName('Unknown Template');
+          });
+      }
+    }
+  }, [job.prompt_template_id, templates]);
+
+  // Calculate progress percentage
+  const totalFeatures = job.total_features || 0;
+  const progress = totalFeatures > 0
+    ? (job.features_labeled / totalFeatures) * 100
+    : 0;
+
+  // Get elapsed time - compute from total seconds to avoid date-fns calendar decomposition issues
+  const getElapsedTime = () => {
+    const start = new Date(job.created_at);
+    const end = job.completed_at ? new Date(job.completed_at) : new Date();
+
+    let totalSeconds = Math.floor((end.getTime() - start.getTime()) / 1000);
+    if (totalSeconds < 0) totalSeconds = 0;
+
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    const parts = [];
+    if (days) parts.push(`${days}d`);
+    if (hours) parts.push(`${hours}h`);
+    if (minutes) parts.push(`${minutes}m`);
+    if (seconds) parts.push(`${seconds}s`);
+
+    return parts.length > 0 ? parts.join(' ') : '0s';
+  };
+
+  // Get estimated time remaining based on current rate
+  const getEstimatedTimeRemaining = (): string | null => {
+    // Need at least some progress to estimate
+    if (job.features_labeled <= 0 || totalFeatures <= 0) {
+      return null;
+    }
+
+    const start = new Date(job.created_at);
+    const now = new Date();
+    const elapsedSeconds = (now.getTime() - start.getTime()) / 1000;
+
+    // Need at least 30 seconds of data for a reasonable estimate
+    if (elapsedSeconds < 30) {
+      return null;
+    }
+
+    const rate = job.features_labeled / elapsedSeconds; // features per second
+    const remaining = totalFeatures - job.features_labeled;
+    const etaSeconds = remaining / rate;
+
+    // Convert to hours, minutes, seconds
+    const hours = Math.floor(etaSeconds / 3600);
+    const minutes = Math.floor((etaSeconds % 3600) / 60);
+
+    const parts = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
+
+    return parts.length > 0 ? `~${parts.join(' ')}` : '<1m';
+  };
+
+  // Status icon and color
+  const getStatusDisplay = () => {
+    switch (job.status) {
+      case LabelingStatus.QUEUED:
+        return {
+          icon: <Clock className="w-5 h-5" />,
+          color: 'text-yellow-400',
+          bg: 'bg-yellow-500/10',
+          border: 'border-yellow-500/30',
+          label: 'Queued',
+        };
+      case LabelingStatus.LABELING:
+        return {
+          icon: <Loader className="w-5 h-5 animate-spin" />,
+          color: 'text-blue-400',
+          bg: 'bg-blue-500/10',
+          border: 'border-blue-500/30',
+          label: 'Labeling',
+        };
+      case LabelingStatus.COMPLETED:
+        return {
+          icon: <CheckCircle className="w-5 h-5" />,
+          color: 'text-emerald-400',
+          bg: 'bg-emerald-500/10',
+          border: 'border-emerald-500/30',
+          label: 'Completed',
+        };
+      case LabelingStatus.FAILED:
+        return {
+          icon: <XCircle className="w-5 h-5" />,
+          color: 'text-red-400',
+          bg: 'bg-red-500/10',
+          border: 'border-red-500/30',
+          label: 'Failed',
+        };
+      case LabelingStatus.CANCELLED:
+        return {
+          icon: <Ban className="w-5 h-5" />,
+          color: 'text-slate-600 dark:text-slate-400',
+          bg: 'bg-slate-500/10',
+          border: 'border-slate-500/30',
+          label: 'Cancelled',
+        };
+      default:
+        return {
+          icon: <Tag className="w-5 h-5" />,
+          color: 'text-slate-600 dark:text-slate-400',
+          bg: 'bg-slate-500/10',
+          border: 'border-slate-500/30',
+          label: 'Unknown',
+        };
+    }
+  };
+
+  const statusDisplay = getStatusDisplay();
+
+  return (
+    <div className={`${COMPONENTS.card.base} px-4 py-3 border ${statusDisplay.border}`}>
+      {/* Compact Header: Status, Title, Info, and Actions - Single Row */}
+      <div className={`flex items-center justify-between ${isActive ? 'mb-2' : 'mb-1'}`}>
+        {/* Left: Status Icon + Title + Key Info */}
+        <div className="flex items-center gap-3 flex-1">
+          <div className={`p-1.5 rounded-lg ${statusDisplay.bg} ${statusDisplay.color}`}>
+            {statusDisplay.icon}
+          </div>
+          <div className="flex items-center gap-4 flex-1">
+            <span className={`text-sm font-semibold ${COMPONENTS.text.primary}`}>
+              {job.model_name || 'Unknown Model'}
+            </span>
+            {job.layer_index != null && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                L{job.layer_index}
+              </span>
+            )}
+            {job.hook_type && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                {job.hook_type}
+              </span>
+            )}
+            {job.sae_name && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                {job.sae_name}
+              </span>
+            )}
+            <span className={`text-xs px-2 py-0.5 rounded ${statusDisplay.bg} ${statusDisplay.color}`}>
+              {statusDisplay.label}
+            </span>
+            <span className={`text-xs ${COMPONENTS.text.secondary}`}>
+              {job.labeling_method === 'openai'
+                ? `OpenAI (${job.openai_model || 'gpt-4o-mini'})`
+                : job.labeling_method === 'openai_compatible'
+                ? job.openai_compatible_model || 'Ollama'
+                : `Local (${job.local_model || 'meta-llama/Llama-3.2-1B'})`}
+            </span>
+            <span className={`text-xs ${COMPONENTS.text.secondary}`}>
+              Started: {format(new Date(job.created_at), 'MMM d, h:mm a')}
+            </span>
+            {isActive && (
+              <>
+                <span className="text-xs text-blue-400 font-medium">
+                  Elapsed: {getElapsedTime()}
+                </span>
+                <span className={`text-xs ${COMPONENTS.text.secondary}`}>
+                  {job.features_labeled.toLocaleString()} / {totalFeatures.toLocaleString()}
+                </span>
+                <span className="text-xs text-emerald-400 font-medium">
+                  {progress.toFixed(1)}%
+                </span>
+                {getEstimatedTimeRemaining() && (
+                  <span className="text-xs text-amber-400 font-medium">
+                    ETA: {getEstimatedTimeRemaining()}
+                  </span>
+                )}
+              </>
+            )}
+            {isCompleted && job.completed_at && (
+              <span className="text-xs text-emerald-400 font-medium">
+                Completed in {getElapsedTime()}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          {isActive && onCancel && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to cancel this labeling job?')) {
+                  onCancel();
+                }
+              }}
+              className={`p-1.5 rounded-lg ${COMPONENTS.button.ghost}`}
+              title="Cancel labeling"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+          )}
+          {(isCompleted || isFailed || isCancelled) && onDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to delete this labeling job?')) {
+                  onDelete();
+                }
+              }}
+              className={`p-1.5 rounded-lg ${COMPONENTS.button.ghost}`}
+              title="Delete labeling job"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Progress Bar for Active Jobs */}
+      {isActive && (
+        <div className="mb-3">
+          <div className={`h-1.5 ${COMPONENTS.card.base} rounded-full overflow-hidden`}>
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Results Window - Full Width at Bottom */}
+      {isActive && (
+        <div>
+          <LabelingResultsWindow labelingJobId={job.id} />
+        </div>
+      )}
+
+      {/* Compact details for completed/failed/cancelled jobs */}
+      {!isActive && (
+        <div className={`text-xs ${COMPONENTS.text.secondary} space-y-0.5`}>
+          <p>
+            {templateName}
+            {' · '}
+            {job.features_labeled.toLocaleString()}/{totalFeatures.toLocaleString()} features
+            {isCompleted && job.statistics && (
+              <> ({job.statistics.failed_labels.toLocaleString()} failed)</>
+            )}
+            {' · '}
+            {format(new Date(job.created_at), 'MMM d h:mm a')}
+            {job.completed_at && (
+              <> → {format(new Date(job.completed_at), 'MMM d h:mm a')}</>
+            )}
+            {job.completed_at && (
+              <span className="text-emerald-400 font-medium"> ({getElapsedTime()})</span>
+            )}
+          </p>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {isFailed && job.error_message && (
+        <div className="mt-4 p-3 bg-red-900/20 border border-red-800 rounded-lg">
+          <p className="text-sm text-red-200">
+            <span className="font-medium">Error:</span> {job.error_message}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};

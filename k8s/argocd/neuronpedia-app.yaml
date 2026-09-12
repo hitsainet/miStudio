@@ -1,0 +1,108 @@
+# ArgoCD GitOps definition for Neuronpedia (app-layer only).
+#
+# Apply once by hand (kubectl apply -f k8s/argocd/neuronpedia-app.yaml); ArgoCD
+# manages the app-layer workloads from then on.
+#
+# SCOPE — APP-LAYER ONLY (deliberate):
+#   ArgoCD manages ONLY the webapp Deployment, its Service, the Ingress, and the
+#   ConfigMap (k8s/neuronpedia/base). It does NOT manage:
+#     • the postgres StatefulSet + its PVC  (5.3 GB DB on a Retain PV)
+#     • the neuronpedia-secrets Secret       (plaintext DB password — kept out of
+#                                              this public mirror)
+#     • the Namespace and postgres Service   (data-layer / bootstrap)
+#   Those stay applied OUT-OF-BAND so selfHeal can never reconcile away the
+#   database or leak the DB credential. The webapp still consumes the Secret +
+#   ConfigMap by name (secretKeyRef/configMapKeyRef); ArgoCD not owning those
+#   objects is fine.
+#
+# Flow (mirrors mistudio/miLLM):
+#   trigger "Build Neuronpedia Webapp" in hitsainet/miStudio (workflow_dispatch,
+#     neuronpedia_ref=<tag>)
+#     → builds + pushes hitsai/neuronpedia-webapp:latest + :<sha> + :<version>
+#     → ArgoCD Image Updater sees the new :latest digest, pins it into
+#       gitops/pilot, ArgoCD syncs k8s/neuronpedia/base and rolls the webapp.
+#
+# One-time prerequisites (not in git) — SHARED with mistudio, already present:
+#   - dockerhub-creds  (argocd ns)  — Docker Hub auth for Image Updater
+#   - regcred          (argocd ns)  — image pull secret
+#   - gitops/pilot branch
+#   - a repo-credential Secret for Onegaishimas/miStudio with contents:write
+#     (Image Updater pushes pins). mistudio uses mistudio-repo-creds; this app
+#     reuses the same repo, so that credential covers it.
+#   - neuronpedia-secrets + the postgres StatefulSet MUST already exist in the
+#     neuronpedia namespace (they do) — this app adopts only the app-layer.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: neuronpedia
+  namespace: argocd
+spec:
+  description: Neuronpedia — self-hosted interpretability platform (app-layer; DB managed out-of-band)
+  sourceRepos:
+    - https://github.com/Onegaishimas/miStudio.git
+  destinations:
+    - namespace: neuronpedia
+      server: https://kubernetes.default.svc
+  # App-layer only — no cluster-scoped objects (Namespace stays out-of-band).
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: neuronpedia
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: neuronpedia
+  annotations:
+    # ── ArgoCD Image Updater ────────────────────────────────────────────
+    # Track the single webapp image :latest by digest, pin to gitops/pilot.
+    argocd-image-updater.argoproj.io/image-list: webapp=docker.io/hitsai/neuronpedia-webapp:latest
+    argocd-image-updater.argoproj.io/webapp.update-strategy: digest
+    argocd-image-updater.argoproj.io/webapp.kustomize.image-name: hitsai/neuronpedia-webapp
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: gitops/pilot
+spec:
+  project: neuronpedia
+  source:
+    repoURL: https://github.com/Onegaishimas/miStudio.git
+    targetRevision: gitops/pilot
+    path: k8s/neuronpedia/base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: neuronpedia
+  revisionHistoryLimit: 10
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # prune intentionally NOT enabled — never let ArgoCD delete an app-layer
+      # resource (and the data-layer is excluded from this app entirely).
+    syncOptions:
+      - ServerSideApply=true
+  ignoreDifferences:
+    # Tolerate kubectl rollout restart / set image during incident response.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+---
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: neuronpedia-images
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: neuronpedia
+      useAnnotations: true
+  commonUpdateSettings:
+    forceUpdate: false
+    pullSecret: pullsecret:argocd/regcred
+    updateStrategy: digest
+  writeBackConfig:
+    method: git
+    gitConfig:
+      branch: gitops/pilot

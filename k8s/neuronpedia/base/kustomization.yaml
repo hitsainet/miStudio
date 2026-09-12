@@ -1,0 +1,22 @@
+# Neuronpedia GitOps base — deployed by the `neuronpedia` ArgoCD Application
+# from the gitops/pilot branch.
+#
+# SCOPE: APP-LAYER ONLY. This base intentionally does NOT include the postgres
+# StatefulSet, its PVC, the Namespace, or the Secret. Those are DATA-BEARING or
+# credential resources and stay managed OUT-OF-BAND (applied manually) so that
+# ArgoCD selfHeal can never reconcile away the 5.3 GB database (Retain PV) or
+# leak the DB password into this public mirror.
+#
+# The webapp still consumes the manually-managed Secret + ConfigMap BY NAME
+# (secretKeyRef/configMapKeyRef), which works fine without ArgoCD owning them.
+#
+# Image tag below is the *default* (:latest); ArgoCD Image Updater pins the
+# digest via a parameter-override file it commits to gitops/pilot.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - configmap.yaml
+  - service.yaml
+  - webapp.yaml
+  - ingress.yaml

@@ -1,0 +1,31 @@
+# MiStudio Target
+#
+# This target groups all MiStudio services together for easy management.
+# You can start/stop all services with a single command:
+#
+#   sudo systemctl start mistudio.target
+#   sudo systemctl stop mistudio.target
+#   sudo systemctl status mistudio.target
+#
+# Installation:
+#   sudo cp backend/systemd/mistudio.target /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable mistudio.target
+#
+# The target pulls in all MiStudio services:
+#   - mistudio-celery-worker.service
+#   - mistudio-celery-beat.service
+#   - mistudio-backend.service
+#
+# Note: Docker services (Redis, PostgreSQL) are managed separately via Docker Compose
+
+[Unit]
+Description=MiStudio Application Services
+Documentation=https://github.com/anthropics/mistudio
+After=network.target docker.service
+
+# These services will be started when this target is activated
+Wants=mistudio-celery-worker.service mistudio-celery-beat.service mistudio-backend.service
+
+[Install]
+WantedBy=multi-user.target

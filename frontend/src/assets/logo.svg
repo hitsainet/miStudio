@@ -1,0 +1,30 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Neural Network Pattern Logo -->
+  <!-- Three nodes connected with lines, representing interpretability -->
+
+  <!-- Connection lines (background layer) -->
+  <line x1="8" y1="16" x2="16" y2="8" stroke="#10b981" stroke-width="2" opacity="0.6"/>
+  <line x1="8" y1="16" x2="16" y2="24" stroke="#10b981" stroke-width="2" opacity="0.6"/>
+  <line x1="16" y1="8" x2="24" y2="16" stroke="#10b981" stroke-width="2" opacity="0.6"/>
+  <line x1="16" y1="24" x2="24" y2="16" stroke="#10b981" stroke-width="2" opacity="0.6"/>
+
+  <!-- Nodes -->
+  <!-- Left node -->
+  <circle cx="8" cy="16" r="4" fill="#0f1629" stroke="#10b981" stroke-width="2"/>
+  <circle cx="8" cy="16" r="2" fill="#10b981" opacity="0.8"/>
+
+  <!-- Top middle node -->
+  <circle cx="16" cy="8" r="4" fill="#0f1629" stroke="#34d399" stroke-width="2"/>
+  <circle cx="16" cy="8" r="2" fill="#34d399" opacity="0.8"/>
+
+  <!-- Bottom middle node -->
+  <circle cx="16" cy="24" r="4" fill="#0f1629" stroke="#059669" stroke-width="2"/>
+  <circle cx="16" cy="24" r="2" fill="#059669" opacity="0.8"/>
+
+  <!-- Right node (primary/active) -->
+  <circle cx="24" cy="16" r="5" fill="#0f1629" stroke="#10b981" stroke-width="2.5"/>
+  <circle cx="24" cy="16" r="2.5" fill="#10b981"/>
+
+  <!-- Subtle glow effect on active node -->
+  <circle cx="24" cy="16" r="5" fill="#10b981" opacity="0.2"/>
+</svg>

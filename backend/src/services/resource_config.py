@@ -1,0 +1,411 @@
+"""
+Dynamic resource configuration based on available system resources.
+Balances performance with safety to avoid OOM while maximizing throughput.
+"""
+import psutil
+import torch
+import logging
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class ResourceConfig:
+    """Dynamically calculates optimal resource settings."""
+    
+    # Safety margins to prevent OOM
+    RAM_SAFETY_MARGIN = 0.25  # Reserve 25% of available RAM
+    GPU_SAFETY_MARGIN = 0.20  # Reserve 20% of GPU memory
+    
+    # Per-sample memory estimates (empirically determined)
+    RAM_PER_SAMPLE_MB = 2.0  # ~2MB per sample in batch
+    # Memory-efficient heap: only stores top-5 token positions per example (~250 bytes/example)
+    # NOT full sequences (512 tokens). 250 bytes = 0.25 KB per example.
+    RAM_PER_FEATURE_HEAP_KB = 0.25  # ~250 bytes per example (top-5 tokens only)
+    
+    @staticmethod
+    def get_system_resources() -> Dict[str, Any]:
+        """Get current system resource availability."""
+        memory = psutil.virtual_memory()
+        cpu_count = psutil.cpu_count(logical=True)
+        
+        resources = {
+            "cpu_cores": cpu_count,
+            "total_ram_gb": memory.total / (1024**3),
+            "available_ram_gb": memory.available / (1024**3),
+            "ram_percent_used": memory.percent,
+        }
+        
+        # GPU resources
+        if torch.cuda.is_available():
+            gpu_props = torch.cuda.get_device_properties(0)
+            gpu_memory_allocated = torch.cuda.memory_allocated(0) / (1024**3)
+            gpu_memory_reserved = torch.cuda.memory_reserved(0) / (1024**3)
+            
+            resources.update({
+                "gpu_available": True,
+                "gpu_name": gpu_props.name,
+                "gpu_total_memory_gb": gpu_props.total_memory / (1024**3),
+                "gpu_memory_allocated_gb": gpu_memory_allocated,
+                "gpu_memory_reserved_gb": gpu_memory_reserved,
+                "gpu_memory_available_gb": (gpu_props.total_memory / (1024**3)) - gpu_memory_reserved,
+            })
+        else:
+            resources["gpu_available"] = False
+            
+        return resources
+    
+    @classmethod
+    def calculate_extraction_config(
+        cls,
+        num_features: int,
+        top_k_examples: int,
+        sequence_length: int = 512,
+        hidden_dim: int = 768,
+        vocab_size: int = 32000
+    ) -> Dict[str, int]:
+        """
+        Calculate optimal extraction settings based on available resources.
+
+        Args:
+            num_features: Number of SAE features (latent_dim)
+            top_k_examples: Number of examples to store per feature
+            sequence_length: Max sequence length
+            hidden_dim: Hidden dimension size
+            vocab_size: Model vocabulary size (critical for memory calculation!)
+
+        Returns:
+            Dictionary with optimal settings:
+            - batch_size: Samples to process at once
+            - num_workers: CPU workers for parallel processing
+            - db_commit_batch: Features to commit at once
+        """
+        resources = cls.get_system_resources()
+
+        logger.info(f"Calculating extraction config for {resources['cpu_cores']} cores, "
+                   f"{resources['available_ram_gb']:.1f}GB available RAM, vocab_size={vocab_size}")
+
+        # 1. Calculate batch size based on available RAM and GPU memory
+        usable_ram_gb = resources["available_ram_gb"] * (1 - cls.RAM_SAFETY_MARGIN)
+
+        # Memory for batch processing (activation tensors, intermediate results)
+        batch_memory_overhead_mb = 500  # Base overhead
+        per_sample_ram_mb = cls.RAM_PER_SAMPLE_MB * sequence_length / 512  # Scale with seq length
+
+        # Memory for feature heap storage
+        heap_memory_mb = (num_features * top_k_examples * cls.RAM_PER_FEATURE_HEAP_KB) / 1024
+
+        # Available for batches
+        available_for_batches_mb = (usable_ram_gb * 1024) - batch_memory_overhead_mb - heap_memory_mb
+        max_batch_from_ram = int(available_for_batches_mb / per_sample_ram_mb)
+
+        # Constrain by GPU memory if available
+        if resources["gpu_available"]:
+            gpu_available_gb = resources["gpu_memory_available_gb"] * (1 - cls.GPU_SAFETY_MARGIN)
+
+            # Conservative estimate for transformer forward pass:
+            # - Model weights are already loaded and using GPU memory
+            # - Per-sample memory components:
+            #   1. Layer activations: seq_len * hidden_dim * 4 bytes * num_layers * 3
+            #   2. LM head output: seq_len * vocab_size * 4 bytes (THIS IS HUGE FOR LARGE VOCAB!)
+
+            # Estimate num_layers from hidden_dim
+            estimated_layers = max(12, int(hidden_dim / 768 * 12))
+
+            # Layer activations memory
+            layer_activations_mb = (sequence_length * hidden_dim * 4 * estimated_layers * 3) / (1024**2)
+
+            # LM head output memory - CRITICAL for large vocab models like Gemma-2-2b (256k vocab)
+            # This is often the largest single allocation!
+            lm_head_output_mb = (sequence_length * vocab_size * 4) / (1024**2)
+
+
+            # ATTENTION MEMORY - scales QUADRATICALLY with sequence length!
+            # Formula: num_heads * seq_len^2 * 4 bytes * num_layers (per sample)
+            # This is often the memory bottleneck for long sequences
+            estimated_num_heads = max(8, hidden_dim // 64)  # Typical: hidden_dim/64 or hidden_dim/128
+            attention_memory_mb = (estimated_num_heads * sequence_length * sequence_length * 4 * estimated_layers) / (1024**2)
+
+            # Total per-sample GPU memory (includes attention!)
+            per_sample_gpu_mb = layer_activations_mb + lm_head_output_mb + attention_memory_mb
+
+            logger.info(f"Per-sample GPU memory: {per_sample_gpu_mb:.1f}MB "
+                       f"(activations: {layer_activations_mb:.1f}MB, lm_head: {lm_head_output_mb:.1f}MB, "
+                       f"attention: {attention_memory_mb:.1f}MB)")
+
+            # Estimate model memory from hidden_dim (rough: larger models use more)
+            estimated_model_gb = max(2.0, (hidden_dim / 768) ** 2 * 0.5)
+
+            # Reserve space for model + SAE + overhead
+            reserved_gb = estimated_model_gb + 1.0
+            available_for_batch_gb = max(0.5, gpu_available_gb - reserved_gb)
+            max_batch_from_gpu = max(1, int((available_for_batch_gb * 1024) / per_sample_gpu_mb))
+
+            batch_size = min(max_batch_from_ram, max_batch_from_gpu)
+            logger.info(f"GPU-constrained batch size: {max_batch_from_gpu} "
+                       f"(available: {gpu_available_gb:.1f}GB, reserved: {reserved_gb:.1f}GB, "
+                       f"hidden_dim: {hidden_dim}, vocab_size: {vocab_size})")
+        else:
+            batch_size = max_batch_from_ram
+
+        # Clamp to reasonable range - allow very small batches for large models
+        batch_size = max(1, min(batch_size, 32))
+        
+        # 2. Calculate number of CPU workers
+        # Use 50-75% of cores for CPU-bound feature processing
+        # Leave cores for system, database, other services
+        max_workers = max(1, int(resources["cpu_cores"] * 0.6))
+        
+        # Don't exceed what makes sense for workload
+        # Too many workers can cause overhead; diminishing returns after ~8
+        num_workers = min(max_workers, 8)
+        
+        # 3. Database commit batch size
+        # Larger batches = fewer commits, but more memory
+        # Scale with available RAM
+        if resources["available_ram_gb"] > 15:
+            db_commit_batch = 2000
+        elif resources["available_ram_gb"] > 8:
+            db_commit_batch = 1000
+        else:
+            db_commit_batch = 500
+            
+        config = {
+            "batch_size": batch_size,
+            "num_workers": num_workers,
+            "db_commit_batch": db_commit_batch,
+        }
+        
+        logger.info(f"Extraction config: batch_size={batch_size}, "
+                   f"num_workers={num_workers}, db_commit_batch={db_commit_batch}")
+        logger.info(f"Estimated RAM usage: ~{heap_memory_mb + batch_memory_overhead_mb:.0f}MB base + "
+                   f"~{per_sample_ram_mb * batch_size:.0f}MB per batch")
+        
+        return config
+    
+    @classmethod
+    def get_optimal_settings(
+        cls,
+        training_config: Dict[str, Any],
+        extraction_config: Dict[str, Any],
+        model_vocab_size: int = 32000
+    ) -> Dict[str, int]:
+        """
+        Get optimal settings for extraction based on training and extraction configs.
+
+        Args:
+            training_config: Training hyperparameters (latent_dim, hidden_dim, etc.)
+            extraction_config: Extraction parameters (top_k_examples, evaluation_samples)
+            model_vocab_size: Model vocabulary size (critical for memory calculation!)
+                             Gemma-2-2b has 256k vocab vs typical 32k - 8x memory difference!
+
+        Returns:
+            Optimal extraction settings
+        """
+        return cls.calculate_extraction_config(
+            num_features=training_config.get("latent_dim", 8192),
+            top_k_examples=extraction_config.get("top_k_examples", 100),
+            sequence_length=extraction_config.get("max_length", 512),
+            hidden_dim=training_config.get("hidden_dim", 768),
+            vocab_size=model_vocab_size
+        )
+
+    @classmethod
+    def estimate_resource_usage(
+        cls,
+        num_features: int,
+        top_k_examples: int,
+        batch_size: int,
+        num_workers: int,
+        evaluation_samples: int = 10000,
+        sequence_length: int = 512,
+        hidden_dim: int = 768
+    ) -> Dict[str, Any]:
+        """
+        Estimate resource usage for given extraction configuration.
+
+        Args:
+            num_features: Number of SAE features (latent_dim)
+            top_k_examples: Number of examples to store per feature
+            batch_size: Samples to process at once
+            num_workers: CPU workers for parallel processing
+            evaluation_samples: Total samples to evaluate
+            sequence_length: Max sequence length
+            hidden_dim: Hidden dimension size
+
+        Returns:
+            Dictionary with estimated resource usage:
+            - estimated_ram_gb: Estimated RAM usage
+            - estimated_gpu_gb: Estimated GPU VRAM usage (if available)
+            - estimated_duration_minutes: Estimated completion time
+            - warnings: List of warning messages
+            - errors: List of error messages (resource exhaustion)
+        """
+        resources = cls.get_system_resources()
+
+        # Calculate memory requirements
+        # 1. Heap storage for top-k examples
+        heap_memory_mb = (num_features * top_k_examples * cls.RAM_PER_FEATURE_HEAP_KB) / 1024
+
+        # 2. Batch processing memory (activation tensors, intermediate results)
+        batch_memory_overhead_mb = 500  # Base overhead
+        per_sample_ram_mb = cls.RAM_PER_SAMPLE_MB * sequence_length / 512
+        batch_memory_mb = per_sample_ram_mb * batch_size
+
+        # 3. Model and tokenizer memory (rough estimate)
+        model_memory_mb = 2000  # ~2GB for typical transformer model
+
+        # Total RAM estimate
+        estimated_ram_gb = (heap_memory_mb + batch_memory_overhead_mb + batch_memory_mb + model_memory_mb) / 1024
+
+        # GPU memory estimate (if available)
+        estimated_gpu_gb = 0
+        if resources["gpu_available"]:
+            # Model weights + activations + batch processing
+            model_gpu_mb = 2000  # Model on GPU
+            per_sample_gpu_mb = (sequence_length * hidden_dim * 4 * 2) / (1024**2)
+            batch_gpu_mb = per_sample_gpu_mb * batch_size
+            estimated_gpu_gb = (model_gpu_mb + batch_gpu_mb) / 1024
+
+        # Estimate duration (based on empirical data)
+        # Approximate processing rate: 150 samples/minute per worker
+        samples_per_minute = 150 * num_workers
+        estimated_duration_minutes = evaluation_samples / samples_per_minute
+
+        # Validate against available resources
+        warnings = []
+        errors = []
+
+        # Check RAM
+        available_ram_gb = resources["available_ram_gb"]
+        if estimated_ram_gb > available_ram_gb:
+            errors.append(f"Estimated RAM usage ({estimated_ram_gb:.1f}GB) exceeds available RAM ({available_ram_gb:.1f}GB)")
+        elif estimated_ram_gb > available_ram_gb * 0.9:
+            warnings.append(f"RAM usage will be very high ({estimated_ram_gb:.1f}GB of {available_ram_gb:.1f}GB available)")
+
+        # Check GPU
+        if resources["gpu_available"]:
+            available_gpu_gb = resources["gpu_memory_available_gb"]
+            if estimated_gpu_gb > available_gpu_gb:
+                errors.append(f"Estimated GPU memory ({estimated_gpu_gb:.1f}GB) exceeds available GPU memory ({available_gpu_gb:.1f}GB)")
+            elif estimated_gpu_gb > available_gpu_gb * 0.9:
+                warnings.append(f"GPU memory usage will be very high ({estimated_gpu_gb:.1f}GB of {available_gpu_gb:.1f}GB available)")
+
+        # Check batch size recommendations
+        recommended = cls.calculate_extraction_config(num_features, top_k_examples, sequence_length, hidden_dim)
+        if batch_size < recommended["batch_size"] * 0.5:
+            warnings.append(f"Batch size ({batch_size}) is significantly below recommended ({recommended['batch_size']}) - extraction will be slower")
+
+        # Check worker count
+        if num_workers > resources["cpu_cores"]:
+            warnings.append(f"Worker count ({num_workers}) exceeds CPU cores ({resources['cpu_cores']}) - may cause overhead")
+
+        return {
+            "estimated_ram_gb": round(estimated_ram_gb, 2),
+            "estimated_gpu_gb": round(estimated_gpu_gb, 2) if resources["gpu_available"] else None,
+            "estimated_duration_minutes": round(estimated_duration_minutes, 1),
+            "warnings": warnings,
+            "errors": errors
+        }
+
+
+#: Bytes per parameter for each quantization format, INCLUDING bitsandbytes'
+#: overhead for the quantized ones (absmax scales, quant maps). Deliberately
+#: rounded up: a preflight that under-estimates is worse than none, because it
+#: adds a check the user then learns to ignore.
+_BYTES_PER_PARAM = {
+    "FP32": 4.0,
+    "FP16": 2.0,
+    "Q8": 1.1,
+    "Q4": 0.6,
+    "Q2": 0.4,
+}
+
+#: Headroom above the weights for activations, the KV cache and CUDA's own
+#: context. Extraction runs batched forward passes over long sequences, so this
+#: is not a rounding allowance — the reported OOM was for a 120 MiB allocation
+#: with 113 MiB free, i.e. the weights had taken essentially everything.
+_ACTIVATION_HEADROOM_GB = 2.0
+
+
+class VRAMInsufficientError(RuntimeError):
+    """The model cannot fit on this GPU with the requested quantization."""
+
+
+def preflight_gpu_capacity(
+    *,
+    params_count: Optional[int],
+    quantization: str,
+    model_name: str = "model",
+) -> None:
+    """Refuse a job that cannot fit, BEFORE spending minutes loading weights.
+
+    Reported live 2026-08-23: an extraction on `gemma-4-12B-it` ran for 2m47s
+    and died with "CUDA out of memory. Tried to allocate 120.00 MiB. GPU 0 has
+    a total capacity of 23.56 GiB of which 113.06 MiB is free" — the weights had
+    consumed the card and the first forward pass had nowhere to go.
+
+    Nothing checked. `ResourceConfig.get_optimal_settings` is called AFTER the
+    model is resident and tunes batch size against system RAM, so it cannot see
+    this coming and could not have prevented it.
+
+    A 12B model at FP16 is ~24 GB of weights on a 23.56 GB card: it was never
+    going to fit, and the product could have said so in under a second. Failing
+    fast with the arithmetic is worth more than failing late with a CUDA error,
+    because the arithmetic names the remedy.
+
+    Raises:
+        VRAMInsufficientError: with the shortfall and what would fit.
+    """
+    if not params_count or params_count <= 0:
+        # Unknown size — proceed rather than block on missing metadata. A
+        # preflight that refuses jobs it cannot assess is worse than none.
+        logger.info("Skipping GPU preflight: params_count unknown for %s", model_name)
+        return
+
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return
+        free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+    except Exception as exc:                      # pragma: no cover - env dependent
+        logger.info("Skipping GPU preflight: could not read GPU memory (%s)", exc)
+        return
+
+    per_param = _BYTES_PER_PARAM.get(str(quantization).upper(), 2.0)
+    weights_gb = params_count * per_param / (1024 ** 3)
+    needed_gb = weights_gb + _ACTIVATION_HEADROOM_GB
+    free_gb = free_bytes / (1024 ** 3)
+
+    if needed_gb <= free_gb:
+        logger.info(
+            "GPU preflight OK for %s: ~%.1f GB needed (%.1f GB weights at %s "
+            "+ %.1f GB headroom), %.1f GB free",
+            model_name, needed_gb, weights_gb, quantization,
+            _ACTIVATION_HEADROOM_GB, free_gb,
+        )
+        return
+
+    # Name a format that WOULD fit, so the message ends with an action.
+    suggestion = None
+    for fmt in ("Q8", "Q4", "Q2"):
+        if params_count * _BYTES_PER_PARAM[fmt] / (1024 ** 3) + _ACTIVATION_HEADROOM_GB <= free_gb:
+            suggestion = fmt
+            break
+
+    remedy = (
+        f"Re-download or convert this model as {suggestion} — that needs about "
+        f"{params_count * _BYTES_PER_PARAM[suggestion] / (1024 ** 3):.1f} GB."
+        if suggestion
+        else "No supported quantization fits this GPU; use a smaller model."
+    )
+
+    raise VRAMInsufficientError(
+        f"{model_name} does not fit on this GPU. "
+        f"{params_count / 1e9:.1f}B parameters at {quantization} is about "
+        f"{weights_gb:.1f} GB of weights, plus ~{_ACTIVATION_HEADROOM_GB:.0f} GB "
+        f"for activations and CUDA context = ~{needed_gb:.1f} GB needed, "
+        f"against {free_gb:.1f} GB free of {total_bytes / (1024 ** 3):.1f} GB total. "
+        f"{remedy}"
+    )

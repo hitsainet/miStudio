@@ -1,0 +1,68 @@
+# MiStudio Backend Service
+#
+# This service runs the FastAPI backend server using uvicorn.
+# It serves the REST API and WebSocket connections for the frontend.
+#
+# Installation:
+#   sudo cp backend/systemd/mistudio-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable mistudio-backend
+#   sudo systemctl start mistudio-backend
+#
+# Logs: journalctl -u mistudio-backend -f
+
+[Unit]
+Description=MiStudio FastAPI Backend
+Documentation=https://github.com/anthropics/mistudio
+After=network.target redis.service docker.service postgresql.service
+Requires=docker.service
+# Backend needs Redis (for Celery) and PostgreSQL (for data)
+Wants=redis.service postgresql.service mistudio-celery-worker.service
+
+[Service]
+Type=simple
+User=x-sean
+Group=x-sean
+WorkingDirectory=/home/x-sean/app/miStudio/backend
+
+# Environment setup
+Environment="PATH=/home/x-sean/app/miStudio/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/home/x-sean/app/miStudio/backend"
+Environment="ENVIRONMENT=production"
+
+# Uvicorn server command
+# --host 0.0.0.0: Listen on all interfaces
+# --port 8000: Default backend port
+# --workers 1: Single worker (good for development/small deployments)
+ExecStart=/home/x-sean/app/miStudio/backend/venv/bin/uvicorn \
+    src.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info
+
+# Graceful shutdown
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=30
+
+# Auto-restart configuration
+Restart=always
+RestartSec=10
+
+# Prevent restart loops: max 5 restarts in 5 minutes
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Nice priority
+Nice=-5
+
+# File descriptors
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mistudio-backend
+
+[Install]
+WantedBy=multi-user.target mistudio.target

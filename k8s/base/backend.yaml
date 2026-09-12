@@ -1,0 +1,354 @@
+# -------------------------
+# BACKEND + CELERY (GPU POD)
+# -------------------------
+# Image tag/digest managed by ArgoCD Image Updater (kustomize images transform
+# + .argocd-source-mistudio.yaml pin file); do not hand-edit tags here.
+# The single hitsai/mistudio-backend entry in kustomization.yaml rewrites all
+# three containers below (api / celery-worker / celery-beat) plus mistudio-mcp.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistudio-backend
+  namespace: mistudio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Required for GPU workloads - terminate old pod before starting new
+  selector:
+    matchLabels:
+      app: mistudio-backend
+  template:
+    metadata:
+      labels:
+        app: mistudio-backend
+    spec:
+      # PINNED, and this is not optional here. This pod mounts
+      # /data/mistudio as a hostPath — 674 GB of models, datasets, activations
+      # and checkpoints that exist on mcs-lnxgpu01's disk and nowhere else. It
+      # also needs that node's GPU.
+      #
+      # Left unpinned (it was, as a commented-out placeholder), the scheduler
+      # may place it on any node, where the hostPath resolves to an empty or
+      # absent directory and the app comes up healthy with no data. On
+      # 2026-08-30 exactly that happened to the postgres pod in this namespace
+      # after a reboot: it landed on mcs-lnxhost02, initialised a new empty
+      # database, and every table read as 0 rows while the real 70.5 GB sat
+      # untouched on gpu01. This pod survived that reboot on the right node by
+      # luck, not by configuration.
+      nodeSelector:
+        kubernetes.io/hostname: mcs-lnxgpu01
+
+      # hostAliases: Required if your cluster nodes cannot resolve the ingress
+      # hostname via DNS. Set the IP to your ingress controller's external IP
+      # and the hostname to match your ingress rule.
+      # hostAliases:
+      #   - ip: "YOUR_INGRESS_IP"
+      #     hostnames:
+      #       - "k8s-mistudio.your-domain.local"
+
+      # Migrations run automatically via docker-entrypoint.sh for SERVICE_TYPE=api
+      # The entrypoint handles: wait-for-db, alembic upgrade head, fail-on-error
+      containers:
+        - name: backend
+          image: hitsai/mistudio-backend:latest
+          ports:
+            - containerPort: 8000
+          # Liveness catches event-loop freezes (2026-07 incident: a blocking
+          # call wedged asyncio for 37 min with the pod "Running") — restart
+          # within ~60s instead of an indefinite outage. startupProbe covers
+          # migrations at boot so liveness can stay tight.
+          startupProbe:
+            httpGet:
+              path: /api/v1/system/health
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 30   # up to 5 min for migrations/model warmup
+          livenessProbe:
+            httpGet:
+              path: /api/v1/system/health
+              port: 8000
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4    # ~60s of unresponsiveness → restart
+          readinessProbe:
+            httpGet:
+              path: /api/v1/system/health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: SERVICE_TYPE
+              value: api
+            # Without this the Settings default of "development" applies, which
+            # turns on SQLAlchemy echo. The NLP pass commits per feature, so echo
+            # produced ~20,700 log lines in 13 minutes and rotated away the very
+            # window an incident needed (2026-07-26: the extraction:completed
+            # emit could not be checked because its logs were already gone).
+            # is_development gates ONLY logging verbosity — engine echo, the
+            # socket.io logger, and a task-success print. Nothing behavioural.
+            - name: ENVIRONMENT
+              value: production
+            # MIS-E2E-105 follow-up. Socket.IO's `cors_allowed_origins` reads
+            # this list, so an origin missing here gets 403 on the WebSocket
+            # UPGRADE and silently degrades to polling-only: REST works, the
+            # page renders, and pushed progress events never arrive. It has to
+            # name the hostnames this deployment is actually reached on.
+            - name: ALLOWED_ORIGINS
+              # JSON ARRAY, not comma-separated. `allowed_origins` is a
+              # list[str], and pydantic-settings JSON-decodes complex
+              # types in EnvSettingsSource BEFORE any field_validator
+              # runs — so the `parse_allowed_origins` validator that
+              # accepts a comma-separated string never gets the value,
+              # and the process dies at import with SettingsError.
+              # A comma-separated value here crashlooped the API.
+              value: '["http://k8s-mistudio.hitsai.local", "https://k8s-mistudio.hitsai.local", "https://mistudio.hitsai.net", "http://mistudio.hitsai.net", "http://localhost:3000", "http://localhost"]'
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url
+            - name: DATABASE_URL_SYNC
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url-sync
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: secret-key
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+            - name: INTERNAL_API_URL
+              value: http://mistudio-backend:8000
+            - name: OLLAMA_URL
+              value: http://ollama-proxy:11434
+            # Neuronpedia local instance configuration (optional - remove if not using Neuronpedia)
+            # - name: NEURONPEDIA_LOCAL_DB_URL
+            #   value: postgresql://neuronpedia:YOUR_NEURONPEDIA_PASSWORD@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia
+            # - name: NEURONPEDIA_LOCAL_URL
+            #   value: http://your-neuronpedia-host.local
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: mistudio-data
+              mountPath: /data
+
+        - name: celery-worker
+          image: hitsai/mistudio-backend:latest
+          env:
+            - name: SERVICE_TYPE
+              value: celery-worker
+            # Without this the Settings default of "development" applies, which
+            # turns on SQLAlchemy echo. The NLP pass commits per feature, so echo
+            # produced ~20,700 log lines in 13 minutes and rotated away the very
+            # window an incident needed (2026-07-26: the extraction:completed
+            # emit could not be checked because its logs were already gone).
+            # is_development gates ONLY logging verbosity — engine echo, the
+            # socket.io logger, and a task-success print. Nothing behavioural.
+            - name: ENVIRONMENT
+              value: production
+            # GPU/serialised work ONLY. low_priority is deliberately ABSENT —
+            # see the celery-worker-cpu container below.
+            - name: CELERY_QUEUES
+              value: high_priority,datasets,processing,training,extraction,sae
+            - name: CELERY_WORKER_NAME
+              value: gpu
+            # Return VRAM to the driver when an extraction finishes.
+            #
+            # The default caching allocator carves fixed-size segments, and
+            # `empty_cache()` can only hand back a segment nothing lives in.
+            # After a 12B extraction the worker sat at Allocated 0.01 GB /
+            # Reserved 6.99 GB -- no live tensors, 7.3 GB unavailable to
+            # anything else on the card, held for nine hours (2026-08-25).
+            # Expandable segments use one growable mapping whose pages can
+            # actually be unmapped, so the pool shrinks instead of flooring.
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: expandable_segments:True
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url
+            - name: DATABASE_URL_SYNC
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url-sync
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: secret-key
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+            - name: INTERNAL_API_URL
+              value: http://mistudio-backend:8000
+            - name: OLLAMA_URL
+              value: http://ollama-proxy:11434
+            # Neuronpedia local instance configuration (optional - remove if not using Neuronpedia)
+            # - name: NEURONPEDIA_LOCAL_DB_URL
+            #   value: postgresql://neuronpedia:YOUR_NEURONPEDIA_PASSWORD@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia
+            # - name: NEURONPEDIA_LOCAL_URL
+            #   value: http://your-neuronpedia-host.local
+          volumeMounts:
+            - name: mistudio-data
+              mountPath: /data
+
+        # Second worker for CPU-only post-processing.
+        #
+        # WHY THIS EXISTS: the single --pool=solo -c 1 worker consumed EVERY
+        # queue, so queue routing was decorative — one slot ran all work in
+        # arrival order. On 2026-07-26 a 32,759-feature NLP pass (~12.6h at the
+        # measured 0.72 features/sec) held that slot, and behind it sat:
+        #   * the next two extractions of the same batch (queued, never started)
+        #   * every cleanup_stuck_* beat task, which is what un-wedges jobs —
+        #     so the janitor could not run precisely while things were wedged
+        #
+        # Splitting the queues is the fix; the code-level decoupling of the
+        # batch chain from NLP is necessary but not sufficient on its own,
+        # because the dispatched task still needs a free worker to pick it up.
+        #
+        # No GPU is requested here, and no task routed to low_priority touches
+        # CUDA. It keeps --pool=solo (the default) so nothing about fork/CUDA
+        # semantics changes; the win is an INDEPENDENT slot, not parallelism.
+        - name: celery-worker-cpu
+          image: hitsai/mistudio-backend:latest
+          env:
+            - name: SERVICE_TYPE
+              value: celery-worker
+            # Without this the Settings default of "development" applies, which
+            # turns on SQLAlchemy echo. The NLP pass commits per feature, so echo
+            # produced ~20,700 log lines in 13 minutes and rotated away the very
+            # window an incident needed (2026-07-26: the extraction:completed
+            # emit could not be checked because its logs were already gone).
+            # is_development gates ONLY logging verbosity — engine echo, the
+            # socket.io logger, and a task-success print. Nothing behavioural.
+            - name: ENVIRONMENT
+              value: production
+            - name: CELERY_QUEUES
+              value: low_priority
+            - name: CELERY_WORKER_NAME
+              value: cpu
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url
+            - name: DATABASE_URL_SYNC
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url-sync
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: secret-key
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+            - name: INTERNAL_API_URL
+              value: http://mistudio-backend:8000
+            - name: OLLAMA_URL
+              value: http://ollama-proxy:11434
+            # Neuronpedia local instance configuration (optional - remove if not using Neuronpedia)
+            # - name: NEURONPEDIA_LOCAL_DB_URL
+            #   value: postgresql://neuronpedia:YOUR_NEURONPEDIA_PASSWORD@neuronpedia-postgres-service.neuronpedia:5432/neuronpedia
+            # - name: NEURONPEDIA_LOCAL_URL
+            #   value: http://your-neuronpedia-host.local
+          volumeMounts:
+            - name: mistudio-data
+              mountPath: /data
+
+        - name: celery-beat
+          image: hitsai/mistudio-backend:latest
+          env:
+            - name: SERVICE_TYPE
+              value: celery-beat
+            # Without this the Settings default of "development" applies, which
+            # turns on SQLAlchemy echo. The NLP pass commits per feature, so echo
+            # produced ~20,700 log lines in 13 minutes and rotated away the very
+            # window an incident needed (2026-07-26: the extraction:completed
+            # emit could not be checked because its logs were already gone).
+            # is_development gates ONLY logging verbosity — engine echo, the
+            # socket.io logger, and a task-success print. Nothing behavioural.
+            - name: ENVIRONMENT
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url
+            - name: DATABASE_URL_SYNC
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: database-url-sync
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mistudio-secrets
+                  key: secret-key
+            # Deployment portability env vars
+            - name: DATA_DIR
+              value: /data
+            - name: BACKEND_DIR
+              value: /app
+            - name: INTERNAL_API_URL
+              value: http://mistudio-backend:8000
+            - name: OLLAMA_URL
+              value: http://ollama-proxy:11434
+          volumeMounts:
+            - name: mistudio-data
+              mountPath: /data
+      volumes:
+        - name: mistudio-data
+          hostPath:
+            path: /data/mistudio/data
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistudio-backend
+  namespace: mistudio
+spec:
+  selector:
+    app: mistudio-backend
+  ports:
+    - port: 8000

@@ -1,0 +1,214 @@
+# =============================================================================
+# MiStudio Backend Requirements - Updated 2025-12-16
+# =============================================================================
+# Phase 2 Update: 47 packages updated (21 PATCH + 26 safe MINOR)
+#
+# DEFERRED TO PHASE 3 (Major version bumps requiring testing):
+# - datasets: 2.21.0 → 4.4.1 (HuggingFace datasets major rewrite)
+# - redis: 5.3.1 → 7.1.0 (major version, async API changes)
+# - pytest: 7.4.4 → 9.0.2 (major version, test framework changes)
+# - pytest-asyncio: 0.21.2 → 1.3.0 (major API changes)
+# - pytest-cov: 4.1.0 → 7.0.0 (major version)
+# - aiofiles: 23.2.1 → 25.1.0 (major version)
+# - python-json-logger: 2.0.7 → 4.0.0 (major version)
+# - tenacity: 8.5.0 → 9.1.2 (major version)
+# - ipython: 8.37.0 → 9.8.0 (major version)
+# - pyarrow: 21.0.0 → 22.0.0 (major version)
+# - fsspec: 2024.6.1 → 2025.12.0 (date-based versioning, large jump)
+#
+# DEFERRED - TIGHTLY COUPLED (update together):
+# - fastapi: 0.104.1 → 0.124.4 (20 minor versions jump)
+# - starlette: 0.27.0 → 0.50.0 (23 minor versions jump)
+# - uvicorn: 0.24.0 → 0.38.0 (14 minor versions jump)
+# - ruff: 0.1.15 → 0.14.9 (13 minor versions jump)
+#
+# REMOVED - MANAGED BY TORCH (no longer pinned):
+# - nvidia-* packages are installed automatically by torch as dependencies
+# - Pinning them causes version conflicts when torch is updated
+#
+# =============================================================================
+
+accelerate==1.12.0
+aiofiles==23.2.1
+aiohappyeyeballs==2.6.1
+aiohttp==3.14.3  # GHSA fixes (high + 2 medium)
+aiosignal==1.4.0
+alembic==1.17.2
+amqp==5.3.1
+annotated-types==0.7.0
+anyio==4.14.1  # bumped from 3.7.1 for mcp SDK (requires >=4); full suite green on 4.14.1
+asttokens==3.0.1
+asyncpg==0.31.0
+attrs==25.4.0
+bidict==0.23.1
+billiard==4.2.4
+bitsandbytes==0.49.0
+black==26.3.1
+build==1.3.0
+CacheControl==0.14.4
+celery==5.6.0
+certifi==2025.11.12
+cffi==2.0.0
+charset-normalizer==3.4.4
+cleo==2.1.0
+click==8.4.2
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.3.0
+coverage==7.13.0
+crashtest==0.4.1
+cryptography==50.0.0  # GHSA fix (high)
+datasets==2.21.0
+decorator==5.2.1
+dill==0.3.8
+distlib==0.4.0
+dulwich==1.2.5
+executing==2.2.1
+fastapi>=0.139.2
+fastjsonschema==2.21.2
+filelock==3.20.3
+findpython==0.7.1
+frozenlist==1.8.0
+fsspec==2024.6.1
+greenlet==3.3.0
+h11==0.16.0
+hf-xet==1.5.2
+httpcore==1.0.9
+httptools==0.7.1
+httpx>=0.27.0
+huggingface-hub==1.28.0  # transformers 5.15 wants >=1.5,<2.0
+idna==3.15
+iniconfig==2.3.0
+installer==0.7.0
+ipdb==0.13.13
+ipython==8.37.0
+jaraco.classes==3.4.0
+jaraco.context==6.1.0
+jaraco.functools==4.3.0
+jedi==0.19.2
+jeepney==0.9.0
+Jinja2==3.1.6
+keyring==25.7.0
+kombu==5.6.1
+Mako==1.3.12
+MarkupSafe==3.0.3
+matplotlib-inline==0.1.7
+more-itertools==10.8.0
+mpmath==1.3.0
+msgpack==1.2.1
+multidict==6.7.0
+multiprocess==0.70.16
+mypy==1.19.1
+mypy_extensions==1.1.0
+networkx==3.6.1
+numpy==2.3.5
+# NOTE: nvidia-* packages are NOT pinned here - they are installed automatically
+# as dependencies of torch. Pinning them causes version conflicts when torch is updated.
+# torch 2.9.1 will install the correct nvidia-cu12 versions it requires.
+packaging==25.0
+pandas==2.3.3
+parso==0.8.5
+pathspec==1.0.4
+pytokens==0.4.1
+pexpect==4.9.0
+pkginfo==1.12.1.2
+platformdirs==4.5.1
+pluggy==1.6.0
+poetry==2.3.4
+poetry-core==2.3.2
+prompt_toolkit==3.0.52
+propcache==0.4.1
+protobuf==6.33.5
+psutil==7.1.3
+pynvml>=11.5.0
+psycopg2-binary==2.9.11
+ptyprocess==0.7.0
+pure_eval==0.2.3
+pyarrow==23.0.1
+pycparser==2.23
+pydantic==2.12.5
+pydantic-settings==2.14.2
+pydantic_core==2.41.5
+Pygments==2.20.0
+PyJWT==2.13.0
+pyproject_hooks==1.2.0
+pytest==9.0.3
+pytest-asyncio==1.3.0
+pytest-cov==7.1.0
+pytest-mock==3.15.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+python-engineio==4.13.2
+python-json-logger==2.0.7
+python-multipart>=0.0.31
+python-socketio==5.16.2
+pytz==2025.2
+PyYAML==6.0.3
+RapidFuzz==3.14.3
+redis==5.3.1
+regex==2025.11.3
+requests==2.33.0
+requests-toolbelt==1.0.0
+ruff==0.1.15
+safetensors==0.8.0  # REQUIRED by transformers 5.15 (>=0.8.0)
+SecretStorage==3.4.0
+setuptools==83.0.0  # GHSA fix (medium)
+shellingham==1.5.4
+simple-websocket==1.1.0
+six==1.17.0
+sniffio==1.3.1
+SQLAlchemy==2.0.45
+stack-data==0.6.3
+starlette>=1.3.1
+sympy==1.14.0
+tenacity==8.5.0
+tokenizers==0.22.2  # 0.22.0 pinned huggingface-hub<1.0; 0.22.2 allows <2.0
+tomlkit==0.13.3
+torch==2.9.1
+tqdm==4.67.1
+typer==0.27.0  # transformers 5.5 CLI dep (pulls rich/annotated-doc)
+annotated-doc==0.0.4
+rich==15.0.0
+markdown-it-py==4.2.0
+mdurl==0.1.2
+traitlets==5.14.3
+transformers==5.15.1  # 5.5.4 did not know gemma4_unified (google/gemma-4-*)
+triton==3.5.1
+trove-classifiers==2025.9.11.17
+types-aiofiles==23.2.0.20240623
+types-cffi==1.17.0.20250915
+types-pyOpenSSL==24.1.0.20240722
+types-redis==4.6.0.20241004
+types-setuptools==80.9.0.20250822
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.3
+urllib3>=2.6.0
+uvicorn==0.24.0.post1
+uvloop==0.22.1
+vine==5.1.0
+virtualenv==20.36.1
+watchfiles==1.1.1
+wcwidth==0.2.14
+websockets==15.0.1
+wsproto==1.3.2
+xxhash==3.6.0
+yarl==1.22.0
+zstandard==0.25.0
+scipy>=1.10.0
+openai>=1.0.0
+# NLP Analysis dependencies for enhanced feature labeling
+spacy>=3.7.0
+scikit-learn>=1.3.0
+
+# MCP server for agentic access (Feature 010)
+# Pinned below 2.0: mcp 2.x renames FastMCP to MCPServer
+# (mcp.server.fastmcp -> mcp.server.mcpserver) and changes other APIs.
+# backend/src/mcp_server/server.py is v1 code and fails at IMPORT under
+# 2.x, which takes the whole MCP tool surface down rather than degrading.
+# The unbounded >= let 2.x into CI on 2026-08-19; the deployed image still
+# has 1.12.4 only because it was built before the release.
+mcp>=1.9.0,<2
+
+# Debug tooling: stack-dump a wedged process (py-spy dump --pid <pid>)
+py-spy>=0.3.14

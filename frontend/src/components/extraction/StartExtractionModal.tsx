@@ -1,0 +1,907 @@
+/**
+ * StartExtractionModal Component
+ *
+ * Modal dialog for configuring and starting feature extraction from SAEs.
+ * Supports batch extraction from multiple SAEs.
+ *
+ * Workflow:
+ * 1. User clicks "Start Extraction" on Extractions tab
+ * 2. Selects one or more SAEs
+ * 3. Selects a dataset for activation extraction
+ * 4. Configures extraction parameters
+ * 5. Starts extraction
+ * 6. Modal shows success message
+ */
+
+import React, { useState, useEffect } from 'react';
+import { Zap, X, ChevronDown, Check, Layers, Save } from 'lucide-react';
+import { useFeaturesStore } from '../../stores/featuresStore';
+import { useDatasetsStore } from '../../stores/datasetsStore';
+import { useModelsStore } from '../../stores/modelsStore';
+import { useExtractionTemplatesStore } from '../../stores/extractionTemplatesStore';
+import type { ExtractionTemplate, ExtractionTemplateCreate } from '../../types/extractionTemplate';
+import type { SAE } from '../../types/sae';
+import type { BatchExtractionResponse, BatchExtractionRequest } from '../../types/features';
+import { startSAEExtraction, startBatchSAEExtraction, SAEExtractionConfig, getReadySAEs } from '../../api/saes';
+
+interface StartExtractionModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  // Optional pre-selection
+  preSelectedSAE?: SAE;
+}
+
+/**
+ * StartExtractionModal Component - SAE extraction modal.
+ */
+export const StartExtractionModal: React.FC<StartExtractionModalProps> = ({
+  isOpen,
+  onClose,
+  preSelectedSAE,
+}) => {
+  const {
+    isLoadingExtraction,
+    extractionError,
+  } = useFeaturesStore();
+
+  const { datasets, fetchDatasets } = useDatasetsStore();
+  const { models, fetchModels } = useModelsStore();
+  const { templates: extractionTemplates, fetchTemplates: fetchExtractionTemplates, createTemplate } = useExtractionTemplatesStore();
+
+  // Local state for SAEs (fetched directly from API to avoid affecting global store)
+  const [saes, setSaes] = useState<SAE[]>([]);
+
+  // SAE selection - supports multiple SAE selection for batch extraction
+  const [selectedSAEIds, setSelectedSAEIds] = useState<string[]>(preSelectedSAE ? [preSelectedSAE.id] : []);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
+
+  // Extraction config
+  const [evaluationSamples, setEvaluationSamples] = useState(10000);
+  const [topKExamples, setTopKExamples] = useState(100);
+
+  // Token filtering
+  const [filterSpecial, setFilterSpecial] = useState(true);
+  const [filterSingleChar, setFilterSingleChar] = useState(true);
+  const [filterPunctuation, setFilterPunctuation] = useState(true);
+  const [filterNumbers, setFilterNumbers] = useState(true);
+  const [filterFragments, setFilterFragments] = useState(true);
+  const [filterStopWords, setFilterStopWords] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Context window
+  const [contextPrefixTokens, setContextPrefixTokens] = useState(25);
+  const [contextSuffixTokens, setContextSuffixTokens] = useState(25);
+  const [showContextWindow, setShowContextWindow] = useState(false);
+
+  // Dead neuron filtering
+  const [minActivationFrequency, setMinActivationFrequency] = useState(0.001);
+
+  // NLP processing
+  const [autoNlp, setAutoNlp] = useState(true);
+
+  // UI state
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [saeLoadError, setSaeLoadError] = useState<string | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchExtractionResponse | null>(null);
+  const [templateSaveMessage, setTemplateSaveMessage] = useState<string | null>(null);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+
+  // Load data on mount
+  useEffect(() => {
+    if (isOpen) {
+      // Fetch ready SAEs directly from API
+      setSaeLoadError(null);
+      getReadySAEs()
+        .then((response) => {
+          setSaes(response.data);
+          setSaeLoadError(null);
+        })
+        .catch((err) => {
+          console.error('Failed to fetch SAEs:', err);
+          setSaes([]);
+          setSaeLoadError('Failed to load SAEs. Please try again.');
+        });
+
+      // Fetch datasets, models, and extraction templates from stores
+      fetchDatasets();
+      fetchModels();
+      fetchExtractionTemplates();
+    }
+  }, [isOpen, fetchDatasets, fetchModels, fetchExtractionTemplates]);
+
+  // SAEs are already filtered to ready status by the API call
+  const readySAEs = saes;
+
+  // Filter ready datasets
+  const readyDatasets = datasets.filter(d => d.status === 'ready');
+
+  // Get selected entities
+  const selectedSAEs = readySAEs.filter(s => selectedSAEIds.includes(s.id));
+  const isBatchMode = selectedSAEIds.length > 1;
+
+  // Toggle SAE selection
+  const toggleSAESelection = (saeId: string) => {
+    setSelectedSAEIds(prev =>
+      prev.includes(saeId)
+        ? prev.filter(id => id !== saeId)
+        : [...prev, saeId]
+    );
+  };
+
+  // Select/deselect all SAEs
+  const selectAllSAEs = () => {
+    setSelectedSAEIds(readySAEs.map(s => s.id));
+  };
+
+  const deselectAllSAEs = () => {
+    setSelectedSAEIds([]);
+  };
+
+  // Look up human-readable names from stores
+  const getModelName = (modelId: string) => {
+    const model = models.find(m => m.id === modelId);
+    return model?.name || modelId;
+  };
+
+  /**
+   * Apply extraction template settings to form.
+   */
+  const applyTemplate = (template: ExtractionTemplate) => {
+    setEvaluationSamples(template.max_samples || 10000);
+    setTopKExamples(template.top_k_examples || 100);
+    if (template.context_prefix_tokens !== undefined) {
+      setContextPrefixTokens(template.context_prefix_tokens);
+    }
+    if (template.context_suffix_tokens !== undefined) {
+      setContextSuffixTokens(template.context_suffix_tokens);
+    }
+    // Apply filter settings from extra_metadata (individual booleans)
+    const meta = template.extra_metadata || {};
+    if (meta.filter_special !== undefined) {
+      setFilterSpecial(meta.filter_special);
+      setFilterSingleChar(meta.filter_single_char ?? true);
+      setFilterPunctuation(meta.filter_punctuation ?? true);
+      setFilterNumbers(meta.filter_numbers ?? true);
+      setFilterFragments(meta.filter_fragments ?? true);
+      setFilterStopWords(meta.filter_stop_words ?? false);
+    }
+    // Apply dead neuron threshold
+    if (meta.min_activation_frequency !== undefined) {
+      setMinActivationFrequency(meta.min_activation_frequency);
+    }
+    // Apply auto_nlp setting (defaults to true if not specified)
+    if (meta.auto_nlp !== undefined) {
+      setAutoNlp(meta.auto_nlp);
+    }
+  };
+
+  /**
+   * Generate an informative name and description for the template based on current config.
+   */
+  const generateTemplateNameAndDescription = (): { name: string; description: string } => {
+    // Build name components
+    const sampleStr = evaluationSamples >= 1000
+      ? `${(evaluationSamples / 1000).toFixed(evaluationSamples % 1000 === 0 ? 0 : 1)}K`
+      : `${evaluationSamples}`;
+
+    // Count active filters
+    const activeFilters = [filterSpecial, filterSingleChar, filterPunctuation, filterNumbers, filterFragments, filterStopWords].filter(Boolean).length;
+    let filterStr = '';
+    if (activeFilters === 0) {
+      filterStr = 'no filtering';
+    } else if (activeFilters <= 2) {
+      filterStr = 'minimal filtering';
+    } else if (activeFilters <= 4) {
+      filterStr = 'standard filtering';
+    } else {
+      filterStr = 'full filtering';
+    }
+
+    // Build name: "10K samples, 100 examples, standard filtering"
+    const name = `${sampleStr} samples, ${topKExamples} examples, ${filterStr}`;
+
+    // Build detailed description
+    const descParts: string[] = [];
+    descParts.push(`Evaluation: ${evaluationSamples.toLocaleString()} samples`);
+    descParts.push(`Top-K: ${topKExamples} examples per feature`);
+
+    // Filter summary
+    const filterNames: string[] = [];
+    if (filterSpecial) filterNames.push('special');
+    if (filterSingleChar) filterNames.push('single-char');
+    if (filterPunctuation) filterNames.push('punctuation');
+    if (filterNumbers) filterNames.push('numbers');
+    if (filterFragments) filterNames.push('fragments');
+    if (filterStopWords) filterNames.push('stop-words');
+    if (filterNames.length > 0) {
+      descParts.push(`Filters: ${filterNames.join(', ')}`);
+    } else {
+      descParts.push('Filters: none');
+    }
+
+    descParts.push(`Context: ±${contextPrefixTokens}/${contextSuffixTokens} tokens`);
+    descParts.push(`Dead neuron threshold: ${(minActivationFrequency * 100).toFixed(2)}%`);
+    descParts.push(`Auto-NLP: ${autoNlp ? 'enabled' : 'disabled'}`);
+
+    const description = descParts.join(' | ');
+
+    return { name, description };
+  };
+
+  /**
+   * Handle saving current config as a template.
+   */
+  const handleSaveAsTemplate = async () => {
+    setIsSavingTemplate(true);
+    setTemplateSaveMessage(null);
+
+    try {
+      const { name, description } = generateTemplateNameAndDescription();
+
+      // Map current config to ExtractionTemplateCreate
+      const templateData: ExtractionTemplateCreate = {
+        name,
+        description,
+        // Required fields - use placeholders since SAE extraction doesn't use layer/hook selection
+        layer_indices: [0],
+        hook_types: ['residual'],
+        // Map extraction config
+        max_samples: evaluationSamples,
+        top_k_examples: topKExamples,
+        // Context window
+        context_prefix_tokens: contextPrefixTokens,
+        context_suffix_tokens: contextSuffixTokens,
+        // Store SAE-specific settings in extra_metadata
+        extra_metadata: {
+          template_type: 'sae_extraction',
+          filter_special: filterSpecial,
+          filter_single_char: filterSingleChar,
+          filter_punctuation: filterPunctuation,
+          filter_numbers: filterNumbers,
+          filter_fragments: filterFragments,
+          filter_stop_words: filterStopWords,
+          min_activation_frequency: minActivationFrequency,
+          auto_nlp: autoNlp,
+        },
+      };
+
+      await createTemplate(templateData);
+      setTemplateSaveMessage(`Template saved: "${name}"`);
+
+      // Auto-dismiss after 4 seconds
+      setTimeout(() => setTemplateSaveMessage(null), 4000);
+    } catch (error: any) {
+      const errorMessage = error.message || 'Failed to save template';
+      setTemplateSaveMessage(`Error: ${errorMessage}`);
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
+  /**
+   * Handle start extraction.
+   */
+  const handleStartExtraction = async () => {
+    setLocalError(null);
+    setBatchResult(null);
+    setIsSubmitting(true);
+
+    try {
+      if (selectedSAEIds.length === 0) {
+        throw new Error('Please select at least one SAE');
+      }
+      if (!selectedDatasetId) {
+        throw new Error('Please select a dataset');
+      }
+
+      const config: SAEExtractionConfig = {
+        evaluation_samples: evaluationSamples,
+        top_k_examples: topKExamples,
+        filter_special: filterSpecial,
+        filter_single_char: filterSingleChar,
+        filter_punctuation: filterPunctuation,
+        filter_numbers: filterNumbers,
+        filter_fragments: filterFragments,
+        filter_stop_words: filterStopWords,
+        context_prefix_tokens: contextPrefixTokens,
+        context_suffix_tokens: contextSuffixTokens,
+        min_activation_frequency: minActivationFrequency,
+        auto_nlp: autoNlp,
+      };
+
+      if (selectedSAEIds.length === 1) {
+        // Single SAE extraction
+        await startSAEExtraction(selectedSAEIds[0], selectedDatasetId, config);
+        setShowSuccessMessage(true);
+      } else {
+        // Batch extraction for multiple SAEs
+        const batchRequest: BatchExtractionRequest = {
+          sae_ids: selectedSAEIds,
+          dataset_id: selectedDatasetId,
+          evaluation_samples: evaluationSamples,
+          top_k_examples: topKExamples,
+          filter_special: filterSpecial,
+          filter_single_char: filterSingleChar,
+          filter_punctuation: filterPunctuation,
+          filter_numbers: filterNumbers,
+          filter_fragments: filterFragments,
+          filter_stop_words: filterStopWords,
+          context_prefix_tokens: contextPrefixTokens,
+          context_suffix_tokens: contextSuffixTokens,
+          min_activation_frequency: minActivationFrequency,
+          auto_nlp: autoNlp,
+        };
+        const result = await startBatchSAEExtraction(batchRequest);
+        setBatchResult(result);
+        setShowSuccessMessage(true);
+      }
+    } catch (error: any) {
+      // Handle Pydantic validation errors (detail is array) vs regular errors (detail is string)
+      const detail = error.response?.data?.detail;
+      let errorMessage: string;
+      if (Array.isArray(detail) && detail.length > 0) {
+        errorMessage = detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join('; ');
+      } else if (typeof detail === 'string') {
+        errorMessage = detail;
+      } else {
+        errorMessage = error.message || 'Failed to start extraction';
+      }
+      setLocalError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /**
+   * Handle modal close.
+   */
+  const handleClose = () => {
+    setShowSuccessMessage(false);
+    setLocalError(null);
+    setBatchResult(null);
+    onClose();
+  };
+
+  // Don't render if not open
+  if (!isOpen) {
+    return null;
+  }
+
+  const displayError = localError || extractionError;
+
+  return (
+    <>
+      {/* Modal Overlay */}
+      <div
+        className="fixed inset-0 bg-black/70 z-40"
+        onClick={handleClose}
+      />
+
+      {/* Modal Dialog */}
+      <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-700 shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+          {/* Modal Header */}
+          <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-300 dark:border-slate-700 px-6 py-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Start Feature Extraction</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                Extract interpretable features from an SAE
+              </p>
+            </div>
+            <button
+              onClick={handleClose}
+              className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors"
+              aria-label="Close modal"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Modal Body */}
+          <div className="p-6 space-y-4">
+            {/* Success Message */}
+            {showSuccessMessage && (
+              <div className="p-4 bg-emerald-900/20 border border-emerald-700 rounded-lg">
+                {batchResult ? (
+                  <>
+                    <p className="text-emerald-400 font-medium mb-2">
+                      Batch extraction started successfully!
+                    </p>
+                    <div className="text-sm text-slate-700 dark:text-slate-300 space-y-2">
+                      <p>
+                        <span className="text-emerald-400">{batchResult.total_created}</span> extraction jobs created
+                        {batchResult.total_skipped > 0 && (
+                          <span>, <span className="text-amber-400">{batchResult.total_skipped}</span> SAEs skipped</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        Batch ID: {batchResult.batch_id}
+                      </p>
+                      {batchResult.created_jobs.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Created jobs:</p>
+                          <div className="max-h-32 overflow-y-auto space-y-1">
+                            {batchResult.created_jobs.map((job) => (
+                              <div key={job.job_id} className="text-xs flex items-center gap-2">
+                                <span className="text-emerald-500">#{job.position}</span>
+                                <span className="text-slate-700 dark:text-slate-300">{job.sae_name || job.sae_id.slice(0, 12)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {batchResult.skipped_saes.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-amber-400 mb-1">Skipped SAEs:</p>
+                          <div className="max-h-24 overflow-y-auto space-y-1">
+                            {batchResult.skipped_saes.map((skip) => (
+                              <div key={skip.sae_id} className="text-xs text-amber-300">
+                                {skip.sae_id.slice(0, 12)}: {skip.reason}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-emerald-400 font-medium mb-2">
+                      Extraction started successfully!
+                    </p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">
+                      The extraction job is now queued. You can monitor progress on this page.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Configuration Form (only show if not successful) */}
+            {!showSuccessMessage && (
+              <>
+                {/* SAE Selection Section */}
+                <div className="space-y-3">
+                    {/* SAE Selection - Multi-select for batch extraction */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs text-slate-600 dark:text-slate-400">
+                          Select SAE{readySAEs.length > 1 ? 's' : ''} ({selectedSAEIds.length} selected)
+                        </label>
+                        {readySAEs.length > 1 && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={selectAllSAEs}
+                              className="text-xs text-emerald-400 hover:text-emerald-300"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-slate-600">|</span>
+                            <button
+                              type="button"
+                              onClick={deselectAllSAEs}
+                              className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-300"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* SAE List with checkboxes */}
+                      <div className="max-h-48 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded">
+                        {readySAEs.length === 0 ? (
+                          <div className="p-3 text-center text-sm text-slate-500">
+                            No ready SAEs available
+                          </div>
+                        ) : (
+                          readySAEs.map((sae) => {
+                            const isSelected = selectedSAEIds.includes(sae.id);
+                            const modelName = sae.model_name || (sae.model_id ? getModelName(sae.model_id) : 'Unknown');
+                            const layer = sae.layer != null ? `L${sae.layer}` : 'L?';
+                            const arch = sae.architecture || 'standard';
+                            const features = sae.n_features
+                              ? `${(sae.n_features / 1000).toFixed(1)}K`
+                              : '?';
+
+                            return (
+                              <div
+                                key={sae.id}
+                                onClick={() => toggleSAESelection(sae.id)}
+                                className={`flex items-center gap-3 px-3 py-2 cursor-pointer border-b border-slate-300 dark:border-slate-700 last:border-b-0 transition-colors ${
+                                  isSelected
+                                    ? 'bg-emerald-900/30'
+                                    : 'hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                                }`}
+                              >
+                                <div className={`w-5 h-5 rounded flex items-center justify-center border ${
+                                  isSelected
+                                    ? 'bg-emerald-600 border-emerald-500'
+                                    : 'border-slate-300 dark:border-slate-600'
+                                }`}>
+                                  {isSelected && <Check className="w-3 h-3 text-white" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm text-slate-900 dark:text-white truncate">
+                                    {sae.name || `${modelName} - ${layer}`}
+                                  </div>
+                                  <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                                    {modelName} | {layer} | {arch} | {features} features
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                      {saeLoadError && (
+                        <p className="text-xs text-red-400 mt-1">{saeLoadError}</p>
+                      )}
+                      {!saeLoadError && readySAEs.length === 0 && (
+                        <p className="text-xs text-amber-400 mt-1">
+                          No ready SAEs available. Download or import an SAE first.
+                        </p>
+                      )}
+
+                      {/* Batch mode indicator */}
+                      {isBatchMode && (
+                        <div className="flex items-center gap-2 mt-2 p-2 bg-emerald-900/20 border border-emerald-700/50 rounded text-xs">
+                          <Layers className="w-4 h-4 text-emerald-400" />
+                          <span className="text-emerald-300">
+                            Batch mode: {selectedSAEIds.length} SAEs will be extracted sequentially
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Dataset Selection (required for SAE) */}
+                    <div>
+                      <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Select Dataset</label>
+                      <select
+                        value={selectedDatasetId}
+                        onChange={(e) => setSelectedDatasetId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="">-- Select a dataset --</option>
+                        {readyDatasets.map((dataset) => (
+                          <option key={dataset.id} value={dataset.id}>
+                            {dataset.name}
+                          </option>
+                        ))}
+                      </select>
+                      {readyDatasets.length === 0 && (
+                        <p className="text-xs text-amber-400 mt-1">
+                          No ready datasets available. Download a dataset first.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Selected SAE(s) Info */}
+                    {selectedSAEs.length === 1 && (
+                      <div className="p-3 bg-slate-100 dark:bg-slate-800/30 border border-slate-300 dark:border-slate-700 rounded text-sm">
+                        <div className="grid grid-cols-2 gap-2 text-slate-600 dark:text-slate-400">
+                          <span>Model:</span>
+                          <span className="text-slate-800 dark:text-slate-200">{selectedSAEs[0].model_name || (selectedSAEs[0].model_id ? getModelName(selectedSAEs[0].model_id) : 'Unknown')}</span>
+                          <span>Layer:</span>
+                          <span className="text-slate-800 dark:text-slate-200">{selectedSAEs[0].layer ?? 'Unknown'}</span>
+                          <span>Features:</span>
+                          <span className="text-slate-800 dark:text-slate-200">{selectedSAEs[0].n_features?.toLocaleString() ?? 'Unknown'}</span>
+                        </div>
+                      </div>
+                    )}
+                    {selectedSAEs.length > 1 && (
+                      <div className="p-3 bg-slate-100 dark:bg-slate-800/30 border border-slate-300 dark:border-slate-700 rounded text-sm">
+                        <div className="text-slate-600 dark:text-slate-400 mb-2">
+                          <span className="text-emerald-400 font-medium">{selectedSAEs.length}</span> SAEs selected for batch extraction
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Total features: {selectedSAEs.reduce((sum, sae) => sum + (sae.n_features || 0), 0).toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                {/* Extraction Template Selector */}
+                {extractionTemplates.length > 0 && (
+                  <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700 rounded-lg">
+                    <label className="block text-xs text-slate-600 dark:text-slate-400 mb-2">Load Settings from Template</label>
+                    <select
+                      onChange={(e) => {
+                        const template = extractionTemplates.find(t => t.id === e.target.value);
+                        if (template) {
+                          applyTemplate(template);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                      defaultValue=""
+                    >
+                      <option value="">-- Select a template to apply --</option>
+                      {extractionTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name} {template.is_favorite ? '★' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Applying a template will update the configuration fields below
+                    </p>
+                  </div>
+                )}
+
+                {/* Basic Configuration */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Evaluation Samples</label>
+                    <input
+                      type="number"
+                      value={evaluationSamples}
+                      onChange={(e) => setEvaluationSamples(Number(e.target.value))}
+                      min={100}
+                      max={1000000}
+                      step={100}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Max: 1,000,000</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Top-K Examples per Feature</label>
+                    <input
+                      type="number"
+                      value={topKExamples}
+                      onChange={(e) => setTopKExamples(Number(e.target.value))}
+                      min={10}
+                      max={1000}
+                      step={10}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Dead Neuron Filtering */}
+                <div className="p-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Dead Neuron Filtering</label>
+                    <span className="text-xs text-emerald-500">
+                      {(minActivationFrequency * 100).toFixed(2)}% min frequency
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">
+                    Neurons firing less than this threshold are considered "dead" and will be filtered out.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      value={minActivationFrequency * 1000}
+                      onChange={(e) => setMinActivationFrequency(Number(e.target.value) / 1000)}
+                      min={0}
+                      max={10}
+                      step={0.1}
+                      className="flex-1 h-2 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                    />
+                    <input
+                      type="number"
+                      value={(minActivationFrequency * 100).toFixed(2)}
+                      onChange={(e) => setMinActivationFrequency(Number(e.target.value) / 100)}
+                      min={0}
+                      max={10}
+                      step={0.01}
+                      className="w-20 px-2 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white text-sm focus:outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-xs text-slate-600 dark:text-slate-400">%</span>
+                  </div>
+                </div>
+
+                {/* Context Window Configuration */}
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-700 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowContextWindow(!showContextWindow)}
+                    className="flex items-center justify-between w-full text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Context Window</span>
+                      <span className="text-xs text-emerald-500">
+                        ({contextPrefixTokens} prefix + prime + {contextSuffixTokens} suffix)
+                      </span>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-slate-600 dark:text-slate-400 transition-transform ${showContextWindow ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showContextWindow && (
+                    <div className="mt-4 space-y-3">
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        Capture tokens before and after the prime token (max activation) to provide context for interpretation.
+                      </p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Prefix Tokens</label>
+                          <input
+                            type="number"
+                            value={contextPrefixTokens}
+                            onChange={(e) => setContextPrefixTokens(Number(e.target.value))}
+                            min={0}
+                            max={50}
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Suffix Tokens</label>
+                          <input
+                            type="number"
+                            value={contextSuffixTokens}
+                            onChange={(e) => setContextSuffixTokens(Number(e.target.value))}
+                            min={0}
+                            max={50}
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Token Filtering Configuration */}
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-700 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="flex items-center justify-between w-full text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Token Filtering</span>
+                      <span className="text-xs text-slate-500">
+                        ({[filterSpecial, filterSingleChar, filterPunctuation, filterNumbers, filterFragments, filterStopWords].filter(Boolean).length}/6 enabled)
+                      </span>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-slate-600 dark:text-slate-400 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showFilters && (
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterSpecial}
+                          onChange={(e) => setFilterSpecial(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Special tokens</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterSingleChar}
+                          onChange={(e) => setFilterSingleChar(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Single characters</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterPunctuation}
+                          onChange={(e) => setFilterPunctuation(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Punctuation</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterNumbers}
+                          onChange={(e) => setFilterNumbers(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Numbers</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterFragments}
+                          onChange={(e) => setFilterFragments(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Word fragments</span>
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterStopWords}
+                          onChange={(e) => setFilterStopWords(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Stop words</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {/* NLP Processing Configuration */}
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-700 p-4">
+                  <label className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoNlp}
+                      onChange={(e) => setAutoNlp(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="font-medium">Auto-run NLP Analysis</span>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Automatically compute POS tags, NER, patterns, and clusters for feature labels
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Template Save Notification */}
+                {templateSaveMessage && (
+                  <div className={`p-3 rounded text-sm ${
+                    templateSaveMessage.startsWith('Error')
+                      ? 'bg-red-900/20 border border-red-700 text-red-400'
+                      : 'bg-emerald-900/20 border border-emerald-700 text-emerald-400'
+                  }`}>
+                    {templateSaveMessage}
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {displayError && (
+                  <div className="p-3 bg-red-900/20 border border-red-700 rounded text-red-400 text-sm">
+                    {displayError}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Modal Footer */}
+          <div className="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-300 dark:border-slate-700 px-6 py-4 flex items-center justify-end gap-3">
+            {showSuccessMessage ? (
+              <button
+                onClick={handleClose}
+                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors"
+              >
+                Close
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleSaveAsTemplate}
+                  disabled={isSavingTemplate}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-slate-700 dark:text-slate-300 rounded transition-colors"
+                  title="Save current settings as a reusable template"
+                >
+                  <Save className="w-4 h-4" />
+                  {isSavingTemplate ? 'Saving...' : 'Save as Template'}
+                </button>
+                <div className="flex-1" /> {/* Spacer */}
+                <button
+                  onClick={handleClose}
+                  className="px-6 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-600 text-slate-900 dark:text-white rounded transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleStartExtraction}
+                  disabled={isSubmitting || isLoadingExtraction || selectedSAEIds.length === 0 || !selectedDatasetId}
+                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded transition-colors"
+                >
+                  {isBatchMode ? <Layers className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                  {isSubmitting || isLoadingExtraction
+                    ? 'Starting...'
+                    : isBatchMode
+                      ? `Start Batch (${selectedSAEIds.length} SAEs)`
+                      : 'Start Extraction'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};

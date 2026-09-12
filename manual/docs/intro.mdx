@@ -1,0 +1,79 @@
+---
+sidebar_position: 1
+slug: /
+title: "miStudio User Manual"
+description: "Complete guide to MechInterp Studio — from installation to advanced feature steering"
+hide_title: true
+---
+
+import Link from '@docusaurus/Link';
+
+<div className="landingHero">
+
+# MechInterp Studio
+
+<p className="landingTagline">
+An end-to-end mechanistic interpretability platform. Train sparse autoencoders,
+discover what your model's features mean, and prove it with causal steering —
+all from one database-backed workbench, all on your own hardware.
+</p>
+
+<div className="landingButtons">
+  <Link className="button button--primary button--lg" to="/getting-started/quickstart-tutorial">
+    Quickstart: First SAE in ~30 min
+  </Link>
+  <Link className="button button--secondary button--lg" to="/getting-started/installation">
+    Install miStudio
+  </Link>
+</div>
+
+</div>
+
+<div className="landingGrid">
+  <Link className="landingCard" to="/concepts/interpretability-primer">
+    <h3>🧠 New to interpretability?</h3>
+    <p>Superposition, features, SAEs, and why steering proves causation — the ideas behind the tool, without the math.</p>
+  </Link>
+  <Link className="landingCard" to="/core-workflow/researcher-journey">
+    <h3>🔬 The Core Workflow</h3>
+    <p>The six-stage pipeline: model → dataset → activations → SAE training → feature discovery → steering.</p>
+  </Link>
+  <Link className="landingCard" to="/core-workflow/sae-training">
+    <h3>⚙️ Six SAE Frameworks</h3>
+    <p>Standard, Anthropic, JumpReLU, TopK, Skip, and Transcoder — paper-grounded defaults and tuning guides.</p>
+  </Link>
+  <Link className="landingCard" to="/core-workflow/enhanced-labeling">
+    <h3>🏷️ LLM-Powered Labeling</h3>
+    <p>Bulk auto-labeling plus two-pass enhanced labeling, using local LLMs or OpenAI.</p>
+  </Link>
+  <Link className="landingCard" to="/advanced/exporting">
+    <h3>🌐 Neuronpedia & SAELens</h3>
+    <p>Export findings as complete packages or push directly to a local Neuronpedia instance.</p>
+  </Link>
+  <Link className="landingCard" to="/reference/api/overview">
+    <h3>📖 Reference</h3>
+    <p>The full REST API, every WebSocket channel, and the database schema — everything the UI does, scriptable.</p>
+  </Link>
+</div>
+
+<div className="landingSection">
+
+## What is miStudio?
+
+miStudio replaces the fragmented tooling typically associated with AI-safety research — Jupyter notebooks, custom scripts, and manually tracked experiments — with a professional workbench. Every dataset, training run, feature, label, and steering experiment is a database record with full provenance, and every heavy job runs in the background with live progress.
+
+It runs on your own hardware (a single consumer GPU is enough to start), deploys via [Docker Compose or Kubernetes](/getting-started/installation), and never sends your data anywhere unless you explicitly share it.
+
+## Finding your way
+
+| If you want to… | Go to |
+|-----------------|-------|
+| Run the whole pipeline once, fast | [Quickstart Tutorial](/getting-started/quickstart-tutorial) |
+| Understand the ideas first | [Interpretability Primer](/concepts/interpretability-primer) |
+| Install on your hardware | [Installation](/getting-started/installation) — or the [AI-assisted install guides](/getting-started/install-guide-compose) |
+| Learn a specific panel | The **Core Workflow** section, one page per stage |
+| Use pre-trained SAEs (Gemma Scope) | [SAE Management](/advanced/external-saes) |
+| Script against the backend | [API Reference](/reference/api/overview) |
+| Fix something | [Troubleshooting](/troubleshooting) · [FAQ](/faq) |
+
+</div>

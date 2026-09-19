@@ -1,0 +1,516 @@
+"""
+Integration tests for dataset cancellation feature.
+
+Tests the end-to-end dataset cancellation workflow, including:
+- Database record updates
+- File cleanup
+- WebSocket notifications
+- API endpoint behavior
+"""
+
+import asyncio
+import pytest
+import tempfile
+from pathlib import Path
+from uuid import uuid4
+from unittest.mock import patch, MagicMock
+
+from tests.integration._data_root_tmp import data_root_tmpdir
+from src.models.dataset import Dataset, DatasetStatus
+from src.services.dataset_service import DatasetService
+from src.workers.dataset_tasks import cancel_dataset_download
+from src.core.database import AsyncSessionLocal, get_sync_db
+
+
+class TestDatasetCancellationTask:
+    """Test suite for cancel_dataset_download task."""
+
+    def test_cancel_dataset_with_both_paths(self):
+        """Test cancelling dataset with raw path (tokenized paths are in DatasetTokenization)."""
+        dataset_id = uuid4()
+
+        with data_root_tmpdir("datasets") as tmpdir:
+            raw_path = Path(tmpdir) / "raw_data"
+
+            # Create directory with files
+            raw_path.mkdir()
+            (raw_path / "data.arrow").write_text("fake raw data")
+
+            # Create dataset in database with DOWNLOADING status
+            # Note: tokenized_path is stored in DatasetTokenization, not Dataset
+            with get_sync_db() as db:
+                dataset = Dataset(
+                    id=dataset_id,
+                    name=f"test_cancel_{uuid4().hex[:8]}",
+                    source="HuggingFace",
+                    status=DatasetStatus.DOWNLOADING,
+                    raw_path=str(raw_path),
+                )
+                db.add(dataset)
+                db.commit()
+
+            # Verify files exist
+            assert raw_path.exists()
+
+            # Cancel the dataset
+            result = cancel_dataset_download(dataset_id=str(dataset_id))
+
+            # Verify result
+            assert result["dataset_id"] == str(dataset_id)
+            assert result["status"] == "cancelled"
+
+            # Verify raw files were deleted
+            assert not raw_path.exists()
+
+            # Verify database was updated
+            with get_sync_db() as db:
+                dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+                assert dataset.status == DatasetStatus.ERROR
+                assert dataset.error_message == "Cancelled by user"
+                assert dataset.progress == 0.0
+
+            # Cleanup
+            with get_sync_db() as db:
+                dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+                if dataset:
+                    db.delete(dataset)
+                    db.commit()
+
+    def test_cancel_dataset_with_only_raw_path(self):
+        """Test cancelling dataset with only raw_path."""
+        dataset_id = uuid4()
+
+        with data_root_tmpdir("datasets") as tmpdir:
+            raw_path = Path(tmpdir) / "raw_data"
+            raw_path.mkdir()
+            (raw_path / "data.arrow").write_text("fake raw data")
+
+            # Create dataset in database
+            with get_sync_db() as db:
+                dataset = Dataset(
+                    id=dataset_id,
+                    name=f"test_cancel_{uuid4().hex[:8]}",
+                    source="HuggingFace",
+                    status=DatasetStatus.DOWNLOADING,
+                    raw_path=str(raw_path),
+                )
+                db.add(dataset)
+                db.commit()
+
+            assert raw_path.exists()
+
+            # Cancel the dataset
+            result = cancel_dataset_download(dataset_id=str(dataset_id))
+
+            # Verify result
+            assert result["dataset_id"] == str(dataset_id)
+            assert result["status"] == "cancelled"
+
+            # Verify file was deleted
+            assert not raw_path.exists()
+
+            # Cleanup
+            with get_sync_db() as db:
+                dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+                if dataset:
+                    db.delete(dataset)
+                    db.commit()
+
+    def test_cancel_dataset_processing_status(self):
+        """Test cancelling dataset with PROCESSING status.
+
+        Note: When cancelling a PROCESSING dataset (tokenization in progress),
+        raw files are intentionally NOT deleted because they're still needed
+        for potential retry. Only tokenization files are cleaned up.
+        """
+        dataset_id = uuid4()
+
+        with data_root_tmpdir("datasets") as tmpdir:
+            raw_path = Path(tmpdir) / "raw_data"
+
+            raw_path.mkdir()
+            (raw_path / "data.arrow").write_text("fake raw data")
+
+            # Create dataset with PROCESSING status
+            with get_sync_db() as db:
+                dataset = Dataset(
+                    id=dataset_id,
+                    name=f"test_cancel_processing_{uuid4().hex[:8]}",
+                    source="HuggingFace",
+                    status=DatasetStatus.PROCESSING,
+                    raw_path=str(raw_path),
+                )
+                db.add(dataset)
+                db.commit()
+
+            # Cancel the dataset
+            result = cancel_dataset_download(dataset_id=str(dataset_id))
+
+            # Verify cancellation succeeded
+            assert result["dataset_id"] == str(dataset_id)
+            assert result["status"] == "cancelled"
+
+            # Verify raw files are PRESERVED (not deleted) for PROCESSING status
+            # This is intentional - raw files are needed for tokenization retry
+            assert raw_path.exists(), "Raw files should be preserved during PROCESSING cancellation"
+
+            # Verify database was updated
+            with get_sync_db() as db:
+                dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+                assert dataset.status == DatasetStatus.ERROR
+                assert dataset.error_message == "Cancelled by user"
+
+            # Cleanup
+            with get_sync_db() as db:
+                dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+                if dataset:
+                    db.delete(dataset)
+                    db.commit()
+
+    def test_cancel_dataset_handles_missing_dataset(self):
+        """Test that cancel returns error for nonexistent dataset."""
+        fake_id = str(uuid4())
+
+        result = cancel_dataset_download(dataset_id=fake_id)
+
+        assert "error" in result
+        assert fake_id in result["error"]
+
+    def test_cancel_dataset_handles_wrong_status(self):
+        """Test that cancel returns error for dataset not in cancellable state."""
+        dataset_id = uuid4()
+
+        # Create dataset with READY status (not cancellable)
+        with get_sync_db() as db:
+            dataset = Dataset(
+                id=dataset_id,
+                name=f"test_wrong_status_{uuid4().hex[:8]}",
+                source="HuggingFace",
+                status=DatasetStatus.READY,
+            )
+            db.add(dataset)
+            db.commit()
+
+        # Try to cancel
+        result = cancel_dataset_download(dataset_id=str(dataset_id))
+
+        # Verify error returned
+        assert "error" in result
+        assert "not in a cancellable state" in result["error"]
+
+        # Cleanup
+        with get_sync_db() as db:
+            dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+            if dataset:
+                db.delete(dataset)
+                db.commit()
+
+    def test_cancel_dataset_handles_missing_paths(self):
+        """Test cancel handles missing file paths gracefully."""
+        dataset_id = uuid4()
+
+        # Create dataset with nonexistent paths
+        with get_sync_db() as db:
+            dataset = Dataset(
+                id=dataset_id,
+                name=f"test_missing_paths_{uuid4().hex[:8]}",
+                source="HuggingFace",
+                status=DatasetStatus.DOWNLOADING,
+                raw_path="/nonexistent/path/to/raw",
+            )
+            db.add(dataset)
+            db.commit()
+
+        # Cancel the dataset
+        result = cancel_dataset_download(dataset_id=str(dataset_id))
+
+        # Should succeed (no crash) even though files don't exist
+        assert result["dataset_id"] == str(dataset_id)
+        assert result["status"] == "cancelled"
+
+        # Verify database was updated
+        with get_sync_db() as db:
+            dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+            assert dataset.status == DatasetStatus.ERROR
+            assert dataset.error_message == "Cancelled by user"
+
+        # Cleanup
+        with get_sync_db() as db:
+            dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+            if dataset:
+                db.delete(dataset)
+                db.commit()
+
+    def test_cancel_dataset_with_none_paths(self):
+        """Test cancel handles None paths."""
+        dataset_id = uuid4()
+
+        # Create dataset with None paths
+        with get_sync_db() as db:
+            dataset = Dataset(
+                id=dataset_id,
+                name=f"test_none_paths_{uuid4().hex[:8]}",
+                source="HuggingFace",
+                status=DatasetStatus.DOWNLOADING,
+                raw_path=None,
+            )
+            db.add(dataset)
+            db.commit()
+
+        # Cancel the dataset
+        result = cancel_dataset_download(dataset_id=str(dataset_id))
+
+        # Should succeed with no deletions
+        assert result["dataset_id"] == str(dataset_id)
+        assert result["status"] == "cancelled"
+
+        # Cleanup
+        with get_sync_db() as db:
+            dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+            if dataset:
+                db.delete(dataset)
+                db.commit()
+
+    @patch("src.workers.dataset_tasks.emit_dataset_progress")
+    def test_cancel_dataset_sends_websocket_notification(self, mock_emit):
+        """Test that cancellation sends WebSocket notification."""
+        dataset_id = uuid4()
+
+        # Create dataset
+        with get_sync_db() as db:
+            dataset = Dataset(
+                id=dataset_id,
+                name=f"test_websocket_{uuid4().hex[:8]}",
+                source="HuggingFace",
+                status=DatasetStatus.DOWNLOADING,
+            )
+            db.add(dataset)
+            db.commit()
+
+        # Cancel the dataset
+        cancel_dataset_download(dataset_id=str(dataset_id))
+
+        # Verify WebSocket emission was called
+        mock_emit.assert_called_once()
+        call_args = mock_emit.call_args
+
+        # Verify arguments
+        assert call_args[0][0] == str(dataset_id)  # dataset_id
+        assert call_args[0][1] == "error"  # event
+        data = call_args[0][2]
+        assert data["dataset_id"] == str(dataset_id)
+        assert data["progress"] == 0.0
+        assert data["status"] == "error"
+        assert "cancelled" in data["message"].lower()
+
+        # Cleanup
+        with get_sync_db() as db:
+            dataset = db.query(Dataset).filter_by(id=dataset_id).first()
+            if dataset:
+                db.delete(dataset)
+                db.commit()
+
+
+class TestDatasetCancellationAPI:
+    """Test suite for dataset cancellation API endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_endpoint_success(self):
+        """Test successful cancellation via API endpoint."""
+        from fastapi.testclient import TestClient
+        from src.main import app
+
+        dataset_id = uuid4()
+
+        with data_root_tmpdir("datasets") as tmpdir:
+            raw_path = Path(tmpdir) / "raw_data"
+            raw_path.mkdir()
+            (raw_path / "data.arrow").write_text("fake raw data")
+
+            # Create dataset in database
+            async with AsyncSessionLocal() as db:
+                dataset = Dataset(
+                    id=dataset_id,
+                    name=f"test_api_cancel_{uuid4().hex[:8]}",
+                    source="HuggingFace",
+                    status=DatasetStatus.DOWNLOADING,
+                    raw_path=str(raw_path),
+                )
+                db.add(dataset)
+                await db.commit()
+
+            # Call API endpoint
+            with TestClient(app) as client:
+                response = client.delete(f"/api/v1/datasets/{dataset_id}/cancel")
+
+            # Verify response
+            assert response.status_code == 200
+            data = response.json()
+            assert data["dataset_id"] == str(dataset_id)
+            assert data["status"] == "cancelled"
+
+            # Verify database was updated
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(Dataset).filter_by(id=dataset_id))
+                dataset = result.scalar_one_or_none()
+                assert dataset.status == DatasetStatus.ERROR
+                assert dataset.error_message == "Cancelled by user"
+
+            # Cleanup
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(Dataset).filter_by(id=dataset_id))
+                dataset = result.scalar_one_or_none()
+                if dataset:
+                    await db.delete(dataset)
+                    await db.commit()
+
+    @pytest.mark.asyncio
+    async def test_cancel_endpoint_not_found(self):
+        """Test cancellation endpoint with nonexistent dataset."""
+        from fastapi.testclient import TestClient
+        from src.main import app
+
+        fake_id = uuid4()
+
+        with TestClient(app) as client:
+            response = client.delete(f"/api/v1/datasets/{fake_id}/cancel")
+
+        # Verify 404 error
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_cancel_endpoint_wrong_status(self):
+        """Test cancellation endpoint with dataset in non-cancellable state."""
+        from fastapi.testclient import TestClient
+        from src.main import app
+
+        dataset_id = uuid4()
+
+        # Create dataset with READY status
+        async with AsyncSessionLocal() as db:
+            dataset = Dataset(
+                id=dataset_id,
+                name=f"test_api_wrong_status_{uuid4().hex[:8]}",
+                source="HuggingFace",
+                status=DatasetStatus.READY,
+            )
+            db.add(dataset)
+            await db.commit()
+
+        try:
+            with TestClient(app) as client:
+                response = client.delete(f"/api/v1/datasets/{dataset_id}/cancel")
+
+            # Verify 400 error
+            assert response.status_code == 400
+            assert "cannot be cancelled" in response.json()["detail"].lower()
+
+        finally:
+            # Cleanup
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(Dataset).filter_by(id=dataset_id))
+                dataset = result.scalar_one_or_none()
+                if dataset:
+                    await db.delete(dataset)
+                    await db.commit()
+
+
+class TestDatasetCancellationIntegration:
+    """End-to-end integration tests for dataset cancellation."""
+
+    @pytest.mark.asyncio
+    async def test_complete_cancellation_workflow(self):
+        """Test complete workflow: create dataset, cancel, verify cleanup.
+
+        Tests cancellation of a DOWNLOADING dataset which should delete raw files.
+        """
+        dataset_id = uuid4()
+
+        with data_root_tmpdir("datasets") as tmpdir:
+            raw_path = Path(tmpdir) / "raw_data"
+
+            # Create files
+            raw_path.mkdir()
+            (raw_path / "data.arrow").write_text("fake raw data")
+
+            # Create dataset in database with DOWNLOADING status
+            # (DOWNLOADING status will delete raw files on cancel)
+            async with AsyncSessionLocal() as db:
+                dataset = Dataset(
+                    id=dataset_id,
+                    name=f"test_e2e_cancel_{uuid4().hex[:8]}",
+                    source="HuggingFace",
+                    status=DatasetStatus.DOWNLOADING,
+                    raw_path=str(raw_path),
+                    progress=50.0,
+                )
+                db.add(dataset)
+                await db.commit()
+
+            # Verify files exist
+            assert raw_path.exists()
+
+            # Cancel via task (simulating API call)
+            result = cancel_dataset_download(dataset_id=str(dataset_id))
+
+            # Verify result
+            assert result["status"] == "cancelled"
+
+            # THE WRITER IS THE DELETER NOW.
+            #
+            # This asserted `not raw_path.exists()` until 2026-09-05. The cancel
+            # path deleted the directory the download was actively writing into
+            # — `revoke(terminate=)` is inert on a --pool=solo worker, so the
+            # task was still running — and the task then recreated parts of it,
+            # leaving a half-tree nothing could read and nothing would clean up.
+            #
+            # Deletion moved into the cancelled task's own handler, where the
+            # writer and the deleter are the same process. The endpoint still
+            # cleans up a job that had NOT started, which is the one case where
+            # nobody else ever will. This fixture has progress=50.0, so it is
+            # the started case: the files must SURVIVE the endpoint call.
+            assert raw_path.exists(), (
+                "the cancel endpoint deleted a live download's directory again"
+            )
+
+            # R1-13: THE REQUEST ITSELF. Every assertion in this file was about
+            # the OUTCOME (`status == ERROR`, `error_message == "Cancelled by
+            # user"`) — the conflation `cancel_requested_at` exists to replace.
+            # Deleting the `request_cancel(...)` call left all of them green
+            # while the running download's tqdm poll had nothing to read.
+            async with AsyncSessionLocal() as check_db:
+                from sqlalchemy import select as _select
+
+                found = await check_db.execute(
+                    _select(Dataset).filter_by(id=dataset_id)
+                )
+                row = found.scalar_one_or_none()
+                assert row is not None
+                assert row.cancel_requested_at is not None, (
+                    "the operator's request was never written, so a running "
+                    "download has no flag to poll and runs to completion"
+                )
+
+            # Verify database state
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                query = await db.execute(select(Dataset).filter_by(id=dataset_id))
+                dataset = query.scalar_one_or_none()
+
+                assert dataset is not None
+                assert dataset.status == DatasetStatus.ERROR
+                assert dataset.error_message == "Cancelled by user"
+                assert dataset.progress == 0.0
+
+            # Cleanup
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                result = await db.execute(select(Dataset).filter_by(id=dataset_id))
+                dataset = result.scalar_one_or_none()
+                if dataset:
+                    await db.delete(dataset)
+                    await db.commit()

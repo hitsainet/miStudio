@@ -1,0 +1,277 @@
+# Nightly logical backup of the miStudio database.
+#
+# WHY THIS EXISTS. There was no database backup newer than 2025-12 and WAL
+# archiving is off, and that has already cost data: deleting a model
+# cascade-deleted five `dataset_tokenizations` rows for 81 GB of Arrow data, and
+# the rows had to be rebuilt by hand because nothing could restore them. The
+# Arrow files survived on disk; the rows did not.
+#
+# WHY A SEPARATE DISK. `/data` — where the database lives — is a logical volume
+# on the same NVMe as the database's own storage, so a backup written there
+# survives a bad DELETE but NOT the disk failing, which is the case that costs
+# everything. `mcs-lnxhost02-hdd2` is a different physical disk (`sdb`), which is
+# the whole point of writing here. Note `sda`, its pair, has already failed
+# SMART, so this is one aging spindle: it is a real improvement over nothing and
+# is not a substitute for an off-box copy.
+#
+# SIZE, MEASURED 2026-09-25. The database is 5.3 GB and a `pg_dump -Fc -Z6` of it
+# is 732 MB in 66 seconds — 7.2x compression. 96% of the database is one table,
+# `feature_activations_default` (5,103 MB of stored token windows), and those are
+# regenerable by re-running extraction. 30 dumps is therefore about 22 GB of the
+# 900 GB volume.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mistudio-db-backups
+  namespace: mistudio
+spec:
+  # BOUND BY NAME, not by size-and-class matching. `volumeName` makes the target
+  # explicit: this claim takes THAT disk or stays Pending, rather than binding
+  # whatever the scheduler finds that happens to fit.
+  volumeName: mcs-lnxhost02-hdd2
+  storageClassName: local-hdd
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 900Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mistudio-db-backup
+  namespace: mistudio
+spec:
+  # 03:30 in the operator's own timezone, so "nightly" does not drift by an hour
+  # twice a year and a log line's date matches the day someone remembers.
+  # `timeZone` is stable from Kubernetes 1.27; this cluster is v1.32.13.
+  schedule: "30 3 * * *"
+  timeZone: "America/New_York"
+  # A second dump while the first is still running would read the same 5.3 GB
+  # twice and race on the same file names.
+  concurrencyPolicy: Forbid
+  # Keep enough history to SEE a pattern of failures. A single retained failure
+  # is indistinguishable from a one-off.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: dump
+              # The same image the database runs, so pg_dump's version matches the
+              # server (15.18) and the image is already present on the node.
+              image: postgres:15
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: PGUSER
+                  value: mistudio
+                - name: PGDATABASE
+                  value: mistudio
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: mistudio-secrets
+                      key: postgres-password
+                - name: KEEP
+                  value: "30"
+                - name: BACKUP_DIR
+                  value: /backups/mistudio
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+
+                  # `set -e` is load-bearing here: every step below must abort the
+                  # run rather than fall through to the prune. A prune that runs
+                  # after a failed dump deletes real history to make room for
+                  # nothing.
+
+                  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+                  mkdir -p "$BACKUP_DIR"
+                  target="$BACKUP_DIR/mistudio-$stamp.dump"
+                  partial="$target.partial"
+                  log="$BACKUP_DIR/backups.log"
+
+                  say() { echo "[$(date -u +%H:%M:%SZ)] $*"; }
+
+                  # ── Has anything succeeded lately? ──────────────────────────
+                  # Self-monitoring, because a CronJob that quietly fails every
+                  # night looks exactly like one that never ran. The newest dump's
+                  # age is the only evidence that does not depend on someone
+                  # having watched.
+                  newest="$(ls -1t "$BACKUP_DIR"/mistudio-*.dump 2>/dev/null | head -1 || true)"
+                  if [ -n "$newest" ]; then
+                    age_h=$(( ( $(date -u +%s) - $(stat -c %Y "$newest") ) / 3600 ))
+                    say "newest existing dump is ${age_h}h old: $(basename "$newest")"
+                    if [ "$age_h" -gt 48 ]; then
+                      say "WARNING: more than 48h since the last dump — previous runs failed"
+                    fi
+                  else
+                    say "no existing dump: this is the first run"
+                  fi
+
+                  # ── Room to write? ─────────────────────────────────────────
+                  avail_mb=$(df -Pm "$BACKUP_DIR" | awk 'NR==2 {print $4}')
+                  say "free space: ${avail_mb} MB"
+                  if [ "$avail_mb" -lt 4096 ]; then
+                    say "REFUSING: under 4 GB free, and a dump measured 732 MB."
+                    say "A truncated dump that looks like a backup is worse than a"
+                    say "missing one, so this run stops before writing anything."
+                    exit 1
+                  fi
+
+                  # ── Dump ───────────────────────────────────────────────────
+                  started=$(date -u +%s)
+                  say "dumping to $(basename "$partial")"
+                  pg_dump -Fc -Z6 --file="$partial"
+                  elapsed=$(( $(date -u +%s) - started ))
+                  bytes=$(stat -c %s "$partial")
+                  say "wrote ${bytes} bytes in ${elapsed}s"
+
+                  # ── Verify BEFORE it is allowed to count as a backup ───────
+                  # A backup nobody has read is a hope. `pg_restore -l` parses the
+                  # archive's table of contents, so a truncated or corrupt file
+                  # fails here rather than on the night it is needed.
+                  toc="$(pg_restore -l "$partial")"
+                  data_entries="$(printf '%s\n' "$toc" | grep -c 'TABLE DATA' || true)"
+                  say "archive lists ${data_entries} TABLE DATA entries"
+                  if [ "$data_entries" -lt 20 ]; then
+                    say "REFUSING: only ${data_entries} tables in the archive (expected ~39)"
+                    rm -f "$partial"; exit 1
+                  fi
+                  # Payload, not just a count: these two must be in there, or the
+                  # dump is of something other than this database.
+                  for required in features trainings; do
+                    printf '%s\n' "$toc" | grep -q "TABLE DATA public $required " || {
+                      say "REFUSING: no TABLE DATA entry for '$required'"
+                      rm -f "$partial"; exit 1
+                    }
+                  done
+
+                  # Did it shrink unreasonably? A dump half the size of the last
+                  # one is a signal, not a saving. Kept, but said out loud.
+                  if [ -n "$newest" ]; then
+                    prev=$(stat -c %s "$newest")
+                    if [ "$bytes" -lt $(( prev / 2 )) ]; then
+                      say "WARNING: ${bytes} bytes is under half the previous ${prev} — check what changed"
+                    fi
+                  fi
+
+                  # ── Publish atomically ────────────────────────────────────
+                  # The rename is what makes a dump visible. Until it happens the
+                  # file is `.partial`, so a crashed run can never be mistaken for
+                  # a good backup, and retention never counts one.
+                  sha="$(sha256sum "$partial" | cut -d' ' -f1)"
+                  mv "$partial" "$target"
+                  say "published $(basename "$target")"
+                  printf '%s\t%s\t%s bytes\t%ss\t%s tables\tsha256=%s\n' \
+                    "$stamp" "$(basename "$target")" "$bytes" "$elapsed" \
+                    "$data_entries" "$sha" >> "$log"
+
+                  # ── Retention ─────────────────────────────────────────────
+                  # Only ever reached after a VERIFIED, PUBLISHED dump. Matches
+                  # our own name pattern only, so nothing else on the volume is
+                  # touched, and never removes the newest file even if KEEP were
+                  # misconfigured to 0.
+                  total=$(ls -1 "$BACKUP_DIR"/mistudio-*.dump 2>/dev/null | wc -l)
+                  keep=$(( KEEP > 1 ? KEEP : 1 ))
+                  if [ "$total" -gt "$keep" ]; then
+                    ls -1t "$BACKUP_DIR"/mistudio-*.dump | tail -n +$(( keep + 1 )) | while read -r old; do
+                      say "pruning $(basename "$old")"
+                      rm -f -- "$old"
+                    done
+                  fi
+                  say "retained $(ls -1 "$BACKUP_DIR"/mistudio-*.dump | wc -l) of ${keep}"
+
+                  # ── Restore instructions, beside the backups ──────────────
+                  # Written every run so they cannot drift from the file names,
+                  # and so they are on the disk that survives the node.
+                  cat > "$BACKUP_DIR/RESTORE.md" <<'DOC'
+                  # Restoring a miStudio dump
+
+                  `pg_dump -Fc` (custom format) archives — restore with
+                  `pg_restore`, never `psql`.
+
+                  DRILLED 2026-09-25 against a real dump, so these commands are
+                  what worked, not what ought to work. A full restore of the
+                  5.3 GB database from its 732 MB dump took **66 seconds** with
+                  `-j 4`, and every table matched the live row counts.
+
+                  ## Look inside without restoring
+
+                      pg_restore -l mistudio-<stamp>.dump | head -40
+
+                  ## Full restore into a scratch database (the drilled path)
+
+                  Never restore straight over the live database; restore beside it
+                  and compare first.
+
+                      createdb mistudio_restore
+                      pg_restore --no-owner -j 4 -d mistudio_restore mistudio-<stamp>.dump
+
+                  Then compare before trusting it:
+
+                      psql -d mistudio          -Atc 'select count(*) from features'
+                      psql -d mistudio_restore  -Atc 'select count(*) from features'
+
+                  ## Recovering a few rows (the cascade-delete case)
+
+                  This is why these backups exist: deleting a model once
+                  cascade-deleted five `dataset_tokenizations` rows for 81 GB of
+                  Arrow data that was still on disk.
+
+                  Into the LIVE database, data only:
+
+                      pg_restore --no-owner --data-only -d mistudio \
+                        --table=dataset_tokenizations mistudio-<stamp>.dump
+
+                  ## TWO TRAPS, both found by the drill failing
+
+                  1. **`--table=` does not carry the ENUM types.** Restoring
+                     selected tables into an EMPTY database fails with
+                     `type "public.tokenization_status_enum" does not exist`,
+                     because the type entries are filtered out with everything
+                     else. Restore `--schema-only` first, or restore the whole
+                     archive:
+
+                         pg_restore --no-owner --schema-only -d mistudio_restore mistudio-<stamp>.dump
+                         pg_restore --no-owner --data-only --table=... -d mistudio_restore mistudio-<stamp>.dump
+
+                  2. **Partial data violates foreign keys.** Loading some tables
+                     into the fully-constrained schema fails on FKs to the tables
+                     left empty (`trainings_extraction_id_fkey` and friends). Add
+                     `--disable-triggers` (needs superuser), or restore the
+                     referenced tables too, or restore everything.
+
+                  ## What is in here
+
+                  96% of a dump is `feature_activations` — 2.46M rows of stored
+                  token windows, and those are REGENERABLE by re-running
+                  extraction. If you only need catalogue rows back, restore
+                  selected tables and skip the wait.
+                  DOC
+                  sed -i 's/^                  //' "$BACKUP_DIR/RESTORE.md"
+                  say "done"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "2"
+                  memory: 1Gi
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: mistudio-db-backups

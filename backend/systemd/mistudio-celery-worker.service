@@ -1,0 +1,78 @@
+# MiStudio Celery Worker Service
+#
+# This service runs the Celery worker that processes all background tasks
+# including training, extraction, dataset processing, and more.
+#
+# IMPORTANT: --pool=solo is REQUIRED for CUDA/GPU tasks
+# Celery's default prefork pool uses fork() which breaks CUDA initialization.
+#
+# Installation:
+#   sudo cp backend/systemd/mistudio-celery-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable mistudio-celery-worker
+#   sudo systemctl start mistudio-celery-worker
+#
+# Logs: journalctl -u mistudio-celery-worker -f
+
+[Unit]
+Description=MiStudio Celery Worker
+Documentation=https://github.com/anthropics/mistudio
+After=network.target redis.service docker.service
+Requires=docker.service
+# Wait for Redis to be available (runs in Docker)
+Wants=redis.service
+
+[Service]
+Type=simple
+User=x-sean
+Group=x-sean
+WorkingDirectory=/home/x-sean/app/miStudio/backend
+
+# Environment setup
+Environment="PATH=/home/x-sean/app/miStudio/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/home/x-sean/app/miStudio/backend"
+Environment="CELERY_BROKER_URL=redis://localhost:6379/0"
+Environment="CELERY_RESULT_BACKEND=redis://localhost:6379/0"
+
+# Celery worker command
+# --pool=solo: REQUIRED for CUDA/GPU tasks (fork breaks CUDA initialization)
+# -c 1: Single worker (concurrency 1, required with solo pool)
+# --max-tasks-per-child=100: Restart after 100 tasks for memory cleanup
+ExecStart=/home/x-sean/app/miStudio/backend/venv/bin/celery \
+    -A src.core.celery_app worker \
+    -Q high_priority,datasets,processing,training,extraction,sae,low_priority \
+    -c 1 \
+    --pool=solo \
+    --loglevel=info \
+    --hostname=worker@%H \
+    --max-tasks-per-child=100
+
+# Graceful shutdown - wait for current task to finish
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=120
+
+# Auto-restart configuration
+Restart=always
+RestartSec=10
+
+# Prevent restart loops: max 5 restarts in 5 minutes
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Resource limits (optional, adjust based on your system)
+# MemoryLimit=16G
+# CPUQuota=80%
+
+# Nice priority (lower = higher priority)
+Nice=-5
+
+# File descriptors
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mistudio-celery-worker
+
+[Install]
+WantedBy=multi-user.target mistudio.target

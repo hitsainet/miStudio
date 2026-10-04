@@ -1,0 +1,137 @@
+name: Build Neuronpedia Webapp
+
+on:
+  workflow_dispatch:
+    inputs:
+      neuronpedia_ref:
+        description: 'Neuronpedia repo ref (branch/tag/commit)'
+        required: false
+        default: 'main'
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: hitsai/neuronpedia-webapp
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Only run in hitsainet/miStudio (same as docker-images.yml)
+    if: github.repository == 'hitsainet/miStudio'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout miStudio repo
+        uses: actions/checkout@v4
+        with:
+          path: mistudio
+
+      - name: Checkout Neuronpedia repo
+        uses: actions/checkout@v4
+        with:
+          repository: hijohnnylin/neuronpedia
+          ref: ${{ github.event.inputs.neuronpedia_ref || 'main' }}
+          path: neuronpedia
+
+      - name: Compute version tag from the neuronpedia ref
+        id: ver
+        run: |
+          # Turn the checked-out neuronpedia ref into a docker-safe tag
+          # (e.g. v1.0.795, or the short commit if a branch was given).
+          cd neuronpedia
+          REF="${{ github.event.inputs.neuronpedia_ref || 'main' }}"
+          DESC=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          if [ -n "$DESC" ]; then
+            NP_TAG="$DESC"
+          else
+            NP_TAG="${REF}-$(git rev-parse --short HEAD)"
+          fi
+          # sanitize to a valid docker tag
+          NP_TAG=$(echo "$NP_TAG" | tr '/ ' '--' | tr -cd 'A-Za-z0-9_.-')
+          echo "np_tag=$NP_TAG" >> "$GITHUB_OUTPUT"
+          echo "Neuronpedia version tag: $NP_TAG"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Update .env.localhost for K8s deployment
+        working-directory: neuronpedia/apps/webapp
+        run: |
+          # Customize .env.localhost for K8s deployment
+
+          echo "=== Original .env.localhost ==="
+          cat .env.localhost
+
+          # CRITICAL: Remove database URLs so they use K8s env vars at runtime
+          # The baked-in localhost URLs would override K8s secrets
+          sed -i '/^POSTGRES_PRISMA_URL=/d' .env.localhost
+          sed -i '/^POSTGRES_URL_NON_POOLING=/d' .env.localhost
+          sed -i '/^DATABASE_URL=/d' .env.localhost
+
+          # CRITICAL: NEXT_PUBLIC_* vars are baked into the client bundle at build
+          # time (they cannot be overridden by K8s runtime env), so they MUST be
+          # set to the real served host here. The defaults are localhost:3000,
+          # which produces client-side links/fetches pointing at localhost.
+          sed -i '/^NEXT_PUBLIC_URL=/d' .env.localhost
+          sed -i '/^NEXTAUTH_URL=/d' .env.localhost
+
+          # Append our overrides
+          cat >> .env.localhost << 'ENVEOF'
+
+          # === MiStudio K8s Overrides ===
+          # Baked client-facing URL — the k8s ingress host (NOT localhost).
+          NEXT_PUBLIC_URL=http://k8s-neuron.hitsai.local
+          # NEXTAUTH_URL is also read at runtime from K8s env; baked default kept in sync.
+          NEXTAUTH_URL=http://k8s-neuron.hitsai.local
+
+          # Disable demo mode at build time
+          NEXT_PUBLIC_DEMO_MODE=false
+
+          # Contact email
+          NEXT_PUBLIC_CONTACT_EMAIL_ADDRESS=admin@hitsai.local
+
+          # Local inference secrets (will use K8s secrets at runtime)
+          INFERENCE_SERVER_SECRET=local-secret
+          AUTOINTERPRET_SERVER_SECRET=local-secret
+          ENVEOF
+
+          echo ""
+          echo "=== Updated .env.localhost ==="
+          cat .env.localhost
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          # IMPORTANT: Context must be the repo root because Dockerfile uses:
+          # COPY apps/webapp/package*.json ./
+          # COPY apps/webapp ./
+          context: neuronpedia
+          file: neuronpedia/apps/webapp/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.np_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # ENV_FILE path is relative to context (repo root)
+          build-args: |
+            ENV_FILE=apps/webapp/.env.localhost
+
+      - name: Output image info
+        run: |
+          echo "✅ Image pushed: ${{ env.IMAGE_NAME }}:latest"
+          echo "✅ Image pushed: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo ""
+          echo "To deploy to K8s, run:"
+          echo "  kubectl -n neuronpedia set image deployment/neuronpedia-webapp webapp=${{ env.IMAGE_NAME }}:latest"
+          echo ""
+          echo "Or with specific SHA:"
+          echo "  kubectl -n neuronpedia set image deployment/neuronpedia-webapp webapp=${{ env.IMAGE_NAME }}:${{ github.sha }}"

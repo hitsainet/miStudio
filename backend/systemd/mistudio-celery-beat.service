@@ -1,0 +1,66 @@
+# MiStudio Celery Beat Service
+#
+# This service runs the Celery beat scheduler for periodic tasks
+# such as system monitoring, cleanup tasks, and scheduled jobs.
+#
+# Installation:
+#   sudo cp backend/systemd/mistudio-celery-beat.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable mistudio-celery-beat
+#   sudo systemctl start mistudio-celery-beat
+#
+# Logs: journalctl -u mistudio-celery-beat -f
+
+[Unit]
+Description=MiStudio Celery Beat Scheduler
+Documentation=https://github.com/anthropics/mistudio
+After=network.target redis.service docker.service mistudio-celery-worker.service
+Requires=docker.service
+# Beat depends on worker being available
+Wants=redis.service mistudio-celery-worker.service
+
+[Service]
+Type=simple
+User=x-sean
+Group=x-sean
+WorkingDirectory=/home/x-sean/app/miStudio/backend
+
+# Environment setup
+Environment="PATH=/home/x-sean/app/miStudio/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/home/x-sean/app/miStudio/backend"
+Environment="CELERY_BROKER_URL=redis://localhost:6379/0"
+Environment="CELERY_RESULT_BACKEND=redis://localhost:6379/0"
+
+# Celery beat command
+# Schedule file is stored in the working directory
+ExecStart=/home/x-sean/app/miStudio/backend/venv/bin/celery \
+    -A src.core.celery_app beat \
+    --loglevel=info \
+    --pidfile=/tmp/mistudio-celery-beat.pid \
+    --schedule=/tmp/mistudio-celerybeat-schedule
+
+# Graceful shutdown
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=30
+
+# Auto-restart configuration
+Restart=always
+RestartSec=10
+
+# Prevent restart loops: max 5 restarts in 5 minutes
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Nice priority (lower than worker since beat just schedules)
+Nice=0
+
+# File descriptors
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mistudio-celery-beat
+
+[Install]
+WantedBy=multi-user.target mistudio.target

@@ -1,0 +1,16 @@
+apiVersion: v1
+data:
+  DB_HOST: neuronpedia-postgres-service
+  DB_NAME: neuronpedia
+  DB_PORT: '5432'
+  DB_USER: neuronpedia
+  DEMO_MODE: 'false'
+  INFERENCE_SERVER_SECRET: local-secret
+  IS_LOCALHOST: 'true'
+  NEXT_PUBLIC_DEMO_MODE: 'false'
+  NEXTAUTH_URL: http://neuron.mcslab.io
+  NODE_ENV: production
+kind: ConfigMap
+metadata:
+  name: neuronpedia-config
+  namespace: neuronpedia

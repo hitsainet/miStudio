@@ -1,0 +1,40 @@
+# -------------------------
+# FRONTEND
+# -------------------------
+# Image tag/digest managed by ArgoCD Image Updater — do not hand-edit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistudio-frontend
+  namespace: mistudio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mistudio-frontend
+  template:
+    metadata:
+      labels:
+        app: mistudio-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: hitsai/mistudio-frontend:latest
+          ports:
+            # nginx-unprivileged listens on 8080 by default so it doesn't need
+            # CAP_NET_BIND_SERVICE.
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistudio-frontend
+  namespace: mistudio
+spec:
+  selector:
+    app: mistudio-frontend
+  ports:
+    # External clients (ingress) hit port 80; service forwards to the
+    # container's non-privileged 8080.
+    - port: 80
+      targetPort: 8080

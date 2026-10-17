@@ -1,0 +1,127 @@
+# ArgoCD GitOps definition for miStudio.
+#
+# Apply once by hand (kubectl apply -f k8s/argocd/mistudio-app.yaml); ArgoCD
+# manages the workloads from then on.
+#
+# Flow (mirrors miLLM and the WASAT services):
+#   push to Onegaishimas/miStudio main
+#     → sync-main-to-gitops-pilot.yml merges main → gitops/pilot
+#     → sync-to-clean.yml mirrors main → hitsainet/miStudio
+#     → docker-images.yml (hitsainet) builds ONLY the changed images
+#     → ArgoCD Image Updater sees the new :latest digest on Docker Hub,
+#       commits a pin to gitops/pilot (.argocd-source-mistudio.yaml)
+#     → ArgoCD syncs k8s/base from gitops/pilot and rolls the deployment
+#
+# One-time prerequisites (not in git):
+#   1. mistudio-secrets Secret in the mistudio namespace — ALREADY EXISTS,
+#      kept as-is (no change needed).
+#   2. Repo credential Secret in the argocd namespace for
+#      https://github.com/Onegaishimas/miStudio.git with a PAT that has
+#      contents:write (Image Updater pushes pins through it), labeled
+#      argocd.argoproj.io/secret-type: repository. Name it mistudio-repo-creds.
+#      ⚠ DOES NOT EXIST YET — must be created manually before first sync
+#        (unlike millm-repo-creds, which already exists).
+#   3. gitops/pilot branch created from main.
+#      ⚠ DOES NOT EXIST YET — must be created before Image Updater can pin.
+#
+# Shared argocd-namespace secrets that ALREADY EXIST (do NOT recreate):
+#   - dockerhub-creds  (Docker Hub registry auth for Image Updater)
+#   - regcred          (image pull secret referenced below)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: mistudio
+  namespace: argocd
+spec:
+  description: miStudio — mechanistic interpretability studio (SAE training, feature discovery, steering)
+  sourceRepos:
+    - https://github.com/Onegaishimas/miStudio.git
+  destinations:
+    - namespace: mistudio
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    # Namespace object is part of k8s/base.
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mistudio
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: mistudio
+  annotations:
+    # ── ArgoCD Image Updater ────────────────────────────────────────────
+    # Track :latest by digest (same strategy as miLLM and the WASAT apps):
+    # every new push of hitsai/mistudio-*:latest to Docker Hub gets pinned by
+    # digest and committed to gitops/pilot, which ArgoCD then syncs.
+    argocd-image-updater.argoproj.io/image-list: backend=docker.io/hitsai/mistudio-backend:latest, frontend=docker.io/hitsai/mistudio-frontend:latest
+    argocd-image-updater.argoproj.io/backend.update-strategy: digest
+    argocd-image-updater.argoproj.io/backend.kustomize.image-name: hitsai/mistudio-backend
+    argocd-image-updater.argoproj.io/frontend.update-strategy: digest
+    argocd-image-updater.argoproj.io/frontend.kustomize.image-name: hitsai/mistudio-frontend
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: gitops/pilot
+    # Default write-back target: parameter-override file
+    # k8s/base/.argocd-source-mistudio.yaml (kept off main; the
+    # sync-main-to-gitops-pilot workflow preserves it during merges).
+spec:
+  project: mistudio
+  source:
+    repoURL: https://github.com/Onegaishimas/miStudio.git
+    targetRevision: gitops/pilot
+    path: k8s/base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mistudio
+  revisionHistoryLimit: 10
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # prune intentionally NOT enabled yet — enable after a burn-in period
+      # once adoption of the pre-existing resources is proven stable.
+    syncOptions:
+      - ServerSideApply=true
+      # NOTE: the first-ever sync (2026-07-15) additionally needed Replace=true
+      # to transition the pre-existing pods' secret-backed env from literal
+      # `value:` to `valueFrom: secretKeyRef` (mistudio-secrets) — an SSA merge
+      # can't clear the old `value:`. That was a one-time step and has been
+      # removed; steady-state uses plain ServerSideApply. If you ever re-adopt
+      # resources that carry conflicting literal fields, re-add Replace=true for
+      # a single sync, then remove it again.
+  ignoreDifferences:
+    # Tolerate kubectl rollout restart / set env during incident response
+    # without a self-heal fight over the restartedAt annotation.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+---
+# This cluster runs the CRD-based Image Updater: applications are reconciled
+# only when selected by an ImageUpdater resource (see millm-images and
+# wasat-pilot-images). useAnnotations pulls the per-image configuration from
+# the Application annotations above.
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: mistudio-images
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: mistudio
+      useAnnotations: true
+  commonUpdateSettings:
+    forceUpdate: false
+    pullSecret: pullsecret:argocd/regcred
+    updateStrategy: digest
+  writeBackConfig:
+    method: git
+    gitConfig:
+      branch: gitops/pilot
+      # No writeBackTarget: the default parameter-override file
+      # (k8s/base/.argocd-source-mistudio.yaml) is used for this Kustomize app.

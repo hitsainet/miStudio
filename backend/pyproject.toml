@@ -1,0 +1,194 @@
+[tool.poetry]
+name = "mistudio-backend"
+version = "0.5.0"
+description = "MechInterp Studio - Backend API for edge-deployed mechanistic interpretability"
+authors = ["MechInterp Studio Team"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.13"  # = backend/Dockerfile ARG PYTHON_VERSION (2026-10-21); test_python_version_is_one_version.py
+# Web Framework
+fastapi = "0.159.1"  # exact (test_pinned_versions_match_the_venv)
+uvicorn = {extras = ["standard"], version = "0.54.0"}  # exact (test_pinned_versions_match_the_venv)
+mcp = "2.3.0"  # exact (test_pinned_versions_match_the_venv)
+python-socketio = "5.17.0"  # exact (test_pinned_versions_match_the_venv)
+python-multipart = "0.0.32"  # exact (test_pinned_versions_match_the_venv)
+
+# Database
+sqlalchemy = "2.1.6"  # exact (test_pinned_versions_match_the_venv)
+asyncpg = "0.32.0"  # exact (test_pinned_versions_match_the_venv)
+alembic = "1.20.0"  # exact (test_pinned_versions_match_the_venv)
+psycopg2-binary = "2.9.13"  # exact (test_pinned_versions_match_the_venv)
+
+# Caching & Queue
+redis = "8.1.0"  # exact (test_pinned_versions_match_the_venv)
+celery = "5.6.3"  # exact (test_pinned_versions_match_the_venv)
+
+# ML & AI
+torch = "2.14.1"  # exact (test_pinned_versions_match_the_venv)
+transformers = "5.20.2"  # exact (test_pinned_versions_match_the_venv)
+datasets = "5.1.0"  # exact (test_pinned_versions_match_the_venv)
+tokenizers = "0.23.3"  # exact (test_pinned_versions_match_the_venv)
+huggingface-hub = "2.2.0"  # exact (test_pinned_versions_match_the_venv)
+hf-xet = "1.7.0"  # exact (test_pinned_versions_match_the_venv)
+safetensors = "0.8.0"  # exact (test_pinned_versions_match_the_venv)
+bitsandbytes = "0.50.2"  # exact (test_pinned_versions_match_the_venv)
+accelerate = "1.15.0"  # exact (test_pinned_versions_match_the_venv)
+
+# Utils
+pydantic = "2.14.1"  # exact (test_pinned_versions_match_the_venv)
+pydantic-settings = "2.16.1"  # exact (test_pinned_versions_match_the_venv)
+python-dotenv = "1.2.4"  # exact (test_pinned_versions_match_the_venv)
+httpx = "0.28.1"  # exact (test_pinned_versions_match_the_venv)
+aiofiles = "25.1.0"  # exact (test_pinned_versions_match_the_venv)
+python-json-logger = "4.2.0"  # exact (test_pinned_versions_match_the_venv)
+tenacity = "9.2.1"  # exact (test_pinned_versions_match_the_venv)
+# Feature 039: RFC 8785 JSON canonicalisation for the probe identity digests (schemas/probe_identity.py).
+rfc8785 = "0.1.4"  # exact (test_pinned_versions_match_the_venv)
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "9.1.1"  # exact (test_pinned_versions_match_the_venv)
+pytest-asyncio = "1.4.0"  # exact (test_pinned_versions_match_the_venv)
+pytest-cov = "7.1.0"  # exact (test_pinned_versions_match_the_venv)
+pytest-mock = "3.17.0"  # exact (test_pinned_versions_match_the_venv)
+httpx = "0.28.1"  # exact (test_pinned_versions_match_the_venv)
+
+# Code Quality
+black = "26.10.1"  # exact (test_pinned_versions_match_the_venv)
+ruff = "0.17.1"  # exact (test_pinned_versions_match_the_venv)
+mypy = "2.4.0"  # exact (test_pinned_versions_match_the_venv)
+types-redis = "4.6.0.20241004"  # exact (test_pinned_versions_match_the_venv)
+types-aiofiles = "25.1.0.20260518"  # exact (test_pinned_versions_match_the_venv)
+coverage = "7.16.2"  # exact (test_pinned_versions_match_the_venv)
+
+# Development
+ipython = "9.17.1"  # exact (test_pinned_versions_match_the_venv)
+ipdb = "0.13.13"  # exact (test_pinned_versions_match_the_venv)
+
+[tool.black]
+line-length = 100
+target-version = ['py313']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"  # = backend/Dockerfile ARG PYTHON_VERSION; test_python_version_is_one_version.py
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "alembic/versions",
+]
+
+# ruff >= 0.2 reads rule selection from [tool.ruff.lint]; the top-level keys are deprecated.
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+follow_imports = "normal"
+ignore_missing_imports = false
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "celery.*",
+    "transformers.*",
+    "datasets.*",
+    "torch.*",
+    "bitsandbytes.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+# NO `-q` HERE. Callers add their own, and two of them is `-qq`, at which
+# verbosity pytest drops its own "N passed" line — so the documented test
+# command produced a run that reported no totals at all. See the
+# pytest_terminal_summary hook in tests/conftest.py.
+addopts = "-ra --strict-markers --cov=src --cov-report=term-missing --cov-report=html"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+    "real_checkpoint_disk: reads the real free space on the machine running the test",
+    "live: talks to a DEPLOYED miStudio (MISTUDIO_LIVE_URL); acceptance only, never CI",
+]
+filterwarnings = [
+    "ignore::FutureWarning:torch.cuda",
+    "ignore::DeprecationWarning:datasets.utils._dill",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/alembic/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

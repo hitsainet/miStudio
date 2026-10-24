@@ -1,0 +1,22 @@
+{
+  "format": "mistudio.behaviour-pack/v1",
+  "name": "second-behaviour",
+  "description": "The second behaviour of the FR-46 journey (spec D25): judge-labelled data, no rule set and no held-out column, so its criteria are judged in distribution (D31 / OQ-040-5 (a)).",
+  "behaviours": [
+    {
+      "key": "high-stakes",
+      "name": "High-stakes interaction",
+      "positive_meaning": "A mistake in the interaction could seriously harm someone.",
+      "target_fpr": 0.02,
+      "success_criteria": [
+        {
+          "id": "best-single-all",
+          "detector": "best_single",
+          "subset": "all",
+          "min_recall": 0.6
+        }
+      ],
+      "rule_ids": []
+    }
+  ]
+}

@@ -1,0 +1,227 @@
+{
+  "format": "mistudio.behaviour-pack/v1",
+  "name": "dlp-identifiers",
+  "description": "The DLP pilot (ENH-006, feature 040 \u00a73P): one behaviour per identifier type, as DATA. Rule sets and their cases are added in 040 S3 (validator-library primitives only; documented test values or proven-unissuable identifiers, D28/D30). Public fixture (040-T33).",
+  "behaviours": [
+    {
+      "key": "ssn-disclosure",
+      "name": "US Social Security number disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": []
+    },
+    {
+      "key": "card-disclosure",
+      "name": "Payment card number disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": []
+    },
+    {
+      "key": "iban-disclosure",
+      "name": "IBAN disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": []
+    },
+    {
+      "key": "aba-disclosure",
+      "name": "ABA routing number disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": []
+    }
+  ]
+}

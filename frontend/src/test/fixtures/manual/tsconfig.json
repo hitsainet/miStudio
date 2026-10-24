@@ -1,0 +1,6 @@
+{
+  // Test fixture (rawTsOutsideTheApp.test.ts): stands in for manual/tsconfig.json as GitHub's
+  // Frontend CI sees it. That job installs frontend/ only, so the package this extends is absent,
+  // exactly as @docusaurus/tsconfig is absent there.
+  "extends": "@not-installed/tsconfig"
+}

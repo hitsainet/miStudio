@@ -1,0 +1,130 @@
+# -------------------------
+# INGRESS (MICROK8S NGINX)
+# -------------------------
+# Note: WebSocket support requires specific annotations to handle the upgrade handshake.
+# The /ws path is handled by a separate ingress to ensure clean WebSocket configuration.
+#
+# BODY SIZE IS BOUNDED (operator decision 2026-10-16, "bound per path"). Both ingresses
+# read proxy-body-size "0" — no limit at the edge. The backend refuses any body over
+# 1 MiB in middleware (backend/src/core/body_limit.py) and NO route accepts an upload
+# or a non-JSON body (checked against the served OpenAPI schema; EXEMPT_PREFIXES is
+# empty), so 2m — just above that cap, so a borderline request still gets the
+# backend's explanatory 413 — is the general bound. A route that genuinely takes large
+# bodies gets its OWN Ingress object scoped to its path, with a large limit and the
+# label `mistudio.io/body-size: large`; there is none today.
+# backend/tests/unit/test_ingress_body_bounds.py derives that route set from the live
+# app and fails if one appears without such an Ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mistudio-ingress
+  namespace: mistudio
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+spec:
+  ingressClassName: public
+  rules:
+    - host: k8s-mistudio.hitsai.local
+      http:
+        paths:
+          # DEFENCE IN DEPTH FOR /api/internal (MIS-E2E-148).
+          #
+          # The `/api` prefix below exposes `/api/internal/*`, which BOTH nginx
+          # configs deny as security-critical. The endpoints themselves verify
+          # an HMAC token (checked correct in P05), so what was missing is the
+          # layer, not the defence — but the two nginx configs deny it for a
+          # reason and the ingress should agree with them.
+          #
+          # A more specific path wins over the `/api` prefix, so routing
+          # `/api/internal` at a service that does not exist makes the ingress
+          # return 503 rather than forwarding.
+          - path: /api/internal
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-denied
+                port:
+                  number: 8000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-frontend
+                port:
+                  number: 80
+    - host: k8s-mistudio.hitsai.net
+      http:
+        paths:
+          # Same deny as the .local host above (MIS-E2E-148). Fixing one host
+          # and not its sibling is this audit's most repeated anti-pattern, and
+          # this is the INTERNET-facing one.
+          - path: /api/internal
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-denied
+                port:
+                  number: 8000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-frontend
+                port:
+                  number: 80
+---
+# Separate ingress for WebSocket to ensure proper upgrade handling
+# Note: websocket-services annotation handles Upgrade/Connection headers automatically
+# Do NOT add configuration-snippet with Upgrade headers - it causes header duplication
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mistudio-websocket-ingress
+  namespace: mistudio
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "mistudio-backend"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+spec:
+  ingressClassName: public
+  rules:
+    - host: k8s-mistudio.hitsai.local
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-backend
+                port:
+                  number: 8000
+    - host: k8s-mistudio.hitsai.net
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: mistudio-backend
+                port:
+                  number: 8000

@@ -1,0 +1,13 @@
+# Build context for hitsai/mistudio-rule-runner is the REPOSITORY ROOT (it copies backend/src/rule_runner/, the
+# vendored runner contract, rule_runner/requirements*.txt and LICENSE). Everything else is excluded so the image
+# stays small and carries no secret, test or fetched bundle.
+**
+!LICENSE
+!rule_runner/requirements.txt
+!rule_runner/constraints.txt
+!backend/src/rule_runner/**
+!backend/src/schemas/vendored/midataworks-runner-v1.json
+**/__pycache__/
+**/*.pyc
+**/*.wasm
+**/*.cwasm

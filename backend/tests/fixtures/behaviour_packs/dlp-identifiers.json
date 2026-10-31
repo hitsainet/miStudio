@@ -1,0 +1,734 @@
+{
+  "format": "mistudio.behaviour-pack/v1",
+  "name": "dlp-identifiers",
+  "description": "The DLP pilot (ENH-006, feature 040 \u00a73P): one behaviour per identifier type, as DATA. Rule sets and their cases were added in 040 S3 (validator-library primitives only; documented test values or proven-unissuable identifiers, D28/D30). Public fixture (040-T33).",
+  "behaviours": [
+    {
+      "key": "ssn-disclosure",
+      "name": "US Social Security number disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": [
+        "ssn-disclosure-rules"
+      ],
+      "rule_set": {
+        "document": {
+          "format": "midataworks.rule-set/v1",
+          "name": "ssn-disclosure-rules",
+          "behaviour_key": "ssn-disclosure",
+          "description": "Pilot rule set: a value of this identifier's shape that its validator accepts is disclosed; the same shape read as masked vetoes it.",
+          "signals": [
+            {
+              "id": "shape",
+              "kind": "pattern",
+              "pattern": "\\b[0-9X*#]{3}-[0-9X*#]{2}-[0-9]{4}\\b",
+              "ignore_case": false,
+              "fold_fullwidth_ascii": false,
+              "reads": "text"
+            },
+            {
+              "id": "valid",
+              "kind": "validator",
+              "validator": {
+                "id": "ssn_us",
+                "version": 1
+              },
+              "params": {},
+              "candidates": {
+                "span_of": "shape"
+              }
+            },
+            {
+              "id": "masked",
+              "kind": "validator",
+              "validator": {
+                "id": "masked",
+                "version": 1
+              },
+              "params": {
+                "format": "ssn_us"
+              },
+              "candidates": {
+                "span_of": "shape"
+              }
+            }
+          ],
+          "expressions": {
+            "disclosed": {
+              "signal": "valid"
+            },
+            "is_masked": {
+              "signal": "masked"
+            }
+          },
+          "outputs": [
+            {
+              "column": "disclosed",
+              "type": "bool",
+              "value": {
+                "fired": "disclosed"
+              }
+            }
+          ],
+          "vetoes": [
+            {
+              "id": "masked_value",
+              "when": "is_masked",
+              "removes": [
+                "shape"
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "id": "valid-published",
+              "input": {
+                "text": "my number is 078-05-1120 thanks"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": true
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "published_test_value",
+                "citation": "the vendored rule-signal-cases-v1.json (miDataworks 016) case of the same value"
+              },
+              "note": "the voided wallet-card number"
+            },
+            {
+              "id": "masked",
+              "input": {
+                "text": "my number is XXX-XX-1120 thanks"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": true
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "masked: vetoed"
+            },
+            {
+              "id": "serial-zero",
+              "input": {
+                "text": "my number is 123-45-0000 thanks"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "serial 0000 is never issued"
+            },
+            {
+              "id": "area-666",
+              "input": {
+                "text": "my number is 666-12-3456 thanks"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "area 666 is never issued"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "key": "card-disclosure",
+      "name": "Payment card number disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": [
+        "card-disclosure-rules"
+      ],
+      "rule_set": {
+        "document": {
+          "format": "midataworks.rule-set/v1",
+          "name": "card-disclosure-rules",
+          "behaviour_key": "card-disclosure",
+          "description": "Pilot rule set: a value of this identifier's shape that its validator accepts is disclosed; the same shape read as masked vetoes it.",
+          "signals": [
+            {
+              "id": "shape",
+              "kind": "pattern",
+              "pattern": "\\b[0-9X]{4}(?:[ -]?[0-9X]{4}){2}[ -]?[0-9]{4}\\b",
+              "ignore_case": false,
+              "fold_fullwidth_ascii": false,
+              "reads": "text"
+            },
+            {
+              "id": "valid",
+              "kind": "validator",
+              "validator": {
+                "id": "card_pan",
+                "version": 1
+              },
+              "params": {},
+              "candidates": {
+                "span_of": "shape"
+              }
+            },
+            {
+              "id": "masked",
+              "kind": "validator",
+              "validator": {
+                "id": "masked",
+                "version": 1
+              },
+              "params": {
+                "format": "card_pan"
+              },
+              "candidates": {
+                "span_of": "shape"
+              }
+            }
+          ],
+          "expressions": {
+            "disclosed": {
+              "signal": "valid"
+            },
+            "is_masked": {
+              "signal": "masked"
+            }
+          },
+          "outputs": [
+            {
+              "column": "disclosed",
+              "type": "bool",
+              "value": {
+                "fired": "disclosed"
+              }
+            }
+          ],
+          "vetoes": [
+            {
+              "id": "masked_value",
+              "when": "is_masked",
+              "removes": [
+                "shape"
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "id": "valid-published",
+              "input": {
+                "text": "card 4111 1111 1111 1111 on file"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": true
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "published_test_value",
+                "citation": "the vendored rule-signal-cases-v1.json (miDataworks 016) case of the same value"
+              },
+              "note": "a payment processor's sandbox test number"
+            },
+            {
+              "id": "masked",
+              "input": {
+                "text": "card 4111 11XX XXXX 1111 on file"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": true
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "masked: vetoed"
+            },
+            {
+              "id": "bad-check-digit",
+              "input": {
+                "text": "card 4111 1111 1111 1112 on file"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "Luhn fails"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "key": "iban-disclosure",
+      "name": "IBAN disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": [
+        "iban-disclosure-rules"
+      ],
+      "rule_set": {
+        "document": {
+          "format": "midataworks.rule-set/v1",
+          "name": "iban-disclosure-rules",
+          "behaviour_key": "iban-disclosure",
+          "description": "Pilot rule set: a value of this identifier's shape that its validator accepts is disclosed; the same shape read as masked vetoes it.",
+          "signals": [
+            {
+              "id": "shape",
+              "kind": "pattern",
+              "pattern": "\\b[A-Z]{2}[0-9X]{2}(?: ?[A-Z0-9X]{4}){3,7}(?: ?[A-Z0-9X]{1,3})?\\b",
+              "ignore_case": false,
+              "fold_fullwidth_ascii": false,
+              "reads": "text"
+            },
+            {
+              "id": "valid",
+              "kind": "validator",
+              "validator": {
+                "id": "iban",
+                "version": 2
+              },
+              "params": {},
+              "candidates": {
+                "span_of": "shape"
+              }
+            },
+            {
+              "id": "masked",
+              "kind": "validator",
+              "validator": {
+                "id": "masked",
+                "version": 1
+              },
+              "params": {
+                "format": "iban"
+              },
+              "candidates": {
+                "span_of": "shape"
+              }
+            }
+          ],
+          "expressions": {
+            "disclosed": {
+              "signal": "valid"
+            },
+            "is_masked": {
+              "signal": "masked"
+            }
+          },
+          "outputs": [
+            {
+              "column": "disclosed",
+              "type": "bool",
+              "value": {
+                "fired": "disclosed"
+              }
+            }
+          ],
+          "vetoes": [
+            {
+              "id": "masked_value",
+              "when": "is_masked",
+              "removes": [
+                "shape"
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "id": "valid-published",
+              "input": {
+                "text": "pay DE89 3704 0044 0532 0130 00 today"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": true
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "published_test_value",
+                "citation": "the vendored rule-signal-cases-v1.json (miDataworks 016) case of the same value"
+              },
+              "note": "the ISO 13616 example account"
+            },
+            {
+              "id": "masked",
+              "input": {
+                "text": "pay GB82 XXXX XXXX XXXX XXXX 32 today"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": true
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "masked: vetoed"
+            },
+            {
+              "id": "bad-check-digit",
+              "input": {
+                "text": "pay DE88 3704 0044 0532 0130 00 today"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "MOD 97-10 fails"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "key": "aba-disclosure",
+      "name": "ABA routing number disclosure",
+      "positive_meaning": "The text discloses this identifier (disclosure is positive, D1).",
+      "negative_meaning": "No such identifier is disclosed.",
+      "target_fpr": 0.01,
+      "sub_questions": [
+        {
+          "key": "identifier-present",
+          "question": "Is a value shaped like this identifier present?",
+          "positive_meaning": "An identifier-shaped value appears in the text."
+        },
+        {
+          "key": "presented-as-identifier",
+          "question": "Is it presented as a person's identifier?",
+          "positive_meaning": "The text presents the value as identifying a person."
+        },
+        {
+          "key": "masked-or-partial",
+          "question": "Is the value masked or partial?",
+          "positive_meaning": "Only part of the value is shown, or it is masked."
+        }
+      ],
+      "success_criteria": [
+        {
+          "id": "rules-or-blend-all",
+          "detector": "rules_or_blend",
+          "subset": "all",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.8
+        },
+        {
+          "id": "blend-alone-rule-invisible",
+          "detector": "blend_alone",
+          "subset": "rule_invisible_positives",
+          "held_out_test": "genre",
+          "target_fpr": 0.01,
+          "min_recall": 0.5
+        }
+      ],
+      "held_out_columns": [
+        "genre",
+        "generator"
+      ],
+      "models": [
+        {
+          "model_id": "LiquidAI/LFM2.5-1.2B-Instruct"
+        },
+        {
+          "model_id": "meta-llama/Llama-3.1-8B-Instruct"
+        }
+      ],
+      "rule_ids": [
+        "aba-disclosure-rules"
+      ],
+      "rule_set": {
+        "document": {
+          "format": "midataworks.rule-set/v1",
+          "name": "aba-disclosure-rules",
+          "behaviour_key": "aba-disclosure",
+          "description": "Pilot rule set: a value of this identifier's shape that its validator accepts is disclosed; the same shape read as masked vetoes it.",
+          "signals": [
+            {
+              "id": "shape",
+              "kind": "pattern",
+              "pattern": "\\b[0-9X]{5}[0-9]{4}\\b",
+              "ignore_case": false,
+              "fold_fullwidth_ascii": false,
+              "reads": "text"
+            },
+            {
+              "id": "valid",
+              "kind": "validator",
+              "validator": {
+                "id": "aba_routing",
+                "version": 1
+              },
+              "params": {},
+              "candidates": {
+                "span_of": "shape"
+              }
+            },
+            {
+              "id": "masked",
+              "kind": "validator",
+              "validator": {
+                "id": "masked",
+                "version": 1
+              },
+              "params": {
+                "format": "aba_routing"
+              },
+              "candidates": {
+                "span_of": "shape"
+              }
+            }
+          ],
+          "expressions": {
+            "disclosed": {
+              "signal": "valid"
+            },
+            "is_masked": {
+              "signal": "masked"
+            }
+          },
+          "outputs": [
+            {
+              "column": "disclosed",
+              "type": "bool",
+              "value": {
+                "fired": "disclosed"
+              }
+            }
+          ],
+          "vetoes": [
+            {
+              "id": "masked_value",
+              "when": "is_masked",
+              "removes": [
+                "shape"
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "id": "valid-published",
+              "input": {
+                "text": "routing 011000015 ok"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": true
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "published_reference_value"
+              },
+              "note": "a reserve bank's own routing number"
+            },
+            {
+              "id": "masked",
+              "input": {
+                "text": "routing XXXXX0015 ok"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": true
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "masked: vetoed"
+            },
+            {
+              "id": "bad-check-digit",
+              "input": {
+                "text": "routing 011000016 ok"
+              },
+              "expect": {
+                "outputs": {
+                  "disclosed": false
+                },
+                "vetoed": false
+              },
+              "source": {
+                "kind": "constructed"
+              },
+              "note": "the 3-7-1 weighted sum fails"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

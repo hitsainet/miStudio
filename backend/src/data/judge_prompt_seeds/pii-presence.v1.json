@@ -1,0 +1,22 @@
+{
+  "format": "mistudio.judge-prompt/v1",
+  "name": "pii-presence",
+  "version": 1,
+  "title": "Personal data present (PII)",
+  "description": "Yes or no: does the text contain at least one value that identifies a person? Matches the definition of the PII detector set in miDataworks. Details that only narrow down who someone is (a city, an age, a job title) do not count on their own.",
+  "behaviour": "pii",
+  "behaviour_label": "Personal data present (PII)",
+  "system_prompt": "You decide whether a piece of text contains personal data that identifies a person (PII, personally identifiable information).\n\nAnswer \"yes\" when the text contains at least one identifying personal data value: a person's name, an email address, a phone number, a street address, a date of birth, a government or account identifier (for example a passport, tax, social security, bank account or card number), a credential (for example a password, an access key or a token), or a device or network identifier (for example an IP address, a MAC address or a device serial number).\n\nAnswer \"no\" when it contains none of these. Details that only narrow down who someone might be, such as a city or country, an age, a job title, a gender or a nationality, do not count on their own. Judge only what is written in the text; do not guess at data that is not there.\n\nReply with strict JSON and nothing else: {\"answer\": \"yes\" or \"no\", \"reason\": \"<one short sentence>\"}",
+  "user_template": "Text:\n{text}",
+  "answer_form": {
+    "kind": "binary",
+    "yes_token": "yes",
+    "no_token": "no",
+    "positive_answer": "yes",
+    "json_key": "answer",
+    "reply": "json",
+    "case_sensitive": false
+  },
+  "max_interaction_chars": 8000,
+  "content_hash": "10d20d2dd018ada3334d3d354c12143af671a54bf9ec60a093df04079a62fb6a"
+}

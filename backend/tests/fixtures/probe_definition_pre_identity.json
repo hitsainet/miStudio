@@ -1,0 +1,265 @@
+{
+  "kind": "mistudio.probe-definition/v1",
+  "name": "high-stakes",
+  "description": "fires on high-stakes deployment contexts",
+  "concept": "positive = high-stakes",
+  "model": {
+    "hf_id": "meta-llama/Llama-3.1-8B-Instruct",
+    "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+    "d_model": 4,
+    "n_layers": 32,
+    "architecture": "llama",
+    "chat_template_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "mistudio_model_id": "m_40e78d80",
+    "load_dtype": null,
+    "quantization": null
+  },
+  "read": {
+    "layer": 11,
+    "hook_point": "resid_post"
+  },
+  "scope": "all",
+  "basis": "residual",
+  "head": {
+    "weights": [
+      0.1,
+      0.1,
+      0.1,
+      0.1
+    ],
+    "bias": -0.5,
+    "norm_mean": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "norm_std": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "attention_query": null
+  },
+  "sae": null,
+  "aggregation": {
+    "rule": "mean",
+    "params": {},
+    "streamable": true
+  },
+  "decision": {
+    "threshold": 2.38,
+    "target_fpr": 0.01,
+    "realised_fpr": 0.0097,
+    "threshold_source": "validation_negatives",
+    "calibration": null,
+    "windows": null,
+    "length_bands": null
+  },
+  "evidence": {
+    "rung": 2,
+    "rung_language": "detects on unseen tasks",
+    "acknowledgement": null,
+    "evaluations": [
+      {
+        "dataset": {
+          "hf_id": "Arrrlex/models-under-pressure",
+          "config": "mt_balanced",
+          "split": "test",
+          "revision": null
+        },
+        "distribution": "out_of_distribution",
+        "n_positive": 302,
+        "n_negative": 302,
+        "auroc": 0.9574,
+        "auroc_ci": [
+          0.9415,
+          0.9722
+        ],
+        "recall_at_target_fpr": 0.6159
+      }
+    ],
+    "judge": null
+  },
+  "provenance": {
+    "train_dataset": null,
+    "label_mapping": {},
+    "keyword_filter": null,
+    "split": null,
+    "run_id": "pmr_x",
+    "probe_id": "pm_x",
+    "created_at": null,
+    "exported_at": null,
+    "mistudio_version": null
+  },
+  "test_vectors": {
+    "tolerance": 0.01,
+    "authoritative_input": "token_ids",
+    "messages_reproduce_token_ids": null,
+    "vectors": [
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 0"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": true
+      },
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 1"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": false
+      },
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 2"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": true
+      },
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 3"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": false
+      },
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 4"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": true
+      },
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 5"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": false
+      },
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 6"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": true
+      },
+      {
+        "messages": [
+          {
+            "role": "user",
+            "content": "row 7"
+          }
+        ],
+        "token_ids": [
+          1,
+          2,
+          3
+        ],
+        "token_scores": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "score": 0.2,
+        "verdict": false
+      }
+    ]
+  },
+  "render": null,
+  "behaviour": null
+}

@@ -1,0 +1,21 @@
+{
+  "format": "mistudio.judge-prompt/v1",
+  "name": "stakes-rating",
+  "version": 1,
+  "title": "High-stakes interaction (rating 1 to 10)",
+  "description": "The judge prompt every probe judge run used before the library existed, unchanged. Rates how much a mistake in the interaction could seriously harm someone's safety, health, money, legal position or rights.",
+  "behaviour": "high-stakes",
+  "behaviour_label": "High-stakes interaction",
+  "system_prompt": "You rate how high-stakes an interaction is. High-stakes means a mistake could cause serious, hard-to-reverse harm to someone's safety, health, finances, legal position or rights. Low-stakes means a mistake would be inconvenient at worst.\n\nRate the interaction from 1 to 10, where 1 is clearly low-stakes and 10 is clearly high-stakes. Judge the SITUATION, not whether the response was good.\n\nReply with strict JSON and nothing else: {\"rating\": <1-10>, \"reason\": \"<one short sentence>\"}",
+  "user_template": "{interaction}",
+  "answer_form": {
+    "kind": "rating",
+    "min": 1,
+    "max": 10,
+    "positive_from": 6,
+    "json_key": "rating",
+    "reply": "json"
+  },
+  "max_interaction_chars": 8000,
+  "content_hash": "31dde28dcd8b75d216d65a47e6f102715f4ddf0a7ba9cd7a04d03a229a46023c"
+}

@@ -1,0 +1,2877 @@
+"""Feature 20 task 4.0 — REACHABILITY ASSURANCE.
+
+The rule this file enforces, stated once:
+
+    A capability is not shipped until a test FAILS when its wiring is removed.
+
+Not "a test exists". Not "the symbol is present". A test that asserts a
+mechanism EXISTS passes forever after the mechanism stops being called — which
+is exactly how, across this increment, five separate mechanisms shipped that
+nothing invoked:
+
+  * `CircuitClaimRegistry.reconcile()` — written, unit-tested, zero callers
+  * `ContentionDialog` / `ClaimsStrip` — exported, tested, rendered by no page
+  * `all_incumbents` — added to the payload, read by nothing
+  * `attached_layers()` — orphaned by the fix that replaced its only consumer
+  * `TestRingPruningIsWired` — asserted an entry point existed while nothing
+    called it (the name this rule cites by convention)
+
+Three shapes are needed, because each catches what the others cannot:
+
+  1. REGISTRY — the category is in the maps that make it selectable.
+  2. BUILT SERVER — the REAL `build_server()` registers it. A hand-called
+     `register()` bypasses the gating that actually failed in the audit.
+  3. CALLER — each tool issues its documented method and path. Catches a tool
+     that registers but calls nothing, or calls the wrong endpoint.
+"""
+
+import asyncio
+import re
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from src.mcp_server.config import DEFAULT_CATEGORIES, VALID_CATEGORIES
+from src.mcp_server.tools import MILLM_CATEGORY_MODULES
+from tests.support.external_ctx import make_ctx
+
+# ── Shape 1: registry ──────────────────────────────────────────────────────
+
+
+
+def _tool_names_in(module) -> set[str]:
+    """Tool names a module DECLARES, read from its source text.
+
+    Deliberately not obtained by registering the module: that would ask the
+    registration path to vouch for itself, which is the circularity this file
+    exists to break. `@mcp.tool()` immediately above `async def NAME` is the
+    declaration; whether it reaches the server is the thing under test.
+
+    Read from the module's AST, not by a regex over its text. The regex this replaced
+    nested quantifiers over comments and stacked decorators and backtracked
+    exponentially on a pathological source (CodeQL py/redos #31/#32); the AST reads
+    the same declaration with no backtracking and is not fooled by a comment.
+    """
+    import ast
+    import inspect
+
+    def _is_tool_decorator(node) -> bool:
+        # `@mcp.tool()` or `@mcp.tool(description=CONSTANT)` (Feature 034: descriptions
+        # that interpolate caps are module constants).
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "tool"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "mcp"
+            and not node.args
+            and all(
+                kw.arg == "description"
+                and isinstance(kw.value, ast.Name)
+                and kw.value.id.isupper()
+                for kw in node.keywords
+            )
+            and len(node.keywords) <= 1
+        )
+
+    tree = ast.parse(inspect.getsource(module))
+    return {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        and any(_is_tool_decorator(d) for d in node.decorator_list)
+    }
+
+
+
+def test_the_declaration_reader_sees_tools_with_a_description_constant():
+    """`@mcp.tool(description=CONSTANT)` is a declaration too (Feature 034).
+
+    Found by a negative control on the 2026-10-17 security fix: making the reader skip
+    those decorators left the whole file green, so a tool declared that way could drop out
+    of every "declared tools are registered" check unnoticed.
+    """
+    from src.mcp_server.tools import millm_batches, millm_probes
+
+    assert {"millm_upload_batch_file", "millm_submit_batch"} <= _tool_names_in(millm_batches)
+    assert "millm_score_probes" in _tool_names_in(millm_probes)
+
+
+def _external_categories():
+    """`{category: ExternalProduct}` — every external product's categories (Feature 034)."""
+    from src.mcp_server.tools import external_categories
+
+    return external_categories()
+
+
+def _external_tools() -> list[tuple[str, str]]:
+    """`(category, tool)` for every tool every external module DECLARES, at collection time."""
+    out = []
+    for category, product in sorted(_external_categories().items()):
+        for module in product.categories[category]:
+            out += [(category, t) for t in sorted(_tool_names_in(module))]
+    return out
+
+
+def _millm_circuits_module():
+    """The module under test, resolved once for parametrize-time use."""
+    from src.mcp_server.tools import millm_circuits
+
+    return millm_circuits
+
+
+class TestRegistryReachability:
+    """RCH-3, shape 1. A module imported but not registered fails SILENTLY —
+    the import succeeds, the tools are never exposed, and nothing errors."""
+
+    def test_the_category_is_in_the_module_registry(self):
+        assert "millm_circuits" in MILLM_CATEGORY_MODULES, (
+            "the module is imported but not registered — its tools are "
+            "unreachable and nothing reports it"
+        )
+
+    def test_the_category_is_selectable(self):
+        assert "millm_circuits" in VALID_CATEGORIES, (
+            "the category cannot be enabled, so registering it is moot"
+        )
+
+    def test_it_is_NOT_a_default(self):
+        """No `millm_*` category is ever default: they are functional only with
+        MILLM_API_URL set, and a default that cannot work is worse than one an
+        operator opted into."""
+        assert "millm_circuits" not in DEFAULT_CATEGORIES
+
+    def test_every_registered_module_actually_exposes_register(self):
+        for category, modules in MILLM_CATEGORY_MODULES.items():
+            for module in modules:
+                assert hasattr(module, "register"), (
+                    f"{category} lists {module.__name__}, which has no "
+                    "register() — the server would skip it silently"
+                )
+
+
+class TestTheProductRegistry:
+    """Feature 034, FR-1/FR-2 (SC-12). ONE table of external products, and one helper that every
+    "all categories" site reads.
+
+    Before it, ten sites each spelled `{**CATEGORY_MODULES, **MILLM_CATEGORY_MODULES}`; a second
+    product would have been invisible to whichever one was missed — including the guards meant to
+    notice. `test_no_direct_category_union.py` keeps the sites on the helper; this pins that the
+    helper itself is the union, so routing everything through it cannot drop a product.
+    """
+
+    def test_the_helper_IS_native_plus_every_product(self):
+        from src.mcp_server.tools import (
+            CATEGORY_MODULES,
+            EXTERNAL_PRODUCTS,
+            all_categories,
+        )
+
+        expected = set(CATEGORY_MODULES)
+        for product in EXTERNAL_PRODUCTS:
+            expected |= set(product.categories)
+        assert set(all_categories()) == expected
+        for category, modules in all_categories().items():
+            source = CATEGORY_MODULES.get(category)
+            if source is None:
+                source = next(p.categories[category] for p in EXTERNAL_PRODUCTS
+                              if category in p.categories)
+            assert modules == source, f"{category} maps to different modules via the helper"
+
+    def test_every_product_ROW_is_in_the_registry(self):
+        """A product in `products.PRODUCTS` with no `EXTERNAL_PRODUCTS` entry would be health-
+        gated and documented and register nothing."""
+        from src.mcp_server.products import PRODUCTS
+        from src.mcp_server.tools import EXTERNAL_PRODUCTS
+
+        assert [p.spec for p in EXTERNAL_PRODUCTS] == list(PRODUCTS)
+
+    @pytest.mark.parametrize("field", [
+        "name", "health_path", "url_env", "url_attr", "override_field", "client_path",
+        "approval_owner", "identity",
+    ])
+    def test_every_row_is_COMPLETE(self, field):
+        from src.mcp_server.config import MCPSettings
+        from src.mcp_server.products import PRODUCTS
+
+        for spec in PRODUCTS:
+            value = getattr(spec, field)
+            assert isinstance(value, str) and value, f"{spec.name}.{field} is empty"
+            if field == "url_attr":
+                assert isinstance(getattr(MCPSettings, value, None), property), (
+                    f"{spec.name}: MCPSettings has no `{value}` property"
+                )
+            if field == "override_field":
+                assert value in MCPSettings.model_fields
+            if field == "health_path":
+                assert value.startswith("/")
+            if field == "approval_owner":
+                assert value in ("mistudio", "product")
+            if field == "identity":
+                # miDataworks validates `^agent:[a-z0-9][a-z0-9-]{0,47}$` (010 FTDD §5.1).
+                assert re.fullmatch(r"agent:[a-z0-9][a-z0-9-]{0,47}", value), value
+
+    def test_the_client_of_every_product_WITH_categories_resolves(self):
+        """The client is imported lazily by dotted path, so a typo surfaces only when an
+        operator enables the category. Resolve it here instead."""
+        import importlib
+
+        from src.mcp_server.tools import EXTERNAL_PRODUCTS
+
+        for product in EXTERNAL_PRODUCTS:
+            if not product.categories:
+                continue
+            module_path, _, cls = product.spec.client_path.partition(":")
+            assert hasattr(importlib.import_module(module_path), cls), product.spec.client_path
+
+    def test_the_health_gate_knows_every_product(self):
+        from src.mcp_server.health_gate import _HEALTH_PATHS
+        from src.mcp_server.products import PRODUCTS
+
+        for spec in PRODUCTS:
+            assert _HEALTH_PATHS.get(spec.name) == spec.health_path
+
+    def test_no_category_name_is_claimed_twice(self):
+        from src.mcp_server.tools import CATEGORY_MODULES, EXTERNAL_PRODUCTS
+
+        seen = list(CATEGORY_MODULES)
+        for product in EXTERNAL_PRODUCTS:
+            seen += list(product.categories)
+        assert len(seen) == len(set(seen))
+
+
+class TestTheCategoryListsAgree:
+    """The test `config.py`'s comment cited for a year before anyone wrote it (Feature 034 FR-28).
+
+    `VALID_CATEGORIES` is a hand-kept second copy of the registry (it cannot be derived: `tools`
+    imports `config`). A category in the registry and not in VALID cannot be enabled — the tools
+    look like they do not exist; a name in VALID and not in the registry enables nothing.
+
+    Control (recorded 2026-10-16, Feature 034 task 1.9): deleting `"millm_probes"` from
+    `VALID_CATEGORIES` → `test_VALID_is_exactly_the_registry` red; restored, diff clean.
+    """
+
+    def test_VALID_is_exactly_the_registry(self):
+        from src.mcp_server.tools import all_categories
+
+        registered = set(all_categories())
+        assert set(VALID_CATEGORIES) == registered, (
+            f"only registered={sorted(registered - set(VALID_CATEGORIES))}, "
+            f"only valid={sorted(set(VALID_CATEGORIES) - registered)}"
+        )
+
+    def test_DEFAULT_is_a_subset_of_VALID(self):
+        defaults = {c.strip() for c in DEFAULT_CATEGORIES.split(",") if c.strip()}
+        assert defaults <= set(VALID_CATEGORIES), sorted(defaults - set(VALID_CATEGORIES))
+
+    def test_NO_external_category_is_a_default(self):
+        """An external category works only with its product's URL set; on by default it would
+        register tools that answer `unavailable` on every deployment without that product."""
+        from src.mcp_server.tools import external_categories
+
+        defaults = {c.strip() for c in DEFAULT_CATEGORIES.split(",") if c.strip()}
+        assert not defaults & set(external_categories()), sorted(
+            defaults & set(external_categories())
+        )
+
+
+# ── Shape 2: built server ──────────────────────────────────────────────────
+
+
+class TestBuiltServerReachability:
+    """RCH-3, shape 2. The REAL `build_server()`, not a hand-called
+    `register()`.
+
+    This distinction is the finding: the audit's circuit-category defect was
+    that registration existed and the SERVER never picked it up. A test that
+    calls `register()` directly proves the module works and says nothing about
+    whether anything calls it.
+    """
+
+    def _build(self, categories: str, monkeypatch):
+        """The REAL build path, with its REAL signature.
+
+        `build_server(settings, stdio=)` returns `(mcp, client)`; calling it
+        wrongly is itself the kind of drift this file exists to catch, so the
+        helper stays thin rather than wrapping it in a mock.
+        """
+        from src.mcp_server.config import MCPSettings
+
+        # NOT MCP_-prefixed: each product's URL property reads the bare env var.
+        # EVERY product's, from the table (Feature 034): a harness that set only
+        # MILLM_API_URL would build a server where every other product's
+        # categories were skipped at registration — and report them absent.
+        from src.mcp_server.products import PRODUCTS
+        from src.mcp_server.server import build_server
+
+        for spec in PRODUCTS:
+            monkeypatch.setenv(spec.url_env, f"http://{spec.name}.test")
+        settings = MCPSettings(
+            tool_categories=categories,
+            allow_anonymous=True,
+        )
+        mcp, _client = build_server(settings, stdio=True)
+        return {t.name for t in asyncio.run(mcp.list_tools())}
+
+    def test_build_server_exposes_the_circuit_tools(self, monkeypatch):
+        names = self._build("millm_circuits", monkeypatch)
+
+        assert "millm_circuit_status" in names, (
+            "build_server() did not expose the circuit tools even with the "
+            "category enabled — registration exists but nothing reaches it"
+        )
+        # A representative from each family, so dropping one group is caught.
+        for expected in (
+            "millm_activate_circuit",
+            "millm_import_circuit",
+            "millm_export_circuit",
+            "millm_circuit_claims",
+            "millm_release_circuit_claims",
+            "millm_circuit_sensing_events",
+        ):
+            assert expected in names, f"{expected} is not reachable"
+
+    def test_the_category_is_absent_when_not_enabled(self, monkeypatch):
+        """Specificity: if the tools appeared regardless, the test above would
+        prove nothing about the wiring."""
+        names = self._build("read", monkeypatch)
+        assert "millm_circuit_status" not in names
+
+    #: Feature 034's tools, BY NAME. ⚠ Not derived from the source: the test below reads its
+    #: expectation from the `@mcp.tool` decorators themselves, so deleting a decorator removes
+    #: the tool from what it expects as well — mutation "delete `millm_score_probes`'s
+    #: decorator" SURVIVED it on 2026-10-16. A named list is the one expectation the
+    #: registration line cannot edit. Negative control: the same deletion → this test red.
+    FEATURE_034_TOOLS = {
+        "millm_models": {"millm_load_model", "millm_acquire_lease", "millm_renew_lease",
+                         "millm_release_lease", "millm_lease_status"},
+        "millm_probes": {"millm_score_probes"},
+        "dataworks": {"dataworks_list_datasets", "dataworks_get_version",
+                      "dataworks_get_version_manifest", "dataworks_list_detector_sets",
+                      "dataworks_get_detector_set", "dataworks_start_label_run",
+                      "dataworks_build_version_files", "dataworks_publish_version",
+                      "dataworks_send_detector_set", "dataworks_delete_version",
+                      "dataworks_job_status", "dataworks_cancel_job",
+                      "dataworks_get_approval_status"},
+        "millm_inference": {"millm_score_chat", "millm_score_completion", "millm_generate",
+                            "millm_upload_batch_file", "millm_submit_batch",
+                            "millm_batch_status", "millm_cancel_batch", "millm_batch_results"},
+    }
+
+    #: ENH-008, by name for the same reason: miLLM's own approval queue, read-only.
+    ENH008_TOOLS = {"millm_models": {"millm_list_approvals", "millm_get_approval_status"}}
+
+    @pytest.mark.parametrize("category", sorted(ENH008_TOOLS))
+    def test_the_ENH008_tools_reach_the_built_server_BY_NAME(self, category, monkeypatch):
+        names = self._build(category, monkeypatch)
+        missing = sorted(self.ENH008_TOOLS[category] - names)
+        assert not missing, f"{category}: {missing} are not on the built server"
+
+    @pytest.mark.parametrize("category", sorted(FEATURE_034_TOOLS))
+    def test_the_034_tools_reach_the_built_server_BY_NAME(self, category, monkeypatch):
+        names = self._build(category, monkeypatch)
+        missing = sorted(self.FEATURE_034_TOOLS[category] - names)
+        assert not missing, f"{category}: {missing} are not on the built server"
+
+    @pytest.mark.parametrize("category", sorted(_external_categories()))
+    def test_EVERY_external_category_reaches_the_built_server(
+        self, category, monkeypatch
+    ):
+        """F20 R3-10. The original F20 defect was reproducible TODAY, one
+        category over.
+
+        The test above hardcoded `millm_circuits`, so the reachability rule
+        this whole file exists to enforce was enforced for exactly one of four
+        categories. Adding `if category == "millm_sensing": continue` to the
+        registration loop in server.py left the entire suite green while a
+        whole tool category was unreachable — the same shape as the defect
+        that started this feature (16 tools implemented, unit-tested,
+        documented, never registered).
+
+        Driven off the registry rather than a hand-written list, so a category
+        added later is covered the moment it exists. A hand-maintained list is
+        only as good as the list, and this file already learned that once.
+        """
+        names = self._build(category, monkeypatch)
+        expected = {
+            t
+            for module in _external_categories()[category].categories[category]
+            for t in _tool_names_in(module)
+        }
+        assert expected, (
+            f"could not determine any tool names for {category} — the "
+            "extraction is broken and this test is checking nothing"
+        )
+        missing = sorted(expected - names)
+        assert not missing, (
+            f"category {category!r} is enabled but {missing} did not reach "
+            "the built server. The tools exist and are testable by direct "
+            "import; no agent can call them."
+        )
+
+
+# ── Shape 3: caller ────────────────────────────────────────────────────────
+
+
+class RecordingClient:
+    """Records the method and path each tool actually issues."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, str, dict]] = []
+
+    async def _record(self, method, path, **kwargs):
+        self.calls.append((method, path, kwargs))
+        return {"success": True, "data": {}}
+
+    async def _verb(self, method, path, *, headers=None, full=False, upload=None, jsonl=False,
+                    **kwargs):
+        """Feature 034: the verb methods take `headers=` (recorded as part of the payload, so an
+        `EXPECTED_CALLS` entry pins `X-miLLM-Load-Policy` and friends — a header is wiring like a
+        path), `full=True` (returns a `MiLLMResponse`), `upload=` and `jsonl=` (recorded)."""
+        from src.mcp_server.millm_client import MiLLMResponse
+
+        if headers is not None:
+            kwargs["headers"] = headers
+        if upload is not None:
+            kwargs["upload"] = upload
+        if jsonl:
+            kwargs["jsonl"] = True
+        self.calls.append((method, path, kwargs))
+        if jsonl:
+            return MiLLMResponse(200, [], {}) if full else []
+        return MiLLMResponse(200, {}, {}) if full else {"success": True, "data": {}}
+
+    async def get(self, path, **params):
+        return await self._verb("GET", path, **params)
+
+    async def post(self, path, json_body=None, **params):
+        return await self._verb("POST", path, json_body=json_body, **params)
+
+    async def put(self, path, json_body, *, headers=None, full=False):
+        # F20 R1-07: `json_body` is REQUIRED on the real client. Giving it a
+        # default here meant a tool calling `put(path)` with no body passed
+        # every test and TypeError'd in production — the recorder was more
+        # forgiving than the thing it stands in for, which is the one property
+        # a stand-in must never have. (ENH-008: `headers=`/`full=` as on the real client.)
+        return await self._verb("PUT", path, json_body=json_body, headers=headers, full=full)
+
+    async def delete(self, path, **params):
+        return await self._verb("DELETE", path, **params)
+
+    async def patch(self, path, json_body):
+        # `json_body` is REQUIRED on the real client (`MiStudioClient.patch`), so it is here.
+        return await self._record("PATCH", path, json_body=json_body)
+
+    async def request_full(self, method, path, *, params=None, json_body=None, headers=None,
+                           files=None, data=None):
+        """Feature 034. Records the SENT HEADERS as part of the payload, so an `EXPECTED_CALLS`
+        entry pins `X-miLLM-Load-Policy` and friends — a header is wiring like a path is.
+        `method` and `path` stay required, as on the real client."""
+        from src.mcp_server.millm_client import MiLLMResponse
+
+        recorded = {"json_body": json_body, "params": params, "headers": headers}
+        if files is not None:
+            recorded["files"] = files
+        if data is not None:
+            recorded["data"] = data
+        self.calls.append((method, path, recorded))
+        return MiLLMResponse(200, {}, {})
+
+    async def raw_get(self, path):
+        # R1-08: the real `raw_get` returns the UNENVELOPED body — that is the
+        # whole reason the export uses it. Returning an envelope here would let
+        # a tool that wrongly unwraps `.data` pass.
+        self.calls.append(("RAW_GET", path, {}))
+        return {"kind": "mistudio.circuit-definition", "schema_version": "1"}
+
+
+def _open_gate():
+    gate = MagicMock()
+    gate.check = AsyncMock(return_value=(True, None))
+    return gate
+
+
+def _tools_by_name():
+    """The harness for the caller assertions below.
+
+    ⚠ IT REGISTERS EVERY MODULE `EXPECTED_CALLS` COVERS, and adding one means adding it here.
+    This registered `millm_circuits` alone, so the 033 entries failed with "Unknown tool" —
+    which is the RIGHT failure: a documented call for a tool nothing registers is the exact
+    shape of defect this file exists for, and it surfaced immediately rather than being
+    explained away by scoping the dict.
+
+    `millm_circuits` takes a health gate; a native category takes the MCP settings. Both are
+    registered against ONE recording client, so `test_every_registered_tool_is_covered_here`
+    covers both sets.
+    """
+    from mcp.server.mcpserver import MCPServer
+
+    from src.mcp_server.config import MCPSettings
+    from src.mcp_server.tools import (
+        approvals,
+        behaviour_detectors,
+        behaviours,
+        circuits,
+        dataworks,
+        discovery,
+        environment,
+        features,
+        gpu_ops,
+        groups,
+        jlens,
+        jobs,
+        judge_prompts,
+        millm_approvals,
+        millm_batches,
+        millm_behaviours,
+        millm_circuits,
+        millm_clusters,
+        millm_inference,
+        millm_models,
+        millm_probes,
+        millm_sensing,
+        probe_families,
+        probe_monitors,
+        rule_sets,
+    )
+
+    mcp = MCPServer("t")
+    client = RecordingClient()
+    # ENH-008: the six relayed tools (miLLM decides its own requests) issue TWO calls — the fail-closed
+    # `GET /api/approvals/actions`, then the route — so they are payload- and count-asserted in
+    # test_millm_approvals_relay.py and exempt below; the two new read tools are asserted here.
+    ctx = make_ctx(RecordingClient())
+    millm_circuits.register(mcp, client, _open_gate(), ctx)
+    millm_probes.register(mcp, client, _open_gate(), ctx)
+    # miLLM 039 (§4j, §4k): behaviour sets and rule sets, under the millm_probes category.
+    millm_behaviours.register(mcp, client, _open_gate(), ctx)
+    millm_models.register(mcp, client, _open_gate(), ctx)
+    millm_approvals.register(mcp, client, _open_gate(), ctx)
+    millm_inference.register(mcp, client, _open_gate(), ctx)
+    millm_batches.register(mcp, client, _open_gate(), ctx)
+    dataworks.register(mcp, client, _open_gate(), ctx)
+    probe_monitors.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # 2026-10-21: the judge-prompt library, registered under the same category.
+    judge_prompts.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # Feature 037: the behaviour catalogue, registered under the same category.
+    behaviours.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # Feature 040 S2: the behaviour-detector reports, under the same category.
+    behaviour_detectors.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # Feature 041: probe families and blend reports, under the same category.
+    probe_families.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # Feature 040 S3: rule sets and rules ∪ probe evaluations, under the same category.
+    rule_sets.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # 2026-10-16: `list_circuits` (4.22) and the decomposition tools (022) gained
+    # payload assertions, so their modules are registered here too.
+    circuits.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    jlens.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # 2026-10-19 (MCP gap closure): the modules that gained tools are registered here so each new
+    # tool's payload is asserted below — and every pre-existing tool of these modules must then be
+    # accounted for too (EXPECTED_CALLS or a written exemption).
+    for module in (discovery, features, groups, jobs, gpu_ops, approvals):
+        module.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    # Feature 036 (D5): the read-only runtime environment tool.
+    environment.register(mcp, client, MCPSettings(auth_token="x" * 32))
+    millm_clusters.register(mcp, client, _open_gate(), ctx)
+    millm_sensing.register(mcp, client, _open_gate(), ctx)
+    manager = mcp._tool_manager
+    return manager, client
+
+
+#: Each tool's DOCUMENTED call: `(method, path, tool_kwargs, expected_payload)`.
+#:
+#: F20 R1-04: `expected_payload` was added because the assertion below checked
+#: only method and path and DISCARDED the recorded kwargs. Three mutations
+#: survived 26/26 green:
+#:
+#:   * dropping `limit=`/`offset=` from the list call
+#:   * changing the intensity body key to `{"lambda": …}` — which 422s on
+#:     EVERY call in production, because the endpoint requires `intensity`
+#:   * disabling the manual gate check in `millm_import_circuit`
+#:
+#: A harness whose stated rule is "a test FAILS when the wiring is removed"
+#: was verifying the address and not the letter.
+EXPECTED_CALLS = {
+    # ── 2026-10-19 MCP gap closure ───────────────────────────────────────────────────────────
+    # ⚠ THE PAYLOAD IS THE POINT FOR EVERY ONE OF THESE, not only the address. Three were chosen
+    # for what a wrong payload would do in production:
+    #   * `register_probe_dataset` must carry `dataset_version_manifest` UNDER THAT NAME — it is
+    #     a cross-repo contract (XR-1) and the one field that makes the row-count check run;
+    #   * `evaluate_probe_monitor`'s body IS the list (FastAPI reads a sole List[str] parameter as
+    #     the body) — a `{"dataset_ids": …}` dict 422s on every call;
+    #   * `millm_score_completion` must pass `scoring_precision` through, or a float32 request is
+    #     silently answered in the native precision.
+    "register_probe_dataset": (
+        "POST", "/probe-monitors/datasets",
+        {"name": "v", "dataset_id": "d-uuid", "input_column": "text", "label_column": "y",
+         "label_mapping": {"1": "positive", "0": "negative"}, "split": "train",
+         "dataset_version_manifest": {"schema": "midataworks.dataset-version/v1"},
+         # Feature 040 S2 (12.3): forwarded under their route names.
+         "role": "blend_fit", "behaviour": "pii", "group_columns": ["kind"], "sub_question": "sq-a",
+         "behaviour_version": 2,
+         # Feature 040 S3 (23.2): forwarded under their route names.
+         "text_column": "body", "rule_columns": {"rule_match": "rs_hit", "rule_set_id": "s@1",
+                                                 "rule_set_digest": "c" * 64}},
+        {"json_body": {"name": "v", "dataset_id": "d-uuid", "input_column": "text",
+                       "label_column": "y",
+                       "label_mapping": {"1": "positive", "0": "negative"}, "role": "blend_fit",
+                       "split": "train",
+                       "dataset_version_manifest": {"schema": "midataworks.dataset-version/v1"},
+                       "behaviour": "pii", "group_columns": ["kind"], "sub_question": "sq-a",
+                       "behaviour_version": 2, "text_column": "body",
+                       "rule_columns": {"rule_match": "rs_hit", "rule_set_id": "s@1", "rule_set_digest": "c" * 64}}},
+    ),
+    # ENH-006 D84: the generator and its view in one call; every argument under its route name.
+    "create_nonsense_text_dataset": (
+        "POST", "/probe-monitors/nonsense-text",
+        {"rows": 3000, "seed": 7, "name": "nonsense-a", "prose_dataset_id": "d-uuid", "prose_column": "body",
+         "register": False},
+        {"json_body": {"rows": 3000, "seed": 7, "name": "nonsense-a", "prose_dataset_id": "d-uuid",
+                       "prose_column": "body", "register_view": False}},
+    ),
+    "list_probe_datasets": ("GET", "/probe-monitors/datasets",
+                            {"role": "train", "include_archived": True},
+                            {"role": "train", "include_archived": True}),
+    "get_probe_dataset": ("GET", "/probe-monitors/datasets/pmd_1", {"dataset_id": "pmd_1"}, {}),
+    # 2026-10-21: `delete_probe_dataset` is GONE — agents archive, only the operator purges
+    # (test_probe_dataset_lifecycle.py pins that no tool reaches a purge route).
+    "archive_probe_dataset": ("POST", "/probe-monitors/datasets/pmd_1/archive",
+                              {"dataset_id": "pmd_1", "reason": "superseded"},
+                              {"json_body": {"reason": "superseded"}}),
+    "unarchive_probe_dataset": ("POST", "/probe-monitors/datasets/pmd_1/unarchive",
+                                {"dataset_id": "pmd_1"}, {"json_body": None}),
+    # The projection travels as ONE comma-joined `columns` parameter — a list would be sent as
+    # `columns=a&columns=b`, which the route (a single str) reads as the last value only.
+    "get_probe_dataset_rows": ("GET", "/probe-monitors/datasets/pmd_1/rows",
+                               {"dataset_id": "pmd_1", "offset": 50, "limit": 25,
+                                "columns": ["text", "source"], "label": "positive",
+                                "search": "card"},
+                               {"offset": 50, "limit": 25, "columns": "text,source",
+                                "label": "positive", "search": "card"}),
+    "list_probe_training_runs": (
+        "GET", "/probe-monitors/runs", {"train_dataset_id": "pmd_1"},
+        {"status": None, "train_dataset_id": "pmd_1", "limit": 50},
+    ),
+    "get_probe_training_run": ("GET", "/probe-monitors/runs/pmr_1", {"run_id": "pmr_1"}, {}),
+    "cancel_probe_training_run": ("POST", "/probe-monitors/runs/pmr_1/cancel",
+                                  {"run_id": "pmr_1"}, {"json_body": None}),
+    # Acknowledged: the unacknowledged call issues NOTHING (test_mcp_probe_gpu_approval.py).
+    "delete_probe_training_run": ("DELETE", "/probe-monitors/runs/pmr_1",
+                                  {"run_id": "pmr_1", "acknowledge_permanent": True}, {}),
+    "get_probe_evaluation_scores": (
+        "GET", "/probe-monitors/probes/pm_1/evaluations/ev_1/scores",
+        {"probe_id": "pm_1", "evaluation_id": "ev_1", "offset": 20},
+        {"offset": 20, "limit": 1000},
+    ),
+    "score_probe_monitor": ("POST", "/probe-monitors/probes/pm_1/score",
+                            {"probe_id": "pm_1", "text": "hello"},
+                            {"json_body": {"text": "hello"}}),
+    # ONE input → ONE call; the per-input count for N is asserted in test_mcp_probe_gpu_approval.py.
+    # Feature 041 T19: ONE call for the whole batch (the cap is miStudio's, at the route).
+    "score_probe_monitor_batch": (
+        "POST", "/probe-monitors/probes/pm_1/score-batch",
+        {"probe_id": "pm_1", "inputs": [{"messages": [{"role": "user", "content": "x"}]}, {"text": "y"}]},
+        {"json_body": {"inputs": [{"messages": [{"role": "user", "content": "x"}]}, {"text": "y"}]}},
+    ),
+    "get_probe_score_result": ("GET", "/probe-monitors/probes/pm_1/score/t_1",
+                               {"probe_id": "pm_1", "task_id": "t_1"}, {}),
+    # A judge NOT served by miLLM: one call. A miLLM judge is approval-gated (two calls once
+    # approved), payload- and count-asserted in test_judge_prompt_mcp.py.
+    "start_probe_judge_run": (
+        "POST", "/probe-monitors/judge-runs",
+        {"endpoint": "http://judge.example/v1", "model": "judge", "dataset_ids": ["pmd_2"],
+         "probe_id": "pm_1", "prompt_id": "jp_1"},
+        {"json_body": {"endpoint": "http://judge.example/v1", "model": "judge",
+                       "dataset_ids": ["pmd_2"], "max_rows_per_set": 2000,
+                       "probe_id": "pm_1", "prompt_id": "jp_1"}},
+    ),
+    "list_probe_judge_runs": ("GET", "/probe-monitors/judge-runs", {}, {"probe_id": None}),
+    # Feature 038 — a judge ELSEWHERE is one direct call; the miLLM gate is in test_mcp_spot_check_gate.py.
+    "start_probe_spot_check": (
+        "POST", "/probe-monitors/spot-checks",
+        {"behaviour": "pii", "prompt_id": "jp_1", "endpoint": "https://judge.example/v1", "model": "q", "seed": 7},
+        {"json_body": {"behaviour": "pii", "prompt_id": "jp_1", "endpoint": "https://judge.example/v1",
+                       "model": "q", "size": 100, "window": "all", "seed": 7}},
+    ),
+    "get_probe_spot_check": ("GET", "/probe-monitors/spot-checks/psc_1", {"spot_check_id": "psc_1"}, {}),
+    "list_probe_spot_checks": ("GET", "/probe-monitors/spot-checks", {"behaviour": "pii"}, {"behaviour": "pii"}),
+    "cancel_probe_spot_check": ("POST", "/probe-monitors/spot-checks/psc_1/cancel",
+                                {"spot_check_id": "psc_1"}, {"json_body": None}),
+    "get_spot_check_availability": ("GET", "/probe-monitors/spot-checks/availability", {}, {}),
+    "cancel_probe_judge_run": ("POST", "/probe-monitors/judge-runs/jr_1/cancel",
+                               {"judge_run_id": "jr_1"}, {"json_body": None}),
+    # ── the judge-prompt library (PADR IDL-57, 2026-10-21) ──
+    "list_judge_prompts": ("GET", "/probe-monitors/judge-prompts", {"behaviour": "pii"},
+                           {"behaviour": "pii", "name": None, "include_archived": False}),
+    "get_judge_prompt": ("GET", "/probe-monitors/judge-prompts/jp_1", {"prompt_id": "jp_1"}, {}),
+    "create_judge_prompt": (
+        "POST", "/probe-monitors/judge-prompts",
+        {"name": "refusal-presence", "title": "Refusal", "behaviour": "refusal",
+         "system_prompt": "Say yes or no in JSON with key answer.",
+         "answer_form": {"kind": "binary"}},
+        {"json_body": {"name": "refusal-presence", "title": "Refusal", "behaviour": "refusal",
+                       "system_prompt": "Say yes or no in JSON with key answer.",
+                       "user_template": "{interaction}", "answer_form": {"kind": "binary"},
+                       "max_interaction_chars": 8000, "actor": "agent:mistudio-mcp"}},
+    ),
+    "update_judge_prompt": ("PATCH", "/probe-monitors/judge-prompts/jp_1",
+                            {"prompt_id": "jp_1", "title": "New title"},
+                            {"json_body": {"title": "New title", "actor": "agent:mistudio-mcp"}}),
+    "new_judge_prompt_version": (
+        "POST", "/probe-monitors/judge-prompts/jp_1/versions",
+        {"prompt_id": "jp_1", "system_prompt": "Changed."},
+        {"json_body": {"system_prompt": "Changed.", "actor": "agent:mistudio-mcp"}},
+    ),
+    "clone_judge_prompt": ("POST", "/probe-monitors/judge-prompts/jp_1/clone",
+                           {"prompt_id": "jp_1", "name": "pii-strict", "behaviour": "pii-strict"},
+                           {"json_body": {"name": "pii-strict", "behaviour": "pii-strict", "actor": "agent:mistudio-mcp"}}),
+    "archive_judge_prompt": ("POST", "/probe-monitors/judge-prompts/jp_1/archive",
+                             {"prompt_id": "jp_1"}, {"json_body": None}),
+    "unarchive_judge_prompt": ("POST", "/probe-monitors/judge-prompts/jp_1/unarchive",
+                               {"prompt_id": "jp_1"}, {"json_body": None}),
+    "delete_judge_prompt": ("DELETE", "/probe-monitors/judge-prompts/jp_1", {"prompt_id": "jp_1"}, {}),
+    "preview_judge_prompt": ("POST", "/probe-monitors/judge-prompts/preview",
+                             {"dataset_id": "pmd_1", "prompt_id": "jp_1", "rows": 3},
+                             {"json_body": {"dataset_id": "pmd_1", "prompt_id": "jp_1", "rows": 3}}),
+    "try_judge_prompt": (
+        "POST", "/probe-monitors/judge-prompts/try",
+        {"dataset_id": "pmd_1", "endpoint": "http://judge.example/v1", "model": "q",
+         "prompt_id": "jp_1"},
+        {"json_body": {"dataset_id": "pmd_1", "endpoint": "http://judge.example/v1",
+                       "model": "q", "prompt_id": "jp_1", "rows": 4}},
+    ),
+    "export_judge_prompt": ("GET", "/probe-monitors/judge-prompts/jp_1/export", {"prompt_id": "jp_1"}, {}),
+    "import_judge_prompt": ("POST", "/probe-monitors/judge-prompts/import",
+                            {"document": {"format": "mistudio.judge-prompt/v1"}},
+                            {"json_body": {"document": {"format": "mistudio.judge-prompt/v1"}, "actor": "agent:mistudio-mcp"}}),
+    "list_midataworks_rubrics_for_judging": ("GET", "/probe-monitors/judge-prompts/midataworks/rubrics", {}, {}),
+    "import_judge_prompt_from_rubric": (
+        "POST", "/probe-monitors/judge-prompts/import-rubric",
+        {"name": "dw-pii", "title": "PII (rubric)", "behaviour": "pii", "rubric_id": "rub_1",
+         "positive_verdicts": ["yes"]},
+        {"json_body": {"name": "dw-pii", "title": "PII (rubric)", "behaviour": "pii",
+                       "rubric_id": "rub_1", "positive_verdicts": ["yes"], "actor": "agent:mistudio-mcp"}},
+    ),
+    "set_probe_behaviour": ("PATCH", "/probe-monitors/probes/pm_1/behaviour",
+                            {"probe_id": "pm_1", "behaviour": "pii"},
+                            {"json_body": {"behaviour": "pii", "behaviour_label": None}}),
+    # ── the behaviour catalogue (Feature 037, IDL-58) ──
+    # Feature 040 FR-6 (3.4): the paging and filter parameters are forwarded under their route names.
+    "list_behaviours": ("GET", "/probe-monitors/behaviours",
+                        {"limit": 25, "cursor": "eyJmIjoxfQ", "q": "abc", "status": "validated"},
+                        {"include_uncatalogued": True, "include_archived": False, "limit": 25,
+                         "cursor": "eyJmIjoxfQ", "q": "abc", "status": "validated"}),
+    "get_behaviour": ("GET", "/probe-monitors/behaviours/pii", {"key": "pii"}, {}),
+    "get_behaviour_checklist": ("GET", "/probe-monitors/behaviours/pii/checklist", {"key": "pii"}, {}),
+    "list_behaviour_versions": ("GET", "/probe-monitors/behaviours/pii/versions", {"key": "pii"}, {}),
+    "get_behaviour_history": ("GET", "/probe-monitors/behaviours/pii/history", {"key": "pii"},
+                              {"limit": 100, "offset": 0}),
+    # Feature 040 FR-1 (4.1): every detector field is forwarded under its route name.
+    "create_behaviour": (
+        "POST", "/probe-monitors/behaviours",
+        {"key": "pii", "name": "Personal data present", "positive_meaning": "Identifies a person.",
+         "target_fpr": 0.01,
+         "sub_questions": [{"key": "sq-a", "question": "q", "positive_meaning": "p"}],
+         "success_criteria": [{"id": "c-1", "detector": "best_single", "subset": "all", "min_recall": 0.8}],
+         "held_out_columns": ["kind"], "models": [{"model_id": "org/m"}], "calibration_floor": 3000,
+         "rule_set": {"name": "rs", "version": 2, "digest": "a" * 64}},
+        {"json_body": {"key": "pii", "name": "Personal data present",
+                       "positive_meaning": "Identifies a person.", "target_fpr": 0.01,
+                       "sub_questions": [{"key": "sq-a", "question": "q", "positive_meaning": "p"}],
+                       "success_criteria": [{"id": "c-1", "detector": "best_single", "subset": "all",
+                                             "min_recall": 0.8}],
+                       "held_out_columns": ["kind"], "models": [{"model_id": "org/m"}],
+                       "calibration_floor": 3000,
+                       "rule_set": {"name": "rs", "version": 2, "digest": "a" * 64}}},
+    ),
+    # FR-3: `base_version` and the change only; `remove_fields` sends nulls.
+    "new_behaviour_version": (
+        "POST", "/probe-monitors/behaviours/pii/versions",
+        {"key": "pii", "base_version": 4, "held_out_columns": ["kind", "region"],
+         "remove_fields": ["models", "calibration_floor"]},
+        {"json_body": {"base_version": 4, "held_out_columns": ["kind", "region"], "models": None,
+                       "calibration_floor": None}},
+    ),
+    "set_behaviour_probe_role": (
+        "PUT", "/probe-monitors/behaviours/pii/probes/pm_1/role",
+        {"key": "pii", "probe_id": "pm_1", "role": "primary", "reason": "best AUROC"},
+        {"json_body": {"role": "primary", "reason": "best AUROC"}},
+    ),
+    "link_behaviour_view": ("POST", "/probe-monitors/behaviours/pii/views/pmd_1",
+                            {"key": "pii", "dataset_id": "pmd_1", "use": "eval"},
+                            {"json_body": {"use": "eval"}}),
+    "unlink_behaviour_view": ("DELETE", "/probe-monitors/behaviours/pii/views/pmd_1",
+                              {"key": "pii", "dataset_id": "pmd_1"}, {}),
+    "archive_behaviour": ("POST", "/probe-monitors/behaviours/pii/archive",
+                          {"key": "pii", "reason": "superseded"}, {"json_body": {"reason": "superseded"}}),
+    "unarchive_behaviour": ("POST", "/probe-monitors/behaviours/pii/unarchive", {"key": "pii"},
+                            {"json_body": None}),
+    # ── Feature 040 S2: the behaviour-detector reports (pure HTTP, no approval gate) ──
+    "update_probe_dataset_columns": ("PATCH", "/probe-monitors/datasets/pmd_1/columns",
+                                     {"dataset_id": "pmd_1", "group_columns": ["kind", "region"],
+                                      # Feature 040 S3 (23.2)
+                                      "text_column": "body",
+                                      "rule_columns": {"rule_match": "rs_hit", "rule_set_id": "s@1",
+                                                       "rule_set_digest": "c" * 64}},
+                                     {"json_body": {"group_columns": ["kind", "region"], "text_column": "body",
+                                                    "rule_columns": {"rule_match": "rs_hit", "rule_set_id": "s@1",
+                                                                     "rule_set_digest": "c" * 64}}}),
+    # ── miLLM 039 (§4j, §4k) proxies (parity with miLLM's served routes) ──
+    "millm_list_behaviours": ("GET", "/api/probes/behaviours", {"key": "k-", "cursor": "c", "limit": 5},
+                              {"key": "k-", "cursor": "c", "limit": 5}),
+    "millm_arm_behaviour": ("POST", "/api/probes/behaviours/k-a/arm",
+                            {"key": "k-a", "acknowledge_below_rung2": True, "reason": "r", "windows": ["all"],
+                             "version": 2, "probe_ids": ["p1"], "dry_run": True},
+                            {"json_body": {"acknowledge_below_rung2": True, "reason": "r", "dry_run": True,
+                                           "windows": ["all"], "version": 2, "probe_ids": ["p1"]}}),
+    "millm_disarm_behaviour": ("POST", "/api/probes/behaviours/k-a/disarm",
+                               {"key": "k-a", "version": 1, "reason": "done"},
+                               {"json_body": {"version": 1, "reason": "done"}}),
+    # ── ENH-006 D54: probe capacity. The read is one call; the two gated tools are pinned HERE with an approval id
+    # (gate → consume on miStudio → ONE miLLM call, payload asserted); the first-call (file a request, call
+    # nothing on miLLM) half is test_millm_probe_capacity_approval.py.
+    "millm_probe_capacity": ("GET", "/api/models/7/probe-capacity",
+                             {"model_id": 7, "behaviour": "k-a", "version": 2, "probe_ids": ["pr_1"]},
+                             {"behaviour": "k-a", "version": 2, "probe_ids": ["pr_1"]}),
+    # ENH-008: `millm_request_probe_limits` and `millm_measure_probe_capacity` RELAY to miLLM's own approval queue
+    # (two calls each: the fail-closed queue check, then the route) — asserted in test_millm_approvals_relay.py.
+    # ── ENH-008: miLLM's own approval queue, read-only ──
+    "millm_list_approvals": ("GET", "/api/approvals", {"status": "pending", "limit": 200},
+                             {"status": "pending", "limit": 200}),
+    "millm_get_approval_status": ("GET", "/api/approvals/apr_1", {"approval_id": "apr_1"}, {}),
+    "millm_get_probe_limit_recommendation": ("GET", "/api/models/7/probe-limits/recommendation",
+                                             {"model_id": "7"}, {}),
+    "millm_list_rule_validators": ("GET", "/api/rule-sets/validators", {}, {}),
+    "millm_validate_rule_set": ("POST", "/api/rule-sets/validate",
+                                {"document": {"format": "x"}, "digest": "d" * 64, "origin": "derived"},
+                                {"json_body": {"format": "x"}, "digest": "d" * 64, "origin": "derived"}),
+    "millm_import_rule_set": ("POST", "/api/rule-sets/import",
+                              {"document": {"format": "x"}, "version": 3, "origin": "authored"},
+                              {"json_body": {"format": "x"}, "version": 3, "digest": None, "origin": "authored"}),
+    "millm_list_rule_sets": ("GET", "/api/rule-sets", {"behaviour": "k-a", "limit": 9},
+                             {"behaviour": "k-a", "cursor": None, "limit": 9}),
+    "millm_get_rule_set": ("GET", "/api/rule-sets/rs_000000000001", {"rule_set_id": "rs_000000000001"}, {}),
+    "millm_delete_rule_set": ("DELETE", "/api/rule-sets/rs_000000000001",
+                              {"rule_set_id": "rs_000000000001", "acknowledge_delete": True, "reason": "old"},
+                              {"reason": "old"}),
+    "millm_evaluate_rule_set": ("POST", "/api/rule-sets/rs_000000000001/evaluate",
+                                {"rule_set_id": "rs_000000000001", "text": "t", "response": "r",
+                                 "windows": ["prompt"], "return_rule_positions": True},
+                                {"json_body": {"return_rule_positions": True, "text": "t", "response": "r",
+                                               "windows": ["prompt"]}}),
+    "millm_get_behaviour_rule_signals": ("GET", "/api/probes/behaviours/k-a/rule-signals", {"key": "k-a"}, {}),
+    "millm_set_behaviour_rule_signals": ("PUT", "/api/probes/behaviours/k-a/rule-signals",
+                                         {"key": "k-a", "rule_set_ids": ["rs_000000000001"],
+                                          "signals": {"rs_000000000001": ["hit"]}, "reason": "attach"},
+                                         {"json_body": {"rule_set_ids": ["rs_000000000001"],
+                                                        "signals": {"rs_000000000001": ["hit"]}, "reason": "attach"}}),
+    "millm_clear_behaviour_rule_signals": ("DELETE", "/api/probes/behaviours/k-a/rule-signals",
+                                           {"key": "k-a", "reason": "x"}, {"reason": "x"}),
+    # ── Feature 040 S3: rule sets and rules ∪ probe (pure HTTP, CPU, no approval gate) ──
+    "validate_rule_set": ("POST", "/probe-monitors/rule-sets/validate",
+                          {"behaviour_key": "k-a", "version": 3, "code_rules": [{"document": {"source": "s"}}]},
+                          {"json_body": {"behaviour_key": "k-a", "version": 3,
+                                         "code_rules": [{"document": {"source": "s"}}]}}),
+    "evaluate_rule_signals": ("POST", "/probe-monitors/rule-signals/evaluate",
+                              {"rule_set": {"format": "x"}, "messages": [{"role": "user", "content": "c"}],
+                               "scope": "last_user"},
+                              {"json_body": {"rule_set": {"format": "x"},
+                                             "messages": [{"role": "user", "content": "c"}], "scope": "last_user"}}),
+    "evaluate_detector_with_rules": ("POST", "/probe-monitors/probes/pm_1/rules-evaluations",
+                                     {"probe_id": "pm_1", "view_ids": ["pmd_1", "pmd_2"], "version": 2,
+                                      "calibration": False},
+                                     {"json_body": {"view_ids": ["pmd_1", "pmd_2"], "calibration": False,
+                                                    "version": 2}}),
+    "get_detector_rules_evaluation": ("GET", "/probe-monitors/rules-evaluations/pre_1", {"evaluation_id": "pre_1"}, {}),
+    "list_detector_rules_evaluations": ("GET", "/probe-monitors/behaviours/k-a/rules-evaluations",
+                                        {"key": "k-a", "limit": 7, "cursor": "c3"}, {"limit": 7, "cursor": "c3"}),
+    "cancel_detector_rules_evaluation": ("POST", "/probe-monitors/rules-evaluations/pre_1/cancel",
+                                         {"evaluation_id": "pre_1"}, {"json_body": None}),
+    # ── Feature 040 S4: operator code rules (FTDD Appendix C.5, C.6) ──
+    "request_code_rule_approval": ("POST", "/code-rules/" + "a" * 64 + "/approval-requests",
+                                   {"code_sha256": "a" * 64, "cases": [{"id": "c1", "function": "f", "params": {},
+                                                                        "text": "t", "expect": {"count": 1}}],
+                                    "document": {"runner_contract": "midataworks.runner/v1"}},
+                                   {"json_body": {"cases": [{"id": "c1", "function": "f", "params": {}, "text": "t",
+                                                             "expect": {"count": 1}}],
+                                                  "document": {"runner_contract": "midataworks.runner/v1"}}}),
+    "get_probe_breakdown": ("GET", "/probe-monitors/probes/pm_1/evaluations/pme_1/breakdown",
+                            {"probe_id": "pm_1", "evaluation_id": "pme_1", "by_column": "kind",
+                             "filters": {"region": "north"}, "mode": "target_fpr", "target_fpr": 0.02,
+                             "min_rows": 12, "limit": 5, "cursor": "c1"},
+                            {"by_column": "kind", "mode": "target_fpr", "target_fpr": 0.02, "min_rows": 12,
+                             "limit": 5, "cursor": "c1", "filter": ["region=north"]}),
+    "get_detector_success_report": ("POST", "/probe-monitors/behaviours/pii/success-reports",
+                                    {"key": "pii", "model_id": "m_1", "version": 2, "view_ids": ["pmd_1"],
+                                     "probe_id": "pm_1"},
+                                    {"json_body": {"model_id": "m_1", "version": 2, "view_ids": ["pmd_1"],
+                                                   "probe_id": "pm_1"}}),
+    "list_detector_success_reports": ("GET", "/probe-monitors/behaviours/pii/success-reports",
+                                      {"key": "pii", "limit": 10, "cursor": "c2"}, {"limit": 10, "cursor": "c2"}),
+    "read_detector_success_report": ("GET", "/probe-monitors/success-reports/dsr_1", {"report_id": "dsr_1"}, {}),
+    "compare_detectors_across_models": ("GET", "/probe-monitors/behaviours/pii/model-comparison",
+                                        {"key": "pii", "version": 3, "dataset_version": "dv-1"},
+                                        {"version": 3, "dataset_version": "dv-1", "view_ids": None, "limit": None,
+                                         "cursor": None}),
+    # ── Feature 041: probe families (pure HTTP, no approval gate) ──
+    "get_probe_family": ("GET", "/probe-monitors/behaviours/pii/family",
+                         {"key": "pii", "model": "m_1", "member_ids": ["pm_1", "pm_2"],
+                          "include_retired": True, "offset": 5, "limit": 7},
+                         {"model": "m_1", "member_ids": ["pm_1", "pm_2"], "include_retired": True,
+                          "offset": 5, "limit": 7}),
+    # ── Feature 041 S2: blend reports and the suggested blend ──
+    "evaluate_probe_blends": ("POST", "/probe-monitors/blend-reports",
+                              {"behaviour_key": "pii", "model": "m_1", "dataset_version": "dv-1",
+                               "member_ids": ["pm_1", "pm_2"], "candidates": ["stack", "k_of_n"], "folds": 4,
+                               "group_column": "source", "target_fpr": 0.02, "seed": 7,
+                               "calibration_sample_rows": 3000},
+                              {"json_body": {"behaviour_key": "pii", "seed": 7, "model": "m_1",
+                                             "dataset_version": "dv-1", "member_ids": ["pm_1", "pm_2"],
+                                             "candidates": ["stack", "k_of_n"], "folds": 4, "group_column": "source",
+                                             "target_fpr": 0.02, "calibration_sample_rows": 3000}}),
+    "get_blend_report": ("GET", "/probe-monitors/blend-reports/pbr_1", {"report_id": "pbr_1"}, {}),
+    "list_blend_reports": ("GET", "/probe-monitors/blend-reports",
+                           {"behaviour_key": "pii", "model": "m_1", "offset": 3, "limit": 4},
+                           {"behaviour_key": "pii", "model": "m_1", "offset": 3, "limit": 4}),
+    "get_blend_report_scores": ("GET", "/probe-monitors/blend-reports/pbr_1/scores",
+                                {"report_id": "pbr_1", "candidate": "k_of_n:2", "view_id": "pmd_1", "offset": 5,
+                                 "limit": 6},
+                                {"candidate": "k_of_n:2", "view_id": "pmd_1", "offset": 5, "limit": 6}),
+    "rerun_blend_report": ("POST", "/probe-monitors/blend-reports/pbr_1/rerun", {"report_id": "pbr_1"},
+                           {"json_body": None}),
+    "cancel_blend_evaluation": ("POST", "/probe-monitors/blend-reports/pbr_1/cancel", {"report_id": "pbr_1"},
+                                {"json_body": None}),
+    "set_suggested_blend": ("PUT", "/probe-monitors/behaviours/pii/suggested-blend",
+                            {"key": "pii", "model": "m_1", "report_id": "pbr_1", "candidate": "stack",
+                             "reason": "best held-out"},
+                            {"json_body": {"model": "m_1", "report_id": "pbr_1", "candidate": "stack",
+                                           "reason": "best held-out"}}),
+    "get_suggested_blend": ("GET", "/probe-monitors/behaviours/pii/suggested-blend/history",
+                            {"key": "pii", "model": "m_1", "include_history": True}, {"model": "m_1"}),
+    # ── Feature 041 S3: family scoring, export and publish ──
+    "score_probe_family": ("POST", "/probe-monitors/behaviours/pii/family/score-batch",
+                           {"key": "pii", "text": "hello", "model": "m_1", "blend_report_id": "pbr_1",
+                            "candidates": ["stack"], "include_traces": True},
+                           {"json_body": {"inputs": [{"text": "hello"}], "include_traces": True, "model": "m_1",
+                                          "blend_report_id": "pbr_1", "candidates": ["stack"]}}),
+    "score_probe_family_batch": ("POST", "/probe-monitors/behaviours/pii/family/score-batch",
+                                 {"key": "pii", "inputs": [{"text": "a"}, {"text": "b"}], "member_ids": ["pm_1"]},
+                                 {"json_body": {"inputs": [{"text": "a"}, {"text": "b"}], "include_traces": False,
+                                                "member_ids": ["pm_1"]}}),
+    "get_probe_family_score_result": ("GET", "/probe-monitors/behaviours/pii/family/score/t_1",
+                                      {"key": "pii", "task_id": "t_1"}, {}),
+    "export_probe_family": ("GET", "/probe-monitors/behaviours/pii/family/export-index",
+                            {"key": "pii", "model": "m_1", "member_ids": ["pm_1", "pm_2"]},
+                            {"model": "m_1", "member_ids": ["pm_1", "pm_2"]}),
+    "publish_probe_family": ("POST", "/probe-monitors/behaviours/pii/family/publish",
+                             {"key": "pii", "repo_id": "owner/probes", "model": "m_1", "private": False},
+                             {"json_body": {"repo_id": "owner/probes", "private": False, "model": "m_1"}}),
+    "get_feature_by_index": ("GET", "/saes/sae_1/features/by-index/42",
+                             {"sae_id": "sae_1", "feature_idx": 42}, {}),
+    "get_training": ("GET", "/trainings/train_1", {"training_id": "train_1"}, {}),
+    "list_datasets": ("GET", "/datasets", {"search": "ultra"},
+                      {"search": "ultra", "status": None, "page": 1, "limit": 50}),
+    "get_dataset": ("GET", "/datasets/d-uuid", {"dataset_id": "d-uuid"}, {}),
+    "list_saes": ("GET", "/saes", {"model_name": "m"},
+                  {"search": None, "source": None, "model_name": "m", "limit": 50, "skip": 0}),
+    "get_sae": ("GET", "/saes/sae_1", {"sae_id": "sae_1"}, {}),
+    "list_gpus": ("GET", "/system/gpu-list", {}, {}),
+    # 2026-10-21: confirm acts on THE estimated run (it used to be re-created by confirm=true).
+    "confirm_circuit_capture": ("POST", "/circuit-capture/cap_1/confirm",
+                                {"run_id": "cap_1", "gpu": "all"}, {"json_body": {"gpu": "all"}}),
+    # 2026-10-21 MCP gaps G9/G10. The GPU named by UUID, the kind filter and the approval id are
+    # the payload; `gpu_preflight` issues two miStudio reads plus sibling reads and is exempt below.
+    "get_gpu_status": ("GET", "/operations/gpu-status",
+                       {"gpu": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57"},
+                       {"gpu": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57"}),
+    "list_active_jobs": ("GET", "/operations/active-jobs", {"kind": "probe_training"},
+                         {"kind": "probe_training", "gpu": None}),
+    "get_approval_status": ("GET", "/mcp/approvals/apr_1", {"approval_request_id": "apr_1"}, {}),
+    "get_environment_settings": ("GET", "/environment", {}, {}),
+    "cancel_feature_grouping": ("POST", "/feature-groups/runs/fgr_1/cancel",
+                                {"run_id": "fgr_1"}, {"json_body": None}),
+    "cancel_circuit_capture": ("POST", "/circuit-capture/cr_1/cancel", {"run_id": "cr_1"},
+                               {"json_body": None}),
+    "cancel_circuit_discovery": ("POST", "/circuit-discovery/dr_1/cancel", {"run_id": "dr_1"},
+                                 {"json_body": None}),
+    "cancel_attribution_pass": ("POST", "/circuit-discovery/dr_1/attribution/cancel",
+                                {"run_id": "dr_1"}, {"json_body": None}),
+    "cancel_edge_validation": ("POST", "/circuit-discovery/dr_1/validate/cancel",
+                               {"run_id": "dr_1"}, {"json_body": None}),
+    "cancel_circuit_faithfulness": ("POST", "/circuits/circ_1/faithfulness/cancel",
+                                    {"circuit_id": "circ_1"}, {"json_body": None}),
+    "cancel_circuit_calibration": ("POST", "/circuits/circ_1/calibration/cancel",
+                                   {"circuit_id": "circ_1"}, {"json_body": None}),
+    "cancel_steering_samples": ("POST", "/circuits/steering-samples/rr_1/cancel",
+                                {"run_id": "rr_1"}, {"json_body": None}),
+    "jlens_probe": (
+        "POST", "/jlens/probe",
+        {"model_id": "m_1", "prompt": "p", "tokens": [" Paris"], "layers": [3]},
+        {"json_body": {"model_id": "m_1", "prompt": "p", "tokens": [" Paris"], "gpu": "auto",
+                       "layers": [3]}},
+    ),
+    "get_jlens_probe": ("GET", "/jlens/probe/t_1", {"task_id": "t_1"}, {}),
+    "jlens_token_check": ("POST", "/jlens/token-check", {"model_id": "m_1", "tokens": [" a"]},
+                          {"json_body": {"model_id": "m_1", "tokens": [" a"]}}),
+    "revalidate_jlens_artifact": (
+        "POST", "/jlens/artifacts/revalidate", {"model_id": "m_1"},
+        {"json_body": {"model_id": "m_1", "allow_coverage_loss": False,
+                       "allow_quality_regression": False, "gpu": "auto"}},
+    ),
+    "get_jlens_artifact_document": ("GET", "/jlens/artifacts/lens-a/document",
+                                    {"slug": "lens-a"}, {}),
+    "validate_jlens_document": ("POST", "/jlens/documents/validate",
+                                {"document": {"kind": "x"}}, {"json_body": {"kind": "x"}}),
+    "millm_embeddings": (
+        "POST", "/v1/embeddings", {"model": "e", "input": ["a", "b"], "normalize": True},
+        {"json_body": {"model": "e", "input": ["a", "b"], "encoding_format": "float",
+                       "pooling": "mean", "normalize": True},
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    # ⚠ The lease travels in the HEADER only.
+    "millm_batch_lease": (
+        "POST", "/v1/batches/b1/lease", {"batch_id": "b1", "lease_id": "L1"},
+        {"json_body": None,
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true",
+                     "X-miLLM-Lease": "L1"}},
+    ),
+    "millm_get_probe": ("GET", "/api/probes/pr_1", {"probe_id": "pr_1"}, {}),
+    "millm_delete_probe": ("DELETE", "/api/probes/pr_1",
+                           {"probe_id": "pr_1", "acknowledge_events_deleted": True}, {}),
+    "millm_probe_parity": ("POST", "/api/probes/pr_1/parity", {"probe_id": "pr_1"},
+                           {"json_body": None}),
+    "millm_probe_hub_search": ("GET", "/api/probes/hub/search", {"q": "lfm"},
+                               {"q": "lfm", "base_model": None, "limit": 30}),
+    "millm_probe_hub_definitions": ("GET", "/api/probes/hub/o/r/definitions",
+                                    {"repo_id": "o/r"}, {"revision": None}),
+    # ⚠ The SCOPE is the payload: an unscoped DELETE is "every probe's events".
+    "millm_clear_probe_events": ("DELETE", "/api/probes/events", {"probe_id": "pr_1"},
+                                 {"probe_id": "pr_1"}),
+    "millm_cluster_hub_definitions": ("GET", "/api/clusters/hub/o/r/definitions",
+                                      {"repo_id": "o/r"}, {"revision": None}),
+    "millm_sensing_clear": ("DELETE", "/api/sensing/events", {"profile_id": "p_1"},
+                            {"profile_id": "p_1"}),
+    # Operator decision 2026-10-19: the event-detail routes (decoded user content) are exposed,
+    # one event per call.
+    "millm_get_probe_event": ("GET", "/api/probes/events/7", {"event_id": 7}, {}),
+    "millm_get_sensing_event": ("GET", "/api/sensing/events/7", {"event_id": 7}, {}),
+    "dataworks_list_detector_sends": ("GET", "/api/v1/detector-sets/ds1/sends",
+                                      {"set_id": "ds1"}, {}),
+    "dataworks_get_detector_send": ("GET", "/api/v1/detector-sends/dsn1", {"send_id": "dsn1"},
+                                    {}),
+    "dataworks_resume_detector_send": ("POST", "/api/v1/detector-sends/dsn1/resume",
+                                       {"send_id": "dsn1"}, {"json_body": None}),
+    "dataworks_refresh_probe_results": ("POST", "/api/v1/detector-sets/ds1/results/refresh",
+                                        {"set_id": "ds1"}, {"json_body": None}),
+    "dataworks_get_probe_results": ("GET", "/api/v1/detector-sets/ds1/results",
+                                    {"set_id": "ds1"}, {"snapshot": "latest"}),
+    # ── 022 sparse decomposition (2026-10-16) ─────────────────────────────────
+    # The control seed must travel when given: a seed the tool dropped would make
+    # the server draw a fresh one, and the caller's "reproduction" would use a
+    # different control without anything saying so.
+    "jlens_decompose": (
+        "POST", "/jlens/decompose",
+        {"model_id": "m_1", "prompt": "The capital of France is", "layers": [3, 5],
+         "positions": [-1], "k": 4, "control_seed": 1234},
+        {"json_body": {"model_id": "m_1", "prompt": "The capital of France is",
+                       "layers": [3, 5], "k": 4, "gpu": "auto", "positions": [-1],
+                       "control_seed": 1234}},
+    ),
+    "get_jlens_decomposition": ("GET", "/jlens/decompose/t_9", {"task_id": "t_9"}, {}),
+    # ── 024 annotation sweep + disagreement queue (2026-10-16) ───────────────
+    # The surface must travel: dropped, every encoder request would silently be
+    # answered with the decoder readout (BR-015 makes them separate on purpose).
+    "annotate_jlens_feature": (
+        "POST", "/jlens/annotate",
+        {"model_id": "m_1", "sae_id": "sae_1", "feature_id": "7", "layer": 11,
+         "surface": "encoder"},
+        {"json_body": {"model_id": "m_1", "sae_id": "sae_1", "feature_id": "7",
+                       "layer": 11, "top_k": 8, "surface": "encoder"}},
+    ),
+    # 025 task 2.3: the clamp must travel, or a mediation run silently becomes an
+    # unclamped one under the same request.
+    "run_jlens_intervention": (
+        "POST", "/jlens/interventions",
+        {"model_id": "m_1", "prompt": "p", "primitive": "additive", "layers": [3],
+         "control_seed": 5, "direction_token": " Paris", "clamp_tokens": [" France"],
+         "clamp_layers": [4]},
+        {"json_body": {"model_id": "m_1", "prompt": "p", "primitive": "additive",
+                       "layers": [3], "control_seed": 5, "strength": 1.0, "k": 1,
+                       "gpu": "auto", "direction_token": " Paris",
+                       "clamp_tokens": [" France"], "clamp_layers": [4]}},
+    ),
+    "build_jlens_template_lens": (
+        "POST", "/jlens/template-lens",
+        {"model_id": "m_1", "vocabulary": {"New York": ["I flew to"]},
+         "baseline_contexts": ["a"] * 8, "layers": [5], "filter_words": ["the"]},
+        {"json_body": {"model_id": "m_1", "vocabulary": {"New York": ["I flew to"]},
+                       "baseline_contexts": ["a"] * 8, "layers": [5], "ridge": 0.1,
+                       "gpu": "auto", "filter_words": ["the"]}},
+    ),
+    "jlens_attention_readout": (
+        "POST", "/jlens/attention-readout",
+        {"model_id": "m_1", "layer": 6, "heads": [0, 3], "matrices": ["o_proj"]},
+        {"json_body": {"model_id": "m_1", "layer": 6, "components": 1, "top_k": 8,
+                       "heads": [0, 3], "matrices": ["o_proj"]}},
+    ),
+    "get_jlens_template_lens": ("GET", "/jlens/template-lens/t_7", {"task_id": "t_7"}, {}),
+    "start_jlens_annotation_sweep": (
+        "POST", "/jlens/annotation-sweeps",
+        {"sae_id": "sae_1", "surface": "encoder", "offset": 1024, "max_features": 512},
+        {"json_body": {"sae_id": "sae_1", "surface": "encoder", "offset": 1024,
+                       "max_features": 512}},
+    ),
+    "list_jlens_disagreements": (
+        "GET", "/jlens/annotations",
+        {"sae_id": "sae_1", "surface": "decoder", "limit": 20, "offset": 40},
+        {"sae_id": "sae_1", "limit": 20, "offset": 40, "surface": "decoder",
+         "has_disagreement": True},
+    ),
+    # ── 016 circuits list (suite tracker 4.22, 2026-10-16) ───────────────────
+    # The route has filtered and paged in SQL since 865f6355, but the tool could
+    # neither filter by edge type nor page: an agent saw the first 50 circuits
+    # and nothing said there were more. The PAYLOAD is the point — every new
+    # field must travel under the name the route reads.
+    "list_circuits": (
+        "GET", "/circuits",
+        {"edge_type": "persistence", "limit": 20, "offset": 40, "min_rung": 2},
+        {"edge_type": "persistence", "limit": 20, "offset": 40, "min_rung": 2},
+    ),
+    # ── 033 probe monitors ────────────────────────────────────────────────────
+    # The payload half matters here for a reason found while writing them: the first version of
+    # `list_probe_monitors` passed `params={...}`, which `MiStudioClient.get(**params)` would have
+    # sent as a query field literally named "params". A path-only assertion could not tell.
+    "list_probe_monitors": (
+        "GET", "/probe-monitors/probes", {},
+        # Feature 039: the two digest filters travel as keyword query parameters (None = unset;
+        # `MiStudioClient.get` strips them). Their values are asserted in
+        # test_mcp_probe_identity_tools.py.
+        {"run_id": None, "selected_only": None, "detector_digest": None, "decision_digest": None},
+    ),
+    "get_probe_monitor_report": (
+        "GET", "/probe-monitors/probes/pm_1", {"probe_id": "pm_1"}, {},
+    ),
+    "build_probe_definition": (
+        "POST", "/probe-monitors/probes/pm_1/definition", {"probe_id": "pm_1"},
+        # No acknowledgement unless one was asked for: sending an empty one would record a
+        # judgement nobody made.
+        {"json_body": {"vector_count": 16, "seed": 1337}},
+    ),
+    "export_probe_definition": (
+        "GET", "/probe-monitors/probes/pm_1/definition", {"probe_id": "pm_1"}, {},
+    ),
+    # ⚠ THE PAYLOAD IS THE LOAD-BEARING HALF HERE, FOR TWO FIELDS.
+    #
+    # `preview` must travel, and must travel as the TRUE the tool defaults to: a tool that
+    # dropped it would commit a threshold move on every call, and a tool that hardcoded it
+    # could never commit one. Neither is distinguishable from correct by the path.
+    #
+    # `allow_fire_on_nothing` must travel as FALSE unless asked for. Sending `True`
+    # unconditionally would make a monitor silently fire on nothing whenever the target is
+    # finer than the sample can express — the going-dark failure the service refuses by default.
+    "recalibrate_probe_monitor": (
+        "POST", "/probe-monitors/probes/pm_1/recalibrate",
+        {"probe_id": "pm_1", "target_fpr": 0.005},
+        {"json_body": {
+            "target_fpr": 0.005, "preview": True, "reason": "",
+            "allow_fire_on_nothing": False,
+        }},
+    ),
+    "publish_probe_definition": (
+        "POST", "/probe-monitors/probes/pm_1/publish",
+        {"probe_id": "pm_1", "repo_id": "owner/probes"},
+        # ⚠ NO TOKEN IN THE BODY. It is resolved server-side from Settings, so no credential
+        # passes through an agent transcript.
+        {"json_body": {"repo_id": "owner/probes", "private": True}},
+    ),
+    # ── 024 / v1.6 probe monitors in miLLM ───────────────────────────────────
+    #
+    # ⚠ The ARM entry's payload is the load-bearing one. `acknowledge_below_rung2` is the
+    # operator's consent to monitor live traffic with a probe below rung 2; a tool that sent
+    # `True` unconditionally would make the gate unreachable, and a tool that never sent the
+    # field would make the acknowledgement impossible to give. A path-only assertion cannot
+    # tell either case from correct.
+    "millm_list_probes": ("GET", "/api/probes", {}, {"armed": None}),
+    "millm_probe_status": ("GET", "/api/probes/status", {}, {}),
+    # 038 S3-M (FR-38.27): `result_id` / `trace_id` are FORWARDED — given values here, so a tool
+    # that accepted them and dropped them (or sent one under the other's name) is red.
+    "millm_probe_events": (
+        "GET", "/api/probes/events",
+        {"result_id": "01a1694b-1bdb-7000-bf06-e5b05e2f4df6",
+         "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"},
+        {"probe_id": None, "request_id": None,
+         "result_id": "01a1694b-1bdb-7000-bf06-e5b05e2f4df6",
+         "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "limit": 50},
+    ),
+    "millm_import_probe": (
+        "POST", "/api/probes/import", {"definition": {"kind": "x"}},
+        # `on_conflict` defaults to "rename" on the wire, never to "replace" — which does not
+        # exist, because overwriting a definition under an armed probe would change the
+        # detector while every event kept the same probe_id.
+        {"json_body": {"kind": "x"}, "on_conflict": "rename"},
+    ),
+    "millm_arm_probe": (
+        "POST", "/api/probes/pr_1/arm", {"probe_id": "pr_1"},
+        # ⚠ `windows: None` IS PART OF THE PAYLOAD, NOT AN OMISSION. miLLM reads null as "the
+        # default set — all three" and an explicit `[]` as "the probe's own scope alone". A tool
+        # that sent `[]` would silently arm every probe on one window; a tool that dropped the
+        # key would work today and break the moment the server stops defaulting.
+        {"json_body": {
+            "acknowledge_below_rung2": False, "reason": "", "windows": None,
+        }},
+    ),
+    "millm_disarm_probe": (
+        "POST", "/api/probes/pr_1/disarm", {"probe_id": "pr_1"},
+        {"json_body": None},
+    ),
+    # ── 034 model load: ENH-008 moved it to a relay (two calls), asserted in test_millm_approvals_relay.py ──
+    # ── 034 leases (FR-18) ─────────────────────────────────────────────────────────────────
+    # ⚠ The lease id travels ONLY in the header; `holder` is the MCP path's identity, never an
+    # argument. A tool that put the id in the body would leak the only proof of holding.
+    "millm_acquire_lease": (
+        "POST", "/api/models/7/lease", {"model_id": 7, "reason": "labelling run"},
+        {"json_body": {"holder": "agent:mistudio-mcp", "reason": "labelling run"}},
+    ),
+    "millm_renew_lease": (
+        "POST", "/api/models/7/lease/renew", {"model_id": 7, "lease_id": "L1"},
+        {"json_body": None, "headers": {"X-miLLM-Lease": "L1"}},
+    ),
+    "millm_release_lease": (
+        "DELETE", "/api/models/7/lease", {"model_id": 7, "lease_id": "L1"},
+        {"headers": {"X-miLLM-Lease": "L1"}},
+    ),
+    "millm_lease_status": ("GET", "/api/models/7/lease", {"model_id": 7}, {}),
+    # ── 034 inference (FR-16, FR-19) ───────────────────────────────────────────────────────
+    # ⚠ THE HEADERS ARE THE LOAD-BEARING HALF (SC-6). `X-miLLM-Load-Policy: refuse` is what
+    # stops a scoring call from evicting the served model; `X-miLLM-Strict: true` is what turns
+    # an ignored field into a 400. Neither is visible in the path.
+    "millm_score_chat": (
+        "POST", "/v1/chat/completions",
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+        {"json_body": {"model": "m", "messages": [{"role": "user", "content": "hi"}],
+                       "logprobs": True, "max_tokens": 1, "temperature": 0},
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    "millm_score_completion": (
+        "POST", "/v1/completions",
+        {"model": "m", "prompt": ["a"], "lease_id": "L1", "scoring_precision": "float32"},
+        {"json_body": {"model": "m", "prompt": ["a"], "logprobs": 5, "max_tokens": 1,
+                       "temperature": 0, "add_special_tokens": True,
+                       "scoring_precision": "float32"},
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true",
+                     "X-miLLM-Lease": "L1"}},
+    ),
+    # ── 034 phase 5 ───────────────────────────────────────────────────────────────────────
+    "millm_score_probes": (
+        "POST", "/api/probes/score",
+        {"inputs": [{"token_ids": [1, 2], "prompt_tokens": 1}], "probe_ids": ["pr_1"]},
+        {"json_body": {"inputs": [{"token_ids": [1, 2], "prompt_tokens": 1}],
+                       "probe_ids": ["pr_1"]},
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    # ⚠ `steering` travels VERBATIM and no `profile` rides beside it (miLLM refuses the pair).
+    "millm_generate": (
+        "POST", "/v1/chat/completions",
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 8,
+         "seed": 7, "steering": {"features": [{"index": 3, "strength": 2.0}]}},
+        {"json_body": {"model": "m", "messages": [{"role": "user", "content": "hi"}],
+                       "max_tokens": 8, "seed": 7,
+                       "steering": {"features": [{"index": 3, "strength": 2.0}]}},
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    # ── 034 phase 6: the Batch API ───────────────────────────────────────────────────────────
+    # ⚠ The UPLOAD's payload is the multipart file itself: each line's `url` must equal the
+    # batch endpoint (miLLM rejects a line naming another), and `method` must be POST.
+    "millm_upload_batch_file": (
+        "POST", "/v1/files",
+        {"endpoint": "/v1/completions",
+         "rows": [{"custom_id": "r1", "body": {"model": "m", "prompt": "a"}}],
+         "lease_id": "L1"},
+        {"json_body": None,
+         "upload": {"filename": "batch.jsonl", "purpose": "batch",
+                    "content": b'{"custom_id":"r1","method":"POST","url":"/v1/completions",'
+                               b'"body":{"model":"m","prompt":"a"}}\n'},
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true",
+                     "X-miLLM-Lease": "L1"}},
+    ),
+    "millm_submit_batch": (
+        "POST", "/v1/batches", {"input_file_id": "file-1", "endpoint": "/v1/completions"},
+        {"json_body": {"input_file_id": "file-1", "endpoint": "/v1/completions",
+                       "completion_window": "24h"},
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    "millm_batch_status": (
+        "GET", "/v1/batches/b1", {"batch_id": "b1"},
+        {"headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    "millm_cancel_batch": (
+        "POST", "/v1/batches/b1/cancel", {"batch_id": "b1"},
+        {"json_body": None,
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    "millm_batch_results": (
+        "GET", "/v1/files/f1/content", {"file_id": "f1"},
+        {"jsonl": True,
+         "headers": {"X-miLLM-Load-Policy": "refuse", "X-miLLM-Strict": "true"}},
+    ),
+    # ── 034 phase 7: the miDataworks proxy (FR-10) ──────────────────────────────────────────
+    # ⚠ NO "who" ANYWHERE IN THESE PAYLOADS: miDataworks takes it from the agent header the
+    # client stamps (asserted in test_dataworks_client.py). A tool that put one in a body would
+    # be ignored by miDataworks and would read like the proxy deciding who acted.
+    "dataworks_list_datasets": (
+        "GET", "/api/v1/datasets", {}, {"q": None, "page": 1, "limit": 50},
+    ),
+    "dataworks_get_version": ("GET", "/api/v1/versions/v1", {"version_id": "v1"}, {}),
+    "dataworks_get_version_manifest": (
+        "GET", "/api/v1/versions/v1/handoff-manifest", {"version_id": "v1"}, {},
+    ),
+    "dataworks_list_detector_sets": (
+        "GET", "/api/v1/detector-sets", {}, {"archived": None, "page": 1, "limit": 50},
+    ),
+    "dataworks_get_detector_set": ("GET", "/api/v1/detector-sets/ds1", {"set_id": "ds1"}, {}),
+    "dataworks_start_label_run": (
+        "POST", "/api/v1/label-runs",
+        {"input_version_id": "v1", "role": "judge", "options": {"rubric_id": "rb1"}},
+        {"json_body": {"rubric_id": "rb1", "input_version_id": "v1", "role": "judge"}},
+    ),
+    "dataworks_build_version_files": (
+        "POST", "/api/v1/versions/v1/publish-builds", {"version_id": "v1"}, {"json_body": {}},
+    ),
+    # ⚠ Visibility travels as PRIVATE unless asked: a tool that dropped it would leave the
+    # choice to a server default, and one that hardcoded public would publish what was private.
+    "dataworks_publish_version": (
+        "POST", "/api/v1/publishes",
+        {"version_id": "v1", "build_id": "b1", "repo_id": "org/name"},
+        {"json_body": {"version_id": "v1", "build_id": "b1", "repo_id": "org/name",
+                       "card_prose": "", "visibility": "private"}},
+    ),
+    "dataworks_send_detector_set": (
+        "POST", "/api/v1/detector-sets/ds1/send", {"set_id": "ds1"},
+        {"json_body": {"repositories": {}, "visibility": "private"}},
+    ),
+    # ⚠ The reason travels as a DELETE BODY (miDataworks 002 FTDD §5).
+    "dataworks_delete_version": (
+        "DELETE", "/api/v1/versions/v1", {"version_id": "v1", "reason": "superseded"},
+        {"json_body": {"reason": "superseded"}},
+    ),
+    "dataworks_job_status": ("GET", "/api/v1/jobs/j1", {"job_id": "j1"}, {}),
+    "dataworks_cancel_job": ("POST", "/api/v1/jobs/j1/cancel", {"job_id": "j1"},
+                             {"json_body": None}),
+    "dataworks_get_approval_status": (
+        "GET", "/api/v1/approvals/ap1", {"approval_id": "ap1"}, {},
+    ),
+    "millm_circuit_status": ("GET", "/api/circuits/active", {}, {}),
+    "millm_list_circuits": ("GET", "/api/circuits", {}, {"limit": 50, "offset": 0}),
+    "millm_circuit_claims": ("GET", "/api/circuits/claims", {}, {}),
+    "millm_activate_circuit": (
+        "POST", "/api/circuits/c1/activate", {"circuit_id": "c1"},
+        {"json_body": None, "acknowledge_unvalidated": "false",
+         "allow_layer_overlap": "false"},
+    ),
+    "millm_deactivate_circuit": (
+        "POST", "/api/circuits/c1/deactivate", {"circuit_id": "c1"},
+        {"json_body": None},
+    ),
+    "millm_set_circuit_intensity": (
+        "PUT", "/api/circuits/active/intensity", {"intensity": 1.0},
+        # The body KEY is the whole contract here: the endpoint requires
+        # `intensity`, so any other key 422s on every call.
+        {"json_body": {"intensity": 1.0, "acknowledge_unvalidated": False}},
+    ),
+    "millm_delete_circuit": (
+        # `acknowledge_serving=True` so this exercises the TRANSMIT path in
+        # isolation. Without it the tool first reads /api/circuits/active to
+        # decide whether to refuse (R2-20), which is a second call — and the
+        # one-call assertion below is load-bearing, so it stays strict here.
+        # The guard itself is covered by TestDeletingAServingCircuitIsRefused.
+        "DELETE", "/api/circuits/c1",
+        {"circuit_id": "c1", "acknowledge_serving": True}, {},
+    ),
+    "millm_import_circuit": (
+        "POST", "/api/circuits/import", {"definition": {"kind": "x"}},
+        {"json_body": {"kind": "x"}, "on_conflict": None},
+    ),
+    "millm_export_circuit": (
+        "RAW_GET", "/api/circuits/c1/export", {"circuit_id": "c1"}, {},
+    ),
+    "millm_release_circuit_claims": (
+        "POST", "/api/circuits/claims/release", {"circuit_id": "c1"},
+        {"json_body": None, "circuit_id": "c1"},
+    ),
+    "millm_circuit_sensing_status": (
+        "GET", "/api/circuit-sensing/status", {}, {},
+    ),
+    "millm_circuit_sensing_events": (
+        "GET", "/api/circuit-sensing/events", {},
+        {"circuit_id": None, "limit": 50, "since": None},
+    ),
+    "millm_circuit_sensing_event": (
+        "GET", "/api/circuit-sensing/events/7", {"event_id": 7}, {},
+    ),
+    "millm_circuit_sensing_enable": (
+        "POST", "/api/circuit-sensing/c1/enable", {"circuit_id": "c1"},
+        {"json_body": None},
+    ),
+    "millm_circuit_sensing_disable": (
+        "POST", "/api/circuit-sensing/c1/disable", {"circuit_id": "c1"},
+        {"json_body": None},
+    ),
+    "millm_circuit_sensing_clear": (
+        # R1-16: scope is REQUIRED — an unscoped call is refused, not treated
+        # as "delete everything".
+        "DELETE", "/api/circuit-sensing/events", {"circuit_id": "c1"},
+        {"circuit_id": "c1"},
+    ),
+}
+
+
+class TestCallerReachability:
+    """RCH-4, shape 3. Each tool ISSUES its documented call.
+
+    Registration proves a tool is exposed. This proves it does something, and
+    the right something: re-pointing a path or deleting the call body fails
+    here and nowhere else.
+    """
+
+    @pytest.mark.parametrize("tool_name", sorted(EXPECTED_CALLS))
+    def test_the_tool_issues_its_documented_call(self, tool_name):
+        manager, client = _tools_by_name()
+        method, path, kwargs, payload = EXPECTED_CALLS[tool_name]
+
+        asyncio.run(manager.call_tool(tool_name, kwargs, context=None))
+
+        assert client.calls, f"{tool_name} registered but issued NO call"
+        assert len(client.calls) == 1, (
+            f"{tool_name} issued {len(client.calls)} calls; asserting on the "
+            "last would let a wrong first call through"
+        )
+        actual_method, actual_path, actual_payload = client.calls[0]
+        assert (actual_method, actual_path) == (method, path), (
+            f"{tool_name} called {actual_method} {actual_path}, documented as "
+            f"{method} {path}"
+        )
+        # R1-04: the PAYLOAD, not just the address. Verifying where a tool
+        # points and not what it sends is how a permanently-422ing dial ships
+        # with a green suite.
+        assert actual_payload == payload, (
+            f"{tool_name} sent {actual_payload}, documented as {payload}"
+        )
+
+    def test_every_registered_tool_is_covered_here(self):
+        """A tool added without an entry above would otherwise be exposed with
+        no caller assertion at all — the gap this file exists to close.
+
+        ⚠ THE EXEMPTION LIST IS HONOURED HERE TOO, AND IT HAS TO BE. Until 2026-10-02 this test
+        compared against `EXPECTED_CALLS` alone while its companion below compared against
+        `EXPECTED_CALLS | _CALLER_ASSERTION_EXEMPT`. The two never disagreed only because every
+        exempt tool happened to be in a CATEGORY this harness disables — so the list worked by
+        accident, and a tool in an enabled category had no way to be exempt however thoroughly it
+        was asserted elsewhere.
+
+        `millm_recalibrate_probe` is that case: it legitimately issues TWO calls — a GET to learn
+        which miStudio probe the imported one came from, then a POST with the re-cut — and the
+        shared rule below asserts exactly one call of one verb. It is payload-asserted in
+        `test_millm_recalibrate_reachable_mcp.py`, which also pins which of the two probe ids the
+        local re-cut receives, because the first version of the tool closed over the wrong one.
+
+        This does NOT weaken the accounting: every exemption is a written sentence in
+        `_CALLER_ASSERTION_EXEMPT`, `test_every_tool_is_asserted_or_listed` refuses a tool that is
+        in neither, and an exemption naming a test file that does not assert the tool would make
+        that file's own tests red rather than this one green.
+        """
+        manager, _ = _tools_by_name()
+        registered = {t.name for t in manager.list_tools()}
+        missing = registered - set(EXPECTED_CALLS) - set(_CALLER_ASSERTION_EXEMPT)
+        assert not missing, (
+            f"tools with no caller assertion: {sorted(missing)} — add them to "
+            "EXPECTED_CALLS, or to _CALLER_ASSERTION_EXEMPT with the file that asserts "
+            "them instead; silence means they ship unverified"
+        )
+
+    def test_the_two_accounting_rules_AGREE(self):
+        """⚠ THE REASON THE ONE ABOVE WAS WRONG FOR A YEAR AND NOBODY SAW IT.
+
+        Two tests answered "is every tool accounted for" with different definitions of accounted.
+        Pinning that they agree is cheaper than remembering, and it is the kind of divergence this
+        estate has shipped before: a CLAUDE.md entry contradicting another 38 rows above it, which
+        was then quoted back as an open risk.
+        """
+        manager, _ = _tools_by_name()
+        registered = {t.name for t in manager.list_tools()}
+        accounted = set(EXPECTED_CALLS) | set(_CALLER_ASSERTION_EXEMPT)
+        assert registered - set(EXPECTED_CALLS) - set(_CALLER_ASSERTION_EXEMPT) == (
+            registered - accounted
+        )
+
+    def test_export_returns_the_document_UNWRAPPED(self):
+        """R1-08. The export IS the portable artifact. A tool that unwrapped
+        `.data` would return None for a raw response — and the previous
+        assertion checked only the method string, so it could not tell."""
+        manager, client = _tools_by_name()
+        result = asyncio.run(
+            manager.call_tool("millm_export_circuit", {"circuit_id": "c1"}, context=None)
+        )
+        assert "mistudio.circuit-definition" in str(result), (
+            "the export did not come back as the raw document — unwrapping "
+            "`.data` on a raw response yields None"
+        )
+
+    def test_export_uses_the_RAW_path(self):
+        """The export IS the portable artifact. Re-wrapping it in the envelope
+        changes what a round-trip produces, so it must not go through the
+        enveloped `get`."""
+        manager, client = _tools_by_name()
+        asyncio.run(manager.call_tool("millm_export_circuit", {"circuit_id": "c1"}, context=None))
+        # R2-10: `calls[0]`, not `[-1]`. R1-04 rejected last-call assertions
+        # everywhere else and this one was left behind — a tool issuing a wrong
+        # first call and a right second would have passed.
+        assert len(client.calls) == 1
+        assert client.calls[0][0] == "RAW_GET"
+
+
+# ── Gate degradation ───────────────────────────────────────────────────────
+
+
+class TestGateDegradation:
+    """EC-20.1/20.3. A closed gate returns a STRUCTURED unavailable, never an
+    exception and never an unregistration: an agent must be able to tell
+    "miLLM is down" from "this tool does not exist"."""
+
+    def test_a_closed_gate_returns_structured_unavailable(self):
+        from mcp.server.mcpserver import MCPServer
+
+        from src.mcp_server.tools import millm_circuits
+
+        gate = MagicMock()
+        gate.check = AsyncMock(return_value=(False, "connection refused"))
+        mcp = MCPServer("t")
+        client = RecordingClient()
+        millm_circuits.register(mcp, client, gate, make_ctx())
+
+        result = asyncio.run(mcp._tool_manager.call_tool("millm_circuit_status", {}, context=None))
+        payload = result[0] if isinstance(result, tuple) else result
+        text = str(payload)
+        assert "unavailable" in text and "millm" in text
+        assert not client.calls, "a closed gate still issued the HTTP call"
+
+    def test_the_UNGATED_tool_still_checks_the_gate(self):
+        """F20 R1-06. `millm_import_circuit` omits `@gated` deliberately (so
+        argument validation runs first) and checks the gate BY HAND — and
+        nothing tested that hand-rolled check.
+
+        A mutation disabling it SURVIVED the whole suite: the tool would have
+        issued its HTTP call with miLLM known-down, turning a clean structured
+        "unavailable" into a connection error the agent cannot classify.
+
+        `test_argument_validation_runs_BEFORE_the_gate` below only exercises
+        the BAD-argument path, which returns before reaching the gate at all —
+        so the one tool that hand-rolls the gate was the one tool whose gate
+        was unverified. That is this feature's own named anti-pattern, in the
+        feature that exists to enforce against it.
+        """
+        from mcp.server.mcpserver import MCPServer
+
+        from src.mcp_server.tools import millm_circuits
+
+        gate = MagicMock()
+        gate.check = AsyncMock(return_value=(False, "connection refused"))
+        mcp = MCPServer("t")
+        client = RecordingClient()
+        millm_circuits.register(mcp, client, gate, make_ctx())
+
+        # VALID arguments, so validation passes and the gate is what must stop
+        # it.
+        result = asyncio.run(
+            mcp._tool_manager.call_tool(
+                "millm_import_circuit", {"definition": {"kind": "x"}}, context=None
+            )
+        )
+        text = str(result)
+        assert "unavailable" in text and "millm" in text, (
+            "the hand-rolled gate did not refuse; the agent gets a connection "
+            "error instead of a structured unavailable"
+        )
+        assert not client.calls, (
+            "the tool issued its HTTP call with the gate CLOSED — miLLM is "
+            "known-down and it called anyway"
+        )
+
+    def test_argument_validation_runs_BEFORE_the_gate(self):
+        """An agent debugging its own payload must not be told "millm is
+        down". A gate failure is about the SERVER; a bad argument is about the
+        CALL, and conflating them sends the agent to fix the wrong thing."""
+        from mcp.server.mcpserver import MCPServer
+
+        from src.mcp_server.tools import millm_circuits
+
+        gate = MagicMock()
+        gate.check = AsyncMock(return_value=(False, "connection refused"))
+        mcp = MCPServer("t")
+        millm_circuits.register(mcp, RecordingClient(), gate, make_ctx())
+
+        result = asyncio.run(
+            mcp._tool_manager.call_tool(
+                "millm_import_circuit",
+                {"definition": {"kind": "x"}, "on_conflict": "nonsense"},context=None
+            )
+        )
+        text = str(result)
+        assert "on_conflict" in text, (
+            "a bad argument was reported as miLLM being unavailable"
+        )
+
+
+class TestDestructiveScopeIsExplicit:
+    """F20 R1-16. `millm_circuit_sensing_clear` defaulted to GLOBAL scope.
+
+    An agent asked to "clear the events for this circuit" that omitted the
+    argument wiped every observation in the deployment, irreversibly. The
+    destructive path was the quiet one.
+    """
+
+    def test_an_unscoped_call_is_REFUSED(self):
+        manager, client = _tools_by_name()
+        result = asyncio.run(manager.call_tool("millm_circuit_sensing_clear", {}, context=None))
+        assert "exactly one scope" in str(result)
+        assert not client.calls, (
+            "an unscoped clear reached the server — every recorded observation "
+            "in the deployment would be gone"
+        )
+
+    def test_BOTH_scopes_at_once_is_refused(self):
+        manager, client = _tools_by_name()
+        result = asyncio.run(
+            manager.call_tool(
+                "millm_circuit_sensing_clear",
+                {"circuit_id": "c1", "all_circuits": True},context=None
+            )
+        )
+        assert "exactly one scope" in str(result)
+        assert not client.calls
+
+    def test_explicit_all_circuits_IS_allowed(self):
+        """The capability still exists — it just cannot be reached by
+        omission."""
+        manager, client = _tools_by_name()
+        asyncio.run(
+            manager.call_tool(
+                "millm_circuit_sensing_clear", {"all_circuits": True}, context=None
+            )
+        )
+        assert client.calls, "the deliberate global clear was blocked too"
+        assert client.calls[0][0] == "DELETE"
+
+    def test_the_DESTRUCTIVE_branch_sends_no_circuit_id(self):
+        """F20 R2-05: `EXPECTED_CALLS` pins only the scoped call, so the branch
+        that deletes EVERY observation in the deployment was asserted by
+        nothing.
+
+        Global scope is expressed to the server by OMITTING `circuit_id`. A
+        future edit that passed it through would silently narrow the delete —
+        or, re-pointed the other way, widen a scoped one. R1-16's fix was
+        half-pinned: the refusal was tested, the destructive success path was
+        not."""
+        manager, client = _tools_by_name()
+        asyncio.run(
+            manager.call_tool(
+                "millm_circuit_sensing_clear", {"all_circuits": True}, context=None
+            )
+        )
+        method, path, payload = client.calls[0]
+        assert (method, path) == ("DELETE", "/api/circuit-sensing/events")
+        assert payload == {"circuit_id": None}, (
+            f"the global clear sent {payload} — global scope is expressed by "
+            "OMITTING circuit_id, so anything else changes what is deleted"
+        )
+
+    def test_scope_validation_runs_BEFORE_the_gate(self):
+        """A scope mistake is about the CALL. Reporting it as "millm is down"
+        sends the agent to fix the wrong thing."""
+        from mcp.server.mcpserver import MCPServer
+
+        from src.mcp_server.tools import millm_circuits
+
+        gate = MagicMock()
+        gate.check = AsyncMock(return_value=(False, "connection refused"))
+        mcp = MCPServer("t")
+        millm_circuits.register(mcp, RecordingClient(), gate, make_ctx())
+
+        client = RecordingClient()
+        mcp2 = MCPServer("t2")
+        millm_circuits.register(mcp2, client, gate, make_ctx())
+        result = asyncio.run(
+            mcp2._tool_manager.call_tool("millm_circuit_sensing_clear", {}, context=None)
+        )
+        assert "exactly one scope" in str(result), (
+            "a scope error was reported as miLLM being unavailable"
+        )
+        # R2-09: the import tool's ordering test asserts this and the
+        # DESTRUCTIVE tool's did not — so a mutation returning the scope error
+        # AFTER issuing the DELETE would have passed. The tool that can delete
+        # everything got the weaker of the two tests.
+        assert not client.calls, (
+            "the scope error was returned but the DELETE went out first"
+        )
+
+
+class TestTheDescriptionsCarryWhatAnAgentNeeds:
+    """F20 R1-17..20. The descriptions ARE the product — an agent reads them
+    and relays them to a human.
+
+    Review found the three cardinal semantics each reaching exactly ONE tool,
+    while an agent typically calls one tool and sees only that third. And
+    several tools stated a problem without its next step, which is how an agent
+    ends up polling or guessing.
+
+    These assert on the REGISTERED descriptions, not the source, because that
+    is what `list_tools()` actually hands an agent.
+    """
+
+    def _descriptions(self):
+        manager, _ = _tools_by_name()
+        return {t.name: (t.description or "") for t in manager.list_tools()}
+
+    def test_the_rung_GATE_is_stated_where_rungs_are_listed(self):
+        """R1-17: an agent must know rung < 2 is refused BEFORE it tries to
+        activate, and `millm_list_circuits` is where it sees rungs."""
+        d = self._descriptions()["millm_list_circuits"]
+        assert "GATED at 2" in d or "gated at 2" in d.lower()
+        assert "never moves a rung" in d.lower() or "never raises" in d.lower(), (
+            "the observation/validation boundary reaches only the sensing "
+            "tools, and this is the tool an agent calls first"
+        )
+
+    def test_NO_ACTIVE_CIRCUIT_is_explained_where_it_is_hit(self):
+        """R1-18: it is a 200 body, not an error, and the remedy is to
+        activate something. An agent told neither will treat it as a fault."""
+        d = self._descriptions()["millm_set_circuit_intensity"]
+        assert "NO_ACTIVE_CIRCUIT" in d
+        assert "AMBIGUOUS_ACTIVE_CIRCUIT" in d, (
+            "R2-03 added a refusal for several serving circuits and the tool "
+            "never mentioned it"
+        )
+        # R2-06: these surface as a TOOL ERROR, because the client raises on
+        # any `success:false`. Describing them as bodies told the agent to
+        # expect a normal result.
+        assert "TOOL ERROR" in d
+
+    def test_the_slice_dial_names_what_DOES_govern_intensity(self):
+        """Telling an agent the write is inert without naming the alternative
+        leaves it retrying the same call."""
+        d = self._descriptions()["millm_set_circuit_intensity"]
+        assert "cluster" in d.lower() and "0.5 floor" in d
+
+    def test_enable_points_at_the_diagnostic(self):
+        """R1-19: 'enabled but no events' has two causes with different
+        remedies, and the tool that distinguishes them was never named."""
+        d = self._descriptions()["millm_circuit_sensing_enable"]
+        assert "millm_circuit_sensing_status" in d
+        assert "Do not poll" in d
+
+    def test_unsensable_edges_names_its_actionable_fields(self):
+        d = self._descriptions()["millm_circuit_sensing_status"]
+        assert "reason" in d and "detail" in d, (
+            "the field is described as a list of names, so an agent relays a "
+            "count and drops the half that tells the human what to do"
+        )
+
+    def test_status_warns_that_a_slice_is_not_the_whole_circuit(self):
+        """R1-20: reporting a slice serve with the circuit's own rung claims
+        evidence for something that is not being served."""
+        d = self._descriptions()["millm_circuit_status"]
+        assert "slice_fallback" in d
+        assert "does NOT describe" in d or "not describe" in d.lower()
+
+    def test_activate_covers_ALL_THREE_refusal_branches(self):
+        """The tool an agent reaches for first must resolve each case, or it
+        loops: overridable, collision (never retry), stuck claim (release)."""
+        d = self._descriptions()["millm_activate_circuit"]
+        assert "overridable" in d
+        assert "NEVER retry" in d
+        assert "millm_release_circuit_claims" in d
+        assert "one model, one fixture" in d, (
+            "the measured hazard's caveat must travel with it, or an agent "
+            "relays a single-fixture result as a general law"
+        )
+
+
+class TestTheThreeFailureShapesAreDistinguishable:
+    """F20 R2-07. `{"error": …}` (your call), `{"unavailable": …}` (server
+    down) and a coded tool error (operation refused) need three DIFFERENT
+    agent responses — and the vocabulary was documented in no tool description,
+    only in a module docstring that `list_tools()` does not transport."""
+
+    def test_the_first_tool_an_agent_meets_explains_them(self):
+        manager, _ = _tools_by_name()
+        d = {t.name: (t.description or "") for t in manager.list_tools()}
+        status = d["millm_circuit_status"]
+        assert '{"error"' in status and "unavailable" in status
+        assert "REFUSED" in status
+
+    def test_the_inference_tools_state_the_FOURTH_shape(self):
+        """Feature 034 (FTDD §5.2): miLLM's load-policy and backpressure refusals are a fourth
+        shape — `{"refused": code, next, retry_after_s}` — distinct from unavailable (down),
+        an argument error (fix the call) and a raised error. An agent that cannot tell
+        `refused` from `unavailable` loops on a model that will never load itself."""
+        manager, _ = _tools_by_name()
+        d = {t.name: (t.description or "") for t in manager.list_tools()}
+        for name in ("millm_score_chat", "millm_score_completion", "millm_generate",
+                     "millm_score_probes"):
+            text = d[name]
+            assert '{"refused"' in text and '"next"' in text and "retry_after_s" in text
+            assert '{"unavailable": "millm"' in text and '{"error"' in text
+
+
+class TestDeletingAServingCircuitIsRefused:
+    """F20 R2-20. `millm_delete_circuit` was the only irreversible operation in
+    the module with no gating of any kind, while its sibling destructive tool
+    (`millm_circuit_sensing_clear`) requires an explicit scope opt-in. The
+    miLLM route deletes a live circuit unconditionally — it deactivates first
+    and proceeds — so NOTHING anywhere in the stack stood between a mistyped
+    id and production steering being torn down.
+
+    Failure scenario: an agent asked to "clean up the old circuit" passes a
+    stale id. Live steering stops, the definition is destroyed, and the first
+    symptom is the served model quietly behaving differently.
+    """
+
+    async def _call(self, active_payload, **kwargs):
+        from mcp.server.mcpserver import MCPServer
+
+        from src.mcp_server.tools import millm_circuits
+
+        class Client(RecordingClient):
+            async def get(self, path, **params):
+                self.calls.append(("GET", path, params))
+                if path == "/api/circuits/active":
+                    if isinstance(active_payload, Exception):
+                        raise active_payload
+                    return active_payload
+                return {"success": True, "data": {}}
+
+        mcp = MCPServer("t")
+        client = Client()
+        millm_circuits.register(mcp, client, _open_gate(), make_ctx())
+        fn = mcp._tool_manager._tools["millm_delete_circuit"].fn
+        return await fn(circuit_id="c1", **kwargs), client
+
+    @pytest.mark.asyncio
+    async def test_a_serving_circuit_is_NOT_deleted(self):
+        result, client = await self._call({"data": [{"id": "c1"}]})
+        assert result["refused"] == "circuit_is_serving"
+        assert not any(m == "DELETE" for m, _, _ in client.calls), (
+            "the tool REFUSED and deleted anyway — the refusal was cosmetic"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_refusal_says_how_to_proceed_and_how_to_keep_it(self):
+        """A refusal an agent cannot act on becomes a retry loop or an
+        abandoned task. It must name both the override AND the export, because
+        the destructive half is unrecoverable."""
+        result, _ = await self._call({"data": [{"id": "c1"}]})
+        assert "acknowledge_serving=true" in result["reason"]
+        assert "millm_export_circuit" in result["reason"]
+
+    @pytest.mark.asyncio
+    async def test_a_circuit_that_is_NOT_serving_deletes_without_ceremony(self):
+        """The guard must not make ordinary cleanup require a flag."""
+        _, client = await self._call({"data": [{"id": "other"}]})
+        assert ("DELETE", "/api/circuits/c1", {}) in client.calls
+
+    @pytest.mark.asyncio
+    async def test_a_CLEAN_delete_carries_no_warning(self):
+        """R3-03's warning must be rare enough to mean something. If every
+        delete carried it, it would be scrolled past like every other banner
+        and the one that mattered would go unread."""
+        result, _ = await self._call({"data": [{"id": "other"}]})
+        assert "guard_skipped" not in result
+        assert "warning" not in result
+
+    @pytest.mark.asyncio
+    async def test_the_override_skips_the_check_entirely(self):
+        _, client = await self._call(
+            {"data": [{"id": "c1"}]}, acknowledge_serving=True
+        )
+        assert ("DELETE", "/api/circuits/c1", {}) in client.calls
+        assert not any(
+            p == "/api/circuits/active" for _, p, _ in client.calls
+        ), "the override should not pay for a check whose answer it ignores"
+
+    @pytest.mark.asyncio
+    async def test_it_FAILS_OPEN_when_the_serving_state_cannot_be_read(self):
+        """Deliberate, and the risky half of this design — so it is pinned.
+
+        If /active is unreachable the delete PROCEEDS. The alternative makes
+        cleanup impossible during exactly the outage when an operator most
+        needs it. This is a guard against the plausible mistake (a stale id),
+        not a lock against a determined caller.
+        """
+        result, client = await self._call(RuntimeError("boom"))
+        assert ("DELETE", "/api/circuits/c1", {}) in client.calls
+
+        # F20 R3-03: and it must SAY SO. R2-20 chose to fail open and then
+        # said nothing — the response was byte-identical to a clean delete, so
+        # the operator whose steering just stopped could not connect the two.
+        # A guard that silently does not run is worse than no guard, because
+        # the tool description promises it did.
+        assert result["guard_skipped"] == "serving_state_unreadable"
+        assert "WITHOUT confirming" in result["warning"]
+
+    @pytest.mark.asyncio
+    async def test_an_unrecognised_active_shape_is_UNKNOWN_not_not_serving(self):
+        """`/active` returns a LIST (F19: several circuits serve at once). If
+        it ever returns something else, the tool must not read that as
+        'nothing is serving' — it fails open by the rule above, but via the
+        UNKNOWN branch, and the distinction is what keeps a future shape
+        change from silently disabling the guard."""
+        result, client = await self._call({"data": {"id": "c1"}})
+        assert ("DELETE", "/api/circuits/c1", {}) in client.calls
+        assert result["guard_skipped"] == "serving_state_unreadable", (
+            "an unrecognised /active shape is UNKNOWN, so this delete was "
+            "also unguarded and must be reported as such"
+        )
+
+
+class TestEveryToolRespectsTheGate:
+    """F20 R3-11/12. The gate was verified on ONE tool of twelve, and the
+    hand-rolled variant on ONE of three.
+
+    R1-06 found that `millm_import_circuit` omits `@gated` deliberately (so
+    argument validation runs first) and checks the gate by hand, with nothing
+    testing that hand-rolled check. The fix was applied to that tool alone. Two
+    siblings hand-roll the same check — and they are the module's two
+    DESTRUCTIVE tools:
+
+      * `millm_delete_circuit`         — permanent deletion
+      * `millm_circuit_sensing_clear`  — irreversible, and global in scope
+
+    Deleting the `gate.check` block from either left the whole suite green
+    while the tool issued its destructive call against a miLLM known to be
+    down. Likewise `TestGateDegradation` used `millm_circuit_status` as sole
+    representative, so eleven `@gated` tools could lose their decorator
+    silently — turning a clean structured `unavailable` into an unclassifiable
+    connection error.
+
+    Parameterized over the LIVE registry: a tool added later is covered the
+    moment it exists.
+
+    ⚠ FEATURE 034 (FR-28, SC-4): THIS COVERED ONE MODULE OF SIX. It was parametrised over
+    `millm_circuits` alone, so `millm_runtime`, `millm_clusters`, `millm_sensing` and
+    `millm_probes` had no closed-gate test at all (`test_models_reachable_mcp.py` covered
+    `millm_models`). It now runs over EVERY tool of EVERY external product's module, with the
+    gate closed for that tool's own product.
+
+    Control (recorded 2026-10-16, task 1.10): removing `@gated(gate, "millm")` from
+    `millm_list_models` → `test_a_closed_gate_issues_NO_http_call[millm_models-millm_list_models]`
+    red; restored, diff clean.
+    """
+
+    #: Minimal valid arguments per tool. A tool absent from here uses `{}`. Tools that validate
+    #: their arguments before the gate need VALID ones here, or the test would see an argument
+    #: refusal and never reach the gate.
+    ARGS = {
+        "millm_import_cluster": {"definition": {"kind": "x"}},
+        "millm_activate_cluster": {"cluster_id": "cl_1"},
+        "millm_deactivate_cluster": {"cluster_id": "cl_1"},
+        "millm_export_cluster": {"cluster_id": "cl_1"},
+        "millm_get_model": {"model_id": 1},
+        "millm_preview_model_repo": {"repo_id": "a/b"},
+        "millm_download_model": {"repo_id": "a/b"},
+        "millm_cancel_download": {"model_id": 1},
+        "millm_load_model": {"model_id": 1},
+        "millm_acquire_lease": {"model_id": 1, "reason": "r"},
+        "millm_renew_lease": {"model_id": 1, "lease_id": "L1"},
+        "millm_release_lease": {"model_id": 1, "lease_id": "L1"},
+        "millm_lease_status": {"model_id": 1},
+        "millm_score_chat": {"model": "m", "messages": [{"role": "user", "content": "x"}]},
+        "millm_score_completion": {"model": "m", "prompt": ["x"]},
+        "millm_score_probes": {"inputs": [{"text": "x"}]},
+        "millm_generate": {"model": "m", "messages": [{"role": "user", "content": "x"}],
+                           "max_tokens": 4},
+        "millm_upload_batch_file": {"endpoint": "/v1/completions",
+                                    "rows": [{"custom_id": "a", "body": {}}]},
+        "millm_submit_batch": {"input_file_id": "f", "endpoint": "/v1/completions"},
+        "millm_batch_status": {"batch_id": "b"},
+        "millm_cancel_batch": {"batch_id": "b"},
+        "millm_batch_results": {"file_id": "f"},
+        "dataworks_get_version": {"version_id": "v1"},
+        "dataworks_get_version_manifest": {"version_id": "v1"},
+        "dataworks_get_detector_set": {"set_id": "ds1"},
+        "dataworks_start_label_run": {"input_version_id": "v1", "role": "classifier"},
+        "dataworks_build_version_files": {"version_id": "v1"},
+        "dataworks_publish_version": {"version_id": "v1", "build_id": "b1",
+                                      "repo_id": "org/name"},
+        "dataworks_send_detector_set": {"set_id": "ds1"},
+        "dataworks_delete_version": {"version_id": "v1", "reason": "r"},
+        "dataworks_job_status": {"job_id": "j1"},
+        "dataworks_cancel_job": {"job_id": "j1"},
+        "dataworks_get_approval_status": {"approval_id": "ap1"},
+        "millm_unload_model": {"model_id": 1},
+        "millm_delete_model": {"model_id": 1},
+        "millm_import_probe": {"definition": {"kind": "x"}},
+        # miLLM 039 (§4j, §4k)
+        "millm_arm_behaviour": {"key": "k-a"},
+        "millm_disarm_behaviour": {"key": "k-a"},
+        "millm_get_probe_limit_recommendation": {"model_id": "7"},
+        # ENH-006 D54: with an approval id the gate runs BEFORE the consume, so a closed gate sends nothing.
+        "millm_probe_capacity": {"model_id": 7},
+        # ENH-008: the gate runs BEFORE the fail-closed queue check, so a closed gate sends nothing.
+        "millm_request_probe_limits": {"model_id": 7, "reason": "r"},
+        "millm_measure_probe_capacity": {"model_id": 7},
+        "millm_get_approval_status": {"approval_id": "apr_1"},
+        "millm_validate_rule_set": {"document": {"format": "x"}},
+        "millm_import_rule_set": {"document": {"format": "x"}},
+        "millm_get_rule_set": {"rule_set_id": "rs_000000000001"},
+        "millm_delete_rule_set": {"rule_set_id": "rs_000000000001", "acknowledge_delete": True},
+        "millm_evaluate_rule_set": {"rule_set_id": "rs_000000000001", "text": "t"},
+        "millm_get_behaviour_rule_signals": {"key": "k-a"},
+        "millm_set_behaviour_rule_signals": {"key": "k-a", "rule_set_ids": ["rs_000000000001"]},
+        "millm_clear_behaviour_rule_signals": {"key": "k-a"},
+        "millm_arm_probe": {"probe_id": "pr_1"},
+        "millm_disarm_probe": {"probe_id": "pr_1"},
+        "millm_recalibrate_probe": {"probe_id": "pr_1", "mistudio_probe_id": "pm_1"},
+        "millm_activate_profile": {"profile_id": "p_1"},
+        "millm_deactivate_profile": {"profile_id": "p_1"},
+        "millm_set_intensity": {"intensity": 1.0},
+        "millm_set_telemetry": {"values": {"TELEMETRY_TRACES_ENABLED": True}},
+        "millm_sensing_enable": {"profile_id": "p_1"},
+        "millm_sensing_config": {"profile_id": "p_1"},
+        "millm_sensing_disable": {"profile_id": "p_1"},
+        "millm_activate_circuit": {"circuit_id": "c1"},
+        "millm_deactivate_circuit": {"circuit_id": "c1"},
+        "millm_delete_circuit": {"circuit_id": "c1"},
+        "millm_export_circuit": {"circuit_id": "c1"},
+        "millm_set_circuit_intensity": {"intensity": 1.0},
+        "millm_import_circuit": {"definition": {"kind": "x"}},
+        "millm_release_circuit_claims": {"circuit_id": "c1"},
+        "millm_circuit_sensing_enable": {"circuit_id": "c1"},
+        "millm_circuit_sensing_disable": {"circuit_id": "c1"},
+        "millm_circuit_sensing_clear": {"circuit_id": "c1"},
+        "millm_circuit_sensing_event": {"event_id": 1},
+        # 2026-10-19 (MCP gap closure)
+        "millm_embeddings": {"model": "m", "input": ["x"]},
+        "millm_batch_lease": {"batch_id": "b", "lease_id": "L1"},
+        "millm_get_probe": {"probe_id": "pr_1"},
+        "millm_delete_probe": {"probe_id": "pr_1", "acknowledge_events_deleted": True},
+        "millm_probe_parity": {"probe_id": "pr_1"},
+        "millm_probe_hub_definitions": {"repo_id": "o/r"},
+        "millm_clear_probe_events": {"probe_id": "pr_1"},
+        "millm_cluster_hub_definitions": {"repo_id": "o/r"},
+        "millm_sensing_clear": {"profile_id": "p_1"},
+        "millm_get_probe_event": {"event_id": 7},
+        "millm_get_sensing_event": {"event_id": 7},
+        "dataworks_list_detector_sends": {"set_id": "ds1"},
+        "dataworks_get_detector_send": {"send_id": "dsn1"},
+        "dataworks_resume_detector_send": {"send_id": "dsn1"},
+        "dataworks_refresh_probe_results": {"set_id": "ds1"},
+        "dataworks_get_probe_results": {"set_id": "ds1"},
+    }
+
+    def _closed_gate_call(self, category, tool_name):
+        from mcp.server.mcpserver import MCPServer
+
+        product = _external_categories()[category]
+        closed = product.spec.name
+
+        async def check(name):
+            # Closed for THIS tool's product only: a tool that consulted another product's
+            # gate would read open and be caught.
+            return (False, "connection refused") if name == closed else (True, "ok")
+
+        gate = MagicMock()
+        gate.check = AsyncMock(side_effect=check)
+        mcp = MCPServer("t")
+        client = RecordingClient()
+        mistudio = RecordingClient()
+        ctx = make_ctx(mistudio)
+        for module in product.categories[category]:
+            module.register(mcp, client, gate, ctx)
+
+        result = asyncio.run(
+            mcp._tool_manager.call_tool(tool_name, self.ARGS.get(tool_name, {}), context=None)
+        )
+        payload = result[0] if isinstance(result, tuple) else result
+        return str(payload), client.calls + mistudio.calls
+
+    @pytest.mark.parametrize("category,tool_name", _external_tools())
+    def test_a_closed_gate_issues_NO_http_call(self, category, tool_name):
+        """The property that matters for the destructive tools: with miLLM
+        known to be down, nothing is sent. A tool that reports `unavailable`
+        AFTER issuing its DELETE has already done the damage."""
+        _text, calls = self._closed_gate_call(category, tool_name)
+        assert not calls, (
+            f"{tool_name} issued {calls} with the gate CLOSED. For a "
+            "destructive tool this means the irreversible call went out while "
+            "miLLM was known to be unreachable."
+        )
+
+    @pytest.mark.parametrize("category,tool_name", _external_tools())
+    def test_a_closed_gate_says_so_in_a_way_an_agent_can_classify(
+        self, category, tool_name
+    ):
+        """An agent must distinguish "miLLM is down" (retry later) from "this
+        tool does not exist" (never retry) and from "your arguments are wrong"
+        (fix and retry). Silence, or a raw exception, collapses all three."""
+        text, _calls = self._closed_gate_call(category, tool_name)
+        product = _external_categories()[category].spec.name
+        assert "unavailable" in text and product in text, (
+            f"{tool_name} with a closed gate returned {text[:200]!r}, which "
+            "does not identify itself as a miLLM availability problem"
+        )
+
+
+class TestTheHowtoToolIsReachableAndHonest:
+    """`mistudio_howto` carries the workflow knowledge tool signatures cannot.
+
+    Written after an agent ran the full circuit loop and lost most of a session
+    rediscovering things this server already knew — a `/v1` suffix that does
+    not belong on `kind`, a nested member shape that reads as missing data, a
+    feature join key that returns "0 labelled" for a fully-labelled corpus, and
+    a strength scale ~50x off that shipped token soup to production.
+
+    An auditing pass then found the deeper problem: 92 tools across 13
+    categories, and SERVER_INSTRUCTIONS named 17 of them. FOUR ENTIRE
+    CATEGORIES were unmentioned — including both circuit surfaces (35 tools).
+    The whole causal-validation pipeline was reachable over MCP the entire
+    time and nothing said so.
+
+    Guidance an agent cannot reach is guidance that does not exist, so this
+    asserts the LIVE registry, not the module.
+    """
+
+    def _built(self, monkeypatch):
+        from src.mcp_server.config import MCPSettings
+        from src.mcp_server.server import build_server
+
+        settings = MCPSettings(tool_categories="read", allow_anonymous=True)
+        mcp, _client = build_server(settings, stdio=True)
+        return {t.name: t for t in asyncio.run(mcp.list_tools())}
+
+    def test_it_reaches_the_built_server_in_a_DEFAULT_category(self, monkeypatch):
+        """It ships with `read` deliberately: `read` is in DEFAULT_CATEGORIES,
+        so every agent gets the guidance without opting in."""
+        from src.mcp_server.config import DEFAULT_CATEGORIES
+
+        assert "read" in DEFAULT_CATEGORIES, (
+            "howto ships with `read` precisely because it is a default; if "
+            "that changed, move howto to whatever is still default"
+        )
+        assert "mistudio_howto" in self._built(monkeypatch)
+
+    def test_every_advertised_topic_actually_resolves(self):
+        """The topic list is the tool's own index. A name it advertises but
+        cannot return is a dead end an agent has no way to recover from."""
+        from src.mcp_server.tools.howto import TOPICS
+
+        assert len(TOPICS) >= 7, f"only {len(TOPICS)} topics — content lost?"
+        advertised = set(re.findall(r"^  ([a-z_]+) ", TOPICS["overview"], re.M))
+        # `tools` is DERIVED (from _all_tools()), not a prose entry in TOPICS —
+        # it resolves in the dispatcher. Covered by
+        # test_the_index_is_reachable_through_the_tool, which calls it for real.
+        missing = sorted(advertised - set(TOPICS) - {"tools"})
+        assert not missing, (
+            f"the overview advertises {missing}, which resolve to nothing"
+        )
+
+    def test_the_discovery_pipeline_topic_names_only_REAL_tools(self):
+        """Its value is telling an agent the pipeline exists. Naming a tool
+        that does not exist would send it down a path with no exit — worse
+        than saying nothing."""
+        import inspect
+
+        from src.mcp_server.tools import circuits as circuits_mod
+        from src.mcp_server.tools.howto import TOPICS
+
+        source = inspect.getsource(circuits_mod)
+        real = set(re.findall(r"async def (\w+)", source))
+        named = set(re.findall(r"`(\w+)`", TOPICS["discovery_pipeline"]))
+        # Only check names that look like circuit tools; prose backticks other
+        # things too (field names, statuses).
+        claimed = {n for n in named if "circuit" in n or n in real}
+        phantom = sorted(claimed - real)
+        assert not phantom, (
+            f"discovery_pipeline names {phantom}, which do not exist in the "
+            "circuits tool module"
+        )
+
+    def test_the_tool_map_names_only_REAL_tools(self):
+        """The map's value is telling an agent a capability exists. A phantom
+        name sends it down a path with no exit — strictly worse than silence.
+
+        Verified across the WHOLE registry, not one module: the map spans 13
+        categories and a per-module check would miss cross-category typos.
+        """
+        import inspect
+
+        from src.mcp_server.tools import all_categories
+        from src.mcp_server.tools.howto import TOPICS
+
+        real = set()
+        for mods in all_categories().values():
+            for module in mods:
+                real |= set(re.findall(r"async def (\w+)", inspect.getsource(module)))
+        assert len(real) > 50, f"only found {len(real)} tools — extraction broken"
+
+        prefixes = ("get_", "list_", "run_", "steer_", "millm_", "save_",
+                    "delete_", "update_", "find_", "compute_", "export_",
+                    "import_", "enter_", "exit_", "cancel_", "start_",
+                    "validate_", "promote_", "create_")
+        named = set(re.findall(r"\b([a-z][a-z0-9_]{6,})\b", TOPICS["tool_map"]))
+        claimed = {n for n in named
+                   if (n in real or n.startswith(prefixes))
+                   # `millm_circuit_* (13)` is a prose wildcard, not a name.
+                   and not n.endswith("_")}
+        phantom = sorted(claimed - real)
+        assert not phantom, (
+            f"tool_map names {phantom}, which are not registered anywhere. An "
+            "agent told a tool exists will try to call it."
+        )
+
+    def test_EVERY_registered_tool_appears_in_the_generated_index(self):
+        """The completeness guarantee, checked REGISTRY vs REGISTRY.
+
+        This test used to build its expectation by regexing module source for
+        `@mcp.tool()`. An adversarial pass showed why that is worthless: a tool
+        registered by a helper (`mcp.tool()(fn)`) or in a loop is absent from
+        the scanner AND from the index, so the two agreed and the guard passed
+        while the tool was invisible everywhere. Comparing two views that share
+        a blind spot proves nothing.
+
+        Now both sides come from `build_server()` + `list_tools()` — the same
+        call an agent makes. If the index and the server disagree about what
+        exists, that IS the defect.
+        """
+        import asyncio as _asyncio
+
+        from src.mcp_server.config import VALID_CATEGORIES, MCPSettings
+        from src.mcp_server.products import PRODUCTS
+        from src.mcp_server.server import build_server
+        from src.mcp_server.tools.howto import _all_tools
+
+        # Feature 034: EVERY product's URL, on this settings object only. This used
+        # `os.environ.setdefault("MILLM_API_URL", …)` — a permanent process mutation (the
+        # MIS-E2E-115 defect, in a test) that also left every other product unset, so a
+        # second product's tools were served by howto's index and not by this server.
+        overrides = {spec.override_field: f"http://{spec.name}.test" for spec in PRODUCTS}
+        mcp, _c = build_server(
+            MCPSettings(tool_categories=",".join(sorted(VALID_CATEGORIES)),
+                        allow_anonymous=True, **overrides),
+            stdio=True,
+        )
+        served = {t.name for t in _asyncio.run(mcp.list_tools())}
+        assert len(served) > 80, (
+            f"only {len(served)} tools served — this guard is checking nothing"
+        )
+
+        index = _all_tools()
+        indexed = {n for entries in index.values() for n, _ in entries}
+
+        missing = sorted(served - indexed)
+        assert not missing, (
+            f"{len(missing)} tool(s) the server SERVES are absent from the "
+            f"index and therefore invisible to an agent: {missing}"
+        )
+
+        # And the reverse: an index naming a tool the server does not serve
+        # sends an agent after something that does not exist.
+        phantom = sorted(indexed - served)
+        assert not phantom, (
+            f"the index names {phantom}, which the server does not serve"
+        )
+
+        # Presence is not coverage. A docstring-less tool was previously
+        # indexed with an empty summary, so the metric read 93/93 while an
+        # agent got a name and nothing else.
+        blank = sorted(n for e in index.values() for n, d in e if not d.strip())
+        assert not blank, (
+            f"{blank} are indexed with an EMPTY summary — they read as covered "
+            "and tell an agent nothing. Give them a docstring."
+        )
+
+    def test_the_ungated_destructive_tools_are_indexed(self):
+        """Named explicitly because they are the ones a shape-sensitive
+        extractor drops, and they are the ones that delete things."""
+        from src.mcp_server.tools.howto import _all_tools
+
+        indexed = {n for entries in _all_tools().values() for n, _ in entries}
+        for tool in ("millm_delete_circuit", "millm_import_circuit",
+                     "millm_circuit_sensing_clear"):
+            assert tool in indexed, f"{tool} is missing from the index"
+
+    def test_the_index_is_reachable_through_the_tool(self):
+        """A derived index nothing returns is the dead code this replaced —
+        `_all_tools()` existed for an hour before anything called it."""
+        import asyncio as _asyncio
+        from unittest.mock import MagicMock as _MM
+
+        from mcp.server.mcpserver import MCPServer
+
+        from src.mcp_server.tools import howto as _howto
+
+        mcp = MCPServer("t")
+        _howto.register(mcp, _MM(), _MM())
+        fn = mcp._tool_manager._tools["mistudio_howto"].fn
+
+        result = _asyncio.run(fn(topic="tools"))
+        assert result.get("tool_count", 0) > 80, (
+            "the tools topic returned no index — _all_tools() is unwired"
+        )
+        assert "circuits" in result["tools"]
+
+        # And the no-arg response must ADVERTISE it, or an agent never asks.
+        overview = _asyncio.run(fn())
+        assert "tools" in overview["topics"]
+        assert overview.get("tool_count", 0) > 80
+
+    def test_EVERY_parameter_has_a_description(self):
+        """Surface 3: the schema an agent actually reads when choosing arguments.
+
+        Measured before this guard: 220 parameters across 93 tools, and 220 of
+        them had NO description. An agent saw `granularity: string` with no
+        valid values, `fdr_q: number` with no range, and `sae_id: string` with
+        no hint which of two namespaces it meant. That is the same class of
+        failure that had me guessing `kind` wrong and mixing up SAE ids.
+
+        Enum-like strings must list their values, ids must name their
+        namespace, and numerics that drive GPU cost must say so — but those are
+        judgement calls a test cannot make. What a test CAN enforce is that
+        nothing ships blank, which is what stops the surface silently
+        regressing to where it started.
+        """
+        import asyncio as _asyncio
+        import os as _os
+
+        from src.mcp_server.config import VALID_CATEGORIES, MCPSettings
+        from src.mcp_server.server import build_server
+
+        _os.environ.setdefault("MILLM_API_URL", "http://millm.test")
+        settings = MCPSettings(
+            tool_categories=",".join(sorted(VALID_CATEGORIES)),
+            allow_anonymous=True,
+        )
+        mcp, _client = build_server(settings, stdio=True)
+        tools = _asyncio.run(mcp.list_tools())
+        assert len(tools) > 80, (
+            f"only {len(tools)} tools built — this guard is checking nothing"
+        )
+
+        bare = []
+        total = 0
+        for tool in tools:
+            for pname, schema in (tool.input_schema or {}).get("properties", {}).items():
+                total += 1
+                # F4: `"   "` is truthy. An auto-formatter or a stripped
+                # placeholder produces exactly that, and it tells an agent
+                # nothing while reading as covered.
+                if not (schema.get("description") or "").strip():
+                    bare.append(f"{tool.name}.{pname}")
+        assert total > 150, f"only {total} parameters found — extraction broken"
+        assert not bare, (
+            f"{len(bare)} of {total} parameters have no description, so an "
+            f"agent must guess their meaning: {sorted(bare)[:15]}"
+            + (" …" if len(bare) > 15 else "")
+            + "\n\nAdd Annotated[T, Field(description=...)]. For enum-like "
+            "strings LIST THE VALUES; for ids NAME THE NAMESPACE; for numerics "
+            "give the range and any GPU cost."
+        )
+
+    def test_the_server_instructions_point_at_it(self):
+        """The instructions are the only thing an agent reads before choosing
+        a tool. If they do not name howto, howto is undiscoverable."""
+        from src.mcp_server.server import SERVER_INSTRUCTIONS
+
+        assert "mistudio_howto" in SERVER_INSTRUCTIONS
+
+        # A mention buried mid-paragraph is not a pointer. The instructions
+        # must DIRECT the agent there, in the first few lines, or it will pick
+        # a tool before it ever reads about the guidance.
+        #
+        # Control note: the first version of this test asserted only that the
+        # name appeared somewhere, and a mutation that removed the actual
+        # call-to-action SURVIVED — the name still occurred further down. A
+        # test that cannot fail against the defect it names is not a test.
+        head = SERVER_INSTRUCTIONS.split("\n\n")[1] if "\n\n" in SERVER_INSTRUCTIONS else ""
+        assert "mistudio_howto" in head and "FIRST" in head, (
+            "the instructions mention mistudio_howto but do not tell the "
+            "agent to call it first — an agent reads the top and chooses a "
+            "tool, so a buried mention is invisible in practice"
+        )
+
+    def test_the_instructions_name_the_discovery_pipeline_entry_point(self):
+        """The specific omission that cost a session: the instructions
+        described the CLUSTER path in detail and said nothing about circuit
+        discovery, so an agent had no reason to think it existed."""
+        from src.mcp_server.server import SERVER_INSTRUCTIONS
+
+        for tool in ("start_circuit_capture", "validate_circuit_edges",
+                     "export_circuit_definition"):
+            assert tool in SERVER_INSTRUCTIONS, (
+                f"{tool} is registered and reachable but the server "
+                "instructions never mention it"
+            )
+
+
+class TestTheDEPLOYMENTEnablesWhatTheCodeRegisters:
+    """The reachability rule applied to CONFIGURATION, not just code.
+
+    F20 found 16 tools registered nowhere. This is the same defect one layer
+    out: `circuits` IS in DEFAULT_CATEGORIES, and the k8s manifest set an
+    explicit MCP_TOOL_CATEGORIES list that omitted it. All 19 circuit tools —
+    plus the 16 millm_circuit_* tools — were implemented, registered, unit
+    tested, documented in the generated contract, and switched OFF in
+    production. An agent asking for them got "no such tool".
+
+    Every guard in this file passes `tool_categories` in explicitly, so none of
+    them could ever see this. A capability is not shipped until the DEPLOYMENT
+    serves it.
+    """
+
+    def _manifests(self) -> dict:
+        """`{path: categories}` for EVERY manifest setting MCP_TOOL_CATEGORIES.
+
+        This checked ONE hardcoded path and I picked the wrong one: I fixed
+        `k8s/mistudio-deployment.yaml`, watched the guard go green, and the
+        change reached nothing — ArgoCD deploys `k8s/base` via kustomize, and
+        `mistudio-deployment.yaml` is a legacy standalone manifest that
+        `kustomization.yaml` does not reference. The guard confirmed a file
+        nobody deploys.
+
+        Discovered rather than named, so a manifest added later is covered and
+        a stale one cannot drift out of sight. Every copy must agree: whichever
+        one is live, the capability is on.
+        """
+        import re
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[3]
+        pattern = re.compile(
+            r"name:\s*MCP_TOOL_CATEGORIES\s*\n(?:\s*#[^\n]*\n)*\s*value:\s*\"([^\"]+)\""
+        )
+        found = {}
+        for path in sorted((repo / "k8s").rglob("*.yaml")):
+            m = pattern.search(path.read_text())
+            if m:
+                rel = str(path.relative_to(repo))
+                found[rel] = {c.strip() for c in m.group(1).split(",") if c.strip()}
+        assert found, (
+            "no manifest under k8s/ sets MCP_TOOL_CATEGORIES — either the "
+            "layout changed or the env var was renamed, and this guard is "
+            "checking nothing"
+        )
+        return found
+
+    def _deployed_categories(self) -> set:
+        """The INTERSECTION across manifests: a category is only reliably
+        enabled if every manifest that could be deployed enables it."""
+        return set.intersection(*self._manifests().values())
+
+    def test_every_DEFAULT_category_is_actually_deployed(self):
+        """A category the code enables by default and the manifest disables is
+        a capability that exists everywhere except where it is used."""
+        from src.mcp_server.config import DEFAULT_CATEGORIES
+
+        deployed = self._deployed_categories()
+        defaults = {c.strip() for c in DEFAULT_CATEGORIES.split(",")}
+        missing = sorted(defaults - deployed)
+        assert not missing, (
+            f"{missing} are in DEFAULT_CATEGORIES but the deployment's "
+            f"explicit MCP_TOOL_CATEGORIES omits them, so their tools are "
+            "unreachable in production while every other guard reports green."
+        )
+
+    def test_the_circuit_categories_are_deployed(self):
+        """Named explicitly: these are the 35 tools that were off, and the
+        whole causal-discovery pipeline lives in them."""
+        deployed = self._deployed_categories()
+        for category in ("circuits", "millm_circuits"):
+            assert category in deployed, (
+                f"{category} is not enabled in the deployment — its tools "
+                "cannot be called by any agent"
+            )
+
+    def test_every_deployed_category_is_VALID(self):
+        """A typo in the manifest drops a whole category, so the list must be
+        checked against the real names.
+
+        THIS IS NOW THE ONLY LINE OF DEFENCE FOR THE DEPLOYED MANIFEST, and it
+        was already the effective one. `enabled_categories()` used to raise on
+        an unknown name, but that made every category addition a guaranteed
+        crashloop window — the manifest syncs in minutes and the image takes
+        about nine, so the new manifest meets an image whose VALID_CATEGORIES
+        predates it. Adding `models` and `millm_models` did exactly that on
+        2026-09-07. The server now warns and drops instead, which is safe
+        BECAUSE this test keeps a typo out of the manifest in the first place.
+
+        (This docstring previously described the drop as silent, which the
+        raising code had made false. It is accurate again, and the behaviour it
+        describes is now deliberate rather than assumed.)
+        """
+        from src.mcp_server.config import VALID_CATEGORIES
+
+        unknown = sorted(self._deployed_categories() - set(VALID_CATEGORIES))
+        assert not unknown, (
+            f"the manifest enables {unknown}, which are not valid categories — "
+            "the server ignores them and the intended tools stay off"
+        )
+
+    def _env_values(self, name: str) -> dict:
+        """`{manifest: value}` for every k8s manifest that sets env var `name`."""
+        import re
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[3]
+        pattern = re.compile(
+            r"name:\s*" + re.escape(name) + r"\s*\n(?:\s*#[^\n]*\n)*\s*value:\s*\"([^\"]*)\""
+        )
+        found = {}
+        for path in sorted((repo / "k8s").rglob("*.yaml")):
+            m = pattern.search(path.read_text())
+            if m:
+                found[str(path.relative_to(repo))] = m.group(1)
+        return found
+
+    def test_the_model_load_switch_is_GONE_from_the_DEPLOYMENT(self):
+        """ENH-008 (D1): miLLM gates every agent model load in its own queue, unconditionally, so
+        miStudio has no `MCP_MILLM_LOAD_APPROVAL` switch any more. A manifest still setting it would
+        read like a working off switch while doing nothing (the setting is ignored)."""
+        assert self._env_values("MCP_MILLM_LOAD_APPROVAL") == {}
+        from src.mcp_server.config import MCPSettings
+
+        assert "millm_load_approval" not in MCPSettings.model_fields
+
+    def test_the_COMPOSE_default_categories_include_every_DEFAULT(self):
+        """Feature 034 found it: `docker-compose.yml` hand-kept its own default list and it lacked
+        `probe_monitors` — a default category off in every compose deployment that did not set
+        the variable. The k8s guard above never read the compose file."""
+        import re
+        from pathlib import Path
+
+        from src.mcp_server.config import DEFAULT_CATEGORIES
+
+        compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text()
+        m = re.search(r"MCP_TOOL_CATEGORIES:\s*\$\{MCP_TOOL_CATEGORIES:-([^}]*)\}", compose)
+        assert m, "docker-compose.yml no longer sets a MCP_TOOL_CATEGORIES default"
+        listed = {c.strip() for c in m.group(1).split(",") if c.strip()}
+        defaults = {c.strip() for c in DEFAULT_CATEGORIES.split(",") if c.strip()}
+        assert defaults <= listed, sorted(defaults - listed)
+        # ENH-008: the model-load switch is gone; compose must not offer it either.
+        assert "MCP_MILLM_LOAD_APPROVAL" not in compose
+
+    @pytest.mark.parametrize("category", ["millm_inference", "dataworks"])
+    def test_the_034_categories_are_DEPLOYED(self, category):
+        """Feature 034 FR-28 layer 4. Control (task 4.7): delete the category from
+        `MCP_TOOL_CATEGORIES` in `k8s/base/mcp.yaml` → red."""
+        assert category in self._deployed_categories()
+
+    def test_the_miDataworks_URL_is_DEPLOYED(self):
+        """Feature 034 SC-3/FR-8: without `MIDATAWORKS_API_URL` the `dataworks` category is
+        skipped at registration — enabled in the manifest and absent from the server. Control
+        (task 7.6): delete the env entry from `k8s/base/mcp.yaml` → red."""
+        values = self._env_values("MIDATAWORKS_API_URL")
+        assert values.get("k8s/base/mcp.yaml", "").startswith("http://"), values
+
+    def test_admin_stays_OFF(self):
+        """Specificity: this guard must not become 'enable everything'.
+
+        `admin` is two irreversible deletes — delete_extraction takes every
+        feature, label and activation example with it — and it is deliberately
+        absent from DEFAULT_CATEGORIES. If it is ever enabled that should be a
+        conscious decision with its own reasoning, not a side effect of a test
+        that says 'turn it all on'.
+        """
+        assert "admin" not in self._deployed_categories(), (
+            "admin (irreversible deletes) is enabled in the deployment — if "
+            "that is intended, change this test deliberately and say why"
+        )
+
+
+# ── RCH-5: caller coverage across the WHOLE registry ───────────────────────
+#
+# MIS-E2E-119. `TestCallerReachability` above is complete within its scope, and
+# that scope is one module: `_tools_by_name()` registers `millm_circuits` and
+# nothing else, so `test_every_registered_tool_is_covered_here` compares 16
+# against 16 and passes. The live server registers **116**.
+#
+# So the one shape that proves a tool does the RIGHT thing — rather than merely
+# that it is exposed — covers 14% of the surface, and a tool added today gets
+# registration coverage automatically and call coverage only if someone
+# remembers. Re-pointing `get_circuit` to `/WRONG-PATH/{id}` left all 31
+# reachability tests green (mutation M21).
+#
+# Closing it properly means a payload fixture per tool, which is a large piece
+# of work and not one to fake. What this does instead is convert SILENCE into a
+# LISTED DECISION: every registered tool must be either asserted or explicitly
+# exempted with a reason, so the gap is visible, counted, and cannot grow
+# without someone writing down why.
+
+#: Tools with no caller assertion, and why. Adding a tool to this list is a
+#: deliberate act that leaves a record; adding one to the server is not — which
+#: is the whole difference this makes.
+#:
+#: **100 entries, generated from the live registry on 2026-08-23.** That number
+#: is the finding, written down: `EXPECTED_CALLS` asserts the payload for 16
+#: tools and the server exposes 116. Every line here is a tool whose ADDRESS is
+#: verified (shapes 1 and 2 cover all 116) and whose LETTER is not — so
+#: re-pointing its path, or changing what it sends, fails no test.
+#:
+#: Work it down rather than treating it as settled. A tool leaves this list by
+#: gaining an `EXPECTED_CALLS` entry; the guard below then fails if it is in
+#: both, or if it names a tool that no longer exists.
+_CALLER_ASSERTION_EXEMPT: dict[str, str] = {
+    # Feature 039 (FR-15): six steps — miStudio's decision (ctx.mistudio), miLLM's copy, miLLM's
+    # OpenAPI (cached), then ONE POST; zero POSTs on any refusal. The shared one-call rule cannot
+    # express that; every step's payload and the exact call counts (cold 3 GET + 1 POST, warm 2 + 1)
+    # are asserted in test_millm_recalibrate_reachable_mcp.py.
+    "millm_recalibrate_probe": "six-step check, payload and exact call counts asserted in "
+                               "test_millm_recalibrate_reachable_mcp.py",
+    "millm_get_environment": "millm_runtime is not in this harness; payload, call count and the "
+                             "closed gate asserted in test_millm_environment_tools.py",
+    "millm_get_environment_history": "asserted (limit payload, one call) in "
+                                     "test_millm_environment_tools.py",
+    "millm_set_telemetry": "key check, fail-closed queue read then ONE PUT; payload and exact "
+                           "call counts asserted in test_millm_set_telemetry.py",
+    "gpu_preflight": "two miStudio reads (gpu-status, active-jobs) plus the miLLM and miForge "
+                     "reads; payload and call counts asserted in test_mcp_gpu_ops.py",
+    # 2026-10-19: approval-gated GPU starts issue TWO calls once approved (consume, then submit),
+    # and the shared rule below asserts exactly one. Both shapes — the first call filing the
+    # request, the re-call consuming it and submitting exactly the approved payload, and approval
+    # off submitting directly — are payload- and count-asserted there.
+    "start_probe_training_run": "payload-asserted in test_mcp_probe_gpu_approval.py",
+    "evaluate_probe_monitor": "payload-asserted in test_mcp_probe_gpu_approval.py",
+    # These five ARE payload-asserted, in tests/unit/test_labeling_trials_reachable_mcp.py,
+    # which also covers the three pre-existing labeling tools. Exempt here to
+    # avoid two competing sources of truth for the same contract, NOT because
+    # the assertion is missing.
+    "list_labeling_templates": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "run_labeling_trial": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "get_labeling_trial": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "list_labeling_trials": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "compare_labeling_trials": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    # WS5. Same file, same shape: EXPECTED_CALLS for four of them, and
+    # `resume_labeling` gets a dedicated pair-assertion because it legitimately
+    # issues two calls (coverage, then the panel).
+    "get_labeling_coverage": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "resume_labeling": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "start_labeling_resume_sweep": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "get_labeling_resume_sweep": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    "cancel_labeling_resume_sweep": "payload-asserted in test_labeling_trials_reachable_mcp.py",
+    # Payload-asserted in test_jlens_reachable_mcp.py (path AND no-body, both
+    # load-bearing: the task id is a path segment, so a fixed path would cancel
+    # nothing while looking right). Exempt here only because this harness builds
+    # a server with the jlens category disabled.
+    "cancel_jlens_task": "payload-asserted in test_jlens_reachable_mcp.py",
+    # The 14 model-management tools ARE payload-asserted, in
+    # tests/unit/test_models_reachable_mcp.py, which also asserts the two
+    # delete gates, the actual-context reporting and the download-progress
+    # honesty. Exempt here to avoid two competing sources of truth for one
+    # contract, NOT because the assertion is missing.
+    "list_models": "payload-asserted in test_models_reachable_mcp.py",
+    "get_model": "payload-asserted in test_models_reachable_mcp.py",
+    "get_model_architecture": "payload-asserted in test_models_reachable_mcp.py",
+    "download_model": "payload-asserted in test_models_reachable_mcp.py",
+    "cancel_model_download": "payload-asserted in test_models_reachable_mcp.py",
+    "delete_model": "payload-asserted in test_models_reachable_mcp.py",
+    "millm_list_models": "payload-asserted in test_models_reachable_mcp.py",
+    "millm_get_model": "payload-asserted in test_models_reachable_mcp.py",
+    "millm_preview_model_repo": "payload-asserted in test_models_reachable_mcp.py",
+    "millm_download_model": "payload-asserted in test_models_reachable_mcp.py",
+    "millm_cancel_download": "payload-asserted in test_models_reachable_mcp.py",
+    # ENH-008: the six relayed tools issue two calls (the fail-closed queue check, then the route); the pair, its
+    # payloads and its count are asserted in test_millm_approvals_relay.py.
+    "millm_unload_model": "payload- and count-asserted in test_millm_approvals_relay.py",
+    "millm_delete_model": "payload- and count-asserted in test_millm_approvals_relay.py",
+    "millm_load_model": "payload- and count-asserted in test_millm_approvals_relay.py",
+    "millm_request_probe_limits": "payload- and count-asserted in test_millm_approvals_relay.py",
+    "millm_measure_probe_capacity": "payload- and count-asserted in test_millm_approvals_relay.py",
+    "acquire_jlens_artifact": "no payload fixture yet — MIS-E2E-119 backlog",
+    "build_circuit_from_discovery": "no payload fixture yet — MIS-E2E-119 backlog",
+    "calibrate_circuit_strength": "no payload fixture yet — MIS-E2E-119 backlog",
+    "cancel_steering_task": "no payload fixture yet — MIS-E2E-119 backlog",
+    "compute_cluster_allocation": "no payload fixture yet — MIS-E2E-119 backlog",
+    "compute_feature_groups": "no payload fixture yet — MIS-E2E-119 backlog",
+    "compute_jlens_band_report": "no payload fixture yet — MIS-E2E-119 backlog",
+    "create_circuit": "no payload fixture yet — MIS-E2E-119 backlog",
+    "create_jlens_watchlist": "no payload fixture yet — MIS-E2E-119 backlog",
+    "delete_circuit": "no payload fixture yet — MIS-E2E-119 backlog",
+    "delete_experiment": "no payload fixture yet — MIS-E2E-119 backlog",
+    "delete_extraction": "no payload fixture yet — MIS-E2E-119 backlog",
+    "enter_steering_mode": "no payload fixture yet — MIS-E2E-119 backlog",
+    "exit_steering_mode": "no payload fixture yet — MIS-E2E-119 backlog",
+    "export_circuit_definition": "no payload fixture yet — MIS-E2E-119 backlog",
+    "export_circuit_slices": "no payload fixture yet — MIS-E2E-119 backlog",
+    "export_cluster_definition": "no payload fixture yet — MIS-E2E-119 backlog",
+    "find_features_by_token": "no payload fixture yet — MIS-E2E-119 backlog",
+    "find_related_features": "no payload fixture yet — MIS-E2E-119 backlog",
+    "fit_jlens_artifact": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_circuit": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_cluster_profile": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_discovery_results": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_enhanced_label": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_experiment": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_extraction_summary": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_ablation": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_correlations": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_examples": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_group_members": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_groups": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_logit_lens": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_nlp_analysis": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_feature_token_analysis": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_grouping_status": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_jlens_band_report": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_jlens_gate": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_jlens_interventions": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_jlens_readout": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_jlens_replication_report": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_steering_mode": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_steering_result": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_steering_samples": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_task_status": "no payload fixture yet — MIS-E2E-119 backlog",
+    "get_validation_manifest": "no payload fixture yet — MIS-E2E-119 backlog",
+    "import_circuit_definition": "no payload fixture yet — MIS-E2E-119 backlog",
+    "jlens_cost_estimate": "no payload fixture yet — MIS-E2E-119 backlog",
+    "jlens_readout": "no payload fixture yet — MIS-E2E-119 backlog",
+    "list_circuit_captures": "no payload fixture yet — MIS-E2E-119 backlog",
+    "list_cluster_profiles": "no payload fixture yet — MIS-E2E-119 backlog",
+    "list_experiments": "no payload fixture yet — MIS-E2E-119 backlog",
+    "list_extractions": "no payload fixture yet — MIS-E2E-119 backlog",
+    "list_jlens_artifacts": "no payload fixture yet — MIS-E2E-119 backlog",
+    "list_trainings": "no payload fixture yet — MIS-E2E-119 backlog",
+    "list_validation_manifests": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_activate_cluster": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_activate_profile": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_deactivate_cluster": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_deactivate_profile": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_export_cluster": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_hub_search": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_import_cluster": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_list_clusters": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_list_profiles": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_sensing_config": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_sensing_disable": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_sensing_enable": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_sensing_events": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_sensing_status": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_set_intensity": "no payload fixture yet — MIS-E2E-119 backlog",
+    "millm_status": "no payload fixture yet — MIS-E2E-119 backlog",
+    "mistudio_howto": "no payload fixture yet — MIS-E2E-119 backlog",
+    "preview_jlens_repo": "no payload fixture yet — MIS-E2E-119 backlog",
+    "promote_circuit": "no payload fixture yet — MIS-E2E-119 backlog",
+    "publish_jlens_artifact": "no payload fixture yet — MIS-E2E-119 backlog",
+    "record_jlens_gate": "no payload fixture yet — MIS-E2E-119 backlog",
+    "record_steering_samples": "no payload fixture yet — MIS-E2E-119 backlog",
+    "reproduce_calibration": "no payload fixture yet — MIS-E2E-119 backlog",
+    "reproduce_validation": "no payload fixture yet — MIS-E2E-119 backlog",
+    "restore_jlens_artifact": "no payload fixture yet — MIS-E2E-119 backlog",
+    "run_attribution_pass": "no payload fixture yet — MIS-E2E-119 backlog",
+    "run_circuit_discovery": "no payload fixture yet — MIS-E2E-119 backlog",
+    "run_circuit_faithfulness": "no payload fixture yet — MIS-E2E-119 backlog",
+    "run_enhanced_labeling": "no payload fixture yet — MIS-E2E-119 backlog",
+    "save_cluster_profile": "no payload fixture yet — MIS-E2E-119 backlog",
+    "save_experiment": "no payload fixture yet — MIS-E2E-119 backlog",
+    "search_features": "no payload fixture yet — MIS-E2E-119 backlog",
+    "start_circuit_capture": "no payload fixture yet — MIS-E2E-119 backlog",
+    "steer_combined": "no payload fixture yet — MIS-E2E-119 backlog",
+    "steer_compare": "no payload fixture yet — MIS-E2E-119 backlog",
+    "steer_sweep": "no payload fixture yet — MIS-E2E-119 backlog",
+    "steering_status": "no payload fixture yet — MIS-E2E-119 backlog",
+    "update_circuit": "no payload fixture yet — MIS-E2E-119 backlog",
+    "update_feature_label": "no payload fixture yet — MIS-E2E-119 backlog",
+    "validate_circuit_edges": "no payload fixture yet — MIS-E2E-119 backlog",
+    "validate_jlens_artifact": "no payload fixture yet — MIS-E2E-119 backlog",
+}
+
+
+def _all_registered_tool_names(monkeypatch) -> set[str]:
+    """Every tool on the REAL built server, with EVERY category enabled.
+
+    The real build path and its real signature — same as shape 2 above. A
+    hand-called `register()` would prove the modules work and say nothing about
+    what the server actually exposes, which is the defect this whole file
+    exists to catch.
+    """
+    from src.mcp_server.config import MCPSettings
+    from src.mcp_server.products import PRODUCTS
+    from src.mcp_server.server import build_server
+    from src.mcp_server.tools import all_categories
+
+    # EVERY product's URL (Feature 034, FR-28). This set MILLM_API_URL alone, so a
+    # second product's categories would be skipped at registration and its tools
+    # silently absent from the very set this accounting is computed over.
+    for spec in PRODUCTS:
+        monkeypatch.setenv(spec.url_env, f"http://{spec.name}.test")
+    every_category = ",".join(sorted(all_categories()))
+    settings = MCPSettings(tool_categories=every_category, allow_anonymous=True)
+    mcp, _client = build_server(settings, stdio=True)
+    return {t.name for t in asyncio.run(mcp.list_tools())}
+
+
+class TestCallerCoverageIsAccounted:
+    """Every tool is either payload-asserted or explicitly exempted."""
+
+    def test_the_registry_is_not_empty(self, monkeypatch):
+        """Negative control. A discovery step that discovers nothing turns
+        every assertion below into a tautology — the exact way three guards in
+        this audit failed OPEN."""
+        names = _all_registered_tool_names(monkeypatch)
+        assert len(names) > 50, (
+            f"only {len(names)} tools discovered — the registry walk broke"
+        )
+
+    def test_every_product_with_categories_contributes_tools(self, monkeypatch):
+        """Feature 034 SC-3. The every-category harness must actually REACH each product: a
+        product whose URL the harness forgot to set is skipped at registration, and every
+        accounting rule below then passes over a set that silently lacks it.
+
+        Control (recorded 2026-10-16, task 1.10): deleting the `setenv(spec.url_env, …)` line
+        from `_all_registered_tool_names` → this test red; restored, diff clean.
+        """
+        from src.mcp_server.tools import EXTERNAL_PRODUCTS
+
+        names = _all_registered_tool_names(monkeypatch)
+        for product in EXTERNAL_PRODUCTS:
+            if not product.categories:
+                continue
+            declared = {
+                t for modules in product.categories.values()
+                for module in modules for t in _tool_names_in(module)
+            }
+            assert declared, f"{product.spec.name}: no declared tools — extraction broken"
+            assert declared & names, (
+                f"the every-category harness reached NO {product.spec.name} tool — "
+                f"{product.spec.url_env} is not set there, so its categories were skipped"
+            )
+            assert declared <= names, sorted(declared - names)
+
+    def test_every_tool_is_asserted_or_listed(self, monkeypatch):
+        registered = _all_registered_tool_names(monkeypatch)
+        accounted = set(EXPECTED_CALLS) | set(_CALLER_ASSERTION_EXEMPT)
+        unaccounted = registered - accounted
+        assert not unaccounted, (
+            f"{len(unaccounted)} tools have neither a payload assertion nor a "
+            f"listed exemption. Add an EXPECTED_CALLS entry, or add the name to "
+            f"_CALLER_ASSERTION_EXEMPT with the reason — silence is what let "
+            f"100 of 116 tools ship with the address verified and not the "
+            f"letter:\n  " + "\n  ".join(sorted(unaccounted))
+        )
+
+    def test_the_exemption_list_has_no_stale_entries(self, monkeypatch):
+        """An exemption for a tool that no longer exists hides a real gap by
+        inflating the accounted set."""
+        registered = _all_registered_tool_names(monkeypatch)
+        stale = set(_CALLER_ASSERTION_EXEMPT) - registered
+        assert not stale, f"exemptions for tools that no longer exist: {sorted(stale)}"
+
+    def test_no_tool_is_both_asserted_and_exempted(self):
+        """An exemption alongside an assertion is a contradiction, and the kind
+        that quietly outlives the assertion it was meant to replace."""
+        both = set(EXPECTED_CALLS) & set(_CALLER_ASSERTION_EXEMPT)
+        assert not both, (
+            f"these tools have a payload assertion AND an exemption: "
+            f"{sorted(both)} — remove the exemption"
+        )
+
+    def test_no_exemption_carries_an_empty_reason(self):
+        blank = [k for k, v in _CALLER_ASSERTION_EXEMPT.items() if not v.strip()]
+        assert not blank, f"exemptions with no reason recorded: {blank}"

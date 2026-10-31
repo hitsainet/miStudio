@@ -1,0 +1,137 @@
+# -------------------------
+# RULE RUNNER (Feature 040 S4; FTDD Appendix C.4, C.7; spec D34, D41) — operator code rules, isolated
+# -------------------------
+# miStudio's OWN runner host: runs each operator code rule inside the published WebAssembly guest of the vendored
+# runner contract (docs/schemas/midataworks-runner-v1.json) on Wasmtime — fresh instance per (text, function),
+# fuel, a memory cap, an epoch deadline, no preopened directory, an empty environment, no sockets.
+#
+# A SEPARATE Deployment, never a container of mistudio-backend (040-A1): that pod runs as root, sees every GPU and
+# holds database-url and secret-key, and a NetworkPolicy cannot isolate one container of a pod.
+#
+# PROPERTY 1 (no secret; backend/tests/unit/test_rule_runner_manifest.py): no env/envFrom from any Secret or
+# ConfigMap, no volume, no service-account token, non-root, read-only root, no capability, no GPU
+# (NVIDIA_VISIBLE_DEVICES=void, explicitly: the node's default runtime is nvidia).
+# PROPERTY 2 (no outbound connection, guest bypassed): the NetworkPolicy below — egress [] (DNS included), ingress
+# only from the backend pod (app: mistudio-backend) on 8080. Verified live after each runner deploy (FTASKS 26.4)
+# before `code_rules_enabled` may be turned on.
+#
+# DEPLOY SAFETY (S4 choice, recorded in the 040 controls record): seccompProfile RuntimeDefault — NOT a Localhost
+# profile, so this pod never depends on a file installed on the node. And NOTHING in mistudio-backend depends on
+# this pod: no init container, no readiness gate, no startup check. With the runner absent, unready or crash-
+# looping, the backend serves as before and every code-rule expression reads PENDING (runner_unavailable /
+# rule_worker_unavailable; D41, D44) — never a refusal of the rule set and never "did not fire".
+#
+# Image: hitsai/mistudio-rule-runner (rule_runner/Dockerfile), its own entry in kustomization.yaml `images`.
+# ⚠ Operator item: ArgoCD Image Updater tracks this image through k8s/argocd/mistudio-app.yaml (alias `rulerunner`,
+# Review R2), a file the operator applies BY HAND; until it is re-applied the tag below is pulled as `latest`
+# (imagePullPolicy Always) when the pod starts, and a new image does not roll the runner.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mistudio-rule-runner
+  namespace: mistudio
+  labels:
+    app: mistudio-rule-runner
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: mistudio-rule-runner
+  template:
+    metadata:
+      labels:
+        app: mistudio-rule-runner
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rule-runner
+          image: hitsai/mistudio-rule-runner:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            # Literal values only — never a secretKeyRef/configMapKeyRef (Property 1).
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: RUNNER_PORT
+              value: "8080"
+            # Review R2 debt D5: every lane slot (2 interactive + 2 batch) may hold one instance at this ceiling;
+            # 4 × 256 MiB + the process's own (337 MiB peak measured for miDataworks 018 R2 Q2; 512 MiB reserved)
+            # stays inside the 2Gi limit below. The backend refuses a `code_rule_memory_bytes` above it at write and
+            # at start (`core/config.CODE_RULE_RUNNER_CEILINGS`, pinned to this value by test_review_r2_s4_debt.py),
+            # and never sends a text longer than `code_rule_input_code_points` (default 65,536: a 256-text body
+            # stays near 64 MiB at the default). Bodies at a RAISED input limit are outside this sum (recorded debt).
+            - name: RUNNER_MAX_MEMORY_BYTES
+              value: "268435456"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mistudio-rule-runner
+  namespace: mistudio
+spec:
+  type: ClusterIP
+  selector:
+    app: mistudio-rule-runner
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# PROPERTY 2. Selects ONLY the runner. Egress: none at all (not even DNS). Ingress: the backend pod (the API
+# container and celery-worker-rules are its only callers) on 8080. The MCP pod is NOT admitted.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mistudio-rule-runner
+  namespace: mistudio
+spec:
+  podSelector:
+    matchLabels:
+      app: mistudio-rule-runner
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: mistudio-backend
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress: []

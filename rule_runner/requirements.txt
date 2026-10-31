@@ -1,0 +1,9 @@
+# hitsai/mistudio-rule-runner (Feature 040 S4; FTDD Appendix C.4). Its OWN pins, a separate image on
+# python:3.13-slim: Wasmtime at the major the vendored runner contract names (runtime.major = 50; a different
+# major changes fuel and is a contract matter, not an upgrade) and a small HTTP server stack. The same
+# starlette/uvicorn/anyio versions as backend/requirements.txt. It never imports the backend's services,
+# models, config or database (backend/tests/unit/test_rule_runner_is_self_contained.py).
+wasmtime==50.0.1
+starlette==1.9.0
+uvicorn==0.54.0
+anyio==4.15.1

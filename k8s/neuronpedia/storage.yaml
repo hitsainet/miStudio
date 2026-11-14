@@ -1,0 +1,116 @@
+# Neuronpedia data-bearing storage — APPLIED OUT-OF-BAND, NOT BY ARGOCD.
+#
+# ⚠ DELIBERATELY ABSENT FROM `base/kustomization.yaml`, and that is not an oversight: the
+# kustomization says so in its own header. ArgoCD `selfHeal` reconciling a data-bearing volume
+# is how a database gets deleted by a sync. This file exists so the resources are RECORDED and
+# REPRODUCIBLE, not so they are automatically applied.
+#
+#     microk8s kubectl apply -f k8s/neuronpedia/storage.yaml
+#
+# ⚠ WHY THIS FILE EXISTS AT ALL — NEURONPEDIA WAS DOWN FOR 19 DAYS AND NOTHING SAID WHY.
+#
+# These PVs were created ad hoc and tracked in no manifest anywhere. When the GPU node moved
+# from `mcs-lnxgpu01` to `mcs-lnxhost02` on 2026-09-13, `k8s/base/postgres.yaml` and
+# `redis.yaml` were repinned and their comments record it — but Neuronpedia's volumes were
+# invisible to that migration because they existed only in the cluster. Postgres then sat
+# `Pending` with `volume node affinity conflict`, the webapp's `wait-for-db` init container
+# spun for 19 days across 8 restarts, and the only trace was a scheduler message nobody read.
+#
+# A resource that lives only in a cluster cannot be migrated with the cluster. That is the
+# lesson, and it is why this is in git even though nothing applies it automatically.
+#
+# ⚠ `hostPath` + `DirectoryOrCreate` FAILS SILENTLY INTO AN EMPTY DATABASE. Repointing
+# `nodeAffinity` at a node that has no `/data/neuronpedia/postgres` does not error — it creates
+# an empty directory and Neuronpedia comes up looking healthy with nothing in it. If you ever
+# move this again, MOVE THE DATA FIRST and verify it at the destination before repinning.
+#
+# ⚠ `nodeAffinity` IS IMMUTABLE on an existing PV. Changing it means deleting and recreating
+# the PV and its PVC. With `persistentVolumeReclaimPolicy: Retain` that does not touch the
+# files on disk, but it does unbind the claim.
+#
+# HISTORY
+#   2026-09-13  GPU and workloads moved mcs-lnxgpu01 -> mcs-lnxhost02. These volumes were not
+#               moved and were not noticed.
+#   2026-10-02  Repinned to mcs-lnxhost02 and STARTED FRESH, by operator decision. The old data
+#               stayed on mcs-lnxgpu01, which is unreachable (`no route to host`) and has no
+#               backup — Neuronpedia never had a backup CronJob, unlike mistudio and millm.
+#               miStudio had never successfully pushed to it (`neuronpedia_pushes` = 0 rows),
+#               so nothing derived from this estate was lost.
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: neuronpedia-postgres-pv
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: neuronpedia-local-storage
+  volumeMode: Filesystem
+  hostPath:
+    path: /data/neuronpedia/postgres
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - mcs-lnxhost02
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: neuronpedia-postgres-pvc
+  namespace: neuronpedia
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: neuronpedia-local-storage
+  volumeName: neuronpedia-postgres-pv
+---
+# Bound but mounted by nothing — the webapp declares no PVC volumes. Kept so the pair is
+# described in one place; repinned for the same reason.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: neuronpedia-hf-cache-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: neuronpedia-local-storage
+  volumeMode: Filesystem
+  hostPath:
+    path: /data/neuronpedia/huggingface-cache
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - mcs-lnxhost02
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: neuronpedia-hf-cache-pvc
+  namespace: neuronpedia
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: neuronpedia-local-storage
+  volumeName: neuronpedia-hf-cache-pv

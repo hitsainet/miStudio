@@ -1,0 +1,720 @@
+{
+ "_source": "Read 2026-11-09 with the read-only MCP tools list_probe_training_runs(status=completed, detail=full) and list_probe_datasets(detail=full); only the fields the time forecast reads are kept. ENH-006 G15.",
+ "runs": [
+  {
+   "id": "pmr_2da5b9c6af8f",
+   "model_id": "m_40e78d80",
+   "status": "completed",
+   "gpu_uuid": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57",
+   "config": {
+    "scope": "all",
+    "rules": [
+     "mean",
+     "max",
+     "rolling_mean_max"
+    ],
+    "rolling_windows": [
+     16,
+     32
+    ],
+    "top_n_layers": 1,
+    "sae_variant": false,
+    "sae_k": [
+     128
+    ],
+    "eval_max_rows": 5000,
+    "calibration_max_rows": 7500,
+    "layers": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ]
+   },
+   "environment": {
+    "render": {
+     "rendered": 33550,
+     "scored_tokens": 4257928,
+     "template_prefix_skipped": 1006500
+    },
+    "layers_swept": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ],
+    "stage_seconds": {
+     "rung": 0.066,
+     "training": 15615.234,
+     "rendering": 31.129,
+     "evaluating": 5374.876,
+     "calibrating": 922.002,
+     "token_capture": 2669.931,
+     "pooled_capture": 3395.292,
+     "layer_selection": 218.889
+    },
+    "training_device": {
+     "14": {
+      "device": "cpu",
+      "reason": "the batches need 43.70 GiB with headroom and the card has 8.44 GiB free",
+      "free_bytes": 9067167744,
+      "batch_bytes": 35815931904
+     }
+    },
+    "memory_forecast": {
+     "batches_bytes": 35815931904
+    }
+   },
+   "layer_selection": {
+    "chosen": [
+     14
+    ]
+   },
+   "eval_dataset_ids": [
+    "pmd_0df63ef937a4",
+    "pmd_1bebbaaaa61c",
+    "pmd_47c440ba9a03",
+    "pmd_e2da94e72f5d",
+    "pmd_b1f459c4693d",
+    "pmd_03e7d9c82e6b"
+   ],
+   "calibration_dataset_id": "pmd_ca6b3814c34a",
+   "created_at": "2026-11-08T18:10:38.515397Z",
+   "completed_at": "2026-11-09T02:01:37.241339Z"
+  },
+  {
+   "id": "pmr_55715c1c87e2",
+   "model_id": "m_40e78d80",
+   "status": "completed",
+   "gpu_uuid": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57",
+   "config": {
+    "scope": "all",
+    "rules": [
+     "mean",
+     "max",
+     "attention"
+    ],
+    "rolling_windows": [
+     16,
+     32
+    ],
+    "top_n_layers": 1,
+    "sae_variant": false,
+    "sae_k": [
+     128
+    ],
+    "eval_max_rows": 5000,
+    "calibration_max_rows": 7500,
+    "layers": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ]
+   },
+   "environment": {
+    "render": {
+     "rendered": 32089,
+     "scored_tokens": 5070005
+    },
+    "layers_swept": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ],
+    "stage_seconds": {
+     "rung": 0.027,
+     "training": 6486.468,
+     "rendering": 34.595,
+     "evaluating": 5214.485,
+     "calibrating": 880.212,
+     "token_capture": 2569.674,
+     "pooled_capture": 2928.88,
+     "layer_selection": 57.003
+    },
+    "training_device": {
+     "14": {
+      "device": "cpu",
+      "reason": "the batches need 51.13 GiB with headroom and the card has 8.13 GiB free",
+      "free_bytes": 8732737536,
+      "batch_bytes": 42198925312
+     }
+    },
+    "memory_forecast": {
+     "batches_bytes": 42198925312
+    }
+   },
+   "layer_selection": {
+    "chosen": [
+     14
+    ]
+   },
+   "eval_dataset_ids": [
+    "pmd_b7aae6d7951e",
+    "pmd_e59c72e8763d",
+    "pmd_6ccd8de23571",
+    "pmd_28bb7b539ab4",
+    "pmd_b1f459c4693d",
+    "pmd_03e7d9c82e6b"
+   ],
+   "calibration_dataset_id": "pmd_8c0eaea2f97d",
+   "created_at": "2026-11-07T11:34:47.550568Z",
+   "completed_at": "2026-11-07T22:35:58.203499Z"
+  },
+  {
+   "id": "pmr_64ea4248247a",
+   "model_id": "m_40e78d80",
+   "status": "completed",
+   "gpu_uuid": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57",
+   "config": {
+    "scope": "all",
+    "rules": [
+     "mean",
+     "max",
+     "attention"
+    ],
+    "rolling_windows": [
+     16,
+     32
+    ],
+    "top_n_layers": 1,
+    "sae_variant": false,
+    "sae_k": [
+     128
+    ],
+    "eval_max_rows": 5000,
+    "calibration_max_rows": 7500,
+    "layers": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ]
+   },
+   "environment": {
+    "render": {
+     "rendered": 33550,
+     "scored_tokens": 5264428
+    },
+    "layers_swept": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ],
+    "stage_seconds": {
+     "rung": 0.046,
+     "training": 8841.281,
+     "rendering": 31.51,
+     "evaluating": 5393.468,
+     "calibrating": 920.868,
+     "token_capture": 2697.452,
+     "pooled_capture": 3386.669,
+     "layer_selection": 222.647
+    },
+    "training_device": {
+     "14": {
+      "device": "cpu",
+      "reason": "the batches need 52.98 GiB with headroom and the card has 8.11 GiB free",
+      "free_bytes": 8711766016,
+      "batch_bytes": 43787550720
+     }
+    },
+    "memory_forecast": {
+     "batches_bytes": 43787550720
+    }
+   },
+   "layer_selection": {
+    "chosen": [
+     14
+    ]
+   },
+   "eval_dataset_ids": [
+    "pmd_0df63ef937a4",
+    "pmd_1bebbaaaa61c",
+    "pmd_47c440ba9a03",
+    "pmd_e2da94e72f5d",
+    "pmd_b1f459c4693d",
+    "pmd_03e7d9c82e6b"
+   ],
+   "calibration_dataset_id": "pmd_ca6b3814c34a",
+   "created_at": "2026-11-07T11:34:09.774502Z",
+   "completed_at": "2026-11-07T17:32:36.048892Z"
+  },
+  {
+   "id": "pmr_a9568b05afce",
+   "model_id": "m_40e78d80",
+   "status": "completed",
+   "gpu_uuid": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57",
+   "config": {
+    "scope": "all",
+    "rules": [
+     "mean",
+     "max",
+     "attention"
+    ],
+    "rolling_windows": [
+     16,
+     32
+    ],
+    "top_n_layers": 1,
+    "sae_variant": false,
+    "sae_k": [
+     128
+    ],
+    "eval_max_rows": 5000,
+    "calibration_max_rows": 7500,
+    "layers": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ]
+   },
+   "environment": {
+    "render": {
+     "rendered": 30158,
+     "scored_tokens": 4046007
+    },
+    "layers_swept": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ],
+    "stage_seconds": {
+     "rung": 0.056,
+     "training": 9184.403,
+     "rendering": 23.82,
+     "evaluating": 5622.645,
+     "calibrating": 920.636,
+     "token_capture": 2205.388,
+     "pooled_capture": 2769.447,
+     "layer_selection": 370.047
+    },
+    "training_device": {
+     "8": {
+      "device": "cpu",
+      "reason": "the batches need 41.35 GiB with headroom and the card has 8.11 GiB free",
+      "free_bytes": 8711766016,
+      "batch_bytes": 33797685248
+     }
+    },
+    "memory_forecast": {
+     "batches_bytes": 33797685248
+    }
+   },
+   "layer_selection": {
+    "chosen": [
+     8
+    ]
+   },
+   "eval_dataset_ids": [
+    "pmd_947edb6acbc4",
+    "pmd_b0b80ef82844",
+    "pmd_9e2377865817",
+    "pmd_0f7b636f112e",
+    "pmd_165a1435e69d",
+    "pmd_b1f459c4693d",
+    "pmd_03e7d9c82e6b"
+   ],
+   "calibration_dataset_id": "pmd_ee535c24b1a1",
+   "created_at": "2026-11-05T11:25:55.109722Z",
+   "completed_at": "2026-11-05T17:18:56.974426Z"
+  },
+  {
+   "id": "pmr_dae885c03d6c",
+   "model_id": "m_40e78d80",
+   "status": "completed",
+   "gpu_uuid": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57",
+   "config": {
+    "scope": "all",
+    "rules": [
+     "mean",
+     "max",
+     "attention"
+    ],
+    "rolling_windows": [
+     16,
+     32
+    ],
+    "top_n_layers": 1,
+    "sae_variant": false,
+    "sae_k": [
+     128
+    ],
+    "eval_max_rows": 5000,
+    "calibration_max_rows": 7500,
+    "layers": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ]
+   },
+   "environment": {
+    "render": {
+     "rendered": 28456,
+     "scored_tokens": 3816090
+    },
+    "layers_swept": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ],
+    "stage_seconds": {
+     "rung": 0.059,
+     "training": 1847.836,
+     "rendering": 22.513,
+     "evaluating": 5615.484,
+     "calibrating": 921.296,
+     "token_capture": 2071.233,
+     "pooled_capture": 2621.219,
+     "layer_selection": 334.66
+    },
+    "training_device": {
+     "8": {
+      "device": "cpu",
+      "reason": "the batches need 76.26 GiB with headroom and the card has 8.11 GiB free",
+      "free_bytes": 8711766016,
+      "batch_bytes": 63788449792
+     }
+    },
+    "memory_forecast": {
+     "batches_bytes": 63788449792
+    }
+   },
+   "layer_selection": {
+    "chosen": [
+     8
+    ]
+   },
+   "eval_dataset_ids": [
+    "pmd_947edb6acbc4",
+    "pmd_b0b80ef82844",
+    "pmd_9e2377865817",
+    "pmd_0f7b636f112e",
+    "pmd_165a1435e69d",
+    "pmd_b1f459c4693d",
+    "pmd_03e7d9c82e6b"
+   ],
+   "calibration_dataset_id": "pmd_ee535c24b1a1",
+   "created_at": "2026-11-04T22:57:03.936984Z",
+   "completed_at": "2026-11-05T02:41:18.718409Z"
+  },
+  {
+   "id": "pmr_192c5725e9c0",
+   "model_id": "m_40e78d80",
+   "status": "completed",
+   "gpu_uuid": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57",
+   "config": {
+    "scope": "all",
+    "rules": [
+     "mean",
+     "max",
+     "attention"
+    ],
+    "rolling_windows": [
+     16,
+     32
+    ],
+    "top_n_layers": 1,
+    "sae_variant": false,
+    "sae_k": [
+     128
+    ],
+    "eval_max_rows": 5000,
+    "calibration_max_rows": 7500,
+    "layers": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ]
+   },
+   "environment": {
+    "render": {
+     "rendered": 11387,
+     "scored_tokens": 1562985
+    },
+    "layers_swept": [
+     8,
+     10,
+     12,
+     14,
+     16,
+     18,
+     20,
+     22,
+     24
+    ],
+    "stage_seconds": {
+     "rung": 0.033,
+     "training": 555.927,
+     "rendering": 9.559,
+     "evaluating": 4838.809,
+     "calibrating": 919.64,
+     "token_capture": 840.542,
+     "pooled_capture": 1062.083,
+     "layer_selection": 85.398
+    },
+    "training_device": {
+     "8": {
+      "device": "cpu",
+      "reason": "the batches need 33.16 GiB with headroom and the card has 8.13 GiB free",
+      "free_bytes": 8732737536,
+      "batch_bytes": 26770128896
+     }
+    },
+    "memory_forecast": {
+     "batches_bytes": 26770128896
+    }
+   },
+   "layer_selection": {
+    "chosen": [
+     8
+    ]
+   },
+   "eval_dataset_ids": [
+    "pmd_e0616b0724a7",
+    "pmd_f28a6a270593",
+    "pmd_b4759e902ef2",
+    "pmd_c6ca1094d614",
+    "pmd_b1f459c4693d",
+    "pmd_03e7d9c82e6b"
+   ],
+   "calibration_dataset_id": "pmd_ee535c24b1a1",
+   "created_at": "2026-11-04T10:11:04.533379Z",
+   "completed_at": "2026-11-04T12:29:40.618602Z"
+  },
+  {
+   "id": "pmr_8a54cf9c1112",
+   "model_id": "m_40e78d80",
+   "status": "completed",
+   "gpu_uuid": "GPU-247aa582-0d1b-e161-8156-983ed1fefc57",
+   "config": {
+    "scope": "all",
+    "rules": [
+     "mean"
+    ],
+    "rolling_windows": [
+     16
+    ],
+    "top_n_layers": 1,
+    "sae_variant": false,
+    "sae_k": [
+     128
+    ],
+    "eval_max_rows": null,
+    "calibration_max_rows": 2000,
+    "layers": [
+     16
+    ]
+   },
+   "environment": {
+    "render": {
+     "rendered": 8000,
+     "scored_tokens": 1003703
+    },
+    "layers_swept": [
+     16
+    ],
+    "stage_seconds": {
+     "training": 536.964,
+     "rendering": 3.294,
+     "evaluating": 1110.373,
+     "calibrating": 463.18,
+     "token_capture": 829.822,
+     "pooled_capture": 818.186,
+     "layer_selection": 2.835
+    }
+   },
+   "layer_selection": {
+    "chosen": [
+     16
+    ]
+   },
+   "eval_dataset_ids": [
+    "pmd_08f7b9bb4778",
+    "pmd_8ea3ae79a75d",
+    "pmd_2f2623b29a40",
+    "pmd_c5187e0268d4",
+    "pmd_4c6f6787a238"
+   ],
+   "calibration_dataset_id": "pmd_3222ea3bc591",
+   "created_at": "2026-10-04T16:23:10.541349Z",
+   "completed_at": "2026-10-04T17:25:59.077572Z"
+  }
+ ],
+ "view_counts": {
+  "pmd_03e7d9c82e6b": {
+   "positive": 0,
+   "negative": 2000
+  },
+  "pmd_08f7b9bb4778": {
+   "positive": 1492,
+   "negative": 1492
+  },
+  "pmd_0df63ef937a4": {
+   "positive": 96,
+   "negative": 1347
+  },
+  "pmd_0f7b636f112e": {
+   "positive": 1059,
+   "negative": 2055
+  },
+  "pmd_165a1435e69d": {
+   "positive": 43,
+   "negative": 103
+  },
+  "pmd_1bebbaaaa61c": {
+   "positive": 376,
+   "negative": 2269
+  },
+  "pmd_28bb7b539ab4": {
+   "positive": 89,
+   "negative": 2055
+  },
+  "pmd_2f2623b29a40": {
+   "positive": 270,
+   "negative": 270
+  },
+  "pmd_3222ea3bc591": {
+   "positive": 0,
+   "negative": 1001551
+  },
+  "pmd_47c440ba9a03": {
+   "positive": 362,
+   "negative": 1963
+  },
+  "pmd_4c6f6787a238": {
+   "positive": 367,
+   "negative": 367
+  },
+  "pmd_6ccd8de23571": {
+   "positive": 85,
+   "negative": 1963
+  },
+  "pmd_8c0eaea2f97d": {
+   "positive": 0,
+   "negative": 7500
+  },
+  "pmd_8ea3ae79a75d": {
+   "positive": 621,
+   "negative": 621
+  },
+  "pmd_947edb6acbc4": {
+   "positive": 224,
+   "negative": 1360
+  },
+  "pmd_9e2377865817": {
+   "positive": 901,
+   "negative": 1963
+  },
+  "pmd_b0b80ef82844": {
+   "positive": 903,
+   "negative": 2269
+  },
+  "pmd_b1f459c4693d": {
+   "positive": 0,
+   "negative": 1000000
+  },
+  "pmd_b4759e902ef2": {
+   "positive": 328,
+   "negative": 770
+  },
+  "pmd_b7aae6d7951e": {
+   "positive": 26,
+   "negative": 1347
+  },
+  "pmd_c5187e0268d4": {
+   "positive": 302,
+   "negative": 302
+  },
+  "pmd_c6ca1094d614": {
+   "positive": 390,
+   "negative": 805
+  },
+  "pmd_ca6b3814c34a": {
+   "positive": 0,
+   "negative": 7500
+  },
+  "pmd_e0616b0724a7": {
+   "positive": 84,
+   "negative": 496
+  },
+  "pmd_e2da94e72f5d": {
+   "positive": 427,
+   "negative": 2055
+  },
+  "pmd_e59c72e8763d": {
+   "positive": 81,
+   "negative": 2269
+  },
+  "pmd_ee535c24b1a1": {
+   "positive": 0,
+   "negative": 7500
+  },
+  "pmd_f28a6a270593": {
+   "positive": 332,
+   "negative": 880
+  }
+ }
+}

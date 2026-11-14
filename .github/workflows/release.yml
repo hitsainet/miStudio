@@ -1,0 +1,38 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    # HARD STOP: only run in hitsainet/miWorkbench (public repo)
+    if: github.repository == 'hitsainet/miWorkbench'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          make_latest: true
+          body: |
+            ## Docker Images
+
+            ```
+            docker pull hitsai/miworkbench-backend:${{ github.ref_name }}
+            docker pull hitsai/miworkbench-frontend:${{ github.ref_name }}
+            docker pull hitsai/miworkbench-rule-runner:${{ github.ref_name }}
+            ```
+
+            ## Changelog

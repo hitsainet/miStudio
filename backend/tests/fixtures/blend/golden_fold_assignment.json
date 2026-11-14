@@ -1,0 +1,6 @@
+{
+  "scikit_learn": "1.9.1",
+  "seed": 5,
+  "fixture": "tests/support/blend_fixtures.build(5)",
+  "assignment_digest": "e679c8f67d6a9519ecf8b96866041da65f8cc27672ae133bceac136188e192b9"
+}

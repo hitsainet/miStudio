@@ -1,0 +1,168 @@
+# -------------------------
+# MCP SERVER (Feature 010 — agentic access, opt-in)
+# Disable: kubectl -n miworkbench scale deploy/miworkbench-mcp --replicas=0
+# Exposed through `miworkbench-mcp-ingress` below (bearer token on every request
+# except /health; proven against the assembled app by
+# backend/tests/unit/test_mcp_http_auth.py). Requires mcp-auth-token in
+# miworkbench-secrets — without it the pod refuses to start rather than serve open.
+# -------------------------
+# Reuses the hitsai/miworkbench-backend image. Its tag/digest is managed by ArgoCD
+# Image Updater via the single kustomization images entry — do not hand-edit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miworkbench-mcp
+  namespace: miworkbench
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: miworkbench-mcp
+  template:
+    metadata:
+      labels:
+        app: miworkbench-mcp
+      annotations:
+        # 042 CF-27: bumped with every config-only change (see backend.yaml).
+        rebrand.hitsai/config-rev: "0bd9e05cc"
+    spec:
+      containers:
+        - name: mcp-server
+          image: hitsai/miworkbench-backend:latest
+          command: ["python", "-m", "src.mcp_server"]
+          ports:
+            - containerPort: 8765
+          env:
+            # ENH-009 (042 FR-042.8): the new name (the old MISTUDIO_API_URL is retired since P7: never read);
+            # the short Service name resolves in this pod's own namespace.
+            - name: MIWORKBENCH_API_URL
+              value: http://miworkbench-backend:8000
+            - name: MCP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: miworkbench-secrets
+                  key: mcp-auth-token
+            - name: MCP_TOOL_CATEGORIES
+              # THIS is the manifest ArgoCD deploys (k8s/base via kustomize).
+              # `circuits` is in the code's DEFAULT_CATEGORIES and this explicit
+              # list silently overrode it, so all 19 circuit tools AND the 16
+              # millm_circuit_* tools were unreachable in production while
+              # being registered, tested and documented.
+              #
+              # `admin` stays OFF deliberately — two irreversible delete tools
+              # (delete_extraction takes every feature, label and activation
+              # example with it), and it is not in DEFAULT_CATEGORIES either.
+              #
+              # ENH-009 P3 (042 FTASKS 13.7, TPD-5): the miServer categories under their new keys (the old
+              # `millm_*` keys are unknown since P7).
+              value: "read,groups,steering,labeling,experiments,profiles,circuits,jlens,jobs,models,probe_monitors,miserver_runtime,miserver_clusters,miserver_sensing,miserver_circuits,miserver_models,miserver_probes,miserver_inference,dataworks"
+            # Unified MCP (miLLM Feature 9): millm_* categories talk to the
+            # miServer (formerly miLLM) deployment; unset/empty URL skips them at
+            # registration. ENH-009 P2 (042 FTASKS 11.3): the new name and address
+            # (pinned by tests/unit/test_p2_consumer_address.py).
+            - name: MISERVER_API_URL
+              value: "http://miserver-backend.miserver.svc.cluster.local:8000"
+            # Feature 034 (FR-6, FR-8): the miDataworks proxy (`dataworks_*`). NOT
+            # DATAWORKS_API_URL — that is miDataworks' own MCP server's variable.
+            - name: MIDATAWORKS_API_URL
+              value: "http://midataworks-backend.midataworks.svc.cluster.local:8000"
+            # MCP gap G9 (2026-10-21): read ONLY by gpu_preflight, which lists miForge's
+            # pending/running runs. Unset = "not configured", never an error.
+            - name: MIFORGE_API_URL
+              value: "http://miforge-backend.miforge.svc.cluster.local:8000"
+            - name: MCP_STEERING_APPROVAL
+              value: "false"
+            # ENH-008: MCP_MILLM_LOAD_APPROVAL is gone. An agent's miLLM model load
+            # waits for the operator in miLLM's own Approvals page, unconditionally.
+            # 2026-10-19: an agent's probe training run or probe evaluation holds a
+            # GPU for minutes to hours, so it waits for operator approval too.
+            # FAILS CLOSED: "true" here and in code. Pinned by
+            # test_reachability.py::TestTheDEPLOYMENTEnablesWhatTheCodeRegisters.
+            - name: MCP_PROBE_GPU_APPROVAL
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miworkbench-mcp
+  namespace: miworkbench
+spec:
+  type: ClusterIP
+  selector:
+    app: miworkbench-mcp
+  ports:
+    - port: 8765
+---
+# MCP ingress. The dedicated host mcp-workbench.hitsai.local resolves on the LAN
+# (hosts file / local DNS); mcp-workbench.hitsai.net is the public name (tunnel).
+# Bearer auth applies either way.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: miworkbench-mcp-ingress
+  namespace: miworkbench
+  annotations:
+    # MCP streamable HTTP: long-lived responses + SSE streams
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # = MCP_MAX_REQUEST_BODY_BYTES (src/mcp_server/server.py), so the server, not the edge,
+    # answers an oversized call. It read "10m" while miserver_upload_batch_file admits 16 MiB.
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+spec:
+  ingressClassName: public
+  rules:
+    # ENH-009 P3 (042 FTASKS 13.7): the new hosts. The old ones (mcp-mistudio.*, mcp-studio.*,
+    # k8s-mcp-studio.hitsai.local and the /mcp path on k8s-mistudio.hitsai.local) were rules here until P7,
+    # which removed them on evidence (FTASKS 18.8). mcp-workbench.hitsai.net is the public name (tunnel).
+    - host: k8s-miworkbench.hitsai.local
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: miworkbench-mcp
+                port:
+                  number: 8765
+    - host: mcp-workbench.hitsai.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: miworkbench-mcp
+                port:
+                  number: 8765
+    - host: mcp-workbench.hitsai.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: miworkbench-mcp
+                port:
+                  number: 8765

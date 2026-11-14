@@ -1,0 +1,19 @@
+{
+  "approvable": [
+    "code_rule_approve",
+    "evaluate_probe_monitor",
+    "recalibrate_probe_monitor",
+    "start_probe_judge_run",
+    "start_probe_spot_check",
+    "start_probe_training_run",
+    "steer_combined",
+    "steer_compare",
+    "steer_sweep"
+  ],
+  "history": [
+    "millm_import_rule_set",
+    "millm_load_model",
+    "millm_measure_probe_capacity",
+    "millm_request_probe_limits"
+  ]
+}

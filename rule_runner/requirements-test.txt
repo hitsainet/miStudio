@@ -1,0 +1,4 @@
+# The rule-runner-tests CI job only (never the image): the real runner over HTTP, the cases schema.
+httpx==0.28.1
+jsonschema==4.26.0
+pytest==9.1.1

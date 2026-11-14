@@ -1,0 +1,74 @@
+name: Frontend CI
+
+# NO PATH FILTER (042 P0; the sibling P0 reviews' finding). This workflow is REQUIRED by sync-to-clean's
+# gate, whose fallback passes a commit with no run when a path filter skipped it. With a filter here, a
+# docs-, k8s-, workflow- or manual-only push skipped every guard that reads those files (the Vitest frozen
+# storage keys and the export reader read ../docs and ../manual) and still reached the mirror. Every push and pull request
+# runs it; tests/unit/test_required_workflows_run_on_every_push.py keeps it so. The jobs carry a private-repo
+# gate instead, so the mirror (whose image build trusts this repository's CI and whose own runs stopped when
+# the orphan snapshot defeated the old filter, last run 2026-08-23) keeps running no suite.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: (github.repository == 'Onegaishimas/miWorkbench')
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type check
+        working-directory: frontend
+        run: npm run type-check
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      # LINT IS A GATE (MIS-E2E-024).
+      #
+      # ESLint was configured and never run in CI, so 34 errors accumulated
+      # unseen — including TWO `react-hooks/rules-of-hooks` violations in
+      # `ReadoutGrid`, where an early return sat above two `useMemo` calls.
+      # That is a crash ("rendered fewer hooks than expected"), and nothing
+      # would ever have reported it.
+      #
+      # Errors block; the 492 remaining warnings (mostly `no-explicit-any`) do
+      # not, so this can be turned on today rather than after a large cleanup.
+      # `--max-warnings` is deliberately NOT set to 0: a gate nobody can pass
+      # gets removed, and a gate that blocks on real errors is worth more than
+      # one that blocks on everything and is disabled a week later.
+      - name: Lint
+        working-directory: frontend
+        run: npx eslint .
+
+      # NO EXCLUDES (MIS-E2E-025).
+      #
+      # Nine test files were excluded here under a comment claiming
+      # "pre-existing failures where components were refactored but tests
+      # weren't updated". All nine pass — 329 tests, 27% of the suite, gated by
+      # nothing. Whatever was once broken had been fixed, and the exclusion
+      # outlived it silently.
+      - name: Test
+        working-directory: frontend
+        run: npm test -- --run

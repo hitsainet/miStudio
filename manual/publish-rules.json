@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "What the public manual and this repository's public legacy-identifiers export may not contain, in ONE place.",
+    "Read by manual/scripts/check_operator_strings.py (the manual's sources through",
+    "backend/tests/unit/test_manual_has_no_operator_strings.py, and the BUILT site in deploy-manual.yml) and by",
+    "the suite census when it writes docs/legacy-identifiers.public.md. Each rule: `name` (what a finding reports),",
+    "`pattern` (a Python regular expression), `flags` (`i` = ignore case; the only flags read are i, m and s)."
+  ],
+  "forbidden": [
+    {"id": "private-address-192-168", "name": "private address 192.168.x", "pattern": "\\b192\\.168\\.", "flags": "i",
+     "why": "The reference deployment's private network. Use <ingress-ip>."},
+    {"id": "private-address-10-152", "name": "private address 10.152.x", "pattern": "\\b10\\.152\\.", "flags": "i",
+     "why": "The cluster's pod and service network."},
+    {"id": "operator-host-local", "name": "operator host *.hitsai.local", "pattern": "\\bhitsai\\.local\\b", "flags": "i",
+     "why": "A LAN host name of the reference deployment. Use miworkbench.example.local or <your-host>."},
+    {"id": "operator-host-net", "name": "operator host *.hitsai.net",
+     "pattern": "(?<![a-z0-9.-])(?!(?:mcp-workbench|mcp-dataworks|mcp-forge|docs-miworkbench)\\.hitsai\\.net(?!\\.?[a-z0-9-]))[a-z0-9.-]+\\.hitsai\\.net\\b",
+     "flags": "i",
+     "why": "A deployment host. The three public MCP endpoints are published in the setup guide, and the manual names its own custom domain (042 FR-042.2: docs-miworkbench, the WHOLE host and nothing wider; mcp-workbench joined at P4, FR-042.32; the old mcp-studio left at P7, FTASKS 18.8). An allowed host must END there: a bare word boundary admitted docs-miworkbench.hitsai.net.local and mcp-studio.hitsai.net.attacker.example (review rev-mistudio-p0 F4); a single sentence-ending period is still allowed."},
+    {"id": "node-name", "name": "operator machine name", "pattern": "\\bmcs-lnx[a-z0-9-]*", "flags": "i",
+     "why": "An internal machine name."},
+    {"id": "private-org", "name": "private repository owner", "pattern": "\\bonegaishimas\\b", "flags": "i",
+     "why": "The private source organisation; the public mirror is hitsainet."},
+    {"id": "hf-token", "name": "Hugging Face token", "pattern": "\\bhf_[A-Za-z0-9]{30,}", "flags": "i",
+     "why": "A Hugging Face token."},
+    {"id": "openai-key", "name": "OpenAI-style key", "pattern": "\\bsk-[A-Za-z0-9_-]{20,}", "flags": "i",
+     "why": "An API key."},
+    {"id": "github-token", "name": "GitHub token", "pattern": "\\b(?:ghp|gho|ghs|ghu|github_pat)_[A-Za-z0-9_]{20,}", "flags": "i",
+     "why": "A GitHub token."},
+    {"id": "aws-key", "name": "AWS access key", "pattern": "\\bAKIA[0-9A-Z]{16}\\b", "flags": "i",
+     "why": "An AWS access key id."},
+    {"id": "jwt", "name": "JSON Web Token", "pattern": "\\beyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}", "flags": "i",
+     "why": "A signed token."},
+    {"id": "bearer", "name": "literal bearer token", "pattern": "Bearer\\s+(?![$<{])[A-Za-z0-9._~+/-]{24,}", "flags": "i",
+     "why": "A literal bearer value, not a placeholder ($VAR, <token>, ${...})."}
+  ]
+}

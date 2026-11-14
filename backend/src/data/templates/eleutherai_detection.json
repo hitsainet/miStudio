@@ -1,0 +1,20 @@
+{
+  "name": "EleutherAI Detection - Explanation Scoring",
+  "description": "Scoring template for evaluating feature explanations. Given an explanation, scores whether it is present (1) or absent (0) in test examples. Used for automated explanation quality assessment.",
+  "system_message": "You evaluate whether text examples contain a specific sparse autoencoder feature.\nYou are given a feature explanation and a list of text examples.\n\nFor each example, you must decide whether the feature is present (1) or absent (0) based ONLY on the explanation.\n\nReturn ONLY a JSON array of 0s and 1s, one per example, in order.\nExample output: [0, 1, 1, 0, 0]",
+  "user_prompt_template": "Feature explanation:\n{feature_explanation}\n\nDecide for each example whether it contains this feature.\n\nExamples:\n{examples_block}\n\nReturn ONLY a JSON array of 0s and 1s in this form:\n[0, 1, 1, 0, ...]",
+  "temperature": 0.0,
+  "max_tokens": 64,
+  "top_p": 1.0,
+  "template_type": "eleutherai_detection",
+  "max_examples": 20,
+  "include_prefix": false,
+  "include_suffix": false,
+  "prime_token_marker": "",
+  "include_logit_effects": false,
+  "top_promoted_tokens_count": null,
+  "top_suppressed_tokens_count": null,
+  "is_detection_template": true,
+  "is_default": false,
+  "is_system": true
+}

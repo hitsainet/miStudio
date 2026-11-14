@@ -1,0 +1,31 @@
+# miWorkbench Target
+#
+# This target groups all miWorkbench services together for easy management.
+# You can start/stop all services with a single command:
+#
+#   sudo systemctl start miworkbench.target
+#   sudo systemctl stop miworkbench.target
+#   sudo systemctl status miworkbench.target
+#
+# Installation:
+#   sudo cp backend/systemd/miworkbench.target /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable miworkbench.target
+#
+# The target pulls in all miWorkbench services:
+#   - miworkbench-celery-worker.service
+#   - miworkbench-celery-beat.service
+#   - miworkbench-backend.service
+#
+# Note: Docker services (Redis, PostgreSQL) are managed separately via Docker Compose
+
+[Unit]
+Description=miWorkbench Application Services
+Documentation=https://github.com/hitsainet/miWorkbench
+After=network.target docker.service
+
+# These services will be started when this target is activated
+Wants=miworkbench-celery-worker.service miworkbench-celery-beat.service miworkbench-backend.service
+
+[Install]
+WantedBy=multi-user.target

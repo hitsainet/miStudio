@@ -1,0 +1,142 @@
+# ArgoCD GitOps definition for miWorkbench (was miStudio's `mistudio` app; ENH-009 P3, 042 FTASKS 13.10).
+#
+# Applied by hand IN THE P3 WINDOW (S001 runbook 3.36, automation off for the first sync); the old
+# Application `mistudio` is deleted with --cascade=false before (3.30). ArgoCD manages the workloads after.
+# The AppProject admitted namespace `mistudio` for the ExternalName alone until P7 (FTASKS 18.9 removed both).
+#
+# Flow (mirrors miLLM and the WASAT services):
+#   push to Onegaishimas/miWorkbench main
+#     → sync-main-to-gitops-pilot.yml merges main → gitops/pilot
+#     → sync-to-clean.yml mirrors main → hitsainet/miWorkbench
+#     → docker-images.yml (hitsainet) builds ONLY the changed images
+#     → ArgoCD Image Updater sees the new :latest digest on Docker Hub,
+#       commits a pin to gitops/pilot (.argocd-source-miworkbench.yaml)
+#     → ArgoCD syncs k8s/base from gitops/pilot and rolls the deployment
+#
+# One-time prerequisites (not in git):
+#   1. miworkbench-secrets Secret in the miworkbench namespace — copied BY HAND
+#      from mistudio/mistudio-secrets in the P3 window (S001 Q10, runbook 3.37).
+#   2. Repo credential Secret in the argocd namespace for
+#      https://github.com/Onegaishimas/miWorkbench.git with a PAT that has
+#      contents:write (Image Updater pushes pins through it), labeled
+#      argocd.argoproj.io/secret-type: repository. Name it mistudio-repo-creds.
+#      ⚠ DOES NOT EXIST YET — must be created manually before first sync
+#        (unlike millm-repo-creds, which already exists).
+#      ENH-009 P1: repoURL is https://github.com/Onegaishimas/miWorkbench.git; its
+#      credential is the twin `miworkbench-repo-creds` (S001 runbook 1.21), made
+#      in the cluster BEFORE this file is re-applied.
+#   3. gitops/pilot branch created from main.
+#      ⚠ DOES NOT EXIST YET — must be created before Image Updater can pin.
+#
+# Shared argocd-namespace secrets that ALREADY EXIST (do NOT recreate):
+#   - dockerhub-creds  (Docker Hub registry auth for Image Updater)
+#   - regcred          (image pull secret referenced below)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: miworkbench
+  namespace: argocd
+spec:
+  description: miWorkbench — mechanistic interpretability studio (SAE training, feature discovery, steering)
+  sourceRepos:
+    # ENH-009 P4 (042 FR-042.39): the new URL only. P1 admitted the old URL beside it while repoURL
+    # moved; every Application has read the new URL since P1 closed, and S001's P5 gate allows no
+    # line naming the old private repository (that name passes to the suite's repository at P5).
+    - https://github.com/Onegaishimas/miWorkbench.git
+  destinations:
+    - namespace: miworkbench
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    # Namespace object is part of k8s/base.
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: miworkbench
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: miworkbench
+  annotations:
+    # ── ArgoCD Image Updater ────────────────────────────────────────────
+    # Track :latest by digest (same strategy as miLLM and the WASAT apps):
+    # every new push of hitsai/miworkbench-*:latest to Docker Hub gets pinned by
+    # digest and committed to gitops/pilot, which ArgoCD then syncs.
+    #
+    # Feature 040 S4 (Review R2): the operator-code runner is tracked too. Without it the runner Deployment keeps
+    # whatever `:latest` it first pulled and never rolls (its spec never changes); a later backend that vendors a new
+    # runner contract then refuses that runner's bundle and every code rule reads pending. ⚠ This file is applied BY
+    # HAND (`kubectl apply -f k8s/argocd/miworkbench-app.yaml`): a change here reaches the cluster only when the
+    # operator re-applies it.
+    argocd-image-updater.argoproj.io/image-list: backend=docker.io/hitsai/miworkbench-backend:latest, frontend=docker.io/hitsai/miworkbench-frontend:latest, rulerunner=docker.io/hitsai/miworkbench-rule-runner:latest
+    argocd-image-updater.argoproj.io/backend.update-strategy: digest
+    argocd-image-updater.argoproj.io/backend.kustomize.image-name: hitsai/miworkbench-backend
+    argocd-image-updater.argoproj.io/frontend.update-strategy: digest
+    argocd-image-updater.argoproj.io/frontend.kustomize.image-name: hitsai/miworkbench-frontend
+    argocd-image-updater.argoproj.io/rulerunner.update-strategy: digest
+    argocd-image-updater.argoproj.io/rulerunner.kustomize.image-name: hitsai/miworkbench-rule-runner
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: gitops/pilot
+    # Default write-back target: parameter-override file
+    # k8s/base/.argocd-source-miworkbench.yaml (kept off main; the
+    # sync-main-to-gitops-pilot workflow preserves it during merges).
+spec:
+  project: miworkbench
+  source:
+    repoURL: https://github.com/Onegaishimas/miWorkbench.git
+    targetRevision: gitops/pilot
+    path: k8s/base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: miworkbench
+  revisionHistoryLimit: 10
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # prune intentionally NOT enabled yet — enable after a burn-in period
+      # once adoption of the pre-existing resources is proven stable.
+    syncOptions:
+      - ServerSideApply=true
+      # NOTE: the first-ever sync (2026-07-15) additionally needed Replace=true
+      # to transition the pre-existing pods' secret-backed env from literal
+      # `value:` to `valueFrom: secretKeyRef` (mistudio-secrets) — an SSA merge
+      # can't clear the old `value:`. That was a one-time step and has been
+      # removed; steady-state uses plain ServerSideApply. If you ever re-adopt
+      # resources that carry conflicting literal fields, re-add Replace=true for
+      # a single sync, then remove it again.
+  ignoreDifferences:
+    # Tolerate kubectl rollout restart / set env during incident response
+    # without a self-heal fight over the restartedAt annotation.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+---
+# This cluster runs the CRD-based Image Updater: applications are reconciled
+# only when selected by an ImageUpdater resource (see millm-images and
+# wasat-pilot-images). useAnnotations pulls the per-image configuration from
+# the Application annotations above.
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: miworkbench-images
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: miworkbench
+      useAnnotations: true
+  commonUpdateSettings:
+    forceUpdate: false
+    pullSecret: pullsecret:argocd/regcred
+    updateStrategy: digest
+  writeBackConfig:
+    method: git
+    gitConfig:
+      branch: gitops/pilot
+      # No writeBackTarget: the default parameter-override file
+      # (k8s/base/.argocd-source-miworkbench.yaml) is used for this Kustomize app.

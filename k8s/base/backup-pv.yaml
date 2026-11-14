@@ -1,0 +1,38 @@
+# ENH-009 P3 (042 FTASKS 13.5, FR-042.22; FTDD §11.3; TI-17): miWorkbench's own backup folder on the hdd2 disk.
+#
+# Until P3 the claim `mistudio-db-backups` bound `mcs-lnxhost02-hdd2`, a PV at the SHARED parent /mnt/hdd2/pv,
+# and the job wrote into its `mistudio/` subfolder. Now this app's dumps live in /mnt/hdd2/pv/miworkbench (S001
+# moves the existing dumps there in the window) and the job writes at the mount root (`BACKUP_DIR=/backups`,
+# db-backup.yaml). The old PV is left to S001 (it is not in this repository).
+#
+# `type: Directory`: a missing folder refuses to mount instead of creating an empty one, so a skipped move shows
+# as FailedMount, not as a backup job writing to a fresh folder nobody restores from (S001 rehearsal 2.08).
+# Node affinity and class read READ-ONLY from the live PV `mcs-lnxhost02-hdd2` (2026-11-10): hostname
+# mcs-lnxhost02, `local-hdd`, Retain. Capacity as the old claim requested; it is not enforced for a host folder.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: miworkbench-db-backups-pv
+  labels:
+    storage.mcs/class: local-hdd
+    storage.mcs/disk: ST31000524AS-5VP85BTT
+spec:
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 900Gi
+  hostPath:
+    path: /mnt/hdd2/pv/miworkbench
+    type: Directory
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - mcs-lnxhost02
+  # Retain: deleting the claim never deletes the backups.
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-hdd
+  volumeMode: Filesystem

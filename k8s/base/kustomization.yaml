@@ -1,0 +1,37 @@
+# miWorkbench GitOps base — deployed by the `miworkbench` ArgoCD Application (ENH-009 P3; was `mistudio`)
+# from the gitops/pilot branch.
+#
+# Image tags below are the *defaults*; ArgoCD Image Updater overrides them
+# with digest pins via the parameter-override file `.argocd-source-miworkbench.yaml`
+# it commits to gitops/pilot. Never hand-edit that file on main.
+#
+# The hitsai/miworkbench-backend entry rewrites ALL four occurrences of that image:
+# the three containers in miworkbench-backend (api/celery-worker/celery-beat) plus
+# the miworkbench-mcp deployment. So Image Updater only pins two entries and every
+# backend ref moves together.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - redis.yaml
+  - backend.yaml
+  - mcp.yaml
+  - frontend.yaml
+  - ingress.yaml
+  - db-backup.yaml
+  # Feature 040 S4: operator code rules' isolated runner (its own Deployment, Service and NetworkPolicy).
+  - rule-runner.yaml
+  # ENH-009 P3 (042 FTASKS 13.5): this app's own backup folder on the hdd2 disk (was the shared parent PV).
+  - backup-pv.yaml
+  # (ENH-009 P3 → P7, PD-12: transition.yaml, the old in-cluster address as an ExternalName in the OLD namespace,
+  # was removed at P7 on evidence, FTASKS 18.9. The live object and namespace are deleted by hand: no prune.)
+
+images:
+  - name: hitsai/miworkbench-backend
+    newTag: latest
+  - name: hitsai/miworkbench-frontend
+    newTag: latest
+  - name: hitsai/miworkbench-rule-runner
+    newTag: latest

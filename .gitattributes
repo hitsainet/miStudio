@@ -1,0 +1,11 @@
+# Exclude large documentation files from automatic Claude Code context loading
+# These should only be loaded on-demand when explicitly needed
+
+# Large specification files (>40k chars)
+0xcc/prds/000_PPRD|miStudio.md linguist-documentation
+0xcc/project-specs/reference-implementation/Mock-embedded-interp-ui.tsx linguist-documentation
+0xcc/project-specs/core/miStudio_Specification.md linguist-documentation
+0xcc/adrs/000_PADR|miStudio.md linguist-documentation
+
+# Keep instruction files loadable (they're small and useful)
+0xcc/instruct/*.md -linguist-documentation
